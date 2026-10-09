@@ -51,6 +51,18 @@ class PrivacyControls(unittest.TestCase):
         self.git('add', '-f', 'docs/design.md')
         self.assertEqual(self.guard().returncode, 1)
 
+    def test_curated_root_docs_allowed_but_archive_blocked(self):
+        for name in ('AGENTS.md', 'HANDOFF.md', 'FACTS.md'):
+            (self.repo / name).write_text('Curated project guidance\n')
+        self.git('add', 'AGENTS.md', 'HANDOFF.md', 'FACTS.md')
+        self.assertEqual(self.guard().returncode, 0)
+
+        archive = self.repo / 'archive'
+        archive.mkdir()
+        (archive / 'conversation.md').write_text('Private process record\n')
+        self.git('add', '-f', 'archive/conversation.md')
+        self.assertEqual(self.guard().returncode, 1)
+
     def test_values_not_printed(self):
         samples = ['sk-'+'x'*32, 'tvly-'+'x'*32, '.'.join(['10', '27', '5', '19']), 'C'+':/Users/example/project']
         for value in samples:
@@ -92,10 +104,14 @@ class PrivacyControls(unittest.TestCase):
         for hook in (self.repo / '.githooks').iterdir():
             hook.chmod(0o755)
         self.git('config', 'core.hooksPath', '.githooks')
-        (self.repo / 'AGENTS.md').write_text('Local instructions')
+        (self.repo / 'AGENTS.md').write_text('Curated project rules')
         self.git('add', '.')
-        self.assertNotEqual(self.git('commit', '-qm', 'Blocked document', check=False).returncode, 0)
-        self.git('-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Bypassed commit hook fixture')
+        self.assertEqual(self.git('commit', '-qm', 'Add curated instructions', check=False).returncode, 0)
+        (self.repo / 'archive').mkdir()
+        (self.repo / 'archive/conversation.md').write_text('Private process record')
+        self.git('add', '-f', 'archive/conversation.md')
+        self.assertNotEqual(self.git('commit', '-qm', 'Blocked archive', check=False).returncode, 0)
+        self.git('-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Bypassed private archive fixture')
         target = self.repo / 'target.git'
         self.git('init', '--bare', '-q', str(target))
         self.assertNotEqual(self.git('push', str(target), 'main', check=False).returncode, 0)

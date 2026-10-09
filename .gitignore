@@ -1,7 +1,10 @@
 # Credentials and local state
-# All development documents remain private; only the project landing page is published.
+# Only the curated root guidance and project landing page are published.
 *.md
 !/README.md
+!/AGENTS.md
+!/HANDOFF.md
+!/FACTS.md
 !eval/
 !eval/README.md
 !data/
