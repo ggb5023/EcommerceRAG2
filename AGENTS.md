@@ -17,11 +17,19 @@
 - `.local/dev-docs/docs/README.md`：私有详细参考文档索引。
 - `.local/dev-docs/docs/项目概览与架构.md`：架构职责和设计依据。
 - `.local/dev-docs/docs/重构工程实施方案.md`：重构阶段和验收边界。
-- `.local/dev-docs/docs/验证与验收.md`：按范围记录的验收证据；不替代当前代码和运行核对。
+- `.local/dev-docs/docs/验证与验收.md`：当前验收门槛和历史归档入口；不替代当前代码和运行核对。
 - `proto/rag/v1/rag.proto`：Go/Python RPC 契约。
 - `sql/migrations/`：数据库结构变更和迁移校验。
 - `go/`、`python/`、`web/`、`admin-web/`：服务和前端代码。
 - `scripts/check.sh`：工程检查入口；检查结果只覆盖脚本实际运行的项目。
+
+## 文档精简决策
+
+- 活动文档只保留设计、契约、运行边界和当前验收门槛；窗口状态只在 `HANDOFF.md`，长期结论只在 `FACTS.md`。
+- `验证与验收.md` 只保留当前索引；逐日命令、旧状态和迁移记录放 `.local/dev-docs/archive/acceptance-history/`。
+- `原型数据适配与来源边界.md` 的独有内容已并入 `数据来源与评测输入.md`；旧入口、状态矩阵和 Codex 计划只在 archive 留存。
+- 前端总设计、客服交互、管理员控制台和 HITL 暂不合并：它们分别维护应用边界、客服页面、管理权限和人工介入规则。
+- Markdown/CSV 处理、自研爬虫、模型服务、运维、数据模型和摄取文档均有独立契约或责任边界，暂不因篇幅归档。
 
 ## 开发注意事项
 

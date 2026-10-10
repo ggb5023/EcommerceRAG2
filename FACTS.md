@@ -23,4 +23,7 @@
 ## 文档职责
 
 - `AGENTS.md` 保存总规则；`HANDOFF.md` 用于窗口交接；本文件保存稳定结论。
-- 详细工程资料位于 `.local/dev-docs/docs/`。对话和过程记录位于 `.local/dev-docs/archive/`，日常工作不读取。
+- 详细工程资料位于 `.local/dev-docs/docs/`。验收当前门槛在 `验证与验收.md`，历史全文位于 `.local/dev-docs/archive/acceptance-history/`。
+- 来源、合成资料和评测适配边界统一维护在 `数据来源与评测输入.md`；不再创建独立的原型来源边界副本。
+- 前端总设计、客服交互、管理员控制台和 HITL 保持独立专题，因为它们分别维护应用边界、页面流程、管理权限和人工介入规则。
+- 对话和过程记录位于 `.local/dev-docs/archive/`，日常工作不读取；历史快照保持不变。
