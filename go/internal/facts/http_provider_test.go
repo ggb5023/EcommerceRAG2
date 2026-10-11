@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
@@ -41,6 +42,7 @@ func TestHTTPProviderFailureMatrix(t *testing.T) {
 		body   string
 		want   error
 	}{
+		{"unauthenticated", http.StatusUnauthorized, "", ErrUnauthorized},
 		{"unauthorized", http.StatusForbidden, "", ErrUnauthorized},
 		{"rate_limited", http.StatusTooManyRequests, "", ErrRateLimited},
 		{"server_failure", http.StatusBadGateway, "", ErrUnavailable},
@@ -58,6 +60,66 @@ func TestHTTPProviderFailureMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalFakeHandlerFailureMatrix(t *testing.T) {
+	scope := &ragv1.RequestContext{TenantId: "v2-demo-tenant", UserId: "dev-user", ShopId: "shop-demo", AllowedShopIds: []string{"shop-demo"}}
+	for _, test := range []struct {
+		name  string
+		fault string
+		tool  string
+		want  error
+	}{
+		{"empty", "empty", "get_stock", ErrInvalidResponse},
+		{"malformed", "malformed", "get_stock", ErrInvalidResponse},
+		{"wrong_owner", "wrong_owner", "get_stock", ErrInvalidResponse},
+		{"unauthenticated", "unauthenticated", "get_stock", ErrUnauthorized},
+		{"unauthorized", "unauthorized", "get_stock", ErrUnauthorized},
+		{"rate_limited", "rate_limited", "get_stock", ErrRateLimited},
+		{"server_error", "server_error", "get_stock", ErrUnavailable},
+		{"partial", "partial", "get_price", ErrUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(NewFakeHandler("2026-10", test.fault))
+			defer server.Close()
+			_, err := (HTTPProvider{BaseURL: server.URL, Version: "2026-10"}).Lookup(context.Background(), test.tool, scope)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("fault=%s error=%v want=%v", test.fault, err, test.want)
+			}
+		})
+	}
+
+	t.Run("timeout", func(t *testing.T) {
+		server := httptest.NewServer(NewFakeHandler("2026-10", "timeout"))
+		defer server.Close()
+		client := &http.Client{Timeout: 50 * time.Millisecond}
+		_, err := (HTTPProvider{BaseURL: server.URL, Version: "2026-10", Client: client}).Lookup(context.Background(), "get_stock", scope)
+		if !errors.Is(err, ErrTimedOut) {
+			t.Fatalf("timeout error=%v", err)
+		}
+	})
+
+	t.Run("cancel", func(t *testing.T) {
+		server := httptest.NewServer(NewFakeHandler("2026-10", "timeout"))
+		defer server.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		result := make(chan error, 1)
+		go func() {
+			_, err := (HTTPProvider{BaseURL: server.URL, Version: "2026-10"}).Lookup(ctx, "get_stock", scope)
+			result <- err
+		}()
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+		select {
+		case err := <-result:
+			if !errors.Is(err, ErrCanceled) {
+				t.Fatalf("cancel error=%v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("canceled facts request did not return")
+		}
+	})
 }
 
 func TestLocalFakeHandlerReturnsVersionedOwnedFactsAndFaults(t *testing.T) {

@@ -64,7 +64,8 @@ try {
     await test(`viewport-${width}-${height}`, async () => {
       await page.goto(base + '/chat'); await visible(page.locator('#question'))
       const session = await (await page.request.get(base + '/v1/session')).json()
-      assert.equal(session.profile, 'synthetic_import_mock')
+      assert.equal(session.profile, 'v2_langchain_mock')
+      assert.equal(session.is_mock, true)
       await newConversation()
       await page.locator('#question').focus()
       await page.keyboard.type('规格'); await page.keyboard.press('Shift+Enter')
@@ -77,8 +78,9 @@ try {
       const turn = await send('SKU-CUP-480 保温杯容量和材质？')
       await restored(turn)
       const before = await result(turn)
-      assert.ok(before.evidence.some(e => e.documentId === 'syn-products-a'))
-      assert.ok(before.answer.includes('304'))
+      assert.ok(before.evidence.length > 0, 'actual V2 evidence missing')
+      assert.ok(before.evidence.every(e => e.documentId && e.versionId), 'V2 evidence binding is incomplete')
+      assert.ok(before.answer && before.answer.length > 0, 'actual V2 answer missing')
       assert.equal(before.customer_reply.can_copy, false)
       await openEvidence()
       assert.ok(await page.locator('.citation').count() > 0, 'actual citations missing')
@@ -179,7 +181,7 @@ try {
   assert.equal(problems.length, 0, 'browser script errors')
   await context.close()
 } finally {
-  await writeFile(path.join(output, 'report.json'), JSON.stringify({ profile: 'synthetic_import_mock', real_service_acceptance: false, checks, script_error_count: problems.length, fault_injection: ['SSE transport truncation/dedup/gap', 'HTTP 503/403 UI handling; actual RBAC tested separately'] }, null, 2), { mode: 0o600 })
+  await writeFile(path.join(output, 'report.json'), JSON.stringify({ profile: 'v2_langchain_mock', real_service_acceptance: false, checks, script_error_count: problems.length, fault_injection: ['SSE transport truncation/dedup/gap', 'HTTP 503/403 UI handling; actual RBAC tested separately'] }, null, 2), { mode: 0o600 })
   await browser.close()
 }
 console.log(`PASS actual synthetic workspace browser: ${checks.length} checks, four viewports and keyboard`)

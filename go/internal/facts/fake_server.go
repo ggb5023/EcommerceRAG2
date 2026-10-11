@@ -30,6 +30,9 @@ func NewFakeHandler(version, fault string) http.Handler {
 			return
 		}
 		switch strings.TrimSpace(fault) {
+		case "unauthenticated":
+			w.WriteHeader(http.StatusUnauthorized)
+			return
 		case "unauthorized":
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -40,7 +43,13 @@ func NewFakeHandler(version, fault string) http.Handler {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		case "timeout":
-			time.Sleep(4 * time.Second)
+			timer := time.NewTimer(4 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-timer.C:
+			}
 			return
 		case "malformed":
 			w.Header().Set("Content-Type", "application/json")
