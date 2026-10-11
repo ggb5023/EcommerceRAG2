@@ -91,6 +91,21 @@ for row in \
   IFS='|' read -r fault tool expected <<<"$row"
   start_fake "$fault"
   request_status "$tool" "$expected"
+  if [[ "$expected" == 200 ]]; then
+    python3 - "$fault" "$tmp/body" <<'PY'
+import json
+import sys
+
+fault, path = sys.argv[1:]
+payload = json.load(open(path))
+if fault == "empty":
+    assert payload["value_json"] is None
+elif fault == "malformed":
+    assert payload.get("version") == "wrong"
+elif fault == "wrong_owner":
+    assert payload.get("shop_id") == "other-shop"
+PY
+  fi
   stop_fake
 done
 
