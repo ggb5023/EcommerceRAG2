@@ -95,7 +95,9 @@ class CommandStore:
             row = cursor.fetchone()
             if row is None:
                 return None
-            if row["shop_id"] != scope.shop_id or row["actor_user_id"] != scope.user_db_id:
+            if (row["shop_id"] != scope.shop_id or row["actor_user_id"] != scope.user_db_id
+                    or scope.command_id != command_id or scope.command_action != row["action"]
+                    or scope.command_payload_sha256 != row["payload_sha256"]):
                 raise IngestAuthorizationError("command result is outside the scope")
             self._identity(cursor, scope, row["action"])
             return rag_pb2.IngestCommandResult(**row["result_json"], idempotent=True)

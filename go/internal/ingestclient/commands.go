@@ -52,7 +52,7 @@ func Payload(request *ragv1.ExecuteCommandRequest) ([]byte, string) {
 }
 
 func (c Client) Execute(ctx context.Context, actor Actor, request *ragv1.ExecuteCommandRequest) (Outcome, error) {
-	if c.DB == nil || c.RPC == nil || c.Sign == nil || Action(request.Action) == "" || len(request.CommandId) > 200 {
+	if request == nil || c.DB == nil || c.RPC == nil || c.Sign == nil || Action(request.Action) == "" || len(request.CommandId) > 200 {
 		return Outcome{}, status.Error(codes.InvalidArgument, "invalid_command")
 	}
 	if request.CommandId == "" {
@@ -86,8 +86,7 @@ func (c Client) Execute(ctx context.Context, actor Actor, request *ragv1.Execute
 		if err = tx.Commit(ctx); err != nil {
 			return out, err
 		}
-		// A repeated HTTP request queries the original outcome. It never
-		// repeats a mutation whose RPC response may have been lost.
+		// A repeated HTTP request reconciles the original immutable command.
 		return c.Poll(ctx, actor, request.CommandId)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
@@ -98,35 +97,19 @@ func (c Client) Execute(ctx context.Context, actor Actor, request *ragv1.Execute
 	if err = tx.Commit(ctx); err != nil {
 		return out, err
 	}
-	scope, err := c.Sign(ctx, actor.Shop, request.CommandId, action, hash)
-	if err != nil {
-		return out, err
-	}
-	request.Context = scope
-	rpcCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	response, rpcErr := c.RPC.ExecuteCommand(rpcCtx, request)
-	cancel()
-	if rpcErr == nil {
-		return c.record(ctx, actor, response.GetResult())
-	}
-	// Detached bounded reconciliation survives a disconnected browser. The
-	// ledger remains pending if receipt lookup is unavailable/not yet visible.
-	reconcile, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer stop()
-	result, err := c.Poll(reconcile, actor, request.CommandId)
-	if err == nil && result.State != "pending" {
-		return result, nil
-	}
-	return out, nil
+	return c.Poll(ctx, actor, request.CommandId)
 }
 
 func (c Client) Poll(ctx context.Context, actor Actor, id string) (Outcome, error) {
 	out := Outcome{ID: id, State: "pending"}
-	var data, resultJSON []byte
+	if c.DB == nil || c.RPC == nil || c.Sign == nil || id == "" {
+		return out, status.Error(codes.InvalidArgument, "invalid_command")
+	}
+	var data []byte
 	var hash, action, shop string
 	var user int64
-	err := c.DB.QueryRow(ctx, `SELECT request_bytes,payload_sha256,action,shop_id,actor_user_id,status,result_json
-        FROM control_command WHERE tenant_id=$1 AND command_id=$2`, actor.Tenant, id).Scan(&data, &hash, &action, &shop, &user, &out.State, &resultJSON)
+	err := c.DB.QueryRow(ctx, `SELECT request_bytes,payload_sha256,action,shop_id,actor_user_id,status
+        FROM control_command WHERE tenant_id=$1 AND command_id=$2`, actor.Tenant, id).Scan(&data, &hash, &action, &shop, &user, &out.State)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, status.Error(codes.NotFound, "command_not_found")
 	}
@@ -136,25 +119,98 @@ func (c Client) Poll(ctx context.Context, actor Actor, id string) (Outcome, erro
 	if user != actor.User || shop != actor.Shop {
 		return out, status.Error(codes.PermissionDenied, "command_scope_denied")
 	}
-	scope, err := c.Sign(ctx, actor.Shop, id, action, hash)
+	request, err := storedRequest(data, id, action, hash)
 	if err != nil {
 		return out, err
 	}
-	// Always revalidate Python authority, even for locally cached outcomes.
-	response, err := c.RPC.GetCommandResult(ctx, &ragv1.GetCommandResultRequest{Context: scope, CommandId: id})
-	if status.Code(err) == codes.NotFound || status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded {
-		return out, nil
-	}
-	if err != nil {
+	result, err := c.reconcile(ctx, actor, request, hash, out.State == "pending")
+	if err != nil || result == nil {
 		return out, err
 	}
-	return c.record(ctx, actor, response.GetResult())
+	return c.record(ctx, actor, request, hash, result)
 }
 
-func (c Client) record(ctx context.Context, actor Actor, result *ragv1.IngestCommandResult) (Outcome, error) {
-	if result == nil || result.CommandId == "" {
-		return Outcome{}, status.Error(codes.Internal, "invalid_command_receipt")
+func uncertain(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unknown, codes.Internal:
+		return true
 	}
+	return false
+}
+
+func (c Client) reconcile(ctx context.Context, actor Actor, request *ragv1.ExecuteCommandRequest, hash string, pending bool) (*ragv1.IngestCommandResult, error) {
+	scope, err := c.Sign(ctx, actor.Shop, request.CommandId, Action(request.Action), hash)
+	if err != nil {
+		return nil, err
+	}
+	// Always revalidate Python authority, even for locally cached outcomes.
+	rpcCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	response, err := c.RPC.GetCommandResult(rpcCtx, &ragv1.GetCommandResultRequest{Context: scope, CommandId: request.CommandId})
+	if err == nil {
+		return response.GetResult(), validateReceipt(request, response.GetResult())
+	}
+	if uncertain(err) {
+		return nil, nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return nil, err
+	}
+	if !pending {
+		return nil, status.Error(codes.Internal, "command_receipt_missing")
+	}
+	// A crash between the ledger commit and the first RPC dispatch leaves no
+	// receipt. Resend the stored bytes; Python deduplicates by command id.
+	scope, err = c.Sign(rpcCtx, actor.Shop, request.CommandId, Action(request.Action), hash)
+	if err != nil {
+		return nil, err
+	}
+	request.Context = scope
+	executed, rpcErr := c.RPC.ExecuteCommand(rpcCtx, request)
+	if rpcErr == nil {
+		return executed.GetResult(), validateReceipt(request, executed.GetResult())
+	}
+	if !uncertain(rpcErr) {
+		return nil, rpcErr
+	}
+	// Detached bounded receipt lookup survives a disconnected browser. It
+	// reauthorizes after publication may have changed the permission revision.
+	recovery, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer stop()
+	scope, err = c.Sign(recovery, actor.Shop, request.CommandId, Action(request.Action), hash)
+	if err != nil {
+		return nil, err
+	}
+	response, err = c.RPC.GetCommandResult(recovery, &ragv1.GetCommandResultRequest{Context: scope, CommandId: request.CommandId})
+	if status.Code(err) == codes.NotFound || uncertain(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return response.GetResult(), validateReceipt(request, response.GetResult())
+}
+
+func storedRequest(data []byte, id, action, hash string) (*ragv1.ExecuteCommandRequest, error) {
+	request := &ragv1.ExecuteCommandRequest{}
+	if err := proto.Unmarshal(data, request); err != nil || request.Context != nil || request.CommandId != id || Action(request.Action) != action {
+		return nil, status.Error(codes.Internal, "invalid_stored_command")
+	}
+	_, actual := Payload(request)
+	if actual != hash {
+		return nil, status.Error(codes.Internal, "invalid_stored_command")
+	}
+	return request, nil
+}
+
+func validateReceipt(request *ragv1.ExecuteCommandRequest, result *ragv1.IngestCommandResult) error {
+	if result == nil || result.CommandId != request.CommandId || result.ResourceId != request.ResourceId || result.Status == "" || (result.ErrorCode != "" && result.Status != "rejected") {
+		return status.Error(codes.Internal, "invalid_command_receipt")
+	}
+	return nil
+}
+
+func (c Client) record(ctx context.Context, actor Actor, request *ragv1.ExecuteCommandRequest, hash string, result *ragv1.IngestCommandResult) (Outcome, error) {
 	state, auditResult := "applied", "success"
 	if result.Status == "rejected" {
 		state, auditResult = "rejected", "conflict"
@@ -170,7 +226,7 @@ func (c Client) record(ctx context.Context, actor Actor, result *ragv1.IngestCom
 	}
 	defer tx.Rollback(ctx)
 	tag, err := tx.Exec(ctx, `UPDATE control_command SET status=$4,result_json=$5::jsonb,updated_at=now()
-        WHERE tenant_id=$1 AND command_id=$2 AND actor_user_id=$3 AND shop_id=$6 AND status='pending'`, actor.Tenant, result.CommandId, actor.User, state, data, actor.Shop)
+        WHERE tenant_id=$1 AND command_id=$2 AND actor_user_id=$3 AND shop_id=$6 AND payload_sha256=$7 AND resource_id=$8 AND action=$9 AND status='pending'`, actor.Tenant, request.CommandId, actor.User, state, data, actor.Shop, hash, request.ResourceId, Action(request.Action))
 	if err != nil {
 		return out, err
 	}

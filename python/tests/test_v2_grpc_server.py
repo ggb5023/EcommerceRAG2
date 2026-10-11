@@ -1,6 +1,5 @@
-from ipaddress import IPv4Address
-
 import os
+from ipaddress import IPv4Address
 
 from app.v2_grpc_server import build_server, validate_bind_address
 

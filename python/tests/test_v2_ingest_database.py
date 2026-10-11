@@ -122,7 +122,13 @@ def test_ingest_review_publish_replay_rollback_revoke(db):
     request.context.command_id, request.context.command_action, request.context.command_payload_sha256 = request.command_id, command_action(request.action), payload_digest(request)
     replay = db.commands.execute(request)
     assert replay.idempotent and replay.fencing_epoch == result.fencing_epoch
-    assert db.commands.get(db.scope(), request.command_id).status == "active"
+    assert db.commands.get(request.context, request.command_id).status == "active"
+    wrong_scope = db.scope()
+    wrong_scope.command_id = request.command_id
+    wrong_scope.command_action = request.context.command_action
+    wrong_scope.command_payload_sha256 = "0" * 64
+    with pytest.raises(IngestAuthorizationError):
+        db.commands.get(wrong_scope, request.command_id)
     request.reason = "Different payload with the same command identifier"
     request.context.command_payload_sha256 = payload_digest(request)
     with pytest.raises(IngestConflictError):
@@ -181,12 +187,36 @@ def test_cancel_publish_race_has_single_result(db):
     barrier = threading.Barrier(2)
     def command(action, resource, **kwargs):
         barrier.wait()
-        return db.execute(action, resource, **kwargs)[0]
+        key = uuid4().hex
+        try:
+            return db.execute(action, resource, key=key, **kwargs)[0]
+        except IngestAuthorizationError:
+            # Publication can bump the revision while the other command
+            # waits on the knowledge lock. Reauthorize the same command.
+            return db.execute(action, resource, key=key, **kwargs)[0]
     with ThreadPoolExecutor(2) as pool:
         publish = pool.submit(command, rag_pb2.INGEST_COMMAND_ACTION_PUBLISH, row[0], expected_hash=row[1], expected_fencing_epoch=row[2])
         cancel = pool.submit(command, rag_pb2.INGEST_COMMAND_ACTION_CANCEL, job.job_id, expected_fencing_epoch=1)
         published, cancelled = publish.result(), cancel.result()
     assert (published.status, cancelled.status) in {("active", "done"), ("rejected", "cancelled")}
+    with psycopg.connect(db.values["V2_AI_DSN"]) as conn:
+        active = conn.execute("SELECT active_version_id FROM document WHERE tenant_id=%s", (db.tenant,)).fetchone()[0]
+    assert (active == row[0]) == (published.status == "active")
+
+
+def test_publication_invalidates_stale_cancel_scope(db):
+    job, row = ingest(db)
+    stale = db.scope()
+    approve_publish(db, row)
+    request = rag_pb2.ExecuteCommandRequest(context=stale, command_id="cancel-after-publish", action=rag_pb2.INGEST_COMMAND_ACTION_CANCEL, resource_id=str(job.job_id), expected_fencing_epoch=1, reason="Cancel after publication in isolated acceptance")
+    request.context.command_id = request.command_id
+    request.context.command_action = command_action(request.action)
+    request.context.command_payload_sha256 = payload_digest(request)
+    with pytest.raises(IngestAuthorizationError):
+        db.commands.execute(request)
+    result, _ = db.execute(request.action, job.job_id, key=request.command_id, expected_fencing_epoch=1)
+    assert result.status == "done"
+    assert version(db, job.job_id)[3] == "active"
 
 
 def test_artifact_failure_rolls_back_and_retry_recovers(db, monkeypatch):
@@ -248,7 +278,7 @@ def test_corrupt_artifact_publication_is_rejected_durably(db):
     (db.objects.root / raw["object_key"]).write_bytes(b"tampered")
     result, request = db.execute(rag_pb2.INGEST_COMMAND_ACTION_PUBLISH, row[0], **args)
     assert result.status == "rejected"
-    assert db.commands.get(db.scope(), request.command_id).error_code == "precondition_failed"
+    assert db.commands.get(request.context, request.command_id).error_code == "precondition_failed"
 
 
 def test_concurrent_claim_does_not_duplicate_work(db):
