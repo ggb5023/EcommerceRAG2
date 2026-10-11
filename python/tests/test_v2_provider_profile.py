@@ -124,13 +124,15 @@ def test_v2_generate_rejects_invalid_fact_before_provider_call():
             raise AssertionError("invalid facts must fail closed")
 
 
-def test_online_profile_requires_positive_budget(monkeypatch):
+@pytest.mark.parametrize("raw_budget", ["", "0", "-1", "NaN", "Infinity", "not-a-number"])
+def test_online_profile_rejects_invalid_budget(monkeypatch, raw_budget):
     monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
-    monkeypatch.delenv("V2_ONLINE_BUDGET_CNY", raising=False)
+    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", raw_budget)
     with pytest.raises(ValueError, match="budget"):
         require_online_budget()
-    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "0")
-    with pytest.raises(ValueError, match="budget"):
-        require_online_budget()
+
+
+def test_online_profile_accepts_positive_finite_budget(monkeypatch):
+    monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
     monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "12.50")
     require_online_budget()

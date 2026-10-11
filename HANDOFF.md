@@ -4,7 +4,7 @@
 
 - `refactor/v2-rebuild` 已拆分 Go 控制面，新增 Python 资料命令、artifact journal、独立 AI/摄取 RPC 和 worker 入口；隔离数据库权限与摄取故障测试已有证据。已提交 `8f7c03b`（四进程启动/就绪）、`34c3899`（pending 命令恢复/回执绑定）、`33d9106`（版本化商家 facts fake/HTTP 适配器）、`1882cf5`（facts 故障矩阵、V2 浏览器 profile/evidence 契约）、`436b5c1`（进程级 facts fake matrix smoke）、`747c48d`（校验故障载荷）和 `0ff74cc`（固定 fake observed_at）。能力去向见 `.local/dev-docs/docs/V1到V2能力迁移清单.md`。
 - 已确认开发身份、本地商家 API fake、受控资料与真实模型集成规则；固定身份、版本化 fake、三种格式资料和 mock 查询已在新独立库走过真实 HTTP/worker/审核/发布/回退/撤销流程。稳定边界见 `FACTS.md`，详细要求见数据来源、模型和验收专章。真实百炼全链路尚未运行。
-- V2 在线 profile 已增加显式正数人民币预算门禁：`v2_langchain_bailian` 必须提供 `V2_ONLINE_BUDGET_CNY`，启动器、AI graph 和摄取 worker 均 fail-closed；mock/fixture profile 不需要该键。相关 17 个测试和完整 `scripts/check.sh` 已通过，在线请求仍未发起；本轮改动尚待本地提交。
+- V2 在线 profile 已增加显式正数人民币预算门禁：`v2_langchain_bailian` 必须提供 `V2_ONLINE_BUDGET_CNY`，启动器、AI graph 和摄取 worker 均 fail-closed；mock/fixture profile 不需要该键。相关 29 个测试和完整 `scripts/check.sh` 已通过，在线请求仍未发起；实现、示例配置和边界测试均已纳入本地提交。
 
 ## 下一步任务
 

@@ -61,10 +61,15 @@ def test_invalid_configuration_fails_before_any_service_starts(tmp_path, invalid
         services.configure(values(tmp_path) | invalid)
 
 
-def test_online_profile_requires_explicit_positive_budget(tmp_path):
+@pytest.mark.parametrize("raw_budget", ["", "0", "-1", "NaN", "Infinity", "not-a-number"])
+def test_online_profile_rejects_invalid_budget(tmp_path, raw_budget):
     base = values(tmp_path) | {"RAG_PROFILE": "v2_langchain_bailian"}
     with pytest.raises(services.StartupError, match="budget"):
-        services.configure(base)
+        services.configure(base | {"V2_ONLINE_BUDGET_CNY": raw_budget})
+
+
+def test_online_profile_accepts_positive_finite_budget(tmp_path):
+    base = values(tmp_path) | {"RAG_PROFILE": "v2_langchain_bailian"}
     configured = services.configure(base | {"V2_ONLINE_BUDGET_CNY": "12.50"})
     assert configured["V2_ONLINE_BUDGET_CNY"] == "12.50"
     assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_CNY"] == "12.50"
