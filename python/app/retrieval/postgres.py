@@ -42,6 +42,12 @@ class RetrievalRow:
     sparse_rank: int
     metadata: dict[str, Any]
 
+    @property
+    def rrf_score(self) -> float:
+        dense = 1 / (60 + self.dense_rank) if self.dense_rank else 0.0
+        sparse = 0.7 / (60 + self.sparse_rank) if self.sparse_rank else 0.0
+        return dense + sparse
+
     def as_evidence(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -57,6 +63,7 @@ class RetrievalRow:
             "raw_score": self.raw_score,
             "dense_rank": self.dense_rank,
             "sparse_rank": self.sparse_rank,
+            "rrf_score": self.rrf_score,
             "metadata": self.metadata,
         }
 
@@ -87,7 +94,7 @@ def _terms(value: str) -> set[str]:
 
 
 class PostgresRetriever:
-    """Read active, reviewed chunks through dense and trigram channels."""
+    """Read authorized, reviewed chunks through dense and lexical channels."""
 
     _REQUIRED_TABLES = ("tenant", "document", "document_version", "chunk")
     _REQUIRED_INDEXES = (
@@ -210,7 +217,8 @@ class PostgresRetriever:
                 metadata = {}
         if not isinstance(metadata, dict):
             metadata = {}
-        distance = float(row.get("distance") or 1.0)
+        distance_value = row.get("distance")
+        distance = float(distance_value) if distance_value is not None else 1.0
         return RetrievalRow(
             id=f"db-chunk-{row['chunk_id']}",
             content=str(row["content"]),
@@ -259,10 +267,13 @@ class PostgresRetriever:
             "ORDER BY c.embedding <=> %s::halfvec(1024), c.id LIMIT %s"
         )
         sparse_sql = (
-            "SELECT " + columns + "c.embedding <=> %s::halfvec(1024) AS distance, "
-            "similarity(c.embed_text, %s) AS sparse_score "
+            "SELECT * FROM (SELECT " + columns + "c.embedding <=> %s::halfvec(1024) AS distance, "
+            "GREATEST(similarity(c.embed_text, %s), COALESCE("
+            "(SELECT avg((strpos(lower(c.embed_text), term) > 0)::int) "
+            "FROM unnest(%s::text[]) AS query_terms(term)), 0)) AS sparse_score "
             "FROM chunk c " + where + " " + selected_sql +
-            " ORDER BY similarity(c.embed_text, %s) DESC, c.id LIMIT %s"
+            ") AS authorized WHERE sparse_score > 0 "
+            "ORDER BY sparse_score DESC, chunk_id LIMIT %s"
         )
         params_common = [tenant_db_id, shops, documents, *date_params]
         with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
@@ -273,7 +284,7 @@ class PostgresRetriever:
             dense_rows = cursor.fetchall()
             cursor.execute(
                 sparse_sql,
-                [vector, query, *params_common, *selected_params, query, self._sparse_candidates],
+                [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
             )
             sparse_rows = cursor.fetchall()
 
@@ -281,7 +292,7 @@ class PostgresRetriever:
         sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
         combined: list[RetrievalRow] = []
         for chunk_id, (row, dense_rank) in dense_by_id.items():
-            sparse_rank = sparse_rank_by_id.get(chunk_id, self._sparse_candidates + 1)
+            sparse_rank = sparse_rank_by_id.get(chunk_id, 0)
             candidate = self._row_to_candidate(row, rank=dense_rank, sparse_rank=sparse_rank, tenant_id=tenant)
             combined.append(candidate)
         for chunk_id, row in ((str(row["chunk_id"]), row) for row in sparse_rows):
@@ -290,14 +301,13 @@ class PostgresRetriever:
             sparse_rank = sparse_rank_by_id[chunk_id]
             candidate = self._row_to_candidate(
                 row,
-                rank=self._dense_candidates + 1,
+                rank=0,
                 sparse_rank=sparse_rank,
                 tenant_id=tenant,
             )
             combined.append(candidate)
-        combined.sort(key=lambda item: (-(1 / (60 + item.dense_rank) + 0.7 / (60 + item.sparse_rank)), item.id))
-        return [item.as_evidence() | {"rrf_score": 1 / (60 + item.dense_rank) + 0.7 / (60 + item.sparse_rank)}
-                for item in combined[:limit]]
+        combined.sort(key=lambda item: (-item.rrf_score, item.id))
+        return [item.as_evidence() for item in combined[:limit]]
 
     async def asearch(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Run blocking psycopg I/O outside the event loop used by gRPC."""
