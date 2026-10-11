@@ -12,6 +12,7 @@ AGENTS = """# Rules
 ## 文档职责
 Read handoff first.
 Archive: `.local/dev-docs/archive/`; 日常开发不读 archive。
+每个新窗口在 `.local/dev-docs/archive/` 新建一份简短对话归档。
 
 ## 关键文件索引
 Index.

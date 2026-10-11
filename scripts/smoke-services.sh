@@ -3,10 +3,15 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
 install -d .local/smoke
-(cd go; go build -p 2 -o ../.local/smoke/gateway ./cmd/server)
+(cd go; go build -p 2 -o ../.local/smoke/gateway ./cmd/gateway)
+APP_ENV=development RAG_PROFILE=v2_langgraph_fixture \
+V2_GATEWAY_DSN="${V2_GATEWAY_DSN:?V2_GATEWAY_DSN is required}" \
+V2_GRPC_ADDR=127.0.0.1:15052 V2_INGEST_GRPC_ADDR=127.0.0.1:15053 \
+V2_IDENTITY_TENANT="${V2_IDENTITY_TENANT:?V2_IDENTITY_TENANT is required}" \
+V2_IDENTITY_USER="${V2_IDENTITY_USER:?V2_IDENTITY_USER is required}" \
 HTTP_ADDR=127.0.0.1:18080 .local/smoke/gateway > .local/smoke/go.log 2>&1 &
 go_pid=$!
-(cd python; exec env GRPC_ADDR=127.0.0.1:15051 .venv/bin/python -m app.server) > .local/smoke/python.log 2>&1 &
+(cd python; exec env APP_ENV=development RAG_PROFILE=v2_langgraph_fixture V2_GRPC_ADDR=127.0.0.1:15052 .venv/bin/python -m app.rpc.server) > .local/smoke/python.log 2>&1 &
 py_pid=$!
 (cd web; exec ./node_modules/.bin/vite --host 127.0.0.1 --port 15173 --strictPort) > .local/smoke/web.log 2>&1 &
 web_pid=$!
@@ -17,7 +22,7 @@ cleanup() {
 trap cleanup EXIT
 for _ in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1 &&
-     grpcurl -plaintext -d '{}' 127.0.0.1:15051 grpc.health.v1.Health/Check >/dev/null 2>&1 &&
+     grpcurl -plaintext -d '{}' 127.0.0.1:15052 grpc.health.v1.Health/Check >/dev/null 2>&1 &&
      curl -fsS http://127.0.0.1:15173 >/dev/null 2>&1; then
     echo 'PASS gateway health, gRPC health and Vue dev preview'
     exit 0

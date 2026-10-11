@@ -54,6 +54,8 @@ def check(repo_root: Path) -> list[str]:
         errors.append("AGENTS.md: must define the private conversation archive location")
     if "日常开发不读 archive" not in agents:
         errors.append("AGENTS.md: must keep archives out of routine reading")
+    if "每个新窗口在 `.local/dev-docs/archive/` 新建" not in agents:
+        errors.append("AGENTS.md: must require one archive entry per new window")
 
     return errors
 

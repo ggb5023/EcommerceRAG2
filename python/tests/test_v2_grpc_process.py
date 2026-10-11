@@ -47,7 +47,7 @@ def test_v2_grpc_is_a_real_cross_process_boundary():
     authority_thread.start()
     address = _free_grpc_address()
     process = subprocess.Popen(
-        [sys.executable, "-m", "app.v2_grpc_server"],
+        [sys.executable, "-m", "app.rpc.server"],
         cwd=root,
         env={
             "PATH": os.environ["PATH"],
@@ -55,6 +55,7 @@ def test_v2_grpc_is_a_real_cross_process_boundary():
             "APP_ENV": "test",
             "RAG_PROFILE": "v2_langgraph_fixture",
             "V2_GRPC_ADDR": address,
+            "V2_FIXTURE_MODE": "1",
             "AUTHORITY_HTTP_BASE": f"http://127.0.0.1:{authority.server_port}",
         },
         stdout=subprocess.PIPE,
@@ -74,6 +75,7 @@ def test_v2_grpc_is_a_real_cross_process_boundary():
         conversation_id="conversation-checkpoint",
         turn_id="turn-checkpoint",
         execution_id="execution-checkpoint",
+        scope_audience="ai",
     )
     try:
         channel = grpc.insecure_channel(address)

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY: historical synthetic V1 acceptance tool; excluded from V2 check.sh.
 set -euo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY: historical synthetic artifact acceptance tool; excluded from V2 check.sh.
 set -euo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -77,17 +78,17 @@ PGPASSWORD="$PGPASSWORD" psql -X -Atqc \
   "SELECT quality_json->'artifact_bundle'->>'document_version_id' FROM document_version WHERE quality_json ? 'artifact_bundle'" \
   >"$before_version_ids"
 
-(cd go && go build -p 2 -o "$gateway" ./cmd/server)
+(cd go && go build -p 2 -o "$gateway" ./cmd/gateway)
 
 (cd python && exec env \
   APP_ENV="$APP_ENV" \
-  GRPC_ADDR="$grpc_addr" \
+  V2_GRPC_ADDR="$grpc_addr" \
   RAG_PROFILE=synthetic_import_mock \
   SYNTHETIC_MANIFEST="$SYNTHETIC_MANIFEST" \
   INGEST_ARTIFACT_BUNDLE_ROOT="$bundle_root" \
   AUTHORITY_HTTP_BASE="http://$admin_addr" \
   MOCK_STREAM_PACING_MS=0 \
-  .venv/bin/python -m app.server) >"$python_log" 2>&1 &
+  .venv/bin/python -m app.rpc.server) >"$python_log" 2>&1 &
 py_pid=$!
 
 grpc_ready=0

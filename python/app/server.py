@@ -1,4 +1,9 @@
-"""gRPC entrypoint for the M1 deterministic RAG service."""
+"""Legacy V1 gRPC entrypoint kept only for historical synthetic tests.
+
+This module must not be used by V2 deployment or activity scripts. V2 uses
+``app.rpc.server``, ``app.rpc.ingest_server`` and ``app.ingest.worker_main``
+as separate processes.
+"""
 import os
 import signal
 from concurrent import futures

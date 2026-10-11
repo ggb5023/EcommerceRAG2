@@ -4,7 +4,7 @@ COPY go.mod ./
 COPY go.sum ./
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -p 2 -o /gateway ./cmd/server
+RUN CGO_ENABLED=0 go build -p 2 -o /gateway ./cmd/gateway
 FROM debian:bookworm-slim
 COPY --from=build /gateway /gateway
 USER 65532:65532

@@ -1,10 +1,8 @@
-"""Dedicated v2 Python AI-plane gRPC entrypoint.
+"""Legacy V2 AI compatibility entrypoint for historical cross-process tests.
 
-The legacy ``app.server`` entrypoint also exposes the synthetic ingestion
-service for the v1 test harness.  v2 has a separate process boundary so that
-the AI plane cannot accidentally become a public gateway or inherit the v1
-worker surface.  Binding is fail-closed: only loopback or private IP
-addresses are accepted.
+Active V2 deployments must use :mod:`app.rpc.server`. This compatibility
+module intentionally exposes only the AI service and never starts an ingestion
+worker or registers the legacy ingestion service.
 """
 
 from __future__ import annotations
@@ -12,7 +10,6 @@ from __future__ import annotations
 import ipaddress
 import os
 import signal
-import threading
 from concurrent import futures
 
 import grpc
@@ -84,8 +81,6 @@ def build_server() -> grpc.Server:
     # ``setup`` method deliberately rejects runtime DDL; this read-only check
     # makes a missing migration fail before the gRPC socket is opened.
     from app.graph.runtime import load_checkpoint_store
-    from app.ingest import service as ingest_service
-
     checkpoint_store = load_checkpoint_store()
     verify_schema = getattr(checkpoint_store, "verify_schema", None)
     if callable(verify_schema):
@@ -109,9 +104,6 @@ def build_server() -> grpc.Server:
     rag_pb2_grpc.add_RagServiceServicer_to_server(
         rag_service.RagService(checkpoint_store=checkpoint_store), server
     )
-    # The v2 AI plane owns durable ingestion.  With no DSN the fixture server
-    # still exposes the legacy validation/parser RPCs, but no writes or worker.
-    ingest_service.register(server, ingest_service.IngestService())
     app_env = os.environ.get("APP_ENV", "development")
     if (
         app_env in {"development", "test"}
@@ -126,35 +118,17 @@ def build_server() -> grpc.Server:
 def main() -> None:
     address = validate_bind_address(os.environ.get("V2_GRPC_ADDR", "127.0.0.1:50052"))
     server = build_server()
-    worker = None
-    worker_thread = None
-    if (
-        os.environ.get("V2_INGEST_DSN", "").strip()
-        or os.environ.get("V2_RETRIEVER_DSN", "").strip()
-    ):
-        from app.ingest.worker import IngestWorker
-
-        worker = IngestWorker.from_env()
-        if worker is not None:
-            worker_thread = threading.Thread(
-                target=worker.run, name="v2-ingest-worker", daemon=True
-            )
-            worker_thread.start()
     if not server.add_insecure_port(address):
         raise RuntimeError("cannot bind v2 gRPC address")
     server.start()
     print(f"v2 Python AI plane listening on {address}", flush=True)
 
     def stop(_signum, _frame):
-        if worker is not None:
-            worker.stop()
         server.stop(5)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     server.wait_for_termination()
-    if worker_thread is not None:
-        worker_thread.join(timeout=6)
 
 
 if __name__ == "__main__":

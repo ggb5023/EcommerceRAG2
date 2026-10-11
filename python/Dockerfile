@@ -7,6 +7,6 @@ COPY app ./app
 COPY rag ./rag
 COPY fixtures ./fixtures
 USER 65532:65532
-ENV GRPC_ADDR=0.0.0.0:50051
-EXPOSE 50051
-CMD [".venv/bin/python", "-m", "app.server"]
+ENV V2_GRPC_ADDR=0.0.0.0:50052
+EXPOSE 50052
+CMD [".venv/bin/python", "-m", "app.rpc.server"]

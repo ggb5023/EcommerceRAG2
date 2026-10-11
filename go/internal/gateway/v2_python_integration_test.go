@@ -52,7 +52,7 @@ func TestGoCallsDedicatedPythonV2GRPC(t *testing.T) {
 	}
 	address := listener.Addr().String()
 	_ = listener.Close()
-	process := exec.Command(python, "-m", "app.v2_grpc_server")
+	process := exec.Command(python, "-m", "app.rpc.server")
 	process.Dir = repo
 	process.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -61,6 +61,7 @@ func TestGoCallsDedicatedPythonV2GRPC(t *testing.T) {
 		"RAG_PROFILE=v2_langgraph_fixture",
 		"V2_GRPC_ADDR=" + address,
 		"V2_GRPC_REFLECTION=0",
+		"V2_FIXTURE_MODE=1",
 		"AUTHORITY_HTTP_BASE=" + authority.URL,
 	}
 	if err = process.Start(); err != nil {
@@ -92,6 +93,7 @@ func TestGoCallsDedicatedPythonV2GRPC(t *testing.T) {
 		ConversationId:       "conversation-1",
 		TurnId:               "turn-1",
 		ExecutionId:          "execution-1",
+		ScopeAudience:        "ai",
 	}
 	var understood *ragv1.UnderstandResponse
 	for {
