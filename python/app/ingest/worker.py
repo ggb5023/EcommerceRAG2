@@ -206,6 +206,7 @@ class IngestWorker:
             database,
             poll_seconds=float(os.environ.get("V2_INGEST_POLL_SECONDS", "0.9")),
             lease_seconds=int(os.environ.get("V2_INGEST_LEASE_SECONDS", "45")),
+            worker_id=os.environ.get("V2_INGEST_WORKER_ID") or None,
         )
 
     def stop(self) -> None:
