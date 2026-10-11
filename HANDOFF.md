@@ -2,7 +2,7 @@
 
 ## 当前进度
 
-- `refactor/v2-rebuild` 已拆分 Go 控制面，新增 Python 资料命令、artifact journal、独立 AI/摄取 RPC 和 worker 入口；隔离数据库权限与摄取故障测试已有证据。已提交 `8f7c03b`（四进程启动/就绪）、`34c3899`（pending 命令恢复/回执绑定）、`33d9106`（版本化商家 facts fake/HTTP 适配器）、`1882cf5`（facts 故障矩阵、V2 浏览器 profile/evidence 契约）和 `436b5c1`（进程级 facts fake matrix smoke）。能力去向见 `.local/dev-docs/docs/V1到V2能力迁移清单.md`。
+- `refactor/v2-rebuild` 已拆分 Go 控制面，新增 Python 资料命令、artifact journal、独立 AI/摄取 RPC 和 worker 入口；隔离数据库权限与摄取故障测试已有证据。已提交 `8f7c03b`（四进程启动/就绪）、`34c3899`（pending 命令恢复/回执绑定）、`33d9106`（版本化商家 facts fake/HTTP 适配器）、`1882cf5`（facts 故障矩阵、V2 浏览器 profile/evidence 契约）、`436b5c1`（进程级 facts fake matrix smoke）和 `747c48d`（校验故障载荷）。能力去向见 `.local/dev-docs/docs/V1到V2能力迁移清单.md`。
 - 已确认开发身份、本地商家 API fake、受控资料与真实模型集成规则；固定身份、版本化 fake、三种格式资料和 mock 查询已在新独立库走过真实 HTTP/worker/审核/发布/回退/撤销流程。稳定边界见 `FACTS.md`，详细要求见数据来源、模型和验收专章。真实百炼全链路尚未运行。
 
 ## 下一步任务
