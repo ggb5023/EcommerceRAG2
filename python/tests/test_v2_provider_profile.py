@@ -1,6 +1,9 @@
 from unittest.mock import patch
 
+import pytest
+
 from app import rag_service
+from app.configuration import require_online_budget
 
 
 class Context:
@@ -119,3 +122,15 @@ def test_v2_generate_rejects_invalid_fact_before_provider_call():
             assert "PERMISSION_DENIED" in str(error)
         else:
             raise AssertionError("invalid facts must fail closed")
+
+
+def test_online_profile_requires_positive_budget(monkeypatch):
+    monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
+    monkeypatch.delenv("V2_ONLINE_BUDGET_CNY", raising=False)
+    with pytest.raises(ValueError, match="budget"):
+        require_online_budget()
+    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "0")
+    with pytest.raises(ValueError, match="budget"):
+        require_online_budget()
+    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "12.50")
+    require_online_budget()

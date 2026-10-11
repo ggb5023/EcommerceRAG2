@@ -61,6 +61,16 @@ def test_invalid_configuration_fails_before_any_service_starts(tmp_path, invalid
         services.configure(values(tmp_path) | invalid)
 
 
+def test_online_profile_requires_explicit_positive_budget(tmp_path):
+    base = values(tmp_path) | {"RAG_PROFILE": "v2_langchain_bailian"}
+    with pytest.raises(services.StartupError, match="budget"):
+        services.configure(base)
+    configured = services.configure(base | {"V2_ONLINE_BUDGET_CNY": "12.50"})
+    assert configured["V2_ONLINE_BUDGET_CNY"] == "12.50"
+    assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_CNY"] == "12.50"
+    assert "V2_ONLINE_BUDGET_CNY" not in services.service_environment("gateway", configured)
+
+
 def test_runtime_file_permissions_symlinks_and_duplicate_keys_are_rejected(tmp_path):
     path = tmp_path / "runtime.env"
     path.write_text("APP_ENV=test\nAPP_ENV=development\n")
