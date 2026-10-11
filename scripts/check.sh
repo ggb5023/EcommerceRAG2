@@ -21,4 +21,5 @@ buf build -o /dev/null
 buf breaking --against .git#branch=main
 (cd web; npm ci --no-audit --no-fund; npm test; npm run build)
 (cd admin-web; npm ci --no-audit --no-fund; npm test; npm run build)
+bash scripts/facts-fake-matrix.sh
 echo "PASS foundation checks (business and real API tests not included)"
