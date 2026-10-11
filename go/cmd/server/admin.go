@@ -233,7 +233,7 @@ func (g *gateway) adminSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"tenant_id": g.session.tenant, "user_id": g.session.user,
 		"runtime_role": g.session.role, "shop_id": g.session.shop, "allowed_shop_ids": g.session.allowedShops,
 		"permission_revision": g.currentPermissionRevision(), "admin_roles": roles,
-		"admin_role_catalog": catalog, "is_mock": true})
+		"admin_role_catalog": catalog, "is_mock": isMockProfile(g.profile)})
 }
 
 func (g *gateway) adminOverview(w http.ResponseWriter, r *http.Request) {
@@ -798,6 +798,10 @@ func (g *gateway) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 403, "admin_scope_denied", "submitter authorization changed")
 			return
 		}
+		if status.Code(err) == codes.AlreadyExists {
+			writeError(w, 409, "version_conflict", "idempotency key was reused with a different package")
+			return
+		}
 		var conflict *adminConflictError
 		if errors.As(err, &conflict) {
 			writeError(w, 409, "version_conflict", conflict.Error())
@@ -812,7 +816,7 @@ func (g *gateway) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(queued.JobID, 10),
 		"manifest_sha256": queued.ManifestSHA256, "package_sha256": queued.PackageSHA256,
-		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": true})
+		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": isMockProfile(g.profile)})
 }
 
 type adminConflictError struct{ message string }
@@ -1314,7 +1318,7 @@ func (g *gateway) adminPublishVersion(w http.ResponseWriter, r *http.Request) {
 	if !g.confirmVersion(w, r, in, shop, key, hash, fence) {
 		return
 	}
-	if state != "ready" || review != "approved" {
+	if (state != "ready" && state != "active") || review != "approved" {
 		writeError(w, 409, "version_conflict", "version is not reviewed and ready for publication")
 		return
 	}
@@ -1372,7 +1376,7 @@ func (g *gateway) adminRollbackVersion(w http.ResponseWriter, r *http.Request) {
 	if !g.confirmVersion(w, r, in, shop, key, hash, fence) {
 		return
 	}
-	if state != "superseded" || review != "approved" {
+	if (state != "superseded" && state != "active") || review != "approved" {
 		writeError(w, 409, "version_conflict", "only an approved superseded version can be restored")
 		return
 	}
@@ -1788,6 +1792,18 @@ func (g *gateway) lockAdminIndexTransition(ctx context.Context) error {
 }
 
 func (g *gateway) completeAdminIndexTransition(ctx context.Context, versionIDs []int64) error {
+	// The v2 AI plane reads the durable PostgreSQL/pgvector index directly.
+	// Synthetic index reload is a compatibility path for the legacy fixture
+	// profile only; calling it for a v2 profile would make a committed publish
+	// appear to fail with `index_sync_unavailable`.
+	if g.profile != "synthetic_import_mock" {
+		fingerprint, err := g.activeAdminIndexFingerprint(ctx)
+		if err != nil {
+			return err
+		}
+		g.adminIndexFingerprint = fingerprint
+		return nil
+	}
 	if g.profile == "synthetic_import_mock" {
 		g.adminIndexReady.Store(false)
 	}
@@ -1840,6 +1856,17 @@ func publishVersionTx(ctx context.Context, tx pgx.Tx, tenant, user, version int6
 		return nil, err
 	}
 	if sourceHash != hash || currentFence != fence || statusText != "ready" || reviewStatus != "approved" || reviewedHash != hash || external != (disclosure == "external_allowed") {
+		// A completed publish is safe to replay after the caller refreshes its
+		// confirmation fence.  Do not advance the fence or create a second
+		// publication record; return the stable active result instead.
+		if sourceHash == hash && current != nil && *current == version && statusText == "active" && reviewStatus == "approved" && reviewedHash == hash && external == (disclosure == "external_allowed") {
+			var lastAction string
+			if auditErr := tx.QueryRow(ctx, `SELECT action FROM admin_audit
+				WHERE tenant_id=$1 AND resource_type='document' AND resource_id=$2
+				AND resource_version=$3 ORDER BY id DESC LIMIT 1`, tenant, key, strconv.FormatInt(version, 10)).Scan(&lastAction); auditErr == nil && lastAction == "version.publish" {
+				return map[string]any{"version_id": strconv.FormatInt(version, 10), "status": "active", "fencing_epoch": fence, "audit_result": "success", "idempotent": true}, nil
+			}
+		}
 		return nil, pgx.ErrNoRows
 	}
 	var quality struct {
@@ -1904,7 +1931,19 @@ func rollbackVersionTx(ctx context.Context, tx pgx.Tx, tenant, user, version int
 	if err != nil {
 		return nil, err
 	}
-	if sourceHash != hash || currentFence != fence || state != "superseded" || review != "approved" || reviewedHash != hash || external != (disclosure == "external_allowed") {
+	if sourceHash != hash || currentFence != fence || review != "approved" || reviewedHash != hash || external != (disclosure == "external_allowed") {
+		return nil, pgx.ErrNoRows
+	}
+	if state == "active" && current != nil && *current == version {
+		var lastAction string
+		if auditErr := tx.QueryRow(ctx, `SELECT action FROM admin_audit
+			WHERE tenant_id=$1 AND resource_type='document' AND resource_id=$2
+			AND resource_version=$3 ORDER BY id DESC LIMIT 1`, tenant, key, strconv.FormatInt(version, 10)).Scan(&lastAction); auditErr == nil && lastAction == "version.rollback" {
+			return map[string]any{"version_id": strconv.FormatInt(version, 10), "status": "active", "fencing_epoch": fence, "audit_result": "success", "idempotent": true}, nil
+		}
+		return nil, pgx.ErrNoRows
+	}
+	if state != "superseded" {
 		return nil, pgx.ErrNoRows
 	}
 	if current != nil {

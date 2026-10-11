@@ -22,6 +22,8 @@ const (
 	RagService_Understand_FullMethodName           = "/rag.v1.RagService/Understand"
 	RagService_Search_FullMethodName               = "/rag.v1.RagService/Search"
 	RagService_Generate_FullMethodName             = "/rag.v1.RagService/Generate"
+	RagService_SaveCheckpoint_FullMethodName       = "/rag.v1.RagService/SaveCheckpoint"
+	RagService_ResumeCheckpoint_FullMethodName     = "/rag.v1.RagService/ResumeCheckpoint"
 	RagService_ReloadSyntheticIndex_FullMethodName = "/rag.v1.RagService/ReloadSyntheticIndex"
 )
 
@@ -32,6 +34,9 @@ type RagServiceClient interface {
 	Understand(ctx context.Context, in *UnderstandRequest, opts ...grpc.CallOption) (*UnderstandResponse, error)
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchResponse], error)
 	Generate(ctx context.Context, in *GenerateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GenerateResponse], error)
+	// v2 stores only the minimal identity required to resume an ASKING/HITL turn.
+	SaveCheckpoint(ctx context.Context, in *SaveCheckpointRequest, opts ...grpc.CallOption) (*SaveCheckpointResponse, error)
+	ResumeCheckpoint(ctx context.Context, in *ResumeCheckpointRequest, opts ...grpc.CallOption) (*ResumeCheckpointResponse, error)
 	ReloadSyntheticIndex(ctx context.Context, in *ReloadSyntheticIndexRequest, opts ...grpc.CallOption) (*ReloadSyntheticIndexResponse, error)
 }
 
@@ -91,6 +96,26 @@ func (c *ragServiceClient) Generate(ctx context.Context, in *GenerateRequest, op
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RagService_GenerateClient = grpc.ServerStreamingClient[GenerateResponse]
 
+func (c *ragServiceClient) SaveCheckpoint(ctx context.Context, in *SaveCheckpointRequest, opts ...grpc.CallOption) (*SaveCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SaveCheckpointResponse)
+	err := c.cc.Invoke(ctx, RagService_SaveCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ragServiceClient) ResumeCheckpoint(ctx context.Context, in *ResumeCheckpointRequest, opts ...grpc.CallOption) (*ResumeCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResumeCheckpointResponse)
+	err := c.cc.Invoke(ctx, RagService_ResumeCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ragServiceClient) ReloadSyntheticIndex(ctx context.Context, in *ReloadSyntheticIndexRequest, opts ...grpc.CallOption) (*ReloadSyntheticIndexResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReloadSyntheticIndexResponse)
@@ -108,6 +133,9 @@ type RagServiceServer interface {
 	Understand(context.Context, *UnderstandRequest) (*UnderstandResponse, error)
 	Search(*SearchRequest, grpc.ServerStreamingServer[SearchResponse]) error
 	Generate(*GenerateRequest, grpc.ServerStreamingServer[GenerateResponse]) error
+	// v2 stores only the minimal identity required to resume an ASKING/HITL turn.
+	SaveCheckpoint(context.Context, *SaveCheckpointRequest) (*SaveCheckpointResponse, error)
+	ResumeCheckpoint(context.Context, *ResumeCheckpointRequest) (*ResumeCheckpointResponse, error)
 	ReloadSyntheticIndex(context.Context, *ReloadSyntheticIndexRequest) (*ReloadSyntheticIndexResponse, error)
 	mustEmbedUnimplementedRagServiceServer()
 }
@@ -127,6 +155,12 @@ func (UnimplementedRagServiceServer) Search(*SearchRequest, grpc.ServerStreaming
 }
 func (UnimplementedRagServiceServer) Generate(*GenerateRequest, grpc.ServerStreamingServer[GenerateResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Generate not implemented")
+}
+func (UnimplementedRagServiceServer) SaveCheckpoint(context.Context, *SaveCheckpointRequest) (*SaveCheckpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SaveCheckpoint not implemented")
+}
+func (UnimplementedRagServiceServer) ResumeCheckpoint(context.Context, *ResumeCheckpointRequest) (*ResumeCheckpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResumeCheckpoint not implemented")
 }
 func (UnimplementedRagServiceServer) ReloadSyntheticIndex(context.Context, *ReloadSyntheticIndexRequest) (*ReloadSyntheticIndexResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadSyntheticIndex not implemented")
@@ -192,6 +226,42 @@ func _RagService_Generate_Handler(srv interface{}, stream grpc.ServerStream) err
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RagService_GenerateServer = grpc.ServerStreamingServer[GenerateResponse]
 
+func _RagService_SaveCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SaveCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RagServiceServer).SaveCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RagService_SaveCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RagServiceServer).SaveCheckpoint(ctx, req.(*SaveCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RagService_ResumeCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RagServiceServer).ResumeCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RagService_ResumeCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RagServiceServer).ResumeCheckpoint(ctx, req.(*ResumeCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RagService_ReloadSyntheticIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReloadSyntheticIndexRequest)
 	if err := dec(in); err != nil {
@@ -220,6 +290,14 @@ var RagService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Understand",
 			Handler:    _RagService_Understand_Handler,
+		},
+		{
+			MethodName: "SaveCheckpoint",
+			Handler:    _RagService_SaveCheckpoint_Handler,
+		},
+		{
+			MethodName: "ResumeCheckpoint",
+			Handler:    _RagService_ResumeCheckpoint_Handler,
 		},
 		{
 			MethodName: "ReloadSyntheticIndex",

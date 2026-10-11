@@ -476,6 +476,9 @@ func validateParsedPackage(claim *ingestClaim, parsed *ragv1.ParsePackageRespons
 
 func (g *gateway) queuePackage(ctx context.Context, manifest string, files []*ragv1.PackageFile,
 	tenantID, userID int64, shopID string) (queuedPackage, error) {
+	if isV2Profile(g.profile) {
+		return g.queuePackageV2(ctx, manifest, files, tenantID, userID, shopID)
+	}
 	validated, err := g.ingest.ValidatePackage(ctx, &ragv1.ValidatePackageRequest{
 		ManifestYaml: manifest, Files: files, TenantId: g.session.tenant, ShopId: shopID,
 	})
@@ -647,6 +650,54 @@ func (g *gateway) queuePackage(ctx context.Context, manifest string, files []*ra
 	}
 	return queuedPackage{JobID: jobID, ManifestSHA256: manifestSHA, PackageSHA256: packageSHA,
 		ItemCount: len(validated.Documents), Status: "pending"}, nil
+}
+
+// queuePackageV2 delegates all ingestion submission writes to Python.  The
+// Go control plane still signs the scope and owns the public admin endpoint,
+// but it does not create v2 source/job/item/version/chunk rows.
+func (g *gateway) queuePackageV2(ctx context.Context, manifest string, files []*ragv1.PackageFile,
+	tenantID, userID int64, shopID string) (queuedPackage, error) {
+	scope, err := g.issueScopeForShop(ctx, newRequestID(), shopID)
+	if err != nil {
+		return queuedPackage{}, err
+	}
+	manifestDigest := sha256.Sum256([]byte(manifest))
+	key := "admin:" + shopID + ":" + hex.EncodeToString(manifestDigest[:])
+	response, err := g.ingest.Submit(ctx, &ragv1.SubmitRequest{
+		Context: scope, IdempotencyKey: key, ManifestYaml: manifest, Files: files,
+		TenantDbId: strconv.FormatInt(tenantID, 10), UserDbId: strconv.FormatInt(userID, 10), ShopId: shopID,
+	})
+	if err != nil {
+		return queuedPackage{}, err
+	}
+	jobID, err := strconv.ParseInt(response.GetJobId(), 10, 64)
+	if err != nil {
+		return queuedPackage{}, errors.New("python ingestion returned an invalid job id")
+	}
+	return queuedPackage{
+		JobID:          jobID,
+		ManifestSHA256: response.GetManifestSha256(),
+		PackageSHA256:  response.GetPackageSha256(),
+		ItemCount:      int(response.GetItemCount()),
+		Status:         jobStatusText(response.GetStatus()),
+	}, nil
+}
+
+func jobStatusText(value ragv1.JobStatus) string {
+	switch value {
+	case ragv1.JobStatus_JOB_STATUS_PENDING:
+		return "pending"
+	case ragv1.JobStatus_JOB_STATUS_RUNNING:
+		return "running"
+	case ragv1.JobStatus_JOB_STATUS_DONE:
+		return "done"
+	case ragv1.JobStatus_JOB_STATUS_FAILED:
+		return "failed"
+	case ragv1.JobStatus_JOB_STATUS_CANCELLED:
+		return "cancelled"
+	default:
+		return "unknown"
+	}
 }
 
 func mediaTypeForPackagePath(relative string) string {
@@ -1396,13 +1447,38 @@ func (g *gateway) adminRetryIngestJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "database_unavailable", "could not read ingestion job")
 		return
 	}
-	if shopID != input.ShopID || fence != input.ExpectedFencingEpoch || statusText != "failed" {
+	if shopID != input.ShopID || fence != input.ExpectedFencingEpoch {
+		writeError(w, 409, "job_not_retryable", "job status, scope or fencing epoch changed")
+		return
+	}
+	// Retrying is a durable state transition.  Once the first retry has been
+	// accepted, replaying the same confirmed request must return the existing
+	// state instead of resetting a running/reviewable job or emitting another
+	// retry side effect.
+	if statusText == "pending" || statusText == "running" {
+		writeJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(jobID, 10), "status": statusText, "audit_result": "success", "idempotent": true})
+		return
+	}
+	if statusText == "awaiting_review" || statusText == "done" {
+		writeJSON(w, http.StatusOK, map[string]any{"job_id": strconv.FormatInt(jobID, 10), "status": statusText, "audit_result": "success", "idempotent": true})
+		return
+	}
+	if statusText != "failed" {
 		writeError(w, 409, "job_not_retryable", "job status, scope or fencing epoch changed")
 		return
 	}
 	var stagedFiles int
-	if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM ingest_package_file WHERE tenant_id=$1 AND job_id=$2`,
-		g.session.tenantID, jobID).Scan(&stagedFiles); err != nil || stagedFiles == 0 {
+	if isV2Profile(g.profile) {
+		err = tx.QueryRow(r.Context(), `SELECT count(*) FROM source_file sf
+			JOIN source_manifest sm ON sm.tenant_id=sf.tenant_id AND sm.id=sf.source_manifest_id
+			JOIN ingest_job j ON j.tenant_id=sm.tenant_id AND j.source_id=sm.source_id
+				AND j.manifest_sha256=sm.manifest_sha256
+			WHERE j.tenant_id=$1 AND j.id=$2`, g.session.tenantID, jobID).Scan(&stagedFiles)
+	} else {
+		err = tx.QueryRow(r.Context(), `SELECT count(*) FROM ingest_package_file WHERE tenant_id=$1 AND job_id=$2`,
+			g.session.tenantID, jobID).Scan(&stagedFiles)
+	}
+	if err != nil || stagedFiles == 0 {
 		writeError(w, 409, "retry_payload_missing", "failed job no longer has a retryable package")
 		return
 	}

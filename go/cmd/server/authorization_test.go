@@ -16,7 +16,7 @@ import (
 
 func TestSignedScopeRejectsEnlargementAndExpiredScope(t *testing.T) {
 	g := &gateway{signingKey: []byte("synthetic-test-key-with-32-bytes!!")}
-	original := &ragv1.RequestContext{RequestId: "signed-test", TenantId: "tenant-a", UserId: "user-a", Role: "operator", AllowedShopIds: []string{"east"}, AllowedDocumentIds: []string{"doc-a"}, PermissionRevision: "auth-v1", EnforceDocumentScope: true, ScopeExpiresAt: time.Now().Add(time.Minute).Unix()}
+	original := &ragv1.RequestContext{RequestId: "signed-test", TenantId: "tenant-a", UserId: "user-a", Role: "operator", AllowedShopIds: []string{"east"}, AllowedDocumentIds: []string{"doc-a"}, PermissionRevision: "auth-v1", EnforceDocumentScope: true, ScopeExpiresAt: time.Now().Add(time.Minute).Unix(), ConversationId: "conversation-1", TurnId: "turn-1", ExecutionId: "execution-1"}
 	original.ScopeSignature = hex.EncodeToString(scopeMAC(g.signingKey, original))
 	cases := []func(*ragv1.RequestContext){
 		func(s *ragv1.RequestContext) { s.AllowedDocumentIds = append(s.AllowedDocumentIds, "doc-secret") },
@@ -25,6 +25,7 @@ func TestSignedScopeRejectsEnlargementAndExpiredScope(t *testing.T) {
 		func(s *ragv1.RequestContext) { s.PermissionRevision = "auth-v2" },
 		func(s *ragv1.RequestContext) { s.TenantId = "tenant-b" },
 		func(s *ragv1.RequestContext) { s.EnforceDocumentScope = false },
+		func(s *ragv1.RequestContext) { s.TurnId = "turn-other" },
 		func(s *ragv1.RequestContext) {
 			s.ScopeExpiresAt = time.Now().Add(-time.Second).Unix()
 			s.ScopeSignature = hex.EncodeToString(scopeMAC(g.signingKey, s))

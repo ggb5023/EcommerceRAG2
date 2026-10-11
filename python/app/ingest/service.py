@@ -1,4 +1,5 @@
 """Validate and parse bounded manifest packages for the Go gateway."""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,12 +12,19 @@ from datetime import date
 from pathlib import Path, PurePosixPath
 
 import grpc
+import psycopg
 import yaml
 
 from app.ingest.artifacts import (
     ArtifactBundle,
     build_ingestion_artifacts,
     store_artifact_bundle,
+)
+from app.ingest.database import (
+    IngestAuthorizationError,
+    IngestConflictError,
+    IngestDatabase,
+    package_payload_hash,
 )
 from app.ingest.pipeline import chunk_elements_v2, parser_for
 from app.storage import FilesystemObjectStore, ObjectStore
@@ -66,7 +74,9 @@ def _delete_bundles(store: ObjectStore | None, bundles: list[ArtifactBundle]) ->
         return True
     clean = True
     for bundle in reversed(bundles):
-        if not _delete_keys(store, [record.object_key for record in bundle.all_records]):
+        if not _delete_keys(
+            store, [record.object_key for record in bundle.all_records]
+        ):
             clean = False
     return clean
 
@@ -103,9 +113,13 @@ def _consume_test_delete_fault() -> bool:
                 try:
                     _delete_fault_remaining = int(raw)
                 except ValueError as exc:
-                    raise ValueError("INGEST_TEST_DELETE_FAILURES must be an integer") from exc
+                    raise ValueError(
+                        "INGEST_TEST_DELETE_FAILURES must be an integer"
+                    ) from exc
                 if not 0 <= _delete_fault_remaining <= 100:
-                    raise ValueError("INGEST_TEST_DELETE_FAILURES must be between 0 and 100")
+                    raise ValueError(
+                        "INGEST_TEST_DELETE_FAILURES must be between 0 and 100"
+                    )
         if environment != "test" or profile != "synthetic_import_mock":
             return False
         if _delete_fault_remaining <= 0:
@@ -169,9 +183,17 @@ def _artifact_cleanup_keys(request, context) -> list[str]:
         for record in sorted(records, key=lambda item: item.artifact_type)
     ]
     artifact_set = hashlib.sha256(
-        json.dumps({"artifacts": canonical}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(
+            {"artifacts": canonical},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
     ).hexdigest()
-    if artifact_set != reference.artifact_set_sha256 or reference.real_service_acceptance:
+    if (
+        artifact_set != reference.artifact_set_sha256
+        or reference.real_service_acceptance
+    ):
         _fail(context, "artifact cleanup reference is invalid")
     return [record.object_key for record in records] + [reference.manifest_object_key]
 
@@ -220,9 +242,13 @@ def _inspect_package(request, context):
     total = 0
     for item in request.files:
         path = PurePosixPath(item.path)
-        if (not item.path or "\\" in item.path or path.is_absolute()
-                or path.as_posix() != item.path
-                or any(part in {"", ".", ".."} for part in path.parts)):
+        if (
+            not item.path
+            or "\\" in item.path
+            or path.is_absolute()
+            or path.as_posix() != item.path
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
             _fail(context, "package contains an unsafe file path")
         if item.path in uploaded:
             _fail(context, "package contains a duplicate file path")
@@ -235,7 +261,11 @@ def _inspect_package(request, context):
         manifest = yaml.safe_load(request.manifest_yaml)
     except yaml.YAMLError:
         _fail(context, "manifest YAML is invalid")
-    if not isinstance(manifest, dict) or isinstance(manifest.get("schema_version"), bool) or manifest.get("schema_version") != 1:
+    if (
+        not isinstance(manifest, dict)
+        or isinstance(manifest.get("schema_version"), bool)
+        or manifest.get("schema_version") != 1
+    ):
         _fail(context, "manifest schema_version must be 1")
     source = manifest.get("source")
     if not isinstance(source, dict):
@@ -244,9 +274,15 @@ def _inspect_package(request, context):
     pipeline_version = manifest.get("pipeline_version")
     if not isinstance(source_id, str) or not IDENTIFIER.fullmatch(source_id):
         _fail(context, "manifest source.id is invalid")
-    if not isinstance(source_name, str) or not source_name.strip() or len(source_name) > 200:
+    if (
+        not isinstance(source_name, str)
+        or not source_name.strip()
+        or len(source_name) > 200
+    ):
         _fail(context, "manifest source.name is invalid")
-    if not isinstance(pipeline_version, str) or not IDENTIFIER.fullmatch(pipeline_version):
+    if not isinstance(pipeline_version, str) or not IDENTIFIER.fullmatch(
+        pipeline_version
+    ):
         _fail(context, "manifest pipeline_version is invalid")
     documents = manifest.get("documents")
     if not isinstance(documents, list) or not 1 <= len(documents) <= MAX_DOCUMENTS:
@@ -260,9 +296,16 @@ def _inspect_package(request, context):
         if not isinstance(spec, dict):
             _fail(context, f"documents[{index}] must be a mapping")
         document_id, title, relative, fmt = (
-            spec.get("document_id"), spec.get("title"), spec.get("path"), spec.get("format")
+            spec.get("document_id"),
+            spec.get("title"),
+            spec.get("path"),
+            spec.get("format"),
         )
-        if not isinstance(document_id, str) or not IDENTIFIER.fullmatch(document_id) or document_id in document_ids:
+        if (
+            not isinstance(document_id, str)
+            or not IDENTIFIER.fullmatch(document_id)
+            or document_id in document_ids
+        ):
             _fail(context, f"documents[{index}].document_id is invalid or duplicated")
         document_ids.add(document_id)
         if not isinstance(title, str) or not title.strip() or len(title) > 300:
@@ -270,8 +313,11 @@ def _inspect_package(request, context):
         if not isinstance(relative, str) or not relative or "\\" in relative:
             _fail(context, f"documents[{index}].path is invalid")
         relative_path = PurePosixPath(relative)
-        if (relative_path.is_absolute() or relative_path.as_posix() != relative
-                or any(part in {"", ".", ".."} for part in relative_path.parts)):
+        if (
+            relative_path.is_absolute()
+            or relative_path.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in relative_path.parts)
+        ):
             _fail(context, f"documents[{index}].path is unsafe")
         if relative not in uploaded or relative in used_paths:
             _fail(context, f"documents[{index}].path is missing or duplicated")
@@ -288,30 +334,45 @@ def _inspect_package(request, context):
         disclosure = spec.get("disclosure_class", "unclassified")
         if not isinstance(disclosure, str) or disclosure not in ALLOWED_DISCLOSURE:
             _fail(context, f"documents[{index}].disclosure_class is invalid")
-        effective_from = _date_text(spec.get("effective_from"), "effective_from", context)
+        effective_from = _date_text(
+            spec.get("effective_from"), "effective_from", context
+        )
         effective_to = _date_text(spec.get("effective_to"), "effective_to", context)
         if effective_from and effective_to and effective_to <= effective_from:
-            _fail(context, f"documents[{index}] effective_to must be after effective_from")
+            _fail(
+                context, f"documents[{index}] effective_to must be after effective_from"
+            )
 
         content = uploaded[relative]
         source_hash = hashlib.sha256(content).hexdigest()
         declared_hash = spec.get("sha256")
-        if not isinstance(declared_hash, str) or not SHA256.fullmatch(declared_hash) or declared_hash != source_hash:
-            _fail(context, f"documents[{index}].sha256 does not match the uploaded file")
-        version_id = "v-" + hashlib.sha256(
-            f"{source_hash}\0{pipeline_version}\0{manifest_hash}".encode()
-        ).hexdigest()[:20]
-        validated.append({
-            "document_id": document_id,
-            "title": title.strip(),
-            "format": fmt,
-            "path": relative,
-            "source_hash": source_hash,
-            "disclosure_class": disclosure,
-            "effective_from": effective_from,
-            "effective_to": effective_to,
-            "version_id": version_id,
-        })
+        if (
+            not isinstance(declared_hash, str)
+            or not SHA256.fullmatch(declared_hash)
+            or declared_hash != source_hash
+        ):
+            _fail(
+                context, f"documents[{index}].sha256 does not match the uploaded file"
+            )
+        version_id = (
+            "v-"
+            + hashlib.sha256(
+                f"{source_hash}\0{pipeline_version}\0{manifest_hash}".encode()
+            ).hexdigest()[:20]
+        )
+        validated.append(
+            {
+                "document_id": document_id,
+                "title": title.strip(),
+                "format": fmt,
+                "path": relative,
+                "source_hash": source_hash,
+                "disclosure_class": disclosure,
+                "effective_from": effective_from,
+                "effective_to": effective_to,
+                "version_id": version_id,
+            }
+        )
     if used_paths != set(uploaded):
         _fail(context, "package contains unreferenced files")
     return {
@@ -325,7 +386,166 @@ def _inspect_package(request, context):
 
 
 class IngestService(rag_pb2_grpc.IngestServiceServicer):
-    """Python validates and parses; Go owns authorization, persistence, and publication."""
+    """Python owns v2 submission persistence and parsing.
+
+    The legacy Validate/Parse RPCs remain available for the synthetic worker;
+    v2 callers use Submit and the dedicated Python worker for durable writes.
+    """
+
+    def __init__(self, database: IngestDatabase | None = None):
+        self.database = database if database is not None else IngestDatabase.from_env()
+
+    @staticmethod
+    def _status(value: str) -> int:
+        return {
+            "pending": rag_pb2.JOB_STATUS_PENDING,
+            "running": rag_pb2.JOB_STATUS_RUNNING,
+            "awaiting_review": rag_pb2.JOB_STATUS_RUNNING,
+            "done": rag_pb2.JOB_STATUS_DONE,
+            "failed": rag_pb2.JOB_STATUS_FAILED,
+            "cancelled": rag_pb2.JOB_STATUS_CANCELLED,
+        }.get(value, rag_pb2.JOB_STATUS_UNSPECIFIED)
+
+    @staticmethod
+    def _submission_request(request):
+        context = request.context
+        return rag_pb2.ValidatePackageRequest(
+            manifest_yaml=request.manifest_yaml,
+            files=list(request.files),
+            tenant_id=context.tenant_id,
+            shop_id=request.shop_id or context.shop_id,
+        )
+
+    def Submit(self, request, context):
+        if self.database is None:
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"
+            )
+        context_shop = request.context.shop_id
+        shop_id = request.shop_id or context_shop
+        if (
+            request.shop_id
+            and context_shop
+            and request.shop_id != context_shop
+        ):
+            context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "submission shop is outside the signed scope",
+            )
+        if not shop_id or shop_id not in set(request.context.allowed_shop_ids):
+            context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "submission shop is outside the signed scope",
+            )
+        try:
+            if request.tenant_db_id and int(request.tenant_db_id) != request.context.tenant_db_id:
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED,
+                    "submission tenant identity does not match the signed scope",
+                )
+            if request.user_db_id and int(request.user_db_id) != request.context.user_db_id:
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED,
+                    "submission user identity does not match the signed scope",
+                )
+        except ValueError:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "database identity is invalid"
+            )
+        if not request.idempotency_key:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "idempotency key is required"
+            )
+        package = _inspect_package(self._submission_request(request), context)
+        try:
+            tenant_pk = int(request.tenant_db_id or str(request.context.tenant_db_id))
+            user_pk = int(request.user_db_id or str(request.context.user_db_id))
+        except ValueError:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "database identity is invalid"
+            )
+        package_sha = package_payload_hash(
+            tenant_pk, shop_id, package["manifest_sha256"], package["uploaded"]
+        )
+        try:
+            result = self.database.submit(
+                tenant_id=request.context.tenant_id,
+                user_id=request.context.user_id,
+                shop_id=shop_id,
+                tenant_db_id=str(tenant_pk),
+                user_db_id=str(user_pk),
+                idempotency_key=request.idempotency_key,
+                source_id=package["source_id"],
+                source_name=package["source_name"],
+                pipeline_version=package["pipeline_version"],
+                manifest_yaml=request.manifest_yaml,
+                manifest_sha256=package["manifest_sha256"],
+                package_sha256=package_sha,
+                documents=package["documents"],
+                files=package["uploaded"],
+            )
+        except IngestConflictError as error:
+            context.abort(grpc.StatusCode.ALREADY_EXISTS, str(error))
+        except IngestAuthorizationError as error:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
+        except ValueError as error:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(error))
+        except grpc.RpcError:
+            raise
+        except (psycopg.Error, OSError, RuntimeError, TypeError):
+            context.abort(grpc.StatusCode.UNAVAILABLE, "ingestion persistence failed")
+        return rag_pb2.SubmitResponse(
+            job_id=str(result.job_id),
+            status=self._status(result.status),
+            manifest_sha256=result.manifest_sha256,
+            package_sha256=result.package_sha256,
+            item_count=result.item_count,
+        )
+
+    def GetStatus(self, request, context):
+        if self.database is None:
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"
+            )
+        try:
+            tenant_pk = int(request.context.tenant_db_id)
+            job_id = int(request.job_id)
+        except ValueError:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "job identity is invalid")
+        try:
+            row = self.database.get_status(tenant_db_id=tenant_pk, job_id=job_id)
+        except (psycopg.Error, OSError, RuntimeError, TypeError, ValueError):
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion status is unavailable"
+            )
+        if row is None:
+            context.abort(grpc.StatusCode.NOT_FOUND, "ingestion job was not found")
+        return rag_pb2.GetStatusResponse(
+            job_id=str(row["id"]),
+            status=self._status(str(row["status"])),
+            stage=str(row["stage"] or ""),
+            error_code=str(row["error_code"] or ""),
+        )
+
+    def Cancel(self, request, context):
+        if self.database is None:
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"
+            )
+        try:
+            tenant_pk = int(request.context.tenant_db_id)
+            job_id = int(request.job_id)
+        except ValueError:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "job identity is invalid")
+        try:
+            status = self.database.cancel(tenant_db_id=tenant_pk, job_id=job_id)
+        except (psycopg.Error, OSError, RuntimeError, TypeError, ValueError):
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion cancellation is unavailable"
+            )
+        if status is None:
+            context.abort(grpc.StatusCode.NOT_FOUND, "ingestion job was not found")
+        return rag_pb2.CancelResponse(job_id=str(job_id), status=self._status(status))
 
     def ValidatePackage(self, request, context):
         package = _inspect_package(request, context)
@@ -345,7 +565,10 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
         try:
             artifact_store = _artifact_store()
         except (OSError, RuntimeError, ValueError) as exc:
-            _fail(context, f"artifact bundle configuration is invalid: {type(exc).__name__}")
+            _fail(
+                context,
+                f"artifact bundle configuration is invalid: {type(exc).__name__}",
+            )
         bundles: list[ArtifactBundle] = []
 
         def fail(message: str):
@@ -380,8 +603,10 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
                 }
                 try:
                     elements = parser_for(spec["format"]).parse(
-                        target, document_id=spec["document_id"],
-                        version_id=spec["version_id"], metadata=metadata,
+                        target,
+                        document_id=spec["document_id"],
+                        version_id=spec["version_id"],
+                        metadata=metadata,
                     )
                     chunks = chunk_elements_v2(elements)
                 except (OSError, UnicodeError, ValueError, KeyError, RuntimeError):
@@ -417,7 +642,9 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
                         content_type=chunk.content_type,
                         split_reason=chunk.split_reason,
                         chunk_hash=chunk.chunk_hash,
-                        metadata_json=json.dumps(chunk.metadata, ensure_ascii=False, sort_keys=True),
+                        metadata_json=json.dumps(
+                            chunk.metadata, ensure_ascii=False, sort_keys=True
+                        ),
                     )
                 if artifact_store is not None:
                     try:
@@ -446,17 +673,22 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
                             ),
                         )
                     except Exception as exc:  # noqa: BLE001 - provider/storage details stay redacted
-                        fail(f"artifact bundle could not be stored: {type(exc).__name__}")
+                        fail(
+                            f"artifact bundle could not be stored: {type(exc).__name__}"
+                        )
                     bundles.append(bundle)
                     _bundle_reference(parsed, bundle)
-                dataset_rows.append({
-                    "document_id": spec["document_id"],
-                    "source_hash": spec["source_hash"],
-                    "chunks": len(chunks),
-                })
+                dataset_rows.append(
+                    {
+                        "document_id": spec["document_id"],
+                        "source_hash": spec["source_hash"],
+                        "chunks": len(chunks),
+                    }
+                )
         canonical = json.dumps(
             {"manifest_sha256": package["manifest_sha256"], "documents": dataset_rows},
-            sort_keys=True, separators=(",", ":"),
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode()
         response.dataset_sha256 = hashlib.sha256(canonical).hexdigest()
         return response
@@ -484,5 +716,5 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
         )
 
 
-def register(server) -> None:
-    rag_pb2_grpc.add_IngestServiceServicer_to_server(IngestService(), server)
+def register(server, service: IngestService | None = None) -> None:
+    rag_pb2_grpc.add_IngestServiceServicer_to_server(service or IngestService(), server)
