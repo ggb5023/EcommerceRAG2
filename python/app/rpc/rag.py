@@ -137,7 +137,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         try:
             _ensure_grpc_active(context)
             service = self._provider_v2 or self._v2
-            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose='internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context))) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose='internal')
+            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose='internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='understand')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose='internal', phase='understand')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
             _abort_v2_error(context, error)
         _ensure_grpc_active(context)
@@ -151,7 +151,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         try:
             _ensure_grpc_active(context)
             service = self._provider_v2 or self._v2
-            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context))) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal')
+            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='search')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal', phase='search')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
             _abort_v2_error(context, error)
         for item in result.get('evidence', []):
@@ -168,7 +168,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             evidence = [self._v2_input_evidence(item) for item in request.evidence]
             facts = self._v2._validate_facts([{'tool_name': item.tool_name, 'value_json': item.value_json, 'observed_at': item.observed_at, 'is_mock': item.is_mock} for item in request.facts])
             service = self._provider_v2 or self._v2
-            result = asyncio.run(service.arun_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, facts=facts, response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context))) if self._provider_v2 else service.run_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, response_purpose=request.response_purpose or 'internal')
+            result = asyncio.run(service.arun_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, facts=facts, response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='generate')) if self._provider_v2 else service.run_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, response_purpose=request.response_purpose or 'internal', phase='generate')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
             _abort_v2_error(context, error)
         sequence = 0
@@ -182,7 +182,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             self._authorize(request.context, context)
             sequence += 1
             yield rag_pb2.GenerateResponse(sequence=sequence, citation=self._v2_evidence(item))
-        usage_json = json.dumps({'is_mock': self._v2_is_mock(), 'graph': 'langgraph'}, separators=(',', ':'))
+        usage_json = json.dumps({'is_mock': self._v2_is_mock(), 'graph': 'langgraph', 'provider': result.get('trace', {}).get('provider', {})}, separators=(',', ':'))
         for event in ({'usage_json': usage_json}, {'is_mock': self._v2_is_mock()}, {'can_copy': bool(result.get('can_copy', False))}, {'done': True}):
             _ensure_grpc_active(context)
             self._authorize(request.context, context)

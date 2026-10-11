@@ -8,10 +8,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.chains.provider import ProviderChainSet
+from app.facts import ALLOWED_FACT_TOOLS
 
 from .checkpoint import Checkpoint, CheckpointStore, InMemoryCheckpointStore
 from .state import GraphState, Scope
-from .workflow import GRAPH, build_provider_graph, validate_scope
+from .workflow import (
+    GRAPH,
+    build_graph,
+    build_provider_graph,
+    phase_nodes,
+    validate_scope,
+)
 
 
 class LangGraphRagService:
@@ -37,9 +44,12 @@ class LangGraphRagService:
         validate_scope(scope)
         return self.checkpoint_store.resume(scope)
 
-    def _invoke(self, payload: GraphState) -> GraphState:
-        result = GRAPH.invoke(payload)
+    def _invoke(self, payload: GraphState, phase: str = "full") -> GraphState:
+        graph = GRAPH if phase == "full" else build_graph(phase)
+        result = graph.invoke(payload)
         result["scope"] = payload["scope"]
+        if "trace" in result:
+            result["trace"]["nodes"] = list(phase_nodes(phase))
         return result
 
     async def arun(
@@ -51,6 +61,7 @@ class LangGraphRagService:
         provider_chains: ProviderChainSet | None = None,
         cancel_event: Any | None = None,
         timeout_s: float | None = None,
+        phase: str = "full",
     ) -> GraphState:
         """Run the graph asynchronously for real LangChain Provider chains."""
         self._validate_query(query, response_purpose, scope)
@@ -66,9 +77,11 @@ class LangGraphRagService:
             payload["cancel_event"] = cancel_event
         if timeout_s is not None:
             payload["provider_timeout_s"] = timeout_s
-        graph = GRAPH if selected_chains is None else build_provider_graph(selected_chains)
+        graph = build_graph(phase) if selected_chains is None else build_provider_graph(selected_chains, phase)
         result = await graph.ainvoke(payload)
         result["scope"] = scope
+        if "trace" in result:
+            result["trace"]["nodes"] = list(phase_nodes(phase))
         return result
 
     async def arun_with_evidence(
@@ -82,6 +95,7 @@ class LangGraphRagService:
         provider_chains: ProviderChainSet | None = None,
         cancel_event: Any | None = None,
         timeout_s: float | None = None,
+        phase: str = "full",
     ) -> GraphState:
         """Run an async provider graph over Go-approved evidence."""
         self._validate_query(query, response_purpose, scope)
@@ -93,6 +107,7 @@ class LangGraphRagService:
             "scope": scope,
             "response_purpose": response_purpose,
             "seed_evidence": checked,
+            "evidence": checked,
             "facts": checked_facts,
             "is_mock": selected_chains is None,
             "business_date": self.business_date,
@@ -101,9 +116,11 @@ class LangGraphRagService:
             payload["cancel_event"] = cancel_event
         if timeout_s is not None:
             payload["provider_timeout_s"] = timeout_s
-        graph = GRAPH if selected_chains is None else build_provider_graph(selected_chains)
+        graph = build_graph(phase) if selected_chains is None else build_provider_graph(selected_chains, phase)
         result = await graph.ainvoke(payload)
         result["scope"] = scope
+        if "trace" in result:
+            result["trace"]["nodes"] = list(phase_nodes(phase))
         return result
 
     @staticmethod
@@ -114,7 +131,7 @@ class LangGraphRagService:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
 
-    def run(self, *, query: str, scope: Scope, response_purpose: str = "internal") -> GraphState:
+    def run(self, *, query: str, scope: Scope, response_purpose: str = "internal", phase: str = "full") -> GraphState:
         if self.provider_chains is not None:
             raise RuntimeError("provider-backed graph requires arun")
         self._validate_query(query, response_purpose, scope)
@@ -122,7 +139,7 @@ class LangGraphRagService:
             "query": query,
             "scope": scope,
             "response_purpose": response_purpose,
-        })
+        }, phase)
 
     @staticmethod
     def _validate_seed_evidence(scope: Scope, evidence: list[dict], response_purpose: str) -> list[dict]:
@@ -176,7 +193,6 @@ class LangGraphRagService:
         """
         if not isinstance(facts, list):
             raise PermissionError("facts must be a list")
-        allowed = {"get_stock", "get_price", "get_order_status", "compare_products"}
         checked: list[dict] = []
         for fact in facts:
             if not isinstance(fact, Mapping):
@@ -184,7 +200,7 @@ class LangGraphRagService:
             name = fact.get("tool_name")
             value = fact.get("value_json")
             observed = fact.get("observed_at")
-            if name not in allowed or not isinstance(value, str) or not value.strip() or not isinstance(observed, str):
+            if name not in ALLOWED_FACT_TOOLS or not isinstance(value, str) or not value.strip() or not isinstance(observed, str):
                 raise PermissionError("fact item is invalid")
             try:
                 parsed = json.loads(value)
@@ -204,7 +220,7 @@ class LangGraphRagService:
             })
         return checked
 
-    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], response_purpose: str = "internal") -> GraphState:
+    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], response_purpose: str = "internal", phase: str = "full") -> GraphState:
         """Render approved evidence without allowing the graph to widen it."""
         if self.provider_chains is not None:
             raise RuntimeError("provider-backed graph requires arun")
@@ -219,4 +235,5 @@ class LangGraphRagService:
             "scope": scope,
             "response_purpose": response_purpose,
             "seed_evidence": checked_evidence,
-        })
+            "evidence": checked_evidence,
+        }, phase)

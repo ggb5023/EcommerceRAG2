@@ -19,6 +19,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.facts import infer_fact_tools
+
 from .config import ProviderConfig
 from .contracts import (
     ControlResult,
@@ -757,11 +759,12 @@ class MockProvider:
         query = checked[-1]["content"]
         normalized = re.sub(r"[\s\u3000！？!?。；;，,、]+", "", query.lower())
         vague = normalized in {"这个呢", "那个怎么样", "它如何", "还有吗"}
+        tools = [] if vague else infer_fact_tools(query)
         structured = {
-            "intent": "clarification" if vague else "knowledge",
-            "information_source": "knowledge",
+            "intent": "clarification" if vague else "factual" if tools else "knowledge",
+            "information_source": "realtime_business" if tools else "knowledge",
             "rewritten_query": query,
-            "required_fact_tools": [],
+            "required_fact_tools": tools,
             "clarification": "请补充商品或具体问题。" if vague else "",
             "confidence": 0.2 if vague else 0.95,
         }

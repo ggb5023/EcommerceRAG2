@@ -10,20 +10,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableLambda
 
-
-def infer_fact_tools(query: str) -> list[str]:
-    """Map explicit factual request words to the Go-owned read-only tools."""
-    lowered = query.lower()
-    tools: list[str] = []
-    if any(word in lowered for word in ("价格", "多少钱", "price")):
-        tools.append("get_price")
-    if any(word in lowered for word in ("库存", "有货", "stock")):
-        tools.append("get_stock")
-    if any(word in lowered for word in ("订单", "物流状态", "order")):
-        tools.append("get_order_status")
-    if any(word in lowered for word in ("比较", "对比", "compare")):
-        tools.append("compare_products")
-    return tools
+from app.facts import infer_fact_tools
 
 
 def _understand(payload: dict[str, Any]) -> dict[str, Any]:

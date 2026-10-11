@@ -4,12 +4,14 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable, Mapping
+from itertools import pairwise
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from app.chains.fake import generation_chain, infer_fact_tools, understand_chain
 from app.chains.provider import ProviderChainSet
+from app.facts import ALLOWED_FACT_TOOLS
 
 from .fixtures import FIXTURE_CORPUS
 from .state import Evidence, GraphState, Scope
@@ -246,22 +248,36 @@ def generate_node(state: GraphState) -> dict:
     }
 
 
-def build_graph():
+def phase_nodes(phase: str) -> tuple[str, ...]:
+    paths = {
+        "full": ("understand", "retrieve", "fuse_rrf", "rerank", "context_gate", "generate"),
+        "understand": ("understand",),
+        "search": ("retrieve", "fuse_rrf", "rerank", "context_gate"),
+        "generate": ("context_gate", "generate"),
+    }
+    if phase not in paths:
+        raise ValueError("graph execution phase is invalid")
+    return paths[phase]
+
+
+def _compile_graph(nodes: Mapping[str, Any], phase: str):
+    path = phase_nodes(phase)
     graph = StateGraph(GraphState)
-    graph.add_node("understand", understand_node)
-    graph.add_node("retrieve", retrieve_node)
-    graph.add_node("fuse_rrf", fuse_rrf_node)
-    graph.add_node("rerank", rerank_node)
-    graph.add_node("context_gate", context_gate_node)
-    graph.add_node("generate", generate_node)
-    graph.add_edge(START, "understand")
-    graph.add_edge("understand", "retrieve")
-    graph.add_edge("retrieve", "fuse_rrf")
-    graph.add_edge("fuse_rrf", "rerank")
-    graph.add_edge("rerank", "context_gate")
-    graph.add_edge("context_gate", "generate")
-    graph.add_edge("generate", END)
+    for name in path:
+        graph.add_node(name, nodes[name])
+    graph.add_edge(START, path[0])
+    for previous, following in pairwise(path):
+        graph.add_edge(previous, following)
+    graph.add_edge(path[-1], END)
     return graph.compile()
+
+
+def build_graph(phase: str = "full"):
+    return _compile_graph({
+        "understand": understand_node, "retrieve": retrieve_node,
+        "fuse_rrf": fuse_rrf_node, "rerank": rerank_node,
+        "context_gate": context_gate_node, "generate": generate_node,
+    }, phase)
 
 
 GRAPH = build_graph()
@@ -271,8 +287,7 @@ def _checked_fact_tools(value: object) -> list[str]:
     """Keep model routing output inside the Go-owned read-only tool registry."""
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise TypeError("provider required_fact_tools is invalid")
-    allowed = {"get_stock", "get_price", "get_order_status", "compare_products"}
-    result = [item for item in value if item in allowed]
+    result = [item for item in value if item in ALLOWED_FACT_TOOLS]
     if len(result) != len(value) or len(set(result)) != len(result):
         raise ValueError("provider required_fact_tools contains an unknown or duplicate tool")
     return result
@@ -421,7 +436,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     }
 
 
-def build_provider_graph(chains: ProviderChainSet):
+def build_provider_graph(chains: ProviderChainSet, phase: str = "full"):
     """Compile an async graph using the LangChain Provider boundaries."""
     async def understand(state: GraphState) -> dict[str, Any]:
         return await provider_understand_node(state, chains)
@@ -435,18 +450,8 @@ def build_provider_graph(chains: ProviderChainSet):
     async def generate(state: GraphState) -> dict[str, Any]:
         return await provider_generate_node(state, chains)
 
-    graph = StateGraph(GraphState)
-    graph.add_node("understand", understand)
-    graph.add_node("retrieve", retrieve)
-    graph.add_node("fuse_rrf", fuse_rrf_node)
-    graph.add_node("rerank", rerank)
-    graph.add_node("context_gate", context_gate_node)
-    graph.add_node("generate", generate)
-    graph.add_edge(START, "understand")
-    graph.add_edge("understand", "retrieve")
-    graph.add_edge("retrieve", "fuse_rrf")
-    graph.add_edge("fuse_rrf", "rerank")
-    graph.add_edge("rerank", "context_gate")
-    graph.add_edge("context_gate", "generate")
-    graph.add_edge("generate", END)
-    return graph.compile()
+    return _compile_graph({
+        "understand": understand, "retrieve": retrieve,
+        "fuse_rrf": fuse_rrf_node, "rerank": rerank,
+        "context_gate": context_gate_node, "generate": generate,
+    }, phase)
