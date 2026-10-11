@@ -7,6 +7,7 @@
 - Python 负责 AI 工作流和 v2 摄取 job、item、version、chunk 的写入。
 - Go 与 Python 通过 gRPC/Protobuf 通信。FastAPI 仅提供内部健康、就绪和开发接口；浏览器不直接访问 FastAPI。
 - PostgreSQL/pgvector 与 Redis 提供共享持久化和协调能力。当前开发目标不部署本地模型。
+- Go 控制面可通过显式 `V2_FACTS_BASE_URL` 加载版本化 `facts.HTTPProvider`；未配置时事实查询 fail-closed。`go/cmd/facts-fake` 是 loopback 开发 fake，固定返回商品/库存/价格/订单/物流并带 mock、版本、观察时间和租户/店铺绑定。
 
 ## 工作区职责
 
