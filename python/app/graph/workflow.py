@@ -192,6 +192,13 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
 
 
 def fuse_rrf_node(state: GraphState) -> dict:
+    # Generate receives evidence that Go already authorized and persisted from
+    # Search.  It is a signed snapshot, not a new retrieval candidate set;
+    # changing its order or rank would make the returned citations differ from
+    # the canonical evidence and correctly fail the Go boundary check.
+    if state.get("seed_evidence") is not None:
+        return {"fused": [dict(item) for item in state.get("candidates", [])]}
+
     # Persistent retrieval supplies independent dense/trigram ranks. Fixture
     # retrieval has one bounded list, so both channels use its deterministic
     # rank while retaining the same RRF formula.
@@ -315,6 +322,11 @@ async def provider_rerank_node(state: GraphState, chains: ProviderChainSet) -> d
     fused = list(state.get("fused", []))
     if not fused:
         return {"evidence": []}
+    if state.get("seed_evidence") is not None:
+        return {
+            "evidence": [dict(item) for item in fused],
+            "provider_trace": {"retrieval": state.get("provider_trace", {}), "rerank": {"preserved_seed": True}},
+        }
     result = await chains.rerank.ainvoke({
         "query": state.get("rewritten_query", state["query"]),
         "candidates": [item["content"] for item in fused],

@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import math
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
@@ -60,6 +61,21 @@ def _cancelled(event: Any | None) -> bool:
         return False
     checker = getattr(event, "is_set", None)
     return bool(checker and checker())
+
+
+def _rerank_terms(value: str) -> set[str]:
+    """Tokenize Chinese and Latin text consistently for the offline reranker."""
+    terms: set[str] = set()
+    for run in re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]+", value.lower()):
+        if run.isascii():
+            terms.add(run)
+        else:
+            terms.update(
+                run[index:index + size]
+                for size in (2, 3, 4)
+                for index in range(len(run) - size + 1)
+            )
+    return terms
 
 
 class UrllibTransport:
@@ -739,10 +755,15 @@ class MockProvider:
             )
         checked = _messages(messages)
         query = checked[-1]["content"]
+        normalized = re.sub(r"[\s\u3000！？!?。；;，,、]+", "", query.lower())
+        vague = normalized in {"这个呢", "那个怎么样", "它如何", "还有吗"}
         structured = {
-            "intent": "knowledge",
+            "intent": "clarification" if vague else "knowledge",
             "information_source": "knowledge",
             "rewritten_query": query,
+            "required_fact_tools": [],
+            "clarification": "请补充商品或具体问题。" if vague else "",
+            "confidence": 0.2 if vague else 0.95,
         }
         return ControlResult(
             structured,
@@ -863,11 +884,11 @@ class MockProvider:
                 provider="mock",
                 slot="rerank",
             )
-        query_words = set(query.lower().split())
+        query_words = _rerank_terms(query)
         scored = sorted(
             (
                 (
-                    len(query_words & set(candidate.lower().split()))
+                    len(query_words & _rerank_terms(candidate))
                     / max(1, len(query_words)),
                     index,
                 )

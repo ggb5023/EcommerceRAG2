@@ -77,6 +77,23 @@ def test_provider_graph_is_async_and_remains_non_copyable():
     asyncio.run(_provider_graph_is_async_and_remains_non_copyable())
 
 
+def test_mock_provider_control_preserves_vague_query_clarification_contract():
+    async def run():
+        provider = mock_provider()
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+        )
+        result = await LangGraphRagService().arun(
+            query="那个怎么样？", scope=scope("v2-doc-bottle"),
+            response_purpose="customer_reply", provider_chains=chains,
+        )
+        assert result["intent"] == "clarification"
+        assert result["confidence"] < 0.5
+        assert result["clarification"]
+
+    asyncio.run(run())
+
+
 def test_provider_graph_calls_embedding_with_query_and_document_contracts():
     class RecordingProvider(MockProvider):
         def __init__(self, config):
@@ -116,6 +133,19 @@ def test_provider_graph_calls_embedding_with_query_and_document_contracts():
             ("query", 1024, "dense&sparse"),
             ("document", 1024, "dense&sparse"),
         ]
+
+    asyncio.run(run())
+
+
+def test_mock_reranker_scores_chinese_terms_instead_of_truncating_by_position():
+    async def run():
+        provider = mock_provider()
+        result = await provider.rerank(
+            "配送需要几个工作日？",
+            ["晴野收纳箱颜色和尺寸", "标准配送通常需要 2-5 个工作日"],
+            top_n=1,
+        )
+        assert result.items[0].index == 1
 
     asyncio.run(run())
 
@@ -161,6 +191,39 @@ def test_provider_graph_uses_persistent_retriever_without_fixture_candidates():
         assert result["trace"]["retrieval"]["retrieval"]["retrieval_mode"] == "pgvector_trigram_rrf"
         assert len(retriever.calls) == 1
         assert retriever.calls[0]["scope"]["allowed_document_ids"] == ["persist-doc"]
+
+    asyncio.run(run())
+
+
+def test_provider_generate_preserves_go_seed_evidence_order_and_fields():
+    async def run():
+        provider = mock_provider()
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+        )
+        evidence = [
+            {
+                "id": "seed-a", "content": "第一条已授权证据", "source_type": "postgres_chunk",
+                "source_ref": "db://seed/a", "document_id": "seed-a", "version_id": "version-a",
+                "tenant_id": "v2-demo-tenant", "shop_id": "shop-demo",
+                "disclosure_class": "external_allowed", "customer_eligible": True,
+                "rank": 1, "raw_score": 0.1,
+            },
+            {
+                "id": "seed-b", "content": "第二条已授权证据", "source_type": "postgres_chunk",
+                "source_ref": "db://seed/b", "document_id": "seed-b", "version_id": "version-b",
+                "tenant_id": "v2-demo-tenant", "shop_id": "shop-demo",
+                "disclosure_class": "external_allowed", "customer_eligible": True,
+                "rank": 2, "raw_score": 0.9,
+            },
+        ]
+        result = await LangGraphRagService().arun_with_evidence(
+            query="问题", scope=scope("seed-a", "seed-b"), evidence=evidence,
+            response_purpose="customer_reply", provider_chains=chains,
+        )
+        assert [item["id"] for item in result["citations"]] == ["seed-a", "seed-b"]
+        assert result["citations"] == evidence
+        assert result["answer"]
 
     asyncio.run(run())
 
