@@ -332,6 +332,16 @@ class IngestServiceStub:
                 request_serializer=rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleRequest.SerializeToString,
                 response_deserializer=rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleResponse.FromString,
                 _registered_method=True)
+        self.ExecuteCommand = channel.unary_unary(
+                '/rag.v1.IngestService/ExecuteCommand',
+                request_serializer=rag_dot_v1_dot_rag__pb2.ExecuteCommandRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.ExecuteCommandResponse.FromString,
+                _registered_method=True)
+        self.GetCommandResult = channel.unary_unary(
+                '/rag.v1.IngestService/GetCommandResult',
+                request_serializer=rag_dot_v1_dot_rag__pb2.GetCommandResultRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.GetCommandResultResponse.FromString,
+                _registered_method=True)
 
 
 class IngestServiceServicer:
@@ -374,6 +384,19 @@ class IngestServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ExecuteCommand(self, request, context):
+        """Go authorizes commands; Python exclusively changes ingestion state.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCommandResult(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_IngestServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -406,6 +429,16 @@ def add_IngestServiceServicer_to_server(servicer, server):
                     servicer.DeleteArtifactBundle,
                     request_deserializer=rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleRequest.FromString,
                     response_serializer=rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleResponse.SerializeToString,
+            ),
+            'ExecuteCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteCommand,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.ExecuteCommandRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.ExecuteCommandResponse.SerializeToString,
+            ),
+            'GetCommandResult': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCommandResult,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.GetCommandResultRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.GetCommandResultResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -570,6 +603,60 @@ class IngestService:
             '/rag.v1.IngestService/DeleteArtifactBundle',
             rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleRequest.SerializeToString,
             rag_dot_v1_dot_rag__pb2.DeleteArtifactBundleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExecuteCommand(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rag.v1.IngestService/ExecuteCommand',
+            rag_dot_v1_dot_rag__pb2.ExecuteCommandRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.ExecuteCommandResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCommandResult(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rag.v1.IngestService/GetCommandResult',
+            rag_dot_v1_dot_rag__pb2.GetCommandResultRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.GetCommandResultResponse.FromString,
             options,
             channel_credentials,
             insecure,

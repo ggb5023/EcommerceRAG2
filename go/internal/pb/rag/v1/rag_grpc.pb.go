@@ -326,6 +326,8 @@ const (
 	IngestService_ValidatePackage_FullMethodName      = "/rag.v1.IngestService/ValidatePackage"
 	IngestService_ParsePackage_FullMethodName         = "/rag.v1.IngestService/ParsePackage"
 	IngestService_DeleteArtifactBundle_FullMethodName = "/rag.v1.IngestService/DeleteArtifactBundle"
+	IngestService_ExecuteCommand_FullMethodName       = "/rag.v1.IngestService/ExecuteCommand"
+	IngestService_GetCommandResult_FullMethodName     = "/rag.v1.IngestService/GetCommandResult"
 )
 
 // IngestServiceClient is the client API for IngestService service.
@@ -339,6 +341,9 @@ type IngestServiceClient interface {
 	ParsePackage(ctx context.Context, in *ParsePackageRequest, opts ...grpc.CallOption) (*ParsePackageResponse, error)
 	// Internal synthetic-ingest cleanup after a database transaction rolls back.
 	DeleteArtifactBundle(ctx context.Context, in *DeleteArtifactBundleRequest, opts ...grpc.CallOption) (*DeleteArtifactBundleResponse, error)
+	// Go authorizes commands; Python exclusively changes ingestion state.
+	ExecuteCommand(ctx context.Context, in *ExecuteCommandRequest, opts ...grpc.CallOption) (*ExecuteCommandResponse, error)
+	GetCommandResult(ctx context.Context, in *GetCommandResultRequest, opts ...grpc.CallOption) (*GetCommandResultResponse, error)
 }
 
 type ingestServiceClient struct {
@@ -409,6 +414,26 @@ func (c *ingestServiceClient) DeleteArtifactBundle(ctx context.Context, in *Dele
 	return out, nil
 }
 
+func (c *ingestServiceClient) ExecuteCommand(ctx context.Context, in *ExecuteCommandRequest, opts ...grpc.CallOption) (*ExecuteCommandResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExecuteCommandResponse)
+	err := c.cc.Invoke(ctx, IngestService_ExecuteCommand_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ingestServiceClient) GetCommandResult(ctx context.Context, in *GetCommandResultRequest, opts ...grpc.CallOption) (*GetCommandResultResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCommandResultResponse)
+	err := c.cc.Invoke(ctx, IngestService_GetCommandResult_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IngestServiceServer is the server API for IngestService service.
 // All implementations must embed UnimplementedIngestServiceServer
 // for forward compatibility.
@@ -420,6 +445,9 @@ type IngestServiceServer interface {
 	ParsePackage(context.Context, *ParsePackageRequest) (*ParsePackageResponse, error)
 	// Internal synthetic-ingest cleanup after a database transaction rolls back.
 	DeleteArtifactBundle(context.Context, *DeleteArtifactBundleRequest) (*DeleteArtifactBundleResponse, error)
+	// Go authorizes commands; Python exclusively changes ingestion state.
+	ExecuteCommand(context.Context, *ExecuteCommandRequest) (*ExecuteCommandResponse, error)
+	GetCommandResult(context.Context, *GetCommandResultRequest) (*GetCommandResultResponse, error)
 	mustEmbedUnimplementedIngestServiceServer()
 }
 
@@ -447,6 +475,12 @@ func (UnimplementedIngestServiceServer) ParsePackage(context.Context, *ParsePack
 }
 func (UnimplementedIngestServiceServer) DeleteArtifactBundle(context.Context, *DeleteArtifactBundleRequest) (*DeleteArtifactBundleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteArtifactBundle not implemented")
+}
+func (UnimplementedIngestServiceServer) ExecuteCommand(context.Context, *ExecuteCommandRequest) (*ExecuteCommandResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExecuteCommand not implemented")
+}
+func (UnimplementedIngestServiceServer) GetCommandResult(context.Context, *GetCommandResultRequest) (*GetCommandResultResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCommandResult not implemented")
 }
 func (UnimplementedIngestServiceServer) mustEmbedUnimplementedIngestServiceServer() {}
 func (UnimplementedIngestServiceServer) testEmbeddedByValue()                       {}
@@ -577,6 +611,42 @@ func _IngestService_DeleteArtifactBundle_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IngestService_ExecuteCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).ExecuteCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_ExecuteCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).ExecuteCommand(ctx, req.(*ExecuteCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IngestService_GetCommandResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCommandResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IngestServiceServer).GetCommandResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IngestService_GetCommandResult_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IngestServiceServer).GetCommandResult(ctx, req.(*GetCommandResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IngestService_ServiceDesc is the grpc.ServiceDesc for IngestService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -607,6 +677,14 @@ var IngestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteArtifactBundle",
 			Handler:    _IngestService_DeleteArtifactBundle_Handler,
+		},
+		{
+			MethodName: "ExecuteCommand",
+			Handler:    _IngestService_ExecuteCommand_Handler,
+		},
+		{
+			MethodName: "GetCommandResult",
+			Handler:    _IngestService_GetCommandResult_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

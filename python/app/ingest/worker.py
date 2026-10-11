@@ -8,8 +8,10 @@ partial version or chunk set.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import math
 import os
 import shutil
 import threading
@@ -22,9 +24,13 @@ from uuid import uuid4
 import psycopg
 from psycopg.rows import dict_row
 
+from app.ingest.artifacts import build_ingestion_artifacts, store_artifact_bundle
 from app.ingest.database import IngestDatabase
+from app.ingest.object_journal import JournaledStore, cleanup_orphans
+from app.ingest.package_validation import MAX_CHUNKS, _inspect_package
 from app.ingest.pipeline import chunk_elements_v2, parser_for
-from app.ingest.service import MAX_CHUNKS, _inspect_package
+from app.ingest.runtime import load_artifact_store, load_embedding_provider
+from app.storage import ObjectStore
 from rag.v1 import rag_pb2
 
 
@@ -148,7 +154,11 @@ def parse_persisted_package(
                     "metadata": dict(chunk.metadata),
                 }
             )
-        parsed_documents.append({"spec": spec, "chunks": serialized_chunks})
+        parsed_documents.append({
+            "spec": spec, "chunks": serialized_chunks,
+            "artifacts": build_ingestion_artifacts(raw=by_path[spec["path"]], elements=elements,
+                chunks=chunks, parse_report={"parser_version": "local-parser-v2", "parse_status": "passed"}),
+        })
         dataset_rows.append(
             {
                 "document_id": spec["document_id"],
@@ -176,8 +186,12 @@ class IngestWorker:
         poll_seconds: float = 0.9,
         lease_seconds: int = 45,
         worker_id: str | None = None,
+        embedding_provider=None,
+        artifact_store: ObjectStore | None = None,
     ) -> None:
         self.database = database
+        self.embedding_provider = embedding_provider or load_embedding_provider()
+        self.artifact_store = artifact_store or load_artifact_store()
         self.poll_seconds = max(0.1, poll_seconds)
         self.lease_seconds = max(5, lease_seconds)
         self.worker_id = worker_id or f"python-ingest-{uuid4().hex}"
@@ -204,6 +218,7 @@ class IngestWorker:
         self._heartbeat("idle", started=started)
         while not external.is_set():
             try:
+                cleanup_orphans(self.artifact_store, self.database.conn_string)
                 claim = self._claim()
                 if claim is None:
                     self._heartbeat("idle", started=started)
@@ -358,6 +373,16 @@ class IngestWorker:
             )
             if lost_lease.is_set():
                 raise RuntimeError("ingest lease lost")
+            asyncio.run(self._embed(parsed, lost_lease))
+            journal = JournaledStore(self.artifact_store, self.database.conn_string, claim)
+            for document in parsed["documents"]:
+                bundle = store_artifact_bundle(journal, tenant_id=tenant_alias, shop_id=claim.shop_id,
+                    document_version_id=f"attempt-{uuid4().hex}", artifacts=document["artifacts"],
+                    parser_version="local-parser-v2", chunk_rule_version="structured-v2")
+                document["bundle"] = bundle.as_dict()
+                document["raw_key"] = next(r.object_key for r in bundle.records if r.artifact_type == "raw")
+            if lost_lease.is_set():
+                raise RuntimeError("ingest lease lost")
             self._publish_reviewable(claim, parsed, dataset_sha)
         except PackageValidationError as error:
             self._settle_failure(
@@ -371,6 +396,27 @@ class IngestWorker:
             stop_renew.set()
             renewer.join(timeout=2)
 
+    async def _embed(self, parsed, cancelled) -> None:
+        for document in parsed["documents"]:
+            chunks = document["chunks"]
+            for start in range(0, len(chunks), 16):
+                batch = chunks[start:start + 16]
+                results = await self.embedding_provider.embed(
+                    [c["content"] for c in batch], text_type="document", dimensions=1024,
+                    output_type="dense&sparse", cancel_event=cancelled)
+                if len(results) != len(batch):
+                    raise ValueError("embedding shape mismatch")
+                for chunk, result in zip(batch, results, strict=True):
+                    vector = result.dense
+                    if result.dimensions != 1024:
+                        raise ValueError("embedding shape mismatch")
+                    if len(vector) != 1024 or not all(math.isfinite(v) for v in vector) or not any(vector):
+                        raise ValueError("invalid embedding vector")
+                    chunk["embedding"] = "[" + ",".join(str(float(v)) for v in vector) + "]"
+                    if document.get("embedding_model", result.model) != result.model:
+                        raise ValueError("embedding model changed during ingestion")
+                    document["embedding_model"] = result.model
+
     def _renew_loop(
         self, claim: IngestClaim, stop: threading.Event, lost: threading.Event
     ) -> None:
@@ -383,7 +429,7 @@ class IngestWorker:
                     cursor.execute(
                         "UPDATE ingest_job SET lease_expires_at=now()+%s::interval,updated_at=now() "
                         "WHERE tenant_id=%s AND id=%s AND owner_token=%s AND fencing_epoch=%s "
-                        "AND status='running' AND NOT cancel_requested",
+                        "AND status='running' AND NOT cancel_requested AND lease_expires_at>now()",
                         (
                             f"{self.lease_seconds} seconds",
                             claim.tenant_id,
@@ -418,9 +464,10 @@ class IngestWorker:
             connection.transaction(),
             connection.cursor() as cursor,
         ):
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"knowledge:{claim.tenant_id}",))
             cursor.execute(
                 "SELECT cancel_requested FROM ingest_job WHERE tenant_id=%s AND id=%s "
-                "AND owner_token=%s AND fencing_epoch=%s FOR UPDATE",
+                "AND owner_token=%s AND fencing_epoch=%s AND lease_expires_at>now() FOR UPDATE",
                 (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
             )
             row = cursor.fetchone()
@@ -446,20 +493,22 @@ class IngestWorker:
                     "INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,"
                     "chunk_rule_version,embedding_model,pipeline_version,object_key,status,disclosure_class,"
                     "external_allowed,review_status,quality_json,chunk_count,fencing_epoch,source_manifest_id) "
-                    "VALUES(%s,%s,%s,'grpc-local-parser-v1','structured-v2','not_run',%s,%s,'ready',%s,false,"
+                    "VALUES(%s,%s,%s,'local-parser-v2','structured-v2',%s,%s,%s,'ready',%s,false,"
                     "'pending',%s::jsonb,%s,%s,%s) RETURNING id",
                     (
                         claim.tenant_id,
                         document_row[0],
                         spec["source_hash"],
+                        document["embedding_model"],
                         parsed["package"]["pipeline_version"],
-                        f"db://source_file/{claim.manifest_id}/{spec['path']}",
+                        document["raw_key"],
                         spec["disclosure_class"],
                         json.dumps(
                             {
                                 "parse_status": "passed",
-                                "embedding_status": "not_run",
-                                "index_mode": "deterministic_keyword",
+                                "embedding_status": "passed",
+                                "index_mode": "postgres_hybrid",
+                                "artifact_bundle": document["bundle"],
                                 "quality_gate": "passed",
                                 "chunk_count": len(document["chunks"]),
                                 "empty_chunk_count": 0,
@@ -489,8 +538,8 @@ class IngestWorker:
                         "INSERT INTO chunk(tenant_id,doc_id,version_id,shop_id,chunk_index,section_seq,"
                         "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
                         "content_type,split_reason,embedding_model,embedding_dim,tokenizer_id,effective_from,"
-                        "effective_to,meta_json,source_object_key,chunk_hash,lang) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-                        "'not_run',1024,'whitespace-v1',%s,%s,%s,%s,%s,'zh')",
+                        "effective_to,meta_json,source_object_key,chunk_hash,embedding,lang) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                        "%s,1024,'whitespace-v1',%s,%s,%s,%s,%s,%s::halfvec,'zh')",
                         (
                             claim.tenant_id,
                             document_row[0],
@@ -507,11 +556,13 @@ class IngestWorker:
                             chunk["token_count"],
                             chunk["content_type"],
                             chunk["split_reason"],
+                            document["embedding_model"],
                             spec["effective_from"] or None,
                             spec["effective_to"] or None,
                             json.dumps(metadata, ensure_ascii=False, sort_keys=True),
-                            f"db://source_file/{claim.manifest_id}/{spec['path']}",
+                            document["raw_key"],
                             chunk["chunk_hash"],
+                            chunk["embedding"],
                         ),
                     )
                 cursor.execute(
@@ -544,6 +595,11 @@ class IngestWorker:
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("ingest item owner release was fenced")
+            cursor.execute(
+                "UPDATE ingest_artifact_object SET status='retained',updated_at=now() "
+                "WHERE tenant_id=%s AND job_id=%s AND owner_token=%s AND fencing_epoch=%s AND status='stored'",
+                (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
+            )
             # source_manifest is an immutable submission record.  The parsed
             # dataset identity belongs to the job result, so only ingest_job
             # receives the derived hash below.  This also keeps the worker
@@ -570,7 +626,7 @@ class IngestWorker:
             if cursor.rowcount != 1:
                 raise RuntimeError("ingest job owner release was fenced")
             cursor.execute(
-                "INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,"
+                "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
                 "content_hash,fencing_epoch,reason,result,metadata_json) VALUES(%s,%s,'ingestion.parsed',"
                 "'ingest_job',%s,%s,%s,'Python worker produced reviewable versions','success',%s::jsonb)",
                 (
@@ -669,14 +725,8 @@ class IngestWorker:
             psycopg.connect(self.database.conn_string) as connection,
             connection.cursor() as cursor,
         ):
-            cursor.execute("SELECT name FROM tenant WHERE id=%s", (tenant_pk,))
+            cursor.execute("SELECT external_id FROM tenant WHERE id=%s", (tenant_pk,))
             row = cursor.fetchone()
-        aliases = {
-            "V2 LangGraph fixture tenant": "v2-demo-tenant",
-            "M1 isolated prototype": "m1-tenant",
-            "Synthetic ecommerce demo v1": "demo-tenant-a",
-            "Synthetic ecommerce tenant b": "demo-tenant-b",
-        }
-        if row is None or row[0] not in aliases:
+        if row is None or not row[0]:
             raise PackageValidationError("tenant identity is invalid")
-        return aliases[row[0]]
+        return row[0]

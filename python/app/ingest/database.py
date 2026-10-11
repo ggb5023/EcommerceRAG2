@@ -52,16 +52,6 @@ def package_payload_hash(
     return digest.hexdigest()
 
 
-def _tenant_alias(name: str) -> str:
-    aliases = {
-        "V2 LangGraph fixture tenant": "v2-demo-tenant",
-        "M1 isolated prototype": "m1-tenant",
-        "Synthetic ecommerce demo v1": "demo-tenant-a",
-        "Synthetic ecommerce tenant b": "demo-tenant-b",
-    }
-    return aliases.get(name, "")
-
-
 class IngestDatabase:
     """Small synchronous psycopg adapter used by gRPC and the worker."""
 
@@ -73,8 +63,6 @@ class IngestDatabase:
     @classmethod
     def from_env(cls) -> IngestDatabase | None:
         value = os.environ.get("V2_INGEST_DSN", "").strip()
-        if not value:
-            value = os.environ.get("V2_RETRIEVER_DSN", "").strip()
         return cls(value) if value else None
 
     def verify_schema(self) -> None:
@@ -91,7 +79,9 @@ class IngestDatabase:
             "document",
             "document_version",
             "chunk",
-            "admin_audit",
+            "ingest_event",
+            "ingest_artifact_object",
+            "ingest_command_result",
             "schema_migration",
         }
         with (
@@ -105,10 +95,10 @@ class IngestDatabase:
             )
             found = {row[0] for row in cursor.fetchall()}
             cursor.execute(
-                "SELECT version FROM schema_migration WHERE version IN ('0010','0013')"
+                "SELECT version FROM schema_migration WHERE version IN ('0010','0013','0022','0023')"
             )
             migrations = {row[0] for row in cursor.fetchall()}
-        if not required.issubset(found) or not {"0010", "0013"}.issubset(migrations):
+        if not required.issubset(found) or not {"0010", "0013", "0022", "0023"}.issubset(migrations):
             raise RuntimeError("v2 ingestion schema migration is incomplete")
 
     @staticmethod
@@ -120,6 +110,7 @@ class IngestDatabase:
         shop_id: str,
         tenant_db_id: str,
         user_db_id: str,
+        permission_revision: str,
     ) -> tuple[int, int]:
         try:
             tenant_pk = int(tenant_db_id)
@@ -129,7 +120,7 @@ class IngestDatabase:
         if tenant_pk < 1 or user_pk < 1 or not tenant_id or not user_id or not shop_id:
             raise IngestAuthorizationError("ingestion identity is incomplete")
         cursor.execute(
-            "SELECT t.name, t.status, u.external_id, u.revoked_at, s.status "
+            "SELECT t.external_id, t.status, u.external_id, u.revoked_at, s.status, u.permission_revision, u.shop_ids, u.role "
             "FROM tenant t JOIN app_user u ON u.tenant_id=t.id "
             "JOIN shop s ON s.tenant_id=t.id "
             "WHERE t.id=%s AND u.id=%s AND s.id=%s",
@@ -138,27 +129,22 @@ class IngestDatabase:
         row = cursor.fetchone()
         if row is None:
             raise IngestAuthorizationError("identity is outside the requested shop")
-        tenant_name, tenant_status, external_id, revoked_at, shop_status = row
+        tenant_name, tenant_status, external_id, revoked_at, shop_status, revision, shops, role = row
         if (
             tenant_status != "active"
             or shop_status != "active"
             or revoked_at is not None
-            or _tenant_alias(str(tenant_name)) != tenant_id
+            or str(tenant_name) != tenant_id
             or str(external_id) != user_id
+            or revision != permission_revision or shop_id not in shops
         ):
             raise IngestAuthorizationError(
                 "identity is not active for the requested scope"
             )
-        cursor.execute(
-            "SELECT EXISTS(SELECT 1 FROM admin_role_grant g "
-            "WHERE g.tenant_id=%s AND g.user_id=%s AND g.role='merchant_admin' "
-            "AND g.status='active' AND (g.scope_kind='tenant' OR g.shop_ids @> ARRAY[%s]::text[]))",
-            (tenant_pk, user_pk, shop_id),
-        )
+        cursor.execute("SELECT ecr_lock_ingest_scope(%s,%s,%s,%s,%s,%s,%s,%s)",
+                       (tenant_pk, user_pk, tenant_id, user_id, shop_id, role, permission_revision, "merchant_admin"))
         if not cursor.fetchone()[0]:
-            raise IngestAuthorizationError(
-                "submitter has no active shop management scope"
-            )
+            raise IngestAuthorizationError("submitter scope changed")
         return tenant_pk, user_pk
 
     def submit(
@@ -169,6 +155,7 @@ class IngestDatabase:
         shop_id: str,
         tenant_db_id: str,
         user_db_id: str,
+        permission_revision: str,
         idempotency_key: str,
         source_id: str,
         source_name: str,
@@ -186,6 +173,7 @@ class IngestDatabase:
             connection.transaction(),
             connection.cursor() as cursor,
         ):
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"knowledge:{int(tenant_db_id)}",))
             tenant_pk, user_pk = self._validate_scope(
                 cursor,
                 tenant_id=tenant_id,
@@ -193,6 +181,7 @@ class IngestDatabase:
                 shop_id=shop_id,
                 tenant_db_id=tenant_db_id,
                 user_db_id=user_db_id,
+                permission_revision=permission_revision,
             )
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
@@ -345,7 +334,7 @@ class IngestDatabase:
                         )
                 item_count += 1
             cursor.execute(
-                "INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,"
+                "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
                 "content_hash,reason,result,metadata_json) VALUES(%s,%s,'ingestion.queued','ingest_job',%s,%s,%s,'success',%s::jsonb)",
                 (
                     tenant_pk,
@@ -368,14 +357,14 @@ class IngestDatabase:
                 job_id, "pending", manifest_sha256, package_sha256, item_count
             )
 
-    def get_status(self, *, tenant_db_id: int, job_id: int) -> dict[str, Any] | None:
+    def get_status(self, *, tenant_db_id: int, job_id: int, shop_id: str) -> dict[str, Any] | None:
         with (
             psycopg.connect(self.conn_string, row_factory=dict_row) as connection,
             connection.cursor() as cursor,
         ):
             cursor.execute(
-                "SELECT id,status,stage,error_code FROM ingest_job WHERE tenant_id=%s AND id=%s",
-                (tenant_db_id, job_id),
+                "SELECT j.id,j.status,j.stage,j.error_code FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id WHERE j.tenant_id=%s AND j.id=%s AND s.shop_id=%s",
+                (tenant_db_id, job_id, shop_id),
             )
             return cursor.fetchone()
 

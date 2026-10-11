@@ -24,6 +24,11 @@ message RequestContext {
   string conversation_id = 15;
   string turn_id = 16;
   string execution_id = 17;
+  // Bind administrative calls to an audience and an immutable command payload.
+  string scope_audience = 18;
+  string command_id = 19;
+  string command_action = 20;
+  string command_payload_sha256 = 21;
 }
 message Evidence {
   string id = 1;
@@ -160,6 +165,9 @@ service IngestService {
   rpc ParsePackage(ParsePackageRequest) returns (ParsePackageResponse);
   // Internal synthetic-ingest cleanup after a database transaction rolls back.
   rpc DeleteArtifactBundle(DeleteArtifactBundleRequest) returns (DeleteArtifactBundleResponse);
+  // Go authorizes commands; Python exclusively changes ingestion state.
+  rpc ExecuteCommand(ExecuteCommandRequest) returns (ExecuteCommandResponse);
+  rpc GetCommandResult(GetCommandResultRequest) returns (GetCommandResultResponse);
 }
 enum JobStatus {
   JOB_STATUS_UNSPECIFIED = 0;
@@ -168,6 +176,46 @@ enum JobStatus {
   JOB_STATUS_DONE = 3;
   JOB_STATUS_FAILED = 4;
   JOB_STATUS_CANCELLED = 5;
+  JOB_STATUS_AWAITING_REVIEW = 6;
+}
+enum IngestCommandAction {
+  INGEST_COMMAND_ACTION_UNSPECIFIED = 0;
+  INGEST_COMMAND_ACTION_REVIEW = 1;
+  INGEST_COMMAND_ACTION_PUBLISH = 2;
+  INGEST_COMMAND_ACTION_ROLLBACK = 3;
+  INGEST_COMMAND_ACTION_REVOKE = 4;
+  INGEST_COMMAND_ACTION_RETRY = 5;
+  INGEST_COMMAND_ACTION_CANCEL = 6;
+}
+message ExecuteCommandRequest {
+  RequestContext context = 1;
+  string command_id = 2;
+  IngestCommandAction action = 3;
+  // Version id for version commands; job id for retry/cancel.
+  string resource_id = 4;
+  string expected_hash = 5;
+  int64 expected_fencing_epoch = 6;
+  string reason = 7;
+  string review_decision = 8;
+  string disclosure_class = 9;
+  bool external_allowed = 10;
+}
+message IngestCommandResult {
+  string command_id = 1;
+  string resource_id = 2;
+  string status = 3;
+  string review_status = 4;
+  string reviewed_hash = 5;
+  int64 fencing_epoch = 6;
+  bool idempotent = 7;
+  string error_code = 8;
+  string error_message = 9;
+}
+message ExecuteCommandResponse { IngestCommandResult result = 1; }
+message GetCommandResultResponse { IngestCommandResult result = 1; }
+message GetCommandResultRequest {
+  RequestContext context = 1;
+  string command_id = 2;
 }
 message SubmitRequest {
   RequestContext context = 1;
