@@ -126,7 +126,7 @@ func TestLocalFakeHandlerReturnsVersionedOwnedFactsAndFaults(t *testing.T) {
 	server := httptest.NewServer(NewFakeHandler("2026-10", ""))
 	defer server.Close()
 	fact, err := (HTTPProvider{BaseURL: server.URL, Version: "2026-10"}).Lookup(context.Background(), "get_logistics", &ragv1.RequestContext{TenantId: "v2-demo-tenant", UserId: "dev-user", ShopId: "shop-demo", AllowedShopIds: []string{"shop-demo"}})
-	if err != nil || fact == nil || fact.ToolName != "get_logistics" {
+	if err != nil || fact == nil || fact.ToolName != "get_logistics" || fact.ObservedAt != fakeObservedAt {
 		t.Fatalf("local logistics fake failed: fact=%#v err=%v", fact, err)
 	}
 	faultServer := httptest.NewServer(NewFakeHandler("2026-10", "rate_limited"))

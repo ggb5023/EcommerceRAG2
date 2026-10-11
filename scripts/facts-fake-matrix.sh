@@ -69,7 +69,7 @@ assert payload["shop_id"] == "shop-demo"
 assert payload["tool_name"] == "get_stock"
 assert payload["is_mock"] is True
 assert payload["value_json"]["available"] == 12
-assert payload["observed_at"]
+assert payload["observed_at"] == "2026-10-12T00:00:00Z"
 PY
 # The request above intentionally uses the valid scope; exercise revocation as
 # an ownership failure with a different shop header.

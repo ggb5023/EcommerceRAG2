@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const fakeObservedAt = "2026-10-12T00:00:00Z"
+
 // NewFakeHandler returns a deterministic, versioned merchant API for local
 // acceptance. It is deliberately separate from the production adapter and
 // supports explicit fault injection through FACTS_FAKE_FAULT.
@@ -73,7 +75,7 @@ func NewFakeHandler(version, fault string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		payload := map[string]any{"version": version, "tenant_id": tenant, "shop_id": shop, "tool_name": tool, "value_json": value, "observed_at": time.Now().UTC().Format(time.RFC3339), "is_mock": true}
+		payload := map[string]any{"version": version, "tenant_id": tenant, "shop_id": shop, "tool_name": tool, "value_json": value, "observed_at": fakeObservedAt, "is_mock": true}
 		if fault == "wrong_owner" {
 			payload["shop_id"] = "other-shop"
 		}
