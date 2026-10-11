@@ -1,4 +1,4 @@
-package main
+package gateway
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"io"
 	"log"
 	"net"
@@ -37,18 +40,7 @@ func isMockProfile(profile string) bool {
 	return profile != "v2_langchain_bailian"
 }
 
-type mockSession struct {
-	tenantID           int64
-	userID             int64
-	tenant             string
-	user               string
-	shop               string
-	allowedShops       []string
-	allShops           bool
-	role               string
-	permissionRevision string
-	revokedAt          *time.Time
-}
+type mockSession = auth.Session
 
 // IdentityAdapter is the boundary between the gateway and identity data.
 // The M1 implementation is deliberately synthetic; a future OIDC adapter can
@@ -57,118 +49,39 @@ type IdentityAdapter interface {
 	Resolve(context.Context) (mockSession, error)
 }
 
-type syntheticIdentityAdapter struct {
-	db       *pgxpool.Pool
-	userID   string
-	shopID   string
-	allShops bool
-}
+type developmentIdentityAdapter struct{ db *pgxpool.Pool }
 
-func (a syntheticIdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
-	userID := a.userID
-	if userID == "" {
-		userID = "demo-agent-east"
-	}
+func (a developmentIdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
 	var session mockSession
-	err := a.db.QueryRow(ctx, `
-		SELECT t.id, u.id,
-		       CASE t.name
-		           WHEN 'Synthetic ecommerce demo v1' THEN 'demo-tenant-a'
-		           WHEN 'Synthetic ecommerce tenant b' THEN 'demo-tenant-b'
-		           ELSE ''
-		       END,
-		       u.external_id, u.role,
-		       COALESCE(u.shop_ids,ARRAY[]::text[]), u.permission_revision, u.revoked_at
-		FROM tenant t JOIN app_user u ON u.tenant_id=t.id
-		WHERE t.name IN ('Synthetic ecommerce demo v1','Synthetic ecommerce tenant b')
-		  AND t.status='active' AND u.external_id=$1
-		ORDER BY t.id DESC LIMIT 1`, userID).Scan(
-		&session.tenantID, &session.userID, &session.tenant, &session.user,
-		&session.role, &session.allowedShops, &session.permissionRevision, &session.revokedAt)
+	tenant, user := os.Getenv("V2_IDENTITY_TENANT"), os.Getenv("V2_IDENTITY_USER")
+	if tenant == "" || user == "" {
+		return session, errors.New("explicit development identity is required")
+	}
+	err := a.db.QueryRow(ctx, `SELECT t.id,u.id,t.external_id,u.external_id,u.Role,COALESCE(u.shop_ids,ARRAY[]::text[]),u.permission_revision,u.revoked_at
+        FROM tenant t JOIN app_user u ON u.tenant_id=t.id WHERE t.external_id=$1 AND u.external_id=$2 AND t.status='active'`, tenant, user).Scan(&session.TenantID, &session.UserID, &session.Tenant, &session.User, &session.Role, &session.AllowedShops, &session.PermissionRevision, &session.RevokedAt)
 	if err != nil {
-		return mockSession{}, err
+		return session, err
 	}
-	session.allShops = a.allShops
-	session.shop = a.shopID
-	if session.shop == "" && len(session.allowedShops) > 0 {
-		// M1 keeps one selected shop in the session. The complete authorized
-		// shop list remains available for a future explicit shop selector.
-		session.shop = session.allowedShops[0]
+	session.Shop = os.Getenv("V2_IDENTITY_SHOP")
+	if session.Shop == "" && len(session.AllowedShops) > 0 {
+		session.Shop = session.AllowedShops[0]
 	}
-	return session, nil
-}
-
-type m1IdentityAdapter struct {
-	db *pgxpool.Pool
-}
-
-func (a m1IdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
-	var session mockSession
-	err := a.db.QueryRow(ctx, `
-		SELECT t.id, u.id, 'm1-tenant', 'm1-user', 'shop-demo', 'operator'
-		FROM tenant t JOIN app_user u ON u.tenant_id=t.id
-		JOIN shop s ON s.tenant_id=t.id AND s.id='shop-demo'
-		WHERE t.name='M1 isolated prototype' AND t.status='active'
-		  AND u.external_id='m1-user' AND u.role='operator' AND s.status='active'
-		ORDER BY t.id DESC LIMIT 1`).Scan(
-		&session.tenantID, &session.userID, &session.tenant, &session.user,
-		&session.shop, &session.role)
-	if err != nil {
-		return mockSession{}, err
-	}
-	session.allowedShops = []string{session.shop}
-	return session, nil
-}
-
-// v2FixtureIdentityAdapter is an isolated development identity used only by
-// the v2 profile.  It keeps the v2 tenant/document scope separate from the
-// historical M1 fixture so the Go HTTP path can exercise the same signed
-// scope that the Python v2 graph expects.  It is not an OIDC implementation.
-type v2FixtureIdentityAdapter struct {
-	db *pgxpool.Pool
-}
-
-func (a v2FixtureIdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
-	var session mockSession
-	err := a.db.QueryRow(ctx, `
-		SELECT t.id, u.id, 'v2-demo-tenant', u.external_id, u.role,
-		       COALESCE(u.shop_ids,ARRAY[]::text[]), u.permission_revision, u.revoked_at
-		FROM tenant t JOIN app_user u ON u.tenant_id=t.id
-		WHERE t.name='V2 LangGraph fixture tenant' AND t.status='active'
-		  AND u.external_id='dev-user'
-		ORDER BY t.id DESC LIMIT 1`).Scan(
-		&session.tenantID, &session.userID, &session.tenant, &session.user,
-		&session.role, &session.allowedShops, &session.permissionRevision, &session.revokedAt)
-	if err != nil {
-		return mockSession{}, err
-	}
-	if len(session.allowedShops) != 1 || session.allowedShops[0] != "shop-demo" {
-		return mockSession{}, errors.New("v2 fixture identity has an invalid shop grant")
-	}
-	session.shop = "shop-demo"
 	return session, nil
 }
 
 type gateway struct {
-	db              *pgxpool.Pool
-	rag             ragv1.RagServiceClient
-	ingest          ragv1.IngestServiceClient
-	facts           FactProvider
-	grpcConn        *grpc.ClientConn
-	session         mockSession
-	signingKey      []byte
-	profile         string
-	mu              sync.Mutex
-	revisionMu      sync.RWMutex
-	adminIndexMu    sync.RWMutex
-	adminIndexReady atomic.Bool
-	// adminIndexFingerprint is protected by adminIndexMu. It lets separate
-	// gateway processes notice a publish/rollback made by another process
-	// without sharing the Python process or treating a stale local index as
-	// authoritative.
-	adminIndexFingerprint string
-	ready                 atomic.Bool
-	cancels               map[string]context.CancelFunc
+	db         *pgxpool.Pool
+	rag        ragv1.RagServiceClient
+	ingest     ragv1.IngestServiceClient
+	facts      facts.Provider
+	grpcConn   *grpc.ClientConn
+	session    mockSession
+	signingKey []byte
+	profile    string
+	mu         sync.Mutex
+	revisionMu sync.RWMutex
+	ready      atomic.Bool
+	cancels    map[string]context.CancelFunc
 }
 
 type apiError struct {
@@ -180,136 +93,81 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 	if g.db == nil { // unit tests construct a handler-only gateway
 		return true
 	}
-	if err := g.refreshAuthorization(r.Context()); err != nil {
+	if err := g.authority().Refresh(r.Context()); err != nil {
 		code := http.StatusForbidden
 		if status.Code(err) == codes.Unavailable {
 			code = http.StatusServiceUnavailable
 		}
-		writeError(w, code, authorizationFailureCode(err), "authorization failed")
+		writeError(w, code, auth.FailureCode(err), "authorization failed")
 		return false
 	}
 	return true
 }
 
-func main() {
+func Main() {
 	if os.Getenv("APP_ENV") != "development" && os.Getenv("APP_ENV") != "test" {
-		log.Fatal("APP_ENV must be development or test for the mock-session gateway")
+		log.Fatal("an identity adapter is required; development/test adapter is explicit")
 	}
-	dsn := os.Getenv("DATABASE_URL")
-	ragAddr := os.Getenv("RAG_GRPC_ADDR")
-	if (dsn == "" && (os.Getenv("PGHOST") == "" || os.Getenv("PGDATABASE") == "" || os.Getenv("PGUSER") == "")) || ragAddr == "" {
-		log.Fatal("DATABASE_URL or PGHOST/PGDATABASE/PGUSER, and RAG_GRPC_ADDR are required")
+	profile := os.Getenv("RAG_PROFILE")
+	if !isV2Profile(profile) {
+		log.Fatal("an explicit V2 RAG_PROFILE is required")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dsn, ragAddr, ingestAddr := os.Getenv("V2_GATEWAY_DSN"), os.Getenv("V2_GRPC_ADDR"), os.Getenv("V2_INGEST_GRPC_ADDR")
+	if dsn == "" || ragAddr == "" || ingestAddr == "" {
+		log.Fatal("explicit Gateway database, AI RPC and ingestion RPC configurations are required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
-		log.Fatalf("open database pool: %v", err)
+		log.Fatal("database pool configuration failed")
 	}
-	if err = db.Ping(ctx); err != nil {
-		log.Fatalf("ping database: %v", err)
-	}
-	var databaseName string
+	defer db.Close()
+	var database, role string
 	var superuser bool
-	if err = db.QueryRow(ctx, `SELECT current_database(),rolsuper FROM pg_roles WHERE rolname=current_user`).Scan(&databaseName, &superuser); err != nil || superuser || !strings.Contains(databaseName, "m1_test") {
-		log.Fatal("mock gateway requires a non-superuser in an isolated m1_test database")
+	if err = db.QueryRow(ctx, `SELECT current_database(),current_user,rolsuper FROM pg_roles WHERE rolname=current_user`).Scan(&database, &role, &superuser); err != nil || superuser || role != "rag_v2_gateway" || !strings.Contains(database, "v2") {
+		log.Fatal("Gateway requires its restricted role and independent V2 database")
 	}
-	syntheticMode := os.Getenv("SYNTHETIC_MANIFEST") != ""
-	profile := os.Getenv("RAG_PROFILE")
-	if profile == "" {
-		if syntheticMode {
-			profile = "synthetic_import_mock"
-		} else {
-			profile = "m1_fixture_mock"
-		}
-	}
-	if profile != "synthetic_import_mock" && profile != "m1_fixture_mock" && !isV2Profile(profile) {
-		log.Fatal("RAG_PROFILE is not supported")
-	}
-	if (profile == "synthetic_import_mock") != syntheticMode || (isV2Profile(profile) && syntheticMode) {
-		log.Fatal("RAG_PROFILE and manifest must select a consistent mock profile")
-	}
-	var identity IdentityAdapter
-	if syntheticMode {
-		identity = syntheticIdentityAdapter{
-			db: db, userID: os.Getenv("SYNTHETIC_USER_ID"),
-			shopID:   os.Getenv("SYNTHETIC_SHOP_ID"),
-			allShops: os.Getenv("SYNTHETIC_ALL_SHOPS") == "1",
-		}
-	} else if isV2Profile(profile) {
-		identity = v2FixtureIdentityAdapter{db: db}
-	} else {
-		identity = m1IdentityAdapter{db: db}
-	}
+	identity := developmentIdentityAdapter{db: db}
 	session, err := identity.Resolve(ctx)
 	if err != nil {
-		if syntheticMode {
-			log.Fatalf("load synthetic mock session (apply synthetic seed first): %v", err)
-		}
-		log.Fatalf("load mock session (apply migrations first): %v", err)
-	}
-	if err = db.QueryRow(ctx, `SELECT permission_revision FROM app_user WHERE tenant_id=$1 AND id=$2`, session.tenantID, session.userID).Scan(&session.permissionRevision); err != nil {
-		if !syntheticMode {
-			log.Fatalf("load permission revision: %v", err)
-		}
+		log.Fatal("development identity unavailable")
 	}
 	conn, err := grpc.NewClient(ragAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("connect RAG service: %v", err)
+		log.Fatal("AI RPC configuration failed")
 	}
-	g := &gateway{profile: profile, db: db, rag: ragv1.NewRagServiceClient(conn), facts: unavailableFactProvider{},
-		ingest: ragv1.NewIngestServiceClient(conn), grpcConn: conn, session: session, cancels: map[string]context.CancelFunc{}}
-	seedCtx, seedCancel := context.WithTimeout(context.Background(), 20*time.Second)
-	if !syntheticMode && !isV2Profile(profile) {
-		fixture, imported, fixtureErr := g.importM1Fixture(seedCtx)
-		if fixtureErr != nil {
-			seedCancel()
-			log.Fatalf("import M1 markdown fixture: %v", fixtureErr)
-		}
-		if err = g.registerM1Resources(seedCtx); err != nil {
-			log.Fatal("register compiled M1 resources failed")
-		}
-		log.Printf("M1 fixture %s version %s imported=%t", fixture.documentID, fixture.versionID, imported)
-	} else {
-		log.Printf("synthetic manifest mode enabled: %s", os.Getenv("SYNTHETIC_MANIFEST"))
-	}
-	seedCancel()
-	// Fixture registration can change the permission revision. Resolve afterwards.
-	g.session, err = identity.Resolve(context.Background())
+	defer conn.Close()
+	ingestConn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatal("resolve identity after fixture registration failed")
+		log.Fatal("ingest RPC configuration failed")
 	}
-	if err = db.QueryRow(context.Background(), `SELECT permission_revision FROM app_user WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, g.session.userID).Scan(&g.session.permissionRevision); err != nil {
-		log.Fatal("read current permission revision failed")
-	}
-	g.signingKey, err = loadScopeSigningKey()
+	defer ingestConn.Close()
+	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: facts.UnavailableProvider{}, cancels: map[string]context.CancelFunc{}}
+	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
 	}
-	mux := g.routes()
+	if err = g.authority().Refresh(ctx); err != nil {
+		log.Fatal("identity scope rejected")
+	}
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
-	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: addr, Handler: g.Routes(), ReadHeaderTimeout: 5 * time.Second}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("listen on gateway address: %v", err)
-	}
-	serveResult := make(chan error, 1)
-	go func() { serveResult <- server.Serve(listener) }()
-	if syntheticMode {
-		if err = g.loadActiveAdminIndexes(context.Background()); err != nil {
-			log.Fatalf("could not restore published synthetic document index: %v", err)
-		}
-		go g.runAdminIngestWorker(context.Background())
+		log.Fatal("Gateway bind failed")
 	}
 	g.ready.Store(true)
-	log.Printf("mock gateway listening on %s", addr)
-	log.Fatal(<-serveResult)
+	log.Printf("V2 Gateway listening on %s", addr)
+	if err = server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal("Gateway stopped unexpectedly")
+	}
 }
 
-func (g *gateway) routes() http.Handler {
+func (g *gateway) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", g.health)
 	mux.HandleFunc("POST /internal/authorization/validate", g.validateScopeHTTP)
@@ -319,14 +177,13 @@ func (g *gateway) routes() http.Handler {
 	mux.HandleFunc("GET /v1/conversations/{id}", g.getConversation)
 	mux.HandleFunc("POST /v1/conversations/{id}/turns", g.createTurn)
 	mux.HandleFunc("POST /v1/turns/{id}/resume", g.resumeTurn)
-	mux.HandleFunc("POST /v1/dev/fixtures/import", g.importFixtureRoute)
 	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
 	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
-	g.registerAdminRoutes(mux)
+	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey}).RegisterRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if g.db != nil && r.URL.Path != "/internal/authorization/validate" && !g.ready.Load() {
-			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is restoring its published index")
+			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
 		}
 		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" && !g.authorizeHTTP(w, r) {
@@ -341,25 +198,25 @@ func (g *gateway) health(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "database unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "component": "gateway", "stage": "m1"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "component": "gateway", "stage": "v2"})
 }
 
 func (g *gateway) getSession(w http.ResponseWriter, _ *http.Request) {
 	if g.db != nil {
-		if err := g.refreshAuthorization(context.Background()); err != nil {
+		if err := g.authority().Refresh(context.Background()); err != nil {
 			statusCode := http.StatusForbidden
 			if status.Code(err) == codes.Unavailable {
 				statusCode = http.StatusServiceUnavailable
 			}
-			writeError(w, statusCode, authorizationFailureCode(err), "authorization failed")
+			writeError(w, statusCode, auth.FailureCode(err), "authorization failed")
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tenantId": g.session.tenant, "userId": g.session.user, "role": g.session.role,
-		"shopId": g.session.shop, "shopName": g.session.shop, "displayName": g.session.user, "profile": g.profile,
-		"allowedShopIds": g.session.allowedShops, "allShops": g.session.allShops,
-		"permission_revision": g.currentPermissionRevision(),
+		"tenantId": g.session.Tenant, "userId": g.session.User, "role": g.session.Role,
+		"shopId": g.session.Shop, "shopName": g.session.Shop, "displayName": g.session.User, "profile": g.profile,
+		"allowedShopIds": g.session.AllowedShops, "allShops": g.session.AllShops,
+		"permission_revision": g.authority().CurrentRevision(),
 		"is_mock":             isMockProfile(g.profile),
 	})
 }
@@ -369,7 +226,7 @@ func (g *gateway) listConversations(w http.ResponseWriter, r *http.Request) {
 		FROM conversation c WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3
         AND NOT EXISTS(SELECT 1 FROM turn t JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
 			WHERE t.tenant_id=c.tenant_id AND t.conversation_id=c.id AND e.permission_revision IS DISTINCT FROM $4)
-		ORDER BY created_at DESC LIMIT 100`, g.session.tenantID, g.session.userID, g.session.shop, g.currentPermissionRevision())
+		ORDER BY created_at DESC LIMIT 100`, g.session.TenantID, g.session.UserID, g.session.Shop, g.authority().CurrentRevision())
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not load conversations")
 		return
@@ -391,8 +248,8 @@ func (g *gateway) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "database_unavailable", "could not load conversations")
 		return
 	}
-	if err := g.refreshAuthorization(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), authorizationFailureCode(err), "authorization failed")
+	if err := g.authority().Refresh(r.Context()); err != nil {
+		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -410,7 +267,7 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_json", "invalid request body")
 		return
 	}
-	if in.ShopID != "" && in.ShopID != g.session.shop {
+	if in.ShopID != "" && in.ShopID != g.session.Shop {
 		writeError(w, 403, "forbidden", "shop is outside the current session")
 		return
 	}
@@ -419,13 +276,13 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	var id int64
 	err := g.db.QueryRow(r.Context(), `INSERT INTO conversation(tenant_id,user_id,shop_id,title)
-		VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, g.session.tenantID, g.session.userID,
-		g.session.shop, in.Title).Scan(&id)
+		VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, g.session.TenantID, g.session.UserID,
+		g.session.Shop, in.Title).Scan(&id)
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not create conversation")
 		return
 	}
-	writeJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "title": in.Title, "shop_id": g.session.shop, "messages": []any{}})
+	writeJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "title": in.Title, "shop_id": g.session.Shop, "messages": []any{}})
 }
 
 func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
@@ -437,7 +294,7 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	var title string
 	err = g.db.QueryRow(r.Context(), `SELECT COALESCE(title,'') FROM conversation
 		WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND id=$4`,
-		g.session.tenantID, g.session.userID, g.session.shop, id).Scan(&title)
+		g.session.TenantID, g.session.UserID, g.session.Shop, id).Scan(&title)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "not_found", "conversation not found")
 		return
@@ -449,9 +306,9 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	if !g.authorizeConversationHistory(w, r, id) {
 		return
 	}
-	rows, err := g.db.Query(r.Context(), `SELECT m.role, COALESCE(m.content,''), t.request_id,t.id,COALESCE((SELECT MAX(e.execution_no) FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id),1)
+	rows, err := g.db.Query(r.Context(), `SELECT m.Role, COALESCE(m.content,''), t.request_id,t.id,COALESCE((SELECT MAX(e.execution_no) FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id),1)
 		FROM turn t JOIN message m ON m.tenant_id=t.tenant_id AND m.turn_id=t.id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no,m.created_at`, g.session.tenantID, id)
+		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no,m.created_at`, g.session.TenantID, id)
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not load messages")
 		return
@@ -475,7 +332,7 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 	var latestRequest string
 	err = g.db.QueryRow(r.Context(), `SELECT e.request_id FROM turn t JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no DESC,e.execution_no DESC LIMIT 1`, g.session.tenantID, id).Scan(&latestRequest)
+		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no DESC,e.execution_no DESC LIMIT 1`, g.session.TenantID, id).Scan(&latestRequest)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 503, "database_unavailable", "could not load execution")
 		return
@@ -493,8 +350,8 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 		result["lastReply"] = last["answer"]
 		result["lastReplyCopyable"] = false
 	}
-	if err := g.refreshAuthorization(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), authorizationFailureCode(err), "authorization failed")
+	if err := g.authority().Refresh(r.Context()); err != nil {
+		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
 	writeJSON(w, 200, result)
@@ -531,26 +388,6 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "idempotency_key_required", "Idempotency-Key is required")
 		return
 	}
-	readIndexLock := false
-	lockTransferred := false
-	if g.profile == "synthetic_import_mock" {
-		if err := g.ensureAdminIndexReady(r.Context()); err != nil {
-			writeError(w, 503, "published_index_unavailable", "published knowledge index is unavailable")
-			return
-		}
-		g.adminIndexMu.RLock()
-		if !g.adminIndexReady.Load() {
-			g.adminIndexMu.RUnlock()
-			writeError(w, 503, "published_index_unavailable", "published knowledge index is unavailable")
-			return
-		}
-		readIndexLock = true
-	}
-	defer func() {
-		if readIndexLock && !lockTransferred {
-			g.adminIndexMu.RUnlock()
-		}
-	}()
 	canonicalPayload, _ := json.Marshal(map[string]string{"query": query, "parent_turn_id": strings.TrimSpace(in.ParentTurnID)})
 	hash := sha256.Sum256(canonicalPayload)
 	payloadHash := hex.EncodeToString(hash[:])
@@ -563,7 +400,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	var shopID string
 	err = tx.QueryRow(r.Context(), `SELECT shop_id FROM conversation
 		WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`,
-		g.session.tenantID, g.session.userID, conversationID).Scan(&shopID)
+		g.session.TenantID, g.session.UserID, conversationID).Scan(&shopID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "not_found", "conversation not found")
 		return
@@ -572,7 +409,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "database_unavailable", "could not lock conversation")
 		return
 	}
-	if shopID != g.session.shop {
+	if shopID != g.session.Shop {
 		writeError(w, 403, "forbidden", "shop is outside the current session")
 		return
 	}
@@ -586,7 +423,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		parentID, err = strconv.ParseInt(strings.TrimSpace(in.ParentTurnID), 10, 64)
 		if err != nil {
 			err = tx.QueryRow(r.Context(), `SELECT id FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND request_id=$3`,
-				g.session.tenantID, conversationID, strings.TrimSpace(in.ParentTurnID)).Scan(&parentID)
+				g.session.TenantID, conversationID, strings.TrimSpace(in.ParentTurnID)).Scan(&parentID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, 400, "invalid_parent_turn", "parent turn is invalid")
 				return
@@ -594,7 +431,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		}
 		var parentStatus string
 		err = tx.QueryRow(r.Context(), `SELECT status FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`,
-			g.session.tenantID, conversationID, parentID).Scan(&parentStatus)
+			g.session.TenantID, conversationID, parentID).Scan(&parentStatus)
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, 404, "parent_turn_not_found", "parent turn not found")
 			return
@@ -609,7 +446,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		}
 		err = tx.QueryRow(r.Context(), `SELECT e.id FROM conversation_execution e
 			WHERE e.tenant_id=$1 AND e.turn_id=$2 ORDER BY e.execution_no DESC LIMIT 1`,
-			g.session.tenantID, parentID).Scan(&parentExecutionID)
+			g.session.TenantID, parentID).Scan(&parentExecutionID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
 			return
@@ -629,7 +466,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 			AND ((i.execution_id IS NOT NULL AND e.id=i.execution_id)
 				OR (i.execution_id IS NULL AND e.execution_no=1))
 		WHERE i.tenant_id=$1 AND i.conversation_id=$2 AND i.idempotency_key=$3`,
-		g.session.tenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
+		g.session.TenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
 	if err == nil {
 		if oldHash != payloadHash {
 			writeError(w, 409, "idempotency_conflict", "idempotency key was used with a different query")
@@ -646,7 +483,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	var active bool
 	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM turn WHERE tenant_id=$1
 		AND conversation_id=$2 AND status IN ('PENDING','EXECUTING','CANCEL_REQUESTED'))`,
-		g.session.tenantID, conversationID).Scan(&active)
+		g.session.TenantID, conversationID).Scan(&active)
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not check active turn")
 		return
@@ -658,24 +495,24 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	requestID := newRequestID()
 	var turnID, turnNo, executionID int64
 	err = tx.QueryRow(r.Context(), `SELECT COALESCE(MAX(turn_no),0)+1 FROM turn
-		WHERE tenant_id=$1 AND conversation_id=$2`, g.session.tenantID, conversationID).Scan(&turnNo)
+		WHERE tenant_id=$1 AND conversation_id=$2`, g.session.TenantID, conversationID).Scan(&turnNo)
 	if err == nil {
 		err = tx.QueryRow(r.Context(), `INSERT INTO turn(tenant_id,conversation_id,turn_no,request_id,user_query,status,parent_turn_id)
-			VALUES($1,$2,$3,$4,$5,'EXECUTING',$6) RETURNING id`, g.session.tenantID,
+			VALUES($1,$2,$3,$4,$5,'EXECUTING',$6) RETURNING id`, g.session.TenantID,
 			conversationID, turnNo, requestID, query, parentTurnID).Scan(&turnID)
 	}
 	deadline := time.Now().Add(turnTimeout)
 	if err == nil {
 		err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
 			VALUES($1,$2,1,$3,'EXECUTING',$6,$4,$5) RETURNING id`,
-			g.session.tenantID, turnID, requestID, deadline, g.currentPermissionRevision(), isMockProfile(g.profile)).Scan(&executionID)
+			g.session.TenantID, turnID, requestID, deadline, g.authority().CurrentRevision(), isMockProfile(g.profile)).Scan(&executionID)
 	}
 	if err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
-			VALUES($1,$2,$3,$4,$5,$6)`, g.session.tenantID, conversationID, key, payloadHash, turnID, executionID)
+			VALUES($1,$2,$3,$4,$5,$6)`, g.session.TenantID, conversationID, key, payloadHash, turnID, executionID)
 	}
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.tenantID, turnID, query)
+		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
 	}
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not persist turn")
@@ -686,15 +523,12 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = g.db.Exec(r.Context(), `UPDATE conversation SET title=CASE WHEN title IS NULL OR title IN ('','新会话') THEN $3 ELSE title END
-		WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, conversationID, first24(query))
+		WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, conversationID, first24(query))
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	g.mu.Lock()
 	g.cancels[requestID] = cancel
 	g.mu.Unlock()
 	go func() {
-		if readIndexLock {
-			defer g.adminIndexMu.RUnlock()
-		}
 		var parentID, parentExecution int64
 		if parentTurnID != nil {
 			parentID = *parentTurnID
@@ -702,7 +536,6 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		}
 		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, parentID, parentExecution, 1)
 	}()
-	lockTransferred = readIndexLock
 	writeJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
 		"turn_id": strconv.FormatInt(turnID, 10), "execution_no": 1, "conversation_id": strconv.FormatInt(conversationID, 10),
 		"is_mock": isMockProfile(g.profile), "events_url": "/v1/turns/" + requestID + "/events"})
@@ -715,8 +548,8 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	if !g.requireWriteRole(w) {
 		return
 	}
-	if err := g.refreshAuthorization(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), authorizationFailureCode(err), "authorization failed")
+	if err := g.authority().Refresh(r.Context()); err != nil {
+		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
 	if !isV2Profile(g.profile) {
@@ -764,7 +597,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(r.Context(), `SELECT t.conversation_id,c.shop_id,t.status
 		FROM turn t JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
 		WHERE t.tenant_id=$1 AND t.id=$2 AND c.user_id=$3 FOR UPDATE OF t,c`,
-		g.session.tenantID, turnID, g.session.userID).Scan(&conversationID, &shopID, &turnStatus)
+		g.session.TenantID, turnID, g.session.UserID).Scan(&conversationID, &shopID, &turnStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "turn not found")
 		return
@@ -773,7 +606,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not lock turn")
 		return
 	}
-	if shopID != g.session.shop {
+	if shopID != g.session.Shop {
 		writeError(w, http.StatusForbidden, "forbidden", "turn is outside the current session")
 		return
 	}
@@ -788,7 +621,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY e.execution_no ASC LIMIT 1))
 		FROM turn_idempotency
 		WHERE tenant_id=$1 AND conversation_id=$2 AND idempotency_key=$3`,
-		g.session.tenantID, conversationID, storageKey).Scan(&oldHash, &oldTurnID, &oldExecutionID)
+		g.session.TenantID, conversationID, storageKey).Scan(&oldHash, &oldTurnID, &oldExecutionID)
 	if err == nil {
 		if oldHash != payloadHash || oldTurnID != turnID {
 			writeError(w, http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different resume")
@@ -797,7 +630,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		var oldRequest, oldStatus string
 		var oldExecutionNo int64
 		err = tx.QueryRow(r.Context(), `SELECT request_id,status,execution_no FROM conversation_execution
-			WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, oldExecutionID).Scan(&oldRequest, &oldStatus, &oldExecutionNo)
+			WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, oldExecutionID).Scan(&oldRequest, &oldStatus, &oldExecutionNo)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load resumed execution")
 			return
@@ -819,7 +652,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	var askingExecutionNo int64
 	err = tx.QueryRow(r.Context(), `SELECT id,execution_no FROM conversation_execution
 		WHERE tenant_id=$1 AND turn_id=$2 AND status='ASKING'
-		ORDER BY execution_no DESC LIMIT 1 FOR UPDATE`, g.session.tenantID, turnID).Scan(&askingExecutionID, &askingExecutionNo)
+		ORDER BY execution_no DESC LIMIT 1 FOR UPDATE`, g.session.TenantID, turnID).Scan(&askingExecutionID, &askingExecutionNo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusConflict, "parent_checkpoint_missing", "turn has no pending checkpoint execution")
 		return
@@ -834,16 +667,16 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	var executionID int64
 	err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
 			VALUES($1,$2,$3,$4,'EXECUTING',$7,$5,$6) RETURNING id`,
-		g.session.tenantID, turnID, executionNo, requestID, deadline, g.currentPermissionRevision(), isMockProfile(g.profile)).Scan(&executionID)
+		g.session.TenantID, turnID, executionNo, requestID, deadline, g.authority().CurrentRevision(), isMockProfile(g.profile)).Scan(&executionID)
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, turnID)
+		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID)
 	}
 	if err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
-			VALUES($1,$2,$3,$4,$5,$6)`, g.session.tenantID, conversationID, storageKey, payloadHash, turnID, executionID)
+			VALUES($1,$2,$3,$4,$5,$6)`, g.session.TenantID, conversationID, storageKey, payloadHash, turnID, executionID)
 	}
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.tenantID, turnID, query)
+		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
 	}
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not persist resume")
@@ -867,10 +700,10 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
-	rows, err := g.db.Query(ctx, `SELECT m.role, COALESCE(m.content,'')
+	rows, err := g.db.Query(ctx, `SELECT m.Role, COALESCE(m.content,'')
 		FROM message m JOIN turn t ON t.tenant_id=m.tenant_id AND t.id=m.turn_id
 		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4)
-		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, g.session.tenantID, conversationID, currentTurnID, g.currentPermissionRevision())
+		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, g.session.TenantID, conversationID, currentTurnID, g.authority().CurrentRevision())
 	if err != nil {
 		return ""
 	}
@@ -911,7 +744,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		_, err = g.db.Exec(context.Background(), `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json)
 			VALUES($1,$2,(SELECT COALESCE(MAX(sequence),0)+1 FROM sse_event WHERE tenant_id=$1 AND execution_id=$2),$3,$4::jsonb)`,
-			g.session.tenantID, executionID, kind, string(body))
+			g.session.TenantID, executionID, kind, string(body))
 		return err
 	}
 	finish := func(state, code, answer string) {
@@ -924,7 +757,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		defer tx.Rollback(finishCtx)
 		var current string
-		err = tx.QueryRow(finishCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.tenantID, executionID).Scan(&current)
+		err = tx.QueryRow(finishCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current)
 		if err != nil || terminal(current) {
 			return
 		}
@@ -939,19 +772,19 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		answerSum := sha256.Sum256([]byte(answer))
 		_, err = tx.Exec(finishCtx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,finished_at=now()
-			WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, executionID, state, code, answer, hex.EncodeToString(answerSum[:]))
+			WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID, state, code, answer, hex.EncodeToString(answerSum[:]))
 		if err == nil {
-			_, err = tx.Exec(finishCtx, `UPDATE turn SET status=$3,answer=$4 WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, turnID, state, answer)
+			_, err = tx.Exec(finishCtx, `UPDATE turn SET status=$3,answer=$4 WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID, state, answer)
 		}
 		if state == "DONE" && err == nil {
-			_, err = tx.Exec(finishCtx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, g.session.tenantID, turnID, answer)
+			_, err = tx.Exec(finishCtx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, g.session.TenantID, turnID, answer)
 			if err == nil {
 				blockedReason := "provider_not_approved"
 				if mockOutput {
 					blockedReason = "mock"
 				}
 				_, err = tx.Exec(finishCtx, `INSERT INTO customer_reply(tenant_id,execution_id,text_plain,is_mock,can_copy,blocked_reason)
-				VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=false,blocked_reason=EXCLUDED.blocked_reason`, g.session.tenantID, executionID, answer, mockOutput, blockedReason)
+				VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=false,blocked_reason=EXCLUDED.blocked_reason`, g.session.TenantID, executionID, answer, mockOutput, blockedReason)
 			}
 		}
 		appendEvent := func(kind string, object map[string]any) {
@@ -969,7 +802,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				err = marshalErr
 				return
 			}
-			_, err = tx.Exec(finishCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.tenantID, executionID, eventSequence, kind, string(body))
+			_, err = tx.Exec(finishCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.TenantID, executionID, eventSequence, kind, string(body))
 		}
 		if state != "DONE" && state != "ASKING" {
 			appendEvent("error", map[string]any{"type": "error", "code": code, "message": code})
@@ -988,8 +821,8 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			finish(state, code, "")
 			return false
 		}
-		if err := g.refreshAuthorization(ctx); err != nil {
-			finish("FAILED", authorizationFailureCode(err), "")
+		if err := g.authority().Refresh(ctx); err != nil {
+			finish("FAILED", auth.FailureCode(err), "")
 			return false
 		}
 		return true
@@ -998,15 +831,15 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		return
 	}
 	_ = writeEvent("status", map[string]any{"type": "status", "status": "EXECUTING", "is_mock": mockOutput})
-	base, err := g.issueScopeForTurn(ctx, requestID, conversationID, turnID, executionID)
+	base, err := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, turnID, executionID)
 	if err != nil {
-		finish("FAILED", authorizationFailureCode(err), "")
+		finish("FAILED", auth.FailureCode(err), "")
 		return
 	}
 	if parentTurnID != 0 && isV2Profile(g.profile) {
-		parentScope, scopeErr := g.issueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
+		parentScope, scopeErr := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
 		if scopeErr != nil {
-			finish("FAILED", authorizationFailureCode(scopeErr), "")
+			finish("FAILED", auth.FailureCode(scopeErr), "")
 			return
 		}
 		resumed, resumeErr := g.rag.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{
@@ -1030,18 +863,18 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(state, code, "")
 		return
 	}
-	facts, factErr := lookupFacts(ctx, g.facts, base, routed.RequiredFactTools)
+	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools)
 	if factErr != nil {
 		for _, toolName := range routed.RequiredFactTools {
 			_, _ = g.db.Exec(context.Background(), `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-				VALUES($1,$2,$3,$4,true)`, g.session.tenantID, requestID, toolName, factFailureCode(factErr))
+				VALUES($1,$2,$3,$4,true)`, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr))
 		}
-		finish("FAILED", factFailureCode(factErr), "")
+		finish("FAILED", facts.FailureCode(factErr), "")
 		return
 	}
-	for _, fact := range facts {
+	for _, fact := range factResults {
 		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-			VALUES($1,$2,$3,'ok',false)`, g.session.tenantID, requestID, fact.ToolName)
+			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
 	}
 	if routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5 {
 		if !ensureAuthorized() {
@@ -1102,9 +935,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			return
 		}
 		for _, item := range part.Evidence {
-			allowed, authErr := g.evidenceAllowed(ctx, item)
+			allowed, authErr := g.authority().EvidenceAllowed(ctx, item)
 			if authErr != nil {
-				finish("FAILED", authorizationFailureCode(authErr), "")
+				finish("FAILED", auth.FailureCode(authErr), "")
 				return
 			}
 			if !allowed || item.DisclosureClass != "external_allowed" || !item.CustomerEligible {
@@ -1122,7 +955,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		if _, err = g.db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,execution_id,evidence_id) DO NOTHING`,
-			g.session.tenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
+			g.session.TenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
 			item.Content, item.DisclosureClass, item.CustomerEligible, i+1, item.ShopId); err != nil {
 			finish("FAILED", "persistence_failed", "")
 			return
@@ -1135,7 +968,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureAuthorized() {
 		return
 	}
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: facts, ResponsePurpose: "customer_reply"})
+	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"})
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
@@ -1173,9 +1006,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				return
 			}
 		case *ragv1.GenerateResponse_Citation:
-			allowed, authErr := g.evidenceAllowed(ctx, value.Citation)
+			allowed, authErr := g.authority().EvidenceAllowed(ctx, value.Citation)
 			if authErr != nil {
-				finish("FAILED", authorizationFailureCode(authErr), "")
+				finish("FAILED", auth.FailureCode(authErr), "")
 				return
 			}
 			canonical := false
@@ -1191,7 +1024,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			}
 			if value.Citation.DisclosureClass == "external_allowed" && value.Citation.CustomerEligible {
 				_, _ = g.db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
-					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.tenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
+					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.TenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
 			}
 		case *ragv1.GenerateResponse_IsMock:
 			sawProfileMarker = true
@@ -1226,29 +1059,6 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 }
 
-func authorizationFailureCode(err error) string {
-	switch status.Code(err) {
-	case codes.PermissionDenied:
-		if strings.Contains(err.Error(), "identity_revoked") {
-			return "identity_revoked"
-		}
-		if strings.Contains(err.Error(), "permission_changed") {
-			return "permission_changed"
-		}
-		if strings.Contains(err.Error(), "shop_not_authorized") {
-			return "shop_not_authorized"
-		}
-		if strings.Contains(err.Error(), "no_shop_authorized") {
-			return "no_shop_authorized"
-		}
-		return "permission_denied"
-	case codes.Unavailable:
-		return "authorization_unavailable"
-	default:
-		return "authorization_failed"
-	}
-}
-
 // authorizationCacheKey is the stable shape required for any future result
 // cache. Callers must provide a hash for query/resource inputs; the current M1
 // gateway does not enable an application result cache. Permission revisions
@@ -1270,8 +1080,8 @@ func (g *gateway) getTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "database_unavailable", "could not load execution")
 		return
 	}
-	if err = g.refreshAuthorization(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), authorizationFailureCode(err), "authorization failed")
+	if err = g.authority().Refresh(r.Context()); err != nil {
+		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
 	writeJSON(w, 200, result)
@@ -1288,7 +1098,7 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
 		JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
 		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4`,
-		g.session.tenantID, requestID, g.session.userID, g.session.shop).Scan(&executionID, &deadline)
+		g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&executionID, &deadline)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "not_found", "turn not found")
 		return
@@ -1308,16 +1118,16 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if err := g.refreshAuthorization(r.Context()); err != nil {
+		if err := g.authority().Refresh(r.Context()); err != nil {
 			if flusher != nil {
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": authorizationFailureCode(err), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(err)})
+				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(err), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(err)})
 				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
 				flusher.Flush()
 			}
 			return
 		}
 		rows, queryErr := g.db.Query(r.Context(), `SELECT sequence,event_type,data_json::text FROM sse_event
-			WHERE tenant_id=$1 AND execution_id=$2 AND sequence>$3 ORDER BY sequence`, g.session.tenantID, executionID, lastID)
+			WHERE tenant_id=$1 AND execution_id=$2 AND sequence>$3 ORDER BY sequence`, g.session.TenantID, executionID, lastID)
 		if queryErr != nil {
 			return
 		}
@@ -1329,9 +1139,9 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 				rows.Close()
 				return
 			}
-			if authErr := g.refreshAuthorization(r.Context()); authErr != nil {
+			if authErr := g.authority().Refresh(r.Context()); authErr != nil {
 				rows.Close()
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": authorizationFailureCode(authErr), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(authErr)})
+				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(authErr), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(authErr)})
 				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
 				if flusher != nil {
 					flusher.Flush()
@@ -1346,7 +1156,7 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 		var state string
-		if err := g.db.QueryRow(r.Context(), `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, executionID).Scan(&state); err != nil {
+		if err := g.db.QueryRow(r.Context(), `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID).Scan(&state); err != nil {
 			return
 		}
 		if terminal(state) && count == 0 {
@@ -1387,7 +1197,7 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 	var executionID, turnID int64
 	err = tx.QueryRow(r.Context(), `SELECT e.status,e.id,e.turn_id FROM conversation_execution e
 		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`, g.session.tenantID, requestID, g.session.userID, g.session.shop).Scan(&state, &executionID, &turnID)
+		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`, g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&state, &executionID, &turnID)
 	if err != nil {
 		writeError(w, 503, "database_unavailable", "could not cancel turn")
 		return
@@ -1396,9 +1206,9 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"request_id": requestID, "status": state})
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE conversation_execution SET cancel_requested=true,status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, executionID)
+	_, err = tx.Exec(r.Context(), `UPDATE conversation_execution SET cancel_requested=true,status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID)
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, turnID)
+		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID)
 	}
 	if err == nil {
 		err = tx.Commit(r.Context())
@@ -1447,7 +1257,7 @@ func toEvidence(items []*ragv1.Evidence) []map[string]any {
 	return out
 }
 
-func newRequestID() string { return fmt.Sprintf("m1-%d", time.Now().UnixNano()) }
+func newRequestID() string { return fmt.Sprintf("v2-%d", time.Now().UnixNano()) }
 func terminal(state string) bool {
 	switch state {
 	case "DONE", "FAILED", "CANCELLED", "ASKING":

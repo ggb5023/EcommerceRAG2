@@ -1,7 +1,8 @@
-package main
+package gateway
 
 import (
 	"context"
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,12 +13,12 @@ import (
 )
 
 func TestSessionIgnoresClientAuthorizationHeaders(t *testing.T) {
-	g := &gateway{session: mockSession{tenant: "m1-tenant", user: "m1-user", shop: "shop-demo", role: "operator"}}
+	g := &gateway{session: mockSession{Tenant: "m1-tenant", User: "m1-user", Shop: "shop-demo", Role: "operator"}}
 	req := httptest.NewRequest(http.MethodGet, "/v1/session", nil)
 	req.Header.Set("X-Tenant-ID", "attacker-tenant")
 	req.Header.Set("X-Shop-ID", "attacker-shop")
 	response := httptest.NewRecorder()
-	g.routes().ServeHTTP(response, req)
+	g.Routes().ServeHTTP(response, req)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
@@ -74,14 +75,14 @@ func TestAuthorizationFailureCodes(t *testing.T) {
 		{status.Error(codes.Unavailable, "authorization_unavailable"), "authorization_unavailable"},
 	}
 	for _, tc := range cases {
-		if got := authorizationFailureCode(tc.err); got != tc.want {
-			t.Errorf("authorizationFailureCode(%v) = %q, want %q", tc.err, got, tc.want)
+		if got := auth.FailureCode(tc.err); got != tc.want {
+			t.Errorf("auth.FailureCode(%v) = %q, want %q", tc.err, got, tc.want)
 		}
 	}
 }
 
 func TestViewerCannotWrite(t *testing.T) {
-	g := &gateway{session: mockSession{role: "viewer"}}
+	g := &gateway{session: mockSession{Role: "viewer"}}
 	response := httptest.NewRecorder()
 	if g.requireWriteRole(response) {
 		t.Fatal("viewer was allowed to write")

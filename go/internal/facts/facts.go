@@ -1,4 +1,4 @@
-package main
+package facts
 
 import (
 	"context"
@@ -10,20 +10,20 @@ import (
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
 
-var errFactToolNotAllowed = errors.New("fact tool is not allowlisted")
-var errFactProviderUnavailable = errors.New("fact provider is unavailable")
+var ErrToolNotAllowed = errors.New("fact tool is not allowlisted")
+var ErrUnavailable = errors.New("fact provider is unavailable")
 
-// FactProvider is deliberately owned by the Go control plane.  A provider
+// Provider is deliberately owned by the Go control plane.  A provider
 // implementation may call a read-only platform adapter, but Python never gets
 // a tool name or credentials that Go has not approved.
-type FactProvider interface {
+type Provider interface {
 	Lookup(context.Context, string, *ragv1.RequestContext) (*ragv1.Fact, error)
 }
 
-type unavailableFactProvider struct{}
+type UnavailableProvider struct{}
 
-func (unavailableFactProvider) Lookup(context.Context, string, *ragv1.RequestContext) (*ragv1.Fact, error) {
-	return nil, errFactProviderUnavailable
+func (UnavailableProvider) Lookup(context.Context, string, *ragv1.RequestContext) (*ragv1.Fact, error) {
+	return nil, ErrUnavailable
 }
 
 var allowedFactTools = map[string]struct{}{
@@ -33,11 +33,11 @@ var allowedFactTools = map[string]struct{}{
 	"compare_products": {},
 }
 
-func validateFactToolNames(names []string) error {
+func ValidateNames(names []string) error {
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		if _, ok := allowedFactTools[name]; !ok {
-			return fmt.Errorf("%w: %s", errFactToolNotAllowed, name)
+			return fmt.Errorf("%w: %s", ErrToolNotAllowed, name)
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return fmt.Errorf("fact tool is duplicated: %s", name)
@@ -47,26 +47,26 @@ func validateFactToolNames(names []string) error {
 	return nil
 }
 
-func factFailureCode(err error) string {
+func FailureCode(err error) string {
 	switch {
-	case errors.Is(err, errFactToolNotAllowed):
+	case errors.Is(err, ErrToolNotAllowed):
 		return "fact_tool_not_allowed"
-	case errors.Is(err, errFactProviderUnavailable):
+	case errors.Is(err, ErrUnavailable):
 		return "fact_provider_unavailable"
 	default:
 		return "fact_tool_failed"
 	}
 }
 
-func lookupFacts(ctx context.Context, provider FactProvider, scope *ragv1.RequestContext, names []string) ([]*ragv1.Fact, error) {
-	if err := validateFactToolNames(names); err != nil {
+func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext, names []string) ([]*ragv1.Fact, error) {
+	if err := ValidateNames(names); err != nil {
 		return nil, err
 	}
 	if len(names) == 0 {
 		return nil, nil
 	}
 	if provider == nil {
-		return nil, errFactProviderUnavailable
+		return nil, ErrUnavailable
 	}
 	result := make([]*ragv1.Fact, 0, len(names))
 	for _, name := range names {

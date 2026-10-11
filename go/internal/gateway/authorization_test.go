@@ -1,8 +1,9 @@
-package main
+package gateway
 
 import (
 	"context"
 	"encoding/hex"
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ import (
 func TestSignedScopeRejectsEnlargementAndExpiredScope(t *testing.T) {
 	g := &gateway{signingKey: []byte("synthetic-test-key-with-32-bytes!!")}
 	original := &ragv1.RequestContext{RequestId: "signed-test", TenantId: "tenant-a", UserId: "user-a", Role: "operator", AllowedShopIds: []string{"east"}, AllowedDocumentIds: []string{"doc-a"}, PermissionRevision: "auth-v1", EnforceDocumentScope: true, ScopeExpiresAt: time.Now().Add(time.Minute).Unix(), ConversationId: "conversation-1", TurnId: "turn-1", ExecutionId: "execution-1"}
-	original.ScopeSignature = hex.EncodeToString(scopeMAC(g.signingKey, original))
+	original.ScopeSignature = hex.EncodeToString(auth.MAC(g.signingKey, original))
 	cases := []func(*ragv1.RequestContext){
 		func(s *ragv1.RequestContext) { s.AllowedDocumentIds = append(s.AllowedDocumentIds, "doc-secret") },
 		func(s *ragv1.RequestContext) { s.AllowedShopIds = append(s.AllowedShopIds, "west") },
@@ -28,13 +29,13 @@ func TestSignedScopeRejectsEnlargementAndExpiredScope(t *testing.T) {
 		func(s *ragv1.RequestContext) { s.TurnId = "turn-other" },
 		func(s *ragv1.RequestContext) {
 			s.ScopeExpiresAt = time.Now().Add(-time.Second).Unix()
-			s.ScopeSignature = hex.EncodeToString(scopeMAC(g.signingKey, s))
+			s.ScopeSignature = hex.EncodeToString(auth.MAC(g.signingKey, s))
 		},
 	}
 	for _, mutate := range cases {
 		scope := proto.Clone(original).(*ragv1.RequestContext)
 		mutate(scope)
-		if status.Code(g.validateScope(context.Background(), scope)) != codes.PermissionDenied {
+		if status.Code(g.authority().ValidateScope(context.Background(), scope)) != codes.PermissionDenied {
 			t.Fatal("modified or expired scope was accepted")
 		}
 	}
@@ -57,8 +58,8 @@ func TestActiveEvidenceVersion(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := activeEvidenceVersion(test.managed, test.activeVersion, test.evidence); got != test.want {
-				t.Fatalf("activeEvidenceVersion() = %v, want %v", got, test.want)
+			if got := auth.ActiveEvidenceVersion(test.managed, test.activeVersion, test.evidence); got != test.want {
+				t.Fatalf("auth.ActiveEvidenceVersion() = %v, want %v", got, test.want)
 			}
 		})
 	}
@@ -70,13 +71,13 @@ func TestSigningKeyRequiresRestrictedOwnedRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SCOPE_SIGNING_KEY_FILE", path)
-	if _, err := loadScopeSigningKey(); err != nil {
+	if _, err := auth.LoadSigningKey(); err != nil {
 		t.Fatal("restricted key rejected")
 	}
 	if err := os.Chmod(path, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadScopeSigningKey(); err == nil {
+	if _, err := auth.LoadSigningKey(); err == nil {
 		t.Fatal("public-readable key accepted")
 	}
 	link := filepath.Join(t.TempDir(), "link")
@@ -84,7 +85,7 @@ func TestSigningKeyRequiresRestrictedOwnedRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SCOPE_SIGNING_KEY_FILE", link)
-	if _, err := loadScopeSigningKey(); err == nil {
+	if _, err := auth.LoadSigningKey(); err == nil {
 		t.Fatal("symlink key accepted")
 	}
 }

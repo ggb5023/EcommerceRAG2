@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"context"
@@ -38,41 +38,41 @@ type FactSource interface {
 }
 
 type IdentitySource interface {
-	ResolveBearer(context.Context, string) (mockSession, error)
+	ResolveBearer(context.Context, string) (*ragv1.RequestContext, error)
 }
 
 var (
-	errPlatformNotConfigured = errors.New("platform adapter is not configured")
-	errPlatformScopeInvalid  = errors.New("platform scope is invalid")
+	ErrNotConfigured = errors.New("platform adapter is not configured")
+	ErrScopeInvalid  = errors.New("platform scope is invalid")
 )
 
-func validatePlatformScope(scope *ragv1.RequestContext) error {
+func ValidateScope(scope *ragv1.RequestContext) error {
 	if scope == nil || scope.TenantId == "" || scope.UserId == "" || scope.ShopId == "" {
-		return errPlatformScopeInvalid
+		return ErrScopeInvalid
 	}
 	for _, shop := range scope.AllowedShopIds {
 		if shop == scope.ShopId {
 			return nil
 		}
 	}
-	return errPlatformScopeInvalid
+	return ErrScopeInvalid
 }
 
-// scopedFactSource adapts a platform's read-only fact calls to the Go
-// FactProvider contract. It never accepts tenant/shop values from the query
+// ScopedFactSource adapts a platform's read-only fact calls to the Go
+// facts.Provider contract. It never accepts tenant/shop values from the query
 // and never exposes platform credentials to Python or the browser.
-type scopedFactSource struct {
-	source FactSource
+type ScopedFactSource struct {
+	Source FactSource
 }
 
-func (s scopedFactSource) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext) (*ragv1.Fact, error) {
-	if err := validatePlatformScope(scope); err != nil {
+func (s ScopedFactSource) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext) (*ragv1.Fact, error) {
+	if err := ValidateScope(scope); err != nil {
 		return nil, err
 	}
-	if s.source == nil {
-		return nil, errPlatformNotConfigured
+	if s.Source == nil {
+		return nil, ErrNotConfigured
 	}
-	fact, err := s.source.GetFact(ctx, scope, tool)
+	fact, err := s.Source.GetFact(ctx, scope, tool)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s scopedFactSource) Lookup(ctx context.Context, tool string, scope *ragv1.
 	return fact, nil
 }
 
-func normalizePlatformKey(value string) (string, error) {
+func NormalizeKey(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" || strings.ContainsAny(value, "/\\: ") {
 		return "", errors.New("platform key is invalid")

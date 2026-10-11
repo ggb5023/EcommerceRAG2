@@ -1,4 +1,4 @@
-package main
+package admin
 
 import (
 	"errors"
@@ -13,23 +13,23 @@ import (
 func TestValidAdminRequest(t *testing.T) {
 	tests := []struct {
 		name   string
-		role   string
+		Role   string
 		scope  string
 		shops  []string
 		reason string
 		want   bool
 	}{
-		{name: "tenant scope", role: adminRoleMerchant, scope: "tenant", reason: "Need to manage merchant knowledge", want: true},
-		{name: "shop subset", role: adminRoleReviewer, scope: "shops", shops: []string{"shop-a"}, reason: "Review submitted knowledge", want: true},
-		{name: "unsupported role", role: adminRoleAccess, scope: "tenant", reason: "Need access", want: false},
-		{name: "tenant scope with shops", role: adminRoleMerchant, scope: "tenant", shops: []string{"shop-a"}, reason: "Need access", want: false},
-		{name: "shop outside identity", role: adminRoleMerchant, scope: "shops", shops: []string{"shop-b"}, reason: "Need access", want: false},
-		{name: "duplicate shops", role: adminRoleMerchant, scope: "shops", shops: []string{"shop-a", "shop-a"}, reason: "Need access", want: false},
-		{name: "short reason", role: adminRoleMerchant, scope: "shops", shops: []string{"shop-a"}, reason: "short", want: false},
+		{name: "tenant scope", Role: adminRoleMerchant, scope: "tenant", reason: "Need to manage merchant knowledge", want: true},
+		{name: "shop subset", Role: adminRoleReviewer, scope: "shops", shops: []string{"shop-a"}, reason: "Review submitted knowledge", want: true},
+		{name: "unsupported role", Role: adminRoleAccess, scope: "tenant", reason: "Need access", want: false},
+		{name: "tenant scope with shops", Role: adminRoleMerchant, scope: "tenant", shops: []string{"shop-a"}, reason: "Need access", want: false},
+		{name: "shop outside identity", Role: adminRoleMerchant, scope: "shops", shops: []string{"shop-b"}, reason: "Need access", want: false},
+		{name: "duplicate shops", Role: adminRoleMerchant, scope: "shops", shops: []string{"shop-a", "shop-a"}, reason: "Need access", want: false},
+		{name: "short reason", Role: adminRoleMerchant, scope: "shops", shops: []string{"shop-a"}, reason: "short", want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := validAdminRequest(test.role, test.scope, test.shops, test.reason, []string{"shop-a"}); got != test.want {
+			if got := validAdminRequest(test.Role, test.scope, test.shops, test.reason, []string{"shop-a"}); got != test.want {
 				t.Fatalf("validAdminRequest() = %v, want %v", got, test.want)
 			}
 		})

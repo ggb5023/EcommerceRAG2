@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"context"
@@ -14,7 +14,7 @@ func (testFactSource) GetFact(_ context.Context, _ *ragv1.RequestContext, tool s
 }
 
 func TestScopedFactSourceRequiresSignedScopeShape(t *testing.T) {
-	source := scopedFactSource{source: testFactSource{}}
+	source := ScopedFactSource{Source: testFactSource{}}
 	if _, err := source.Lookup(context.Background(), "get_stock", &ragv1.RequestContext{TenantId: "t", UserId: "u"}); err == nil {
 		t.Fatal("fact source accepted a scope without selected shop")
 	}
@@ -27,11 +27,11 @@ func TestScopedFactSourceRequiresSignedScopeShape(t *testing.T) {
 }
 
 func TestNormalizePlatformKeyRejectsCredentialLikeValues(t *testing.T) {
-	if _, err := normalizePlatformKey("shopify"); err != nil {
+	if _, err := NormalizeKey("shopify"); err != nil {
 		t.Fatal(err)
 	}
 	for _, value := range []string{"", "https://example.test", "token value", "a/b"} {
-		if _, err := normalizePlatformKey(value); err == nil {
+		if _, err := NormalizeKey(value); err == nil {
 			t.Fatalf("platform key accepted invalid value %q", value)
 		}
 	}

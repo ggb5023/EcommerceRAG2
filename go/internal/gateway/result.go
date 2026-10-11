@@ -1,4 +1,4 @@
-package main
+package gateway
 
 import (
 	"context"
@@ -23,16 +23,16 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 		FROM conversation_execution e JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
 		JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
 		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4`,
-		g.session.tenantID, requestID, g.session.userID, g.session.shop).
+		g.session.TenantID, requestID, g.session.UserID, g.session.Shop).
 		Scan(&turnID, &conversationID, &executionNo, &parent, &state, &answer, &mock)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]map[string]any, 0)
 	rows, err := g.db.Query(ctx, `SELECT es.evidence_id,COALESCE(es.document_id,''),COALESCE(es.version_id,''),
-		COALESCE(es.source_ref,''),es.content,es.disclosure_class,es.customer_eligible,es.citation_index,COALESCE(es.shop_id,'')
+		COALESCE(es.source_ref,''),es.content,es.Disclosure_class,es.customer_eligible,es.citation_index,COALESCE(es.shop_id,'')
 		FROM evidence_snapshot es JOIN conversation_execution e ON e.tenant_id=es.tenant_id AND e.id=es.execution_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 ORDER BY es.citation_index`, g.session.tenantID, requestID)
+		WHERE e.tenant_id=$1 AND e.request_id=$2 ORDER BY es.citation_index`, g.session.TenantID, requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 			break
 		}
 		var allowed bool
-		allowed, err = g.evidenceAllowed(ctx, &ragv1.Evidence{Id: id, DocumentId: doc, VersionId: version, ShopId: shop})
+		allowed, err = g.authority().EvidenceAllowed(ctx, &ragv1.Evidence{Id: id, DocumentId: doc, VersionId: version, ShopId: shop})
 		if err != nil {
 			break
 		}
@@ -64,7 +64,7 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 	citations := make([]map[string]any, 0)
 	rows, err = g.db.Query(ctx, `SELECT c.evidence_id,c.citation_index FROM citation c
 		JOIN conversation_execution e ON e.tenant_id=c.tenant_id AND e.id=c.execution_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 ORDER BY c.citation_index`, g.session.tenantID, requestID)
+		WHERE e.tenant_id=$1 AND e.request_id=$2 ORDER BY c.citation_index`, g.session.TenantID, requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 	blocked := "incomplete"
 	err = g.db.QueryRow(ctx, `SELECT text_plain,can_copy,blocked_reason FROM customer_reply cr
 		JOIN conversation_execution e ON e.tenant_id=cr.tenant_id AND e.id=cr.execution_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2`, g.session.tenantID, requestID).Scan(&reply, &canCopy, &blocked)
+		WHERE e.tenant_id=$1 AND e.request_id=$2`, g.session.TenantID, requestID).Scan(&reply, &canCopy, &blocked)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 		var data []byte
 		err = g.db.QueryRow(ctx, `SELECT data_json FROM sse_event se JOIN conversation_execution e
 			ON e.tenant_id=se.tenant_id AND e.id=se.execution_id WHERE e.tenant_id=$1 AND e.request_id=$2
-			AND data_json->>'status'='ASKING' ORDER BY sequence DESC LIMIT 1`, g.session.tenantID, requestID).Scan(&data)
+			AND data_json->>'status'='ASKING' ORDER BY sequence DESC LIMIT 1`, g.session.TenantID, requestID).Scan(&data)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
