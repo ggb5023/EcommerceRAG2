@@ -12,6 +12,11 @@ import (
 
 var ErrToolNotAllowed = errors.New("fact tool is not allowlisted")
 var ErrUnavailable = errors.New("fact provider is unavailable")
+var ErrUnauthorized = errors.New("fact provider authorization failed")
+var ErrRateLimited = errors.New("fact provider rate limited")
+var ErrTimedOut = errors.New("fact provider timed out")
+var ErrCanceled = errors.New("fact provider request canceled")
+var ErrInvalidResponse = errors.New("fact provider returned an invalid response")
 
 // Provider is deliberately owned by the Go control plane.  A provider
 // implementation may call a read-only platform adapter, but Python never gets
@@ -30,6 +35,7 @@ var allowedFactTools = map[string]struct{}{
 	"get_stock":        {},
 	"get_price":        {},
 	"get_order_status": {},
+	"get_logistics":    {},
 	"compare_products": {},
 }
 
@@ -53,6 +59,16 @@ func FailureCode(err error) string {
 		return "fact_tool_not_allowed"
 	case errors.Is(err, ErrUnavailable):
 		return "fact_provider_unavailable"
+	case errors.Is(err, ErrUnauthorized):
+		return "fact_provider_unauthorized"
+	case errors.Is(err, ErrRateLimited):
+		return "fact_provider_rate_limited"
+	case errors.Is(err, ErrTimedOut):
+		return "fact_provider_timeout"
+	case errors.Is(err, ErrCanceled):
+		return "fact_provider_canceled"
+	case errors.Is(err, ErrInvalidResponse):
+		return "fact_provider_invalid_response"
 	default:
 		return "fact_tool_failed"
 	}

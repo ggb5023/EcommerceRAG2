@@ -143,7 +143,15 @@ func Main() {
 		log.Fatal("ingest RPC configuration failed")
 	}
 	defer ingestConn.Close()
-	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: facts.UnavailableProvider{}, cancels: map[string]context.CancelFunc{}}
+	factsProvider := facts.Provider(facts.UnavailableProvider{})
+	if base := strings.TrimSpace(os.Getenv("V2_FACTS_BASE_URL")); base != "" {
+		version := strings.TrimSpace(os.Getenv("V2_FACTS_VERSION"))
+		if version == "" {
+			version = "v1"
+		}
+		factsProvider = facts.HTTPProvider{BaseURL: base, Version: version}
+	}
+	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}}
 	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
