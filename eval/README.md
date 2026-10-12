@@ -528,3 +528,12 @@ all seven excluded cases and verifies zero Provider-attempt delta. The HTTP/SSE
 quality driver requires this safety report, a real passing lifecycle report,
 53 eligible cases, terminal persistence and monotonic SSE event IDs; it cannot
 silently send excluded cases.
+
+`build_human_review_package.py` creates a new, owned `0700` package outside the
+repository for the business reviewer. It binds all 53 eligible cases to the
+baseline report hash, frozen case hash, answer capture hash, generated answer
+points and the exact evidence shown to the model. Package case files are
+`0600`; the manifest starts with `human_review_completed=false` and contains
+review fields only as an unapproved template. The reviewer must not edit the
+query, expected points, evidence, or hashes. A later human sidecar must bind to
+the same baseline and captures before `quality_gate.py` can evaluate it.
