@@ -54,6 +54,11 @@ GENERATION_INSTRUCTION = (
     "omit a point when the evidence does not support it."
 )
 GENERATION_CONTEXT_CHUNK_LIMIT = 5
+# Keep the generation context bounded while giving rerank enough candidates to
+# recover all approved chunks for a case.  The previous value (10) made a
+# document hit look successful even when a required support chunk ranked just
+# outside the rerank input.
+RETRIEVAL_CANDIDATE_LIMIT = 20
 
 
 def sha256(path: Path) -> str:
@@ -690,7 +695,12 @@ async def run_live(
                 "operation": "query",
                 "case_id": case_id,
             })
-            embedding_rows = _rank_by_embedding(query_result[0].dense, [embedding_by_chunk[chunk["chunk_id"]].dense for chunk in eligible_chunks], eligible_chunks, 10)
+            embedding_rows = _rank_by_embedding(
+                query_result[0].dense,
+                [embedding_by_chunk[chunk["chunk_id"]].dense for chunk in eligible_chunks],
+                eligible_chunks,
+                RETRIEVAL_CANDIDATE_LIMIT,
+            )
             rerank_candidates = [chunk for chunk in eligible_chunks if chunk.get("chunk_id") in {row["chunk_id"] for row in embedding_rows}]
             embedding_order = {row["chunk_id"]: index for index, row in enumerate(embedding_rows)}
             rerank_candidates.sort(key=lambda item: embedding_order.get(item.get("chunk_id"), len(embedding_rows)))

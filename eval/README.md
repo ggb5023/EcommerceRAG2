@@ -256,6 +256,34 @@ baseline only when all 60 rows are `approved` with no unresolved notes.
 
 ## Isolated Bailian evaluation
 
+## V2 quality baseline and gate
+
+`run_bailian_batch.py --live` produces the bounded, metadata-only baseline for
+the approved revision-1/context-v2 inputs.  The report binds the immutable
+case, corpus, alignment and evidence-review hashes to the Git commit,
+generation-instruction hash and redacted four-slot Provider configuration.
+The current plan is 53 `WITHIN_BUDGET` cases in 11 batches (236 request
+equivalents); seven scope, revoked or expired cases are excluded before any
+Provider request.  A completed Provider batch is transport and retrieval
+evidence only and keeps `answer_quality_status=NOT_RUN`.
+
+`quality_gate.py` consumes that report and separates Recall@5/MRR/nDCG from
+approved-support delivery.  It reports `NOT_PASSED` until a separately
+protected `v2-quality-review-v1` sidecar covers every case.  The sidecar stores
+only case IDs, review outcomes, severity, citation validity and answer-point
+counts; it must bind to the exact baseline report SHA-256.  The gate requires
+zero security errors, all high-risk cases reviewed successfully, at least 90%
+ordinary-case passes, and at least 95% approved-support delivery and citation
+validity.  Lexical overlap and structured-output success never approve semantic
+quality.  Both the gate and all reports retain `real_service_acceptance=false`.
+
+After the controlled ingestion lifecycle has passed, `run_v2_quality_e2e.py`
+can submit the same cases through Go HTTP/SSE and record only request, status,
+answer-hash, evidence-ID and citation metadata.  It refuses to run without a
+passing lifecycle report and a loopback URL.  The existing lifecycle runner
+remains the authoritative test for upload, review, publication, persistence,
+replay and cross-process recovery; this driver does not bypass those contracts.
+
 `run_bailian_retrieval.py` is an explicit, metadata-only provider experiment.
 Without `--live` it performs input checks and reports `NOT_RUN`; with
 `--live --limit N` it reads the approved synthetic aligned corpus, calls the

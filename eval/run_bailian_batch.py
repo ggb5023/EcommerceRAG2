@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -213,6 +214,13 @@ def _identity(
     batch_size: int,
     document_batch_size: int,
 ) -> dict[str, Any]:
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        git_commit = None
+    prompt_hash = hashlib.sha256(retrieval.GENERATION_INSTRUCTION.encode("utf-8")).hexdigest()
     return {
         "cases_sha256": _sha256(cases_path),
         "corpus_sha256": _sha256(corpus_path),
@@ -221,6 +229,23 @@ def _identity(
         "batch_size": batch_size,
         "document_batch_size": document_batch_size,
         "pipeline": "bailian-retrieval-v3",
+        "git_commit": git_commit,
+        "generation_instruction_sha256": prompt_hash,
+    }
+
+
+def _provider_identity(config: Any) -> dict[str, Any]:
+    """Return reviewable provider settings without endpoint, workspace or key."""
+    return {
+        "profile": config.profile,
+        "region": config.region,
+        "models": dict(config.models),
+        "embedding_dimensions": config.embedding_dimensions,
+        "timeout_s": config.timeout_s,
+        "quota_rpm": config.quota_rpm,
+        "generation_instruction_sha256": hashlib.sha256(
+            retrieval.GENERATION_INSTRUCTION.encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -743,11 +768,19 @@ async def run_batches(
     }
 
 
-def make_report(plan: Mapping[str, Any], run: Mapping[str, Any], identity: Mapping[str, Any], limits: Mapping[str, int]) -> dict[str, Any]:
+def make_report(
+    plan: Mapping[str, Any],
+    run: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    limits: Mapping[str, int],
+    *,
+    provider_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "report_version": "bailian-batch-v1",
         "provider_profile": "aliyun-bailian",
         "identity": dict(identity),
+        "provider_identity": dict(provider_identity or {}),
         "batch_size": len(plan["batches"][0]) if plan["batches"] else 0,
         "eligible_case_count": len(plan["eligible_cases"]),
         "excluded_case_count": len(plan["excluded_cases"]),
@@ -871,7 +904,7 @@ async def main_async(args: argparse.Namespace) -> int:
         "max_requests": args.max_requests,
         "max_requests_per_minute": args.max_requests_per_minute,
         "max_cost_units": args.max_cost_units,
-    })
+    }, provider_identity=_provider_identity(config))
     if args.output:
         retrieval.write_report(args.output, report)
     print(json.dumps({key: report[key] for key in ("status", "eligible_case_count", "excluded_case_count", "actual_request_count", "real_service_acceptance")}, ensure_ascii=False))
