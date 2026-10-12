@@ -49,11 +49,31 @@ DEFAULT_ANSWER_EVIDENCE = DEFAULT_CORPUS.with_name("answer-point-evidence-review
 DEFAULT_METADATA = ROOT / "eval" / "synthetic_cases.metadata.json"
 DEFAULT_ENV = Path("/etc/ecommerce-rag/providers.env")
 GENERATION_INSTRUCTION = (
-    "Return concise answer_points supported directly by the evidence. Preserve "
-    "important product names, numbers, dates, units, and qualifiers exactly as "
-    "they appear in the evidence. Do not invent facts or weaken a restriction; "
-    "omit a point when the evidence does not support it."
+    "Return JSON with an answer_points array. Write one or more concise, atomic "
+    "points whenever any supplied evidence addresses the query, including a "
+    "refusal, clarification, conflict, source limitation, or freshness rule. "
+    "Return an empty array only when the evidence contains no relevant support "
+    "at all. Every point must be directly traceable to supplied evidence; never "
+    "use general model knowledge or invent a product, policy, price, stock, "
+    "date, version, or promise. Preserve product names, numbers, dates, units, "
+    "negation, modality, scope and uncertainty qualifiers exactly. For current "
+    "or latest questions, include the observed/published date or version when "
+    "present and state any freshness limit. For missing data, ask for the "
+    "missing identifier or state that the answer cannot be confirmed. For a "
+    "policy or source conflict, preserve the conflict and route unresolved "
+    "parts to the approved human process. Do not merge unrelated evidence, "
+    "turn a limitation into a guarantee, or cite chunk IDs in the answer."
 )
+GENERATION_SCHEMA = {
+    "name": "answer",
+    "schema": {
+        "type": "object",
+        "required": ["answer_points"],
+        "properties": {
+            "answer_points": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        },
+    },
+}
 GENERATION_CONTEXT_CHUNK_LIMIT = 8
 RETRIEVAL_CANDIDATE_LIMIT = 20
 CONTEXT_SELECTION_VERSION = "same_version_neighbors_radius2_v1"
@@ -761,7 +781,7 @@ async def run_live(
             evidence = "\n\n".join(
                 str(chunk.get("content", "")) for chunk in evidence_chunks
             )
-            schema = {"name": "answer", "schema": {"type": "object", "required": ["answer_points"], "properties": {"answer_points": {"type": "array", "items": {"type": "string"}}}}}
+            schema = GENERATION_SCHEMA
             generation = await provider.generate([{
                 "role": "user",
                 "content": (

@@ -230,6 +230,13 @@ def test_live_runner_keeps_provider_payloads_out_of_report():
     assert "product evidence" in prompt
 
 
+def test_generation_contract_requires_supported_nonempty_points_and_preserves_limits():
+    assert "Return JSON with an answer_points array" in MODULE.GENERATION_INSTRUCTION
+    assert "Return an empty array only when the evidence contains no relevant support" in MODULE.GENERATION_INSTRUCTION
+    assert "negation, modality, scope and uncertainty qualifiers" in MODULE.GENERATION_INSTRUCTION
+    assert MODULE.GENERATION_SCHEMA["schema"]["properties"]["answer_points"]["minItems"] == 1
+
+
 def test_generation_evidence_uses_rerank_order():
     class Embedding:
         def __init__(self, dense):
