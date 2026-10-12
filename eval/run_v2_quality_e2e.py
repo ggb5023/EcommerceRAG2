@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CASES = ROOT / "eval" / "synthetic_cases.jsonl"
+DEFAULT_REVISION_ROOT = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional")
+DEFAULT_CASES = DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.jsonl"
 
 
 class E2EFailure(RuntimeError):
@@ -68,6 +69,36 @@ class HTTP:
         except (OSError, ValueError) as error:
             raise E2EFailure(f"transport_{type(error).__name__}") from None
 
+    def events(self, path: str, *, last_event_id: int = 0, timeout: float = 20.0) -> list[dict[str, Any]]:
+        request = urllib.request.Request(self.base + path,
+            headers={"Accept": "text/event-stream", "Last-Event-ID": str(last_event_id)})
+        try:
+            with self.opener.open(request, timeout=timeout) as response:
+                if response.headers.get_content_type() != "text/event-stream":
+                    raise E2EFailure("sse_content_type_invalid")
+                events, current = [], {}
+                for line in response:
+                    text = line.decode("utf-8").rstrip("\r\n")
+                    if not text:
+                        if current:
+                            events.append(current)
+                            current = {}
+                        continue
+                    key, _, value = text.partition(":")
+                    if key == "id":
+                        current["id"] = value.lstrip()
+                    elif key == "event":
+                        current["event"] = value.lstrip()
+                    elif key == "data":
+                        current["data"] = value.lstrip()
+                if current:
+                    events.append(current)
+                return events
+        except urllib.error.HTTPError as error:
+            raise E2EFailure(f"sse_http_{error.code}") from None
+        except (OSError, UnicodeDecodeError) as error:
+            raise E2EFailure(f"sse_transport_{type(error).__name__}") from None
+
 
 def _document_ids(result: Mapping[str, Any]) -> list[str]:
     evidence = result.get("evidence", [])
@@ -96,6 +127,7 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[s
         raise E2EFailure("request_id_missing")
     deadline = time.monotonic() + timeout_s
     result: Mapping[str, Any] = {}
+    sse_events = http.events(f"/v1/turns/{request_id}/events")
     while time.monotonic() < deadline:
         value = http.call("GET", f"/v1/turns/{request_id}")
         if not isinstance(value, Mapping):
@@ -119,6 +151,10 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[s
         "customer_copyable": bool((result.get("customer_reply") or {}).get("can_copy")) if isinstance(result.get("customer_reply"), Mapping) else False,
         "expected_document_count": len(case.get("expected_doc_ids", [])) if isinstance(case.get("expected_doc_ids"), list) else 0,
         "excluded_case": excluded,
+        "sse_event_count": len(sse_events),
+        "sse_sequence_monotonic": all(int(sse_events[i]["id"]) < int(sse_events[i + 1]["id"])
+                                        for i in range(len(sse_events) - 1) if sse_events[i].get("id") and sse_events[i + 1].get("id")),
+        "terminal_persisted": result.get("status") in {"DONE", "ASKING", "FAILED", "CANCELLED"},
     }
 
 
@@ -143,6 +179,8 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:18081")
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--lifecycle-report", type=Path, required=True)
+    parser.add_argument("--safety-report", type=Path, required=True,
+                        help="verified seven-case no-provider safety report")
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=60)
     parser.add_argument("--timeout-s", type=float, default=65.0)
@@ -152,9 +190,19 @@ def main() -> int:
         return 2
     try:
         lifecycle = json.loads(args.lifecycle_report.read_text(encoding="utf-8"))
-        if lifecycle.get("status") != "PASS":
+        if (lifecycle.get("status") != "PASS" or lifecycle.get("real_service_acceptance") is not False
+                or lifecycle.get("report_version") != "v2-live-lifecycle-v1"):
             raise E2EFailure("lifecycle_report_not_pass")
-        cases = load_jsonl(args.cases)[: args.limit]
+        all_cases = load_jsonl(args.cases)
+        safety = json.loads(args.safety_report.read_text(encoding="utf-8"))
+        excluded_ids = {str(row.get("case_id")) for row in safety.get("results", [])}
+        if (safety.get("report_version") != "v2-quality-safety-v1" or safety.get("status") != "PASS"
+                or len(excluded_ids) != 7 or any(row.get("passed") is not True or row.get("provider_attempt_delta") != 0
+                                                 for row in safety.get("results", []))):
+            raise E2EFailure("safety_report_invalid")
+        cases = [case for case in all_cases if case.get("case_id") not in excluded_ids][: args.limit]
+        if len(cases) != min(args.limit, 53):
+            raise E2EFailure("eligible_case_partition_invalid")
         if not args.live:
             print(json.dumps({"status": "PLAN", "case_count": len(cases), "real_service_acceptance": False}))
             return 0
@@ -168,13 +216,17 @@ def main() -> int:
                 and session.get("profile") != "v2_langchain_bailian"):
             raise E2EFailure("unexpected_runtime_profile")
         results = [run_case(http, case, timeout_s=args.timeout_s) for case in cases]
+        if any(not row["terminal_persisted"] or row["sse_event_count"] == 0 or not row["sse_sequence_monotonic"] for row in results):
+            raise E2EFailure("sse_or_terminal_persistence_invalid")
         payload = {
-            "report_version": "v2-quality-e2e-v1",
+            "report_version": "v2-quality-e2e-v2",
             "status": "PASS",
             "case_count": len(results),
             "results": results,
             "lifecycle_report_sha256": hashlib.sha256(args.lifecycle_report.read_bytes()).hexdigest(),
             "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
+            "excluded_case_ids": sorted(excluded_ids),
+            "safety_report_sha256": hashlib.sha256(args.safety_report.read_bytes()).hexdigest(),
             "real_service_acceptance": False,
             "model_quality_claim": False,
             "online_requests_made": True,

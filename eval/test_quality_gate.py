@@ -43,7 +43,7 @@ def inputs(tmp_path):
                                                'provider_attempt_delta': 0} for i in range(7)]})
     e2e = save(tmp_path / 'e2e.json', {'report_version': 'v2-quality-e2e-v2', 'status': 'PASS',
         'cases_sha256': 'cases-hash', 'real_service_acceptance': False,
-        'results': [{'case_id': r['case_id']} for r in rows]})
+        'results': [{'case_id': r['case_id']} for r in rows], 'safety_report_sha256': 'safety'})
     return report, review_path, directory, safety, e2e
 
 

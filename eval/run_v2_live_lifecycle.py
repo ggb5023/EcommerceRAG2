@@ -332,7 +332,10 @@ def main():
             raise AcceptanceFailure("bounded batch exceeds remaining budget")
         with psycopg.connect(values["V2_GATEWAY_DSN"]) as conn:
             name, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
-            if "v2_live" not in name or superuser or bypass or conn.execute("SELECT count(*) FROM chunk").fetchone()[0]:
+            # Independently provisioned development databases may use the
+            # generated ecr_v2_test_* name rather than the optional v2_live
+            # label; migration and role checks still enforce the boundary.
+            if "v2" not in name or superuser or bypass or conn.execute("SELECT count(*) FROM chunk").fetchone()[0]:
                 raise AcceptanceFailure("empty isolated live index required")
             report["database"] = {"name": name, "role": role, "superuser": superuser, "bypass_rls": bypass,
                                   "migrations": [dict(zip(("version", "checksum_sha256"), row)) for row in

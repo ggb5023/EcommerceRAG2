@@ -112,7 +112,8 @@ def _evidence_metrics(rows: Sequence[Mapping], contracts: Mapping) -> dict:
             'bound_chunk_delivery_rate': round(delivered / required, 6) if required else None}
 
 
-def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: Path | None) -> dict:
+def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: Path | None,
+                 frozen_points: Mapping[str, Sequence[str]] | None = None) -> dict:
     review = load_json(path)
     if (not isinstance(review, Mapping) or review.get('review_version') != REVIEW_VERSION
             or review.get('baseline_report_sha256') != report['report_sha256']):
@@ -159,6 +160,10 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
         for index, point in enumerate(points):
             if not isinstance(point, Mapping) or point.get('point_index') != index or point.get('status') not in POINT_STATES:
                 raise ValueError('review_point_status_invalid')
+            if frozen_points is not None:
+                expected_hash = hashlib.sha256(frozen_points[identifier][index].encode()).hexdigest()
+                if point.get('expected_sha256') != expected_hash:
+                    raise ValueError('review_truth_binding_invalid')
             support = point.get('support_chunk_ids')
             if not isinstance(support, list) or len(set(support)) != len(support) or not set(support).issubset(evidence_ids):
                 raise ValueError('review_support_not_delivered')
@@ -173,7 +178,8 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
 
 
 def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir: Path | None = None,
-             safety_path: Path | None = None, e2e_path: Path | None = None) -> dict:
+             safety_path: Path | None = None, e2e_path: Path | None = None,
+             cases_path: Path | None = None) -> dict:
     report = load_json(report_path)
     if not isinstance(report, Mapping):
         raise TypeError('report_root_not_object')
@@ -188,6 +194,13 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
     evidence = {'approved_support_delivery_rate': None}
     semantic = {'status': 'NOT_RUN', 'reviewed_cases': 0}
     contracts = {}
+    frozen_points = None
+    if cases_path is not None:
+        frozen_points = {}
+        for line in cases_path.read_text(encoding='utf-8').splitlines():
+            if line.strip():
+                case = json.loads(line)
+                frozen_points[str(case['case_id'])] = [str(point) for point in case.get('expected_answer_points', [])]
     try:
         contracts = _contracts(report)
         if (not isinstance(rows, list) or len(rows) != REQUIRED_CASES
@@ -205,7 +218,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
                     raise ValueError('ranking_rows_invalid')
         evidence = _evidence_metrics(rows, contracts)
         if review_path is not None:
-            review = _load_review(review_path, report, contracts, capture_dir)
+            review = _load_review(review_path, report, contracts, capture_dir, frozen_points)
             reviewed = [r for r in review['rows'] if r['review_status'] != 'not_reviewed']
             ordinary = [r for r in reviewed if r['risk'] == 'ordinary']
             high = [r for r in review['rows'] if r['risk'] == 'high']
@@ -257,6 +270,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
                 or len(e2e.get('results', [])) != REQUIRED_CASES
                 or {r.get('case_id') for r in e2e.get('results', [])} != set(contracts)
                 or e2e.get('cases_sha256') != report.get('identity', {}).get('cases_sha256')
+                or not e2e.get('safety_report_sha256')
                 or e2e.get('real_service_acceptance') is not False):
             reasons.append('e2e_evidence_invalid')
     else:
@@ -304,6 +318,7 @@ def main() -> int:
     parser.add_argument('--capture-dir', type=Path)
     parser.add_argument('--safety-report', type=Path)
     parser.add_argument('--e2e-report', type=Path)
+    parser.add_argument('--cases', type=Path)
     parser.add_argument('--template', type=Path)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -313,7 +328,8 @@ def main() -> int:
             print(json.dumps({'status': 'TEMPLATE'}))
             return 0
         result = evaluate(args.report, args.review, capture_dir=args.capture_dir,
-                          safety_path=args.safety_report, e2e_path=args.e2e_report)
+                          safety_path=args.safety_report, e2e_path=args.e2e_report,
+                          cases_path=args.cases)
         if args.output:
             write_report(args.output, result)
         print(json.dumps(result, ensure_ascii=False))

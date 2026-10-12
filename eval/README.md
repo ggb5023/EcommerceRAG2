@@ -482,3 +482,13 @@ quality claim requires review bound to the captured answer and report hashes.
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,
 generation adapter parameters, Provider configuration and budget window.
+
+`build_engineering_review.py` reads the restricted capture directory and emits
+an explicitly non-human `reviewer_kind=engineering` sidecar. It binds each
+point to the frozen case hash and delivered evidence; token overlap is only a
+conservative diagnostic. The gate keeps `human_review_completed=false` and
+cannot turn this report into human approval. `run_v2_quality_safety.py` records
+all seven excluded cases and verifies zero Provider-attempt delta. The HTTP/SSE
+quality driver requires this safety report, a real passing lifecycle report,
+53 eligible cases, terminal persistence and monotonic SSE event IDs; it cannot
+silently send excluded cases.
