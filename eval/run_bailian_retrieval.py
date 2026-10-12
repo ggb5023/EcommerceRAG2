@@ -53,7 +53,7 @@ GENERATION_INSTRUCTION = (
     "they appear in the evidence. Do not invent facts or weaken a restriction; "
     "omit a point when the evidence does not support it."
 )
-GENERATION_CONTEXT_CHUNK_LIMIT = 5
+GENERATION_CONTEXT_CHUNK_LIMIT = 8
 # Keep the generation context bounded while giving rerank enough candidates to
 # recover all approved chunks for a case.  The previous value (10) made a
 # document hit look successful even when a required support chunk ranked just

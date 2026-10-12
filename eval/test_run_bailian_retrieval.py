@@ -477,18 +477,18 @@ def test_review_flags_without_chunk_binding_cannot_claim_delivered_evidence():
     assert diagnostics["answer_point_diagnostic_counts"] == {"approved_evidence_not_delivered": 1}
 
 
-def test_support_binding_larger_than_top_five_is_not_claimed_as_delivered():
+def test_support_binding_larger_than_context_limit_is_not_claimed_as_delivered():
     provider = _RecordingProvider()
-    corpus = [_document(str(index)) for index in range(6)]
+    corpus = [_document(str(index)) for index in range(9)]
     report = asyncio.run(MODULE.run_live(
         provider, [_case()], corpus, {},
         answer_evidence={"case-1": [True]},
-        answer_evidence_chunks={"case-1": [[f"chunk-{index}" for index in range(6)]]},
+        answer_evidence_chunks={"case-1": [[f"chunk-{index}" for index in range(9)]]},
     ))
     row = report["case_results"][0]
-    assert len(row["generation_evidence"]) == 5
+    assert len(row["generation_evidence"]) == 8
     assert row["approved_support_chunk_coverage"] == [{
-        "point_index": 0, "required_chunk_count": 6, "delivered_chunk_count": 5, "all_delivered": False,
+        "point_index": 0, "required_chunk_count": 9, "delivered_chunk_count": 8, "all_delivered": False,
     }]
     assert row["answer_point_diagnostic_counts"] == {"approved_evidence_not_delivered": 1}
 
@@ -532,11 +532,11 @@ def test_invalid_effective_date_is_reported_as_input_integrity_issue():
 
 
 def test_context_audit_reports_budget_without_selecting_evidence_or_leaking_text():
-    corpus = [_document(str(index)) for index in range(6)]
-    bindings = {"case-1": [[f"chunk-{index}" for index in range(6)]]}
+    corpus = [_document(str(index)) for index in range(9)]
+    bindings = {"case-1": [[f"chunk-{index}" for index in range(9)]]}
     report = MODULE.audit_generation_context([_case()], corpus, bindings)
     assert report["status_counts"]["BUDGET_EXCEEDED"] == 1
-    assert report["case_results"][0]["required_chunk_count"] == 6
+    assert report["case_results"][0]["required_chunk_count"] == 9
     assert report["online_requests_made"] is False
     assert report["generation_context_selection"] == "NOT_RUN"
     assert report["answer_quality_status"] == "NOT_RUN"
