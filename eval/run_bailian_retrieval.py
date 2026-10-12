@@ -38,6 +38,7 @@ from app.providers.config import (
     load_provider_config,
 )
 from app.providers.contracts import ProviderError
+from quality_capture import capture
 
 DEFAULT_CASES = ROOT / "eval" / "synthetic_cases.jsonl"
 DEFAULT_CORPUS = Path(
@@ -54,11 +55,8 @@ GENERATION_INSTRUCTION = (
     "omit a point when the evidence does not support it."
 )
 GENERATION_CONTEXT_CHUNK_LIMIT = 8
-# Keep the generation context bounded while giving rerank enough candidates to
-# recover all approved chunks for a case.  The previous value (10) made a
-# document hit look successful even when a required support chunk ranked just
-# outside the rerank input.
 RETRIEVAL_CANDIDATE_LIMIT = 20
+CONTEXT_SELECTION_VERSION = "same_version_neighbors_radius2_v1"
 
 
 def sha256(path: Path) -> str:
@@ -606,6 +604,43 @@ def _hit(rows: Sequence[Mapping[str, Any]], expected_ids: set[str]) -> bool:
     return any(row.get("document_id") in expected_ids for row in rows[:5])
 
 
+def select_context(
+    ranked: Sequence[Mapping[str, Any]], eligible: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Expand ranked hits using eligible same-version source neighbors only.
+
+    Selection never consumes answer-point bindings. A document's source order
+    supplies context for small title/body blocks that rank independently.
+    """
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    locations: dict[str, tuple[tuple[Any, ...], int]] = {}
+    for chunk in eligible:
+        group = tuple(chunk.get(key) for key in (
+            "tenant_id", "shop_id", "document_id", "document_version_id",
+        ))
+        siblings = groups.setdefault(group, [])
+        locations[chunk["chunk_id"]] = (group, len(siblings))
+        siblings.append(chunk)
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in ranked:
+        location = locations.get(str(row.get("chunk_id")))
+        if location is None:
+            continue
+        group, index = location
+        siblings = groups[group]
+        # A hit stays first; source neighbors add bounded structural context.
+        offsets = [index, *range(max(0, index - 2), min(len(siblings), index + 3))]
+        for offset in offsets:
+            chunk = siblings[offset]
+            if chunk["chunk_id"] not in seen:
+                selected.append(chunk)
+                seen.add(chunk["chunk_id"])
+            if len(selected) == GENERATION_CONTEXT_CHUNK_LIMIT:
+                return selected
+    return selected
+
+
 def not_run_report(
     cases_path: Path,
     corpus_path: Path,
@@ -639,6 +674,7 @@ async def run_live(
     answer_evidence: Mapping[str, Sequence[bool]] | None = None,
     answer_evidence_chunks: Mapping[str, Sequence[Sequence[str]]] | None = None,
     fail_fast: bool = False,
+    capture_directory: Path | None = None,
 ) -> dict[str, Any]:
     selected_chunks: list[dict[str, Any]] = []
     eligible_by_case = {str(case["case_id"]): _eligible_chunks(case, corpus) for case in cases}
@@ -716,8 +752,7 @@ async def run_live(
                 "case_id": case_id,
             })
             rerank_rows = _rank_by_rerank(rerank_result, rerank_candidates)
-            candidate_by_id = {chunk["chunk_id"]: chunk for chunk in rerank_candidates}
-            evidence_chunks = [candidate_by_id[row["chunk_id"]] for row in rerank_rows[:GENERATION_CONTEXT_CHUNK_LIMIT]]
+            evidence_chunks = select_context(rerank_rows, eligible_chunks)
             if not evidence_chunks:
                 results.append({"case_id": case_id, "status": "FAIL", "error_code": "no_rerank_evidence"})
                 if fail_fast:
@@ -747,6 +782,12 @@ async def run_live(
             if not isinstance(generated_points, list):
                 generated_points = []
             generated_points = [point for point in generated_points if isinstance(point, str)]
+            captured = capture(capture_directory, {
+                "capture_version": "v2-quality-answer-v1", "case_id": case_id,
+                "query_sha256": hashlib.sha256(query.encode()).hexdigest(),
+                "structured": generation.structured, "text": generation.text,
+                "evidence": evidence_chunks,
+            }) if capture_directory else {}
             expected_points = [str(point) for point in case.get("expected_answer_points", [])]
             delivered_ids = {chunk["chunk_id"] for chunk in evidence_chunks}
             required_chunks = (answer_evidence_chunks or {}).get(case_id, [])
@@ -765,6 +806,7 @@ async def run_live(
             )
             results.append({
                 "case_id": case_id,
+                **captured,
                 "expected_document_ids": sorted(expected_ids),
                 "embedding_top5": embedding_rows[:5],
                 "rerank_top5": rerank_rows[:5],

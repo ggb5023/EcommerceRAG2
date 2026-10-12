@@ -609,3 +609,19 @@ def test_cli_rejects_existing_output_before_provider_calls(tmp_path, monkeypatch
     assert asyncio.run(MODULE.main_async(args)) == 2
     assert json.loads(capsys.readouterr().out)["issues"] == ["output_exists"]
     assert output.read_text(encoding="utf-8") == "historical evidence"
+
+
+def test_context_expands_only_eligible_same_version_neighbors():
+    chunks = [dict(chunk_id=f'c-{i}', document_id='doc', document_version_id='v1', tenant_id='t', shop_id='s') for i in range(3)]
+    chunks += [dict(chunk_id='other-version', document_id='doc', document_version_id='v2', tenant_id='t', shop_id='s')]
+    result = MODULE.select_context([{'chunk_id': 'c-2'}], chunks)
+    assert [r['chunk_id'] for r in result] == ['c-2', 'c-0', 'c-1']
+    assert not MODULE.select_context([{'chunk_id': 'unauthorized'}], chunks)
+
+
+def test_context_expansion_respects_total_budget_and_deduplicates():
+    chunks = [dict(chunk_id=f'c-{i}', document_id=f'doc-{i//3}', document_version_id='v1', tenant_id='t', shop_id='s') for i in range(12)]
+    ranked = [{'chunk_id': f'c-{i}'} for i in [2, 2, 5, 8, 11]]
+    result = MODULE.select_context(ranked, chunks)
+    assert len(result) == MODULE.GENERATION_CONTEXT_CHUNK_LIMIT
+    assert len({r['chunk_id'] for r in result}) == len(result)

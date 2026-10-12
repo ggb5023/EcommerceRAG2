@@ -231,6 +231,20 @@ def _identity(
         "pipeline": "bailian-retrieval-v3",
         "git_commit": git_commit,
         "generation_instruction_sha256": prompt_hash,
+        "source_sha256": {
+            name: _sha256(ROOT / name) for name in (
+                "eval/run_bailian_batch.py", "eval/run_bailian_retrieval.py",
+                "eval/answer_point_evidence.py", "eval/quality_capture.py",
+                "python/app/providers/aliyun_bailian.py", "python/app/providers/budget.py",
+            )
+        },
+        "retrieval_parameters": {
+            "candidate_limit": retrieval.RETRIEVAL_CANDIDATE_LIMIT,
+            "context_limit": retrieval.GENERATION_CONTEXT_CHUNK_LIMIT,
+            "context_selection": retrieval.CONTEXT_SELECTION_VERSION,
+        },
+        "generation_parameters": {"max_tokens": 512, "enable_thinking": False,
+                                  "temperature": "provider_default", "seed": "provider_default"},
     }
 
 
@@ -612,6 +626,7 @@ async def run_batches(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Any] = asyncio.sleep,
     wall_clock: Callable[[], float] = time.time,
+    capture_directory: Path | None = None,
 ) -> dict[str, Any]:
     estimated = int(plan["estimated_requests"])
     if estimated > max_requests or estimated > max_cost_units:
@@ -682,6 +697,7 @@ async def run_batches(
                 answer_evidence=plan["answer_evidence"],
                 answer_evidence_chunks=plan["support_chunks"],
                 fail_fast=True,
+                **({"capture_directory": capture_directory} if capture_directory else {}),
             )
         except (ProviderError, RequestBudgetExceeded, ValueError) as error:
             _record_budget(checkpoint, budget)
@@ -785,6 +801,17 @@ def make_report(
         "eligible_case_count": len(plan["eligible_cases"]),
         "excluded_case_count": len(plan["excluded_cases"]),
         "excluded_status_counts": dict(plan["excluded_status_counts"]),
+        "excluded_case_ids": [str(row["case_id"]) for row in plan["excluded_cases"]],
+        "case_contracts": [
+            {"case_id": case["case_id"],
+             "risk": "high" if set(case.get("tags", [])) & {
+                 "policy", "freshness", "unanswerable", "negative", "safety_and_routing",
+             } else "ordinary",
+             "answer_points_total": len(case.get("expected_answer_points", [])),
+             "query_sha256": hashlib.sha256(str(case.get("query", "")).encode()).hexdigest(),
+             "requires_refusal_or_clarification": bool(set(case.get("tags", [])) & {"unanswerable"})}
+            for case in plan["eligible_cases"]
+        ],
         "estimated_request_count": plan["estimated_requests"],
         "estimated_requests_per_batch": plan["estimated_requests_per_batch"],
         "batch_plan": [
@@ -843,15 +870,35 @@ async def main_async(args: argparse.Namespace) -> int:
     if len(plan["eligible_cases"]) != 53 or len(plan["excluded_cases"]) != 7:
         print(json.dumps({"status": "FAIL", "issues": ["context_v2_case_partition_unexpected"]}))
         return 2
+    case_ids = getattr(args, "case_id", None)
+    if case_ids:
+        requested = set(case_ids)
+        eligible_ids = {row["case_id"] for row in plan["eligible_cases"]}
+        if not requested.issubset(eligible_ids):
+            print(json.dumps({"status": "FAIL", "issues": ["target_case_not_eligible"]}))
+            return 2
+        selected = [case for case in plan["eligible_cases"] if case["case_id"] in requested]
+        batches = _batch_cases(selected, args.batch_size)
+        estimated, per_batch = _estimated_requests(batches, corpus, document_batch_size=args.document_batch_size)
+        plan.update(eligible_cases=selected, batches=batches, estimated_requests=estimated,
+                    estimated_requests_per_batch=per_batch)
     identity = _identity(
         args.cases, args.corpus, args.alignment, args.answer_evidence,
         batch_size=args.batch_size, document_batch_size=args.document_batch_size,
     )
+    if case_ids:
+        identity["selected_case_ids"] = sorted(case_ids)
     if getattr(args, "report_checkpoint", False):
         if args.output.exists():
             print(json.dumps({"status": "FAIL", "issues": ["output_exists"], "new_provider_requests": 0}))
             return 2
         try:
+            stored_identity = _load_json(args.checkpoint).get("identity", {})
+            # Offline export checks recorded nonsecret online fields without
+            # reading credentials. Source/input fields still match exactly.
+            for key in ("provider", "budget_window", "capture_directory"):
+                if key in stored_identity:
+                    identity[key] = stored_identity[key]
             checkpoint = _load_checkpoint(args.checkpoint, identity)
             report = report_checkpoint(checkpoint, plan, identity, {
                 "max_requests": args.max_requests,
@@ -874,7 +921,7 @@ async def main_async(args: argparse.Namespace) -> int:
         print(json.dumps({
             "status": "NOT_RUN",
             "identity": identity,
-            "eligible_case_count": 53,
+            "eligible_case_count": len(plan["eligible_cases"]),
             "excluded_case_count": 7,
             "estimated_request_count": plan["estimated_requests"],
             "estimated_requests_per_batch": plan["estimated_requests_per_batch"],
@@ -888,6 +935,13 @@ async def main_async(args: argparse.Namespace) -> int:
         config = load_provider_config(args.env)
         if config.profile != "aliyun-bailian":
             raise ProviderConfigError("provider profile is not aliyun-bailian")
+        capture_directory = getattr(args, "capture_dir", None)
+        if capture_directory is not None:
+            from quality_capture import secure_directory
+            secure_directory(capture_directory)
+        identity["provider"] = _provider_identity(config)
+        identity["budget_window"] = os.environ.get("V2_ONLINE_BUDGET_ID")
+        identity["capture_directory"] = str(capture_directory) if capture_directory else None
         run = await run_batches(
             build_provider(config), plan, identity=identity,
             max_requests=args.max_requests,
@@ -896,6 +950,7 @@ async def main_async(args: argparse.Namespace) -> int:
             document_batch_size=args.document_batch_size,
             checkpoint_path=args.checkpoint,
             resume=args.resume,
+            capture_directory=capture_directory,
         )
     except (ProviderConfigError, BatchPlanError, ProviderError, RequestBudgetExceeded, ValueError) as error:
         print(json.dumps({"status": "FAIL", "issues": [getattr(error, "code", type(error).__name__)], "real_service_acceptance": False}))
@@ -918,6 +973,8 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--plan", action="store_true", help="validate and print the bounded plan")
     mode.add_argument("--report-checkpoint", action="store_true", help="export checkpoint progress offline without reading Provider configuration")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--case-id", action="append", help="target only eligible cases; safety exclusions remain excluded")
+    parser.add_argument("--capture-dir", type=Path, help="owned 0700 directory outside Git for immutable 0600 synthetic answer review")
     parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--document-batch-size", type=int, default=16)
     parser.add_argument("--max-requests", type=int, default=240)

@@ -467,3 +467,18 @@ The retrieval and pgvector reports retain document/version/chunk IDs in their
 metadata-only result records. This binds ranking evidence to an immutable
 document version; it does not publish the version, persist production vectors,
 or make the experiment M2 real-service acceptance.
+
+Quality repair runs can select eligible cases with repeated `--case-id` options;
+excluded safety cases are never admitted to the component Provider runner.
+Context selection expands a ranked hit by up to two source neighbors within the
+same authorized document version, with an eight-chunk total limit; it does not
+read answer-point bindings. The frozen bindings remain scoring truth.
+
+For semantic engineering review, explicitly supply `--capture-dir` pointing to
+an owned `0700` directory outside the repository. Each generated answer and its
+actual evidence is stored once in a new `0600` file. Metadata reports retain only
+its opaque ID and SHA-256. Capture is optional for diagnostics, but a semantic
+quality claim requires review bound to the captured answer and report hashes.
+Model-output review is distinct from the previously approved source bindings.
+The run identity now includes source hashes, retrieval/context parameters,
+generation adapter parameters, Provider configuration and budget window.
