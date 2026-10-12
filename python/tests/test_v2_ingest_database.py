@@ -5,6 +5,7 @@ import hashlib
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from app.ingest.object_journal import cleanup_orphans
 from app.ingest.worker import IngestWorker, parse_persisted_package
 from app.providers import MockProvider
 from app.providers.config import validate_values
+from app.providers.contracts import ProviderError
 from app.storage import FilesystemObjectStore
 from rag.v1 import rag_pb2
 
@@ -245,6 +247,77 @@ def test_artifact_failure_rolls_back_and_retry_recovers(db, monkeypatch):
     takeover = db.worker._claim()
     assert takeover.job_id == job.job_id
     db.worker._process(takeover)
+    assert version(db, job.job_id)[3] == "ready"
+
+
+@pytest.mark.parametrize("failure", [
+    "authentication", "budget_blocked", "budget_exhausted", "timeout", "rate_limited",
+    "upstream_error", "invalid_response", "unknown_sensitive_code",
+    "missing_vector", "wrong_dimension", "zero_vector", "nonfinite_vector",
+])
+def test_embedding_failure_stops_paid_retries_and_explicit_retry_recovers(db, failure):
+    job = db.submit()
+    for _ in range(100):
+        claim = db.worker._claim()
+        assert claim is not None
+        if claim.job_id == job.job_id:
+            break
+        db.worker._process(claim)
+    else:
+        pytest.fail("submitted job was not claimed")
+    provider = db.worker.embedding_provider
+    calls = 0
+
+    class BrokenEmbedding:
+        async def embed(self, texts, **kwargs):
+            nonlocal calls
+            calls += 1
+            if failure in {"missing_vector", "wrong_dimension", "zero_vector", "nonfinite_vector"}:
+                results = list(await provider.embed(texts, **kwargs))
+                if failure == "missing_vector":
+                    return []
+                if failure == "wrong_dimension":
+                    results[0] = replace(results[0], dimensions=768)
+                else:
+                    fill = 0.0 if failure == "zero_vector" else float("nan")
+                    results[0] = replace(results[0], dense=(fill,) * 1024)
+                return results
+            raise ProviderError(failure, "sensitive vendor response must not persist",
+                                slot="embedding", retryable=True)
+
+    db.worker.embedding_provider = BrokenEmbedding()
+    db.worker._process(claim)
+    db.worker.embedding_provider = provider
+    expected = ("failed" if failure == "unknown_sensitive_code" else
+                "invalid_response" if failure in {"missing_vector", "wrong_dimension", "zero_vector", "nonfinite_vector"}
+                else failure)
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        assert conn.execute("SELECT status,stage,retry_count,error_code,error,owner_token,lease_expires_at "
+                            "FROM ingest_job WHERE tenant_id=%s AND id=%s", (db.tenant, job.job_id)).fetchone() == (
+            "failed", "failed", 1, f"provider_{expected}", "embedding failed", None, None)
+        assert conn.execute("SELECT status,retry_count,error_code,document_version_id,owner_token "
+                            "FROM ingest_job_item WHERE tenant_id=%s AND job_id=%s", (db.tenant, job.job_id)).fetchone() == (
+            "failed", 1, f"provider_{expected}", None, None)
+        assert conn.execute("SELECT count(*) FROM chunk WHERE tenant_id=%s", (db.tenant,)).fetchone() == (0,)
+    assert version(db, job.job_id) is None
+    assert not list(db.objects.root.rglob("*.json"))
+    # Queue polling cannot select the failed job, even for retryable timeouts.
+    for _ in range(100):
+        candidate = db.worker._claim()
+        if candidate is None:
+            break
+        assert candidate.job_id != job.job_id
+        db.worker._process(candidate)
+    else:
+        pytest.fail("queue did not drain")
+    assert calls == 1
+    result, _ = db.execute(rag_pb2.INGEST_COMMAND_ACTION_RETRY, job.job_id,
+                           expected_fencing_epoch=claim.fencing_epoch)
+    assert result.status == "pending"
+    resumed = db.worker._claim()
+    assert resumed.job_id == job.job_id
+    assert resumed.fencing_epoch == claim.fencing_epoch + 1
+    db.worker._process(resumed)
     assert version(db, job.job_id)[3] == "ready"
 
 

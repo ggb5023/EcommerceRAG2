@@ -2315,11 +2315,14 @@ func (x *GetStatusRequest) GetJobId() string {
 }
 
 type GetStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Status        JobStatus              `protobuf:"varint,2,opt,name=status,proto3,enum=rag.v1.JobStatus" json:"status,omitempty"`
-	Stage         string                 `protobuf:"bytes,3,opt,name=stage,proto3" json:"stage,omitempty"`
-	ErrorCode     string                 `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	JobId  string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	Status JobStatus              `protobuf:"varint,2,opt,name=status,proto3,enum=rag.v1.JobStatus" json:"status,omitempty"`
+	Stage  string                 `protobuf:"bytes,3,opt,name=stage,proto3" json:"stage,omitempty"`
+	// provider_<classification> is a terminal embedding failure, including
+	// retryable transport errors. Only an authorized RETRY command requeues it.
+	// Unknown classifications become provider_failed; no vendor messages persist.
+	ErrorCode     string `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

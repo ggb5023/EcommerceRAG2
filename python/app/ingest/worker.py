@@ -23,6 +23,7 @@ from uuid import uuid4
 
 import psycopg
 from psycopg.rows import dict_row
+from rag.v1 import rag_pb2
 
 from app.ingest.artifacts import build_ingestion_artifacts, store_artifact_bundle
 from app.ingest.database import IngestDatabase
@@ -30,12 +31,19 @@ from app.ingest.object_journal import JournaledStore, cleanup_orphans
 from app.ingest.package_validation import MAX_CHUNKS, _inspect_package
 from app.ingest.pipeline import chunk_elements_v2, parser_for
 from app.ingest.runtime import load_artifact_store, load_embedding_provider
+from app.providers.contracts import ProviderError
 from app.storage import ObjectStore
-from rag.v1 import rag_pb2
 
 
 class PackageValidationError(ValueError):
     """A persisted package no longer satisfies the manifest contract."""
+
+
+_PROVIDER_FAILURE_CODES = frozenset({
+    "authentication", "budget_blocked", "budget_exhausted", "budget_bound_violation",
+    "cancelled", "http_error", "invalid_input", "invalid_response", "rate_limited",
+    "schema_error", "timeout", "upstream_error",
+})
 
 
 class _LocalContext:
@@ -389,6 +397,14 @@ class IngestWorker:
             self._settle_failure(
                 claim, "parse_invalid", retryable=False, detail=str(error)
             )
+        except ProviderError as error:
+            # A retryable transport error is not permission to repeat a paid
+            # ingestion attempt. Preserve the failure for an authorized retry,
+            # without persisting vendor messages or request/response bodies.
+            code = error.code if error.code in _PROVIDER_FAILURE_CODES else "failed"
+            self._settle_failure(
+                claim, f"provider_{code}", retryable=False, detail="embedding failed"
+            )
         except Exception as error:  # noqa: BLE001 - error detail is not exposed to clients
             self._settle_failure(
                 claim, "parse_failed", retryable=True, detail=type(error).__name__
@@ -406,16 +422,16 @@ class IngestWorker:
                     [c["content"] for c in batch], text_type="document", dimensions=1024,
                     output_type="dense&sparse", cancel_event=cancelled)
                 if len(results) != len(batch):
-                    raise ValueError("embedding shape mismatch")
+                    raise ProviderError("invalid_response", "embedding shape mismatch", slot="embedding")
                 for chunk, result in zip(batch, results, strict=True):
                     vector = result.dense
                     if result.dimensions != 1024:
-                        raise ValueError("embedding shape mismatch")
+                        raise ProviderError("invalid_response", "embedding shape mismatch", slot="embedding")
                     if len(vector) != 1024 or not all(math.isfinite(v) for v in vector) or not any(vector):
-                        raise ValueError("invalid embedding vector")
+                        raise ProviderError("invalid_response", "invalid embedding vector", slot="embedding")
                     chunk["embedding"] = "[" + ",".join(str(float(v)) for v in vector) + "]"
                     if document.get("embedding_model", result.model) != result.model:
-                        raise ValueError("embedding model changed during ingestion")
+                        raise ProviderError("invalid_response", "embedding model changed during ingestion", slot="embedding")
                     document["embedding_model"] = result.model
 
     def _renew_loop(

@@ -248,6 +248,9 @@ message GetStatusResponse {
   string job_id = 1;
   JobStatus status = 2;
   string stage = 3;
+  // provider_<classification> is a terminal embedding failure, including
+  // retryable transport errors. Only an authorized RETRY command requeues it.
+  // Unknown classifications become provider_failed; no vendor messages persist.
   string error_code = 4;
 }
 message CancelRequest {
