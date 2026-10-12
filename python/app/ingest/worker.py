@@ -23,7 +23,6 @@ from uuid import uuid4
 
 import psycopg
 from psycopg.rows import dict_row
-from rag.v1 import rag_pb2
 
 from app.ingest.artifacts import build_ingestion_artifacts, store_artifact_bundle
 from app.ingest.database import IngestDatabase
@@ -33,6 +32,7 @@ from app.ingest.pipeline import chunk_elements_v2, parser_for
 from app.ingest.runtime import load_artifact_store, load_embedding_provider
 from app.providers.contracts import ProviderError
 from app.storage import ObjectStore
+from rag.v1 import rag_pb2
 
 
 class PackageValidationError(ValueError):

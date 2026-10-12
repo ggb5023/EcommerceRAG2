@@ -29,3 +29,9 @@
 - 来源、合成资料和评测适配边界统一维护在 `数据来源与评测输入.md`；不再创建独立的原型来源边界副本。
 - 前端总设计、客服交互、管理员控制台和 HITL 保持独立专题，因为它们分别维护应用边界、页面流程、管理权限和人工介入规则。
 - 对话和过程记录位于 `.local/dev-docs/archive/`，日常工作不读取；历史快照保持不变。
+
+## V2 Gateway 恢复边界
+
+- 每个独立开发数据库只允许运行一个 V2 Gateway；专用连接持有 session advisory lock `(742019,1)`，第二实例拒绝启动。
+- Gateway 在 ready 前恢复活动 execution：PENDING/EXECUTING 变为 FAILED/`gateway_restarted`，CANCEL_REQUESTED 变为 CANCELLED/`cancelled`，终态结果与连续 SSE 事件同事务持久化；不自动重发模型请求。DONE、ASKING 和 checkpoint 保持不变。
+- 对外 SSE 序号由数据库事务分配并按 Last-Event-ID 回放。该策略已在独立开发库实际中断、重启和新请求流程验证，不代表生产高可用多实例方案。

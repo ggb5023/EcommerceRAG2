@@ -2,22 +2,21 @@
 
 ## 当前进度
 
-- `refactor/v2-rebuild` 已拆分 Go 控制面，新增 Python 资料命令、artifact journal、独立 AI/摄取 RPC 和 worker 入口；隔离数据库权限与摄取故障测试已有证据。已提交 `8f7c03b`（四进程启动/就绪）、`34c3899`（pending 命令恢复/回执绑定）、`33d9106`（版本化商家 facts fake/HTTP 适配器）、`1882cf5`（facts 故障矩阵、V2 浏览器 profile/evidence 契约）、`436b5c1`（进程级 facts fake matrix smoke）、`747c48d`（校验故障载荷）和 `0ff74cc`（固定 fake observed_at）。能力去向见 `.local/dev-docs/docs/V1到V2能力迁移清单.md`。
-- 已确认开发身份、本地商家 API fake、受控资料与真实模型集成规则；固定身份、版本化 fake、三种格式资料和 mock 查询已在新独立库走过真实 HTTP/worker/审核/发布/回退/撤销流程。稳定边界见 `FACTS.md`，详细要求见数据来源、模型和验收专章。真实百炼全链路尚未运行。
-- V2 在线 profile 已增加显式正数人民币预算门禁：`v2_langchain_bailian` 必须提供 `V2_ONLINE_BUDGET_CNY`，启动器、AI graph 和摄取 worker 均 fail-closed；mock/fixture profile 不需要该键。相关 29 个测试和完整 `scripts/check.sh` 已通过，在线请求仍未发起；实现、示例配置和边界测试均已纳入本地提交。
+- 活动工作树 `/opt/ecommerce-rag-v2`，分支 `refactor/v2-rebuild`。最新已提交基线为 `8aa781f`；本窗口新增 Gateway 重启恢复和浏览器验收改动尚未提交。未提交改动均属于本任务：Go Gateway、结果状态、worker import 排序、客服浏览器报告，以及实际权限浏览器脚本。
+- 真实百炼 V2 资料生命周期已通过：Markdown/CSV/DOCX 实际摄取、真实 document/query Embedding、Rerank、generation、审核/发布、查询引用；混合结果保持 `real_service_acceptance=false`。既有共享账本和请求指纹保留，不因预算授权变化而清零。
+- 客服工作台实际浏览器 12 项 PASS；实际数据库撤权和权限版本变化浏览器 3 项 PASS。报告在 `.local/v2-workspace/browser/`、`.local/v2-authority/browser/` 唯一目录下，均为脱敏元数据报告。
+- 本窗口实现 Gateway 单实例数据库所有权：独立连接持有 advisory lock `(742019,1)`，第二实例拒绝；ready 前恢复 PENDING/EXECUTING/CANCEL_REQUESTED，分别持久化为 FAILED/`gateway_restarted` 或 CANCELLED/`cancelled`，追加连续 SSE error/completed；DONE、ASKING 和 checkpoint 保留，不自动重发模型请求。SSE 普通事件改由数据库事务分配序号，避免重启/并发冲突。
+- 实际隔离重启证据：暂停 AI，创建 EXECUTING 请求，冻结并杀掉当前 Gateway，重启四进程；启动日志 `Gateway recovered 1 interrupted executions`，GET 为 FAILED/`gateway_restarted`，SSE 回放 seq 1–3，随后新请求实际 DONE 且含 8 条证据；第二 Gateway 被拒绝。报告：`.local/v2-recovery/browser/recovery-run/recovery-report.json`。
+- `bash scripts/check.sh` 已通过：Go 全包、Python `299 passed/25 skipped`、Proto、双前端测试与 build、facts fake 故障矩阵；`web/tests/workspace.browser.mjs` 12 项和 `web/tests/v2-authority.browser.mjs` 3 项再次通过。
 
 ## 下一步任务
 
-- 在可用的独立数据库上完成四进程资料生命周期、命令对账、权限版本和对象故障验收；当前受控配置的 PostgreSQL 未运行，本窗口未新增数据库业务证据。
-- 重跑显式 facts fake Gateway runtime 的正常/空/401/403/429/5xx/超时/取消/字段缺失/partial/撤权矩阵，并补 ASKING/取消/撤权浏览器证据；前端验收需显式设置两个 Vite API proxy target 指向当前 V2 HTTP_ADDR。
-- 离线链路通过后，在显式 profile 和新授权预算内验证真实模型。
-- 在独立数据库和真实模型授权可用前，继续完成不依赖外部输入的契约、故障、文档和旧入口退出审计；预算门禁通过后仍不能把 fixture 或静态检查升级为真实服务验收。
-- 新入口完整回归通过后，按迁移门槛退出旧兼容入口和专属测试。
+1. 审阅并提交当前 Gateway 恢复、结果标记、浏览器脚本和文档变更；只按具体文件暂存，运行 hooks/privacy guard。
+2. 按迁移门槛继续审计旧 Python `app.server`、`app.v2_grpc_server`、旧 `rag_service` 及 synthetic 工具；活动 V2 已固定使用 `app.rpc.server`、`app.rpc.ingest_server`、`app.ingest.worker_main`。保留真正需要的历史契约/测试，退出活动兼容入口前先完成新入口回归。
+3. 收口能力迁移清单、验证与验收和专题文档状态；不改写历史 snapshots/archive。完成前继续保持整体目标未完成。
 
 ## 遗留问题
 
-- 真实四槽位百炼摄取→索引→查询→重排→生成尚未验收；在线费用/配额窗口没有本轮授权。fake 目前是独立 `go/cmd/facts-fake`，不由四进程启动器托管，需显式配置 `V2_FACTS_BASE_URL`。
-- fake 适配器单元矩阵和 `scripts/facts-fake-matrix.sh` 进程级 smoke 已覆盖 401/403、空值、字段/版本无效、错误归属、429、5xx、超时、取消和部分失败；完整 Gateway 事实端到端矩阵、撤权和浏览器 ASKING/取消仍待数据库可用后复核。
-- 当前共享 PostgreSQL/Redis 未运行；未擅自重启。四进程就绪曾通过，但数据库 turn 在本窗口返回 `rag_unavailable`，不能据此生成新的业务 PASS 证据。
-- 新空库运行证据和浏览器证据均属于 mock/fixture 层，不升级为真实商家、真实身份、M2/M3 或生产就绪。
-- 真实 OIDC、商家 API、模型/ANN 生产质量及长期双机部署留待后续验收；前两项缺失不阻塞当前重构。
+- 真实 OIDC、真实商家 API、正式 HITL、生产规模质量、灾备/容量和 M2/M3 仍是后续外部验收；当前开发身份、facts fake、受控 fixture 与真实模型组合不能宣称生产就绪。
+- 旧兼容入口和历史 synthetic 工具尚未全部退出；不得用 `scripts/check.sh` 的 fixture 通过替代退出审计。
+- live 数据库已有发布版本和 chunk，不能直接重跑要求空索引的 live 生命周期脚本；使用已有只读证据或新独立库复验。

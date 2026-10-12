@@ -98,12 +98,12 @@ func (g *gateway) executionResult(ctx context.Context, requestID string) (map[st
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if mock {
-		canCopy = false
-		blocked = "mock"
-	}
 	if state != "DONE" {
 		canCopy = false
+		blocked = "incomplete"
+	} else if mock {
+		canCopy = false
+		blocked = "mock"
 	}
 	clarification := ""
 	if state == "ASKING" {

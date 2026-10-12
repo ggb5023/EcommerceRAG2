@@ -2,16 +2,18 @@
 // only transport delivery of genuine persisted frames, never business data.
 import { chromium } from 'playwright'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 const base = process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173'
 assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname), 'isolated local URL required')
-const output = path.resolve(fileURLToPath(new URL('../../.local/synthetic-workspace/browser/', import.meta.url)))
+const output = path.resolve(fileURLToPath(new URL(`../../.local/v2-workspace/browser/${randomUUID()}/`, import.meta.url)))
 await mkdir(output, { recursive: true, mode: 0o700 })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome', headless: true })
 const checks = []
 const problems = []
+let finished = false
 let page
 async function test(name, run) {
   try { await run(); checks.push({ name, status: 'PASS' }) }
@@ -180,8 +182,9 @@ try {
   })
   assert.equal(problems.length, 0, 'browser script errors')
   await context.close()
+  finished = true
 } finally {
-  await writeFile(path.join(output, 'report.json'), JSON.stringify({ profile: 'v2_langchain_mock', real_service_acceptance: false, checks, script_error_count: problems.length, fault_injection: ['SSE transport truncation/dedup/gap', 'HTTP 503/403 UI handling; actual RBAC tested separately'] }, null, 2), { mode: 0o600 })
+  await writeFile(path.join(output, 'report.json'), JSON.stringify({ status: finished ? 'PASS' : 'FAIL', profile: 'v2_langchain_mock', real_service_acceptance: false, checks, script_error_count: problems.length, fault_injection: ['SSE transport truncation/dedup/gap', 'HTTP 503/403 UI handling; actual RBAC tested separately'] }, null, 2), { mode: 0o600, flag: 'wx' })
   await browser.close()
 }
-console.log(`PASS actual synthetic workspace browser: ${checks.length} checks, four viewports and keyboard`)
+console.log(`PASS actual V2 workspace browser: ${checks.length} checks; report=${output}/report.json`)

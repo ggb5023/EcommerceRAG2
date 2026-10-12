@@ -196,10 +196,31 @@ func Main() {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
+	owner, err := g.acquireExecutionOwner(ctx)
+	if err != nil {
+		log.Fatal("Gateway execution ownership unavailable")
+	}
+	defer owner.Close(context.Background())
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if !executionOwnerAlive(owner) {
+				g.ready.Store(false)
+				log.Fatal("Gateway execution ownership lost")
+			}
+		}
+	}()
 	server := &http.Server{Addr: addr, Handler: g.Routes(), ReadHeaderTimeout: 5 * time.Second}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal("Gateway bind failed")
+	}
+	if recovered, recoveryErr := g.recoverInterruptedExecutions(ctx); recoveryErr != nil {
+		_ = listener.Close()
+		log.Fatal("Gateway interrupted execution recovery failed")
+	} else if recovered > 0 {
+		log.Printf("Gateway recovered %d interrupted executions", recovered)
 	}
 	g.ready.Store(true)
 	log.Printf("V2 Gateway listening on %s", addr)
@@ -769,11 +790,27 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		delete(g.cancels, requestID)
 		g.mu.Unlock()
 	}()
-	eventSequence := int64(0)
 	writeEvent := func(kind string, payload any) error {
-		eventSequence++
+		eventCtx, eventCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer eventCancel()
+		tx, err := g.db.Begin(eventCtx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(eventCtx)
+		var current string
+		if err = tx.QueryRow(eventCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current); err != nil {
+			return err
+		}
+		if terminal(current) {
+			return errors.New("execution already terminated")
+		}
+		var sequence int64
+		if err = tx.QueryRow(eventCtx, `SELECT COALESCE(MAX(sequence),0)+1 FROM sse_event WHERE tenant_id=$1 AND execution_id=$2`, g.session.TenantID, executionID).Scan(&sequence); err != nil {
+			return err
+		}
 		if object, ok := payload.(map[string]any); ok {
-			object["seq"] = eventSequence
+			object["seq"] = sequence
 			object["request_id"] = requestID
 			object["turn_id"] = strconv.FormatInt(turnID, 10)
 			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
@@ -783,10 +820,11 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		if err != nil {
 			return err
 		}
-		_, err = g.db.Exec(context.Background(), `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json)
-			VALUES($1,$2,(SELECT COALESCE(MAX(sequence),0)+1 FROM sse_event WHERE tenant_id=$1 AND execution_id=$2),$3,$4::jsonb)`,
-			g.session.TenantID, executionID, kind, string(body))
-		return err
+		_, err = tx.Exec(eventCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.TenantID, executionID, sequence, kind, string(body))
+		if err != nil {
+			return err
+		}
+		return tx.Commit(eventCtx)
 	}
 	finish := func(state, code, answer string) {
 		finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -811,44 +849,10 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			state, code = grpcFailure(ctx, ctx.Err())
 			answer = ""
 		}
-		answerSum := sha256.Sum256([]byte(answer))
-		_, err = tx.Exec(finishCtx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,finished_at=now()
-			WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID, state, code, answer, hex.EncodeToString(answerSum[:]))
-		if err == nil {
-			_, err = tx.Exec(finishCtx, `UPDATE turn SET status=$3,answer=$4 WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID, state, answer)
-		}
-		if state == "DONE" && err == nil {
-			_, err = tx.Exec(finishCtx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, g.session.TenantID, turnID, answer)
-			if err == nil {
-				blockedReason := "provider_not_approved"
-				if mockOutput {
-					blockedReason = "mock"
-				}
-				_, err = tx.Exec(finishCtx, `INSERT INTO customer_reply(tenant_id,execution_id,text_plain,is_mock,can_copy,blocked_reason)
-				VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=false,blocked_reason=EXCLUDED.blocked_reason`, g.session.TenantID, executionID, answer, mockOutput, blockedReason)
-			}
-		}
-		appendEvent := func(kind string, object map[string]any) {
-			if err != nil {
-				return
-			}
-			eventSequence++
-			object["seq"] = eventSequence
-			object["request_id"] = requestID
-			object["turn_id"] = strconv.FormatInt(turnID, 10)
-			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
-			object["execution_no"] = executionNo
-			body, marshalErr := json.Marshal(object)
-			if marshalErr != nil {
-				err = marshalErr
-				return
-			}
-			_, err = tx.Exec(finishCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.TenantID, executionID, eventSequence, kind, string(body))
-		}
-		if state != "DONE" && state != "ASKING" {
-			appendEvent("error", map[string]any{"type": "error", "code": code, "message": code})
-		}
-		appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": mockOutput, "can_copy": false})
+		err = persistExecutionTerminal(finishCtx, tx, executionIdentity{
+			tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
+			conversationID: conversationID, executionNo: executionNo, requestID: requestID, mock: mockOutput,
+		}, state, code, answer)
 		if err == nil {
 			err = tx.Commit(finishCtx)
 		}
@@ -895,7 +899,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		resumed, resumeErr := g.rag.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{
 			Context: parentScope, PendingKind: "ASKING",
-		})
+		}, grpc.WaitForReady(true))
 		if resumeErr != nil || resumed == nil || !resumed.Accepted {
 			if resumeErr != nil {
 				state, code := grpcFailure(ctx, resumeErr)
@@ -908,7 +912,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 
 	routed, err := g.rag.Understand(ctx, &ragv1.UnderstandRequest{Context: base, Query: query,
-		HistorySummary: g.historySummary(ctx, conversationID, turnID)})
+		HistorySummary: g.historySummary(ctx, conversationID, turnID)}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
@@ -975,7 +979,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	search, err := g.rag.Search(ctx, &ragv1.SearchRequest{Context: base, Query: routed.RewrittenQuery, ResponsePurpose: "customer_reply"})
+	search, err := g.rag.Search(ctx, &ragv1.SearchRequest{Context: base, Query: routed.RewrittenQuery, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
@@ -1039,7 +1043,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"})
+	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
