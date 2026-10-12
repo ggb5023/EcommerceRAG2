@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the public-data source manifest without network access.
+"""Validate source provenance, legal/privacy gates, and acquisition state offline.
 
-The validator deliberately accepts a pending, not-downloaded source.  That is
-the expected state until a revision, source terms, and restricted storage have
-been recorded.  It never fills a revision or SHA-256 and never reads the
-synthetic business evaluation set.
+The manifest is a decision register, not a license grant. Dataset rows may be
+downloaded or admitted only after source terms, license scope, privacy review,
+revision, and restricted storage are recorded. Open-source service targets and
+unresolved source gaps are tracked without pretending they are datasets.
 """
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ REQUIRED_MANIFEST_FIELDS = {
 }
 REQUIRED_SOURCE_FIELDS = {
     "source_id",
+    "record_type",
+    "category",
     "provider",
     "dataset",
     "canonical_url",
@@ -34,7 +36,10 @@ REQUIRED_SOURCE_FIELDS = {
     "original_source_terms_status",
     "status",
     "revision",
+    "language",
+    "jurisdiction",
     "license_status",
+    "privacy_status",
     "download_status",
     "download_date",
     "expected_filename",
@@ -45,30 +50,66 @@ REQUIRED_SOURCE_FIELDS = {
     "forbidden_use",
     "real_service_acceptance",
 }
-DOWNLOAD_STATUSES = {"not_downloaded", "downloaded"}
+RECORD_TYPES = {"dataset", "open_source_service", "source_gap"}
+CATEGORIES = {
+    "identity_service",
+    "merchant_api_service",
+    "product_catalog",
+    "product_retrieval_evaluation",
+    "transaction_records",
+    "official_faq_policy",
+    "community_qa",
+}
+SOURCE_STATUSES = {
+    "candidate",
+    "pending_license_review",
+    "pending_license_and_privacy_review",
+    "pending_source_and_scope_review",
+    "admitted",
+    "target_not_integrated",
+    "source_gap",
+}
+DOWNLOAD_STATUSES = {"not_downloaded", "downloaded", "not_applicable"}
 TERMS_STATUSES = {
     "pending_direct_verification",
     "pending_dataset_card_and_original_terms",
     "pending_dataset_card_and_original_source_verification",
+    "pending_license_and_attribution_review",
     "verified",
+    "not_applicable",
+}
+LICENSE_STATUSES = {
+    "pending_direct_verification",
+    "pending_dataset_card_and_original_source_verification",
+    "pending_selected_distribution_license_verification",
+    "pending_license_and_attribution_review",
+    "conflicting_public_metadata",
+    "no_source_selected",
+    "verified_scope_excludes_images",
+    "verified_mit_non_enterprise_content_only",
+}
+PRIVACY_STATUSES = {
+    "not_reviewed",
+    "pending_field_and_privacy_review",
+    "pending_privacy_and_field_review",
+    "not_applicable_no_personal_data_imported",
+    "reviewed_no_personal_data",
+    "reviewed_redacted_personal_data",
+    "reviewed_synthetic_test_accounts_only",
+}
+READY_PRIVACY_STATUSES = {
+    "not_applicable_no_personal_data_imported",
+    "reviewed_no_personal_data",
+    "reviewed_redacted_personal_data",
+    "reviewed_synthetic_test_accounts_only",
 }
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-REQUIRED_SOURCE_IDS = {"amazon-esci", "hf-mcauley-amazon-reviews-2023"}
-EXPECTED_ALLOWED_USE = {
-    "amazon-esci": {"product retrieval", "product ranking", "recall@k", "mrr", "ndcg"},
-    "hf-mcauley-amazon-reviews-2023": {
-        "product metadata mapping",
-        "review/product text parsing",
-        "deduplication",
-        "field coverage",
-        "text retrieval experiments",
-    },
-}
 REQUIRED_FORBIDDEN_USE = {
-    "merchant policy truth",
-    "current price, inventory, or order truth",
-    "tenant/shop permissions",
-    "customer reply correctness",
+    "merchant_policy_truth",
+    "current_price_inventory_order_truth",
+    "tenant_shop_permission_truth",
+    "customer_reply_correctness_truth",
+    "real_service_acceptance",
 }
 
 
@@ -112,6 +153,10 @@ def _non_empty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _string_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(_non_empty_string(item) for item in value)
+
+
 def _date(value: Any) -> bool:
     if not isinstance(value, str):
         return False
@@ -122,6 +167,10 @@ def _date(value: Any) -> bool:
     return True
 
 
+def _https_or_null(value: Any) -> bool:
+    return value is None or (_non_empty_string(value) and value.startswith("https://"))
+
+
 def validate_manifest(payload: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(payload, dict):
@@ -130,8 +179,14 @@ def validate_manifest(payload: Any) -> list[str]:
     errors.extend(f"manifest missing {field}" for field in sorted(missing))
     if payload.get("real_service_acceptance") is not False:
         errors.append("manifest real_service_acceptance must be false")
+    if not _non_empty_string(payload.get("manifest_version")):
+        errors.append("manifest manifest_version must be non-empty")
     if not _date(payload.get("recorded_at")):
         errors.append("manifest recorded_at must be an ISO date")
+    for field in ("download_policy", "storage_policy"):
+        if not _non_empty_string(payload.get(field)):
+            errors.append(f"manifest {field} must be non-empty")
+
     sources = payload.get("sources")
     if not isinstance(sources, list) or not sources:
         return errors + ["manifest sources must be a non-empty list"]
@@ -151,49 +206,98 @@ def validate_manifest(payload: Any) -> list[str]:
             errors.append(f"duplicate source_id: {source_id}")
         else:
             source_ids.add(source_id)
-        for field in ("canonical_url", "dataset_card_url"):
-            value = source.get(field)
-            if not _non_empty_string(value) or not value.startswith("https://"):
-                errors.append(f"{prefix} {field} must be an https URL")
-        terms_url = source.get("original_source_terms_url")
-        if terms_url is not None and (not _non_empty_string(terms_url) or not terms_url.startswith("https://")):
-            errors.append(f"{prefix} original_source_terms_url must be null or an https URL")
-        if source.get("original_source_terms_status") not in TERMS_STATUSES:
+
+        record_type = source.get("record_type")
+        category = source.get("category")
+        status = source.get("status")
+        download_status = source.get("download_status")
+        for field in ("provider", "dataset", "license_status", "privacy_status"):
+            if not _non_empty_string(source.get(field)):
+                errors.append(f"{prefix} {field} must be non-empty")
+        if not isinstance(record_type, str) or record_type not in RECORD_TYPES:
+            errors.append(f"{prefix} invalid record_type")
+        if not isinstance(category, str) or category not in CATEGORIES:
+            errors.append(f"{prefix} invalid category")
+        if not isinstance(status, str) or status not in SOURCE_STATUSES:
+            errors.append(f"{prefix} invalid status")
+        if not isinstance(download_status, str) or download_status not in DOWNLOAD_STATUSES:
+            errors.append(f"{prefix} invalid download_status")
+        if not isinstance(source.get("license_status"), str) or source.get("license_status") not in LICENSE_STATUSES:
+            errors.append(f"{prefix} invalid license_status")
+        if not isinstance(source.get("privacy_status"), str) or source.get("privacy_status") not in PRIVACY_STATUSES:
+            errors.append(f"{prefix} invalid privacy_status")
+        if not isinstance(source.get("original_source_terms_status"), str) or source.get("original_source_terms_status") not in TERMS_STATUSES:
             errors.append(f"{prefix} invalid original_source_terms_status")
+        for field in ("canonical_url", "dataset_card_url", "original_source_terms_url"):
+            if not _https_or_null(source.get(field)):
+                errors.append(f"{prefix} {field} must be null or an https URL")
+        if isinstance(record_type, str) and record_type in {"dataset", "open_source_service"}:
+            for field in ("canonical_url", "dataset_card_url"):
+                value = source.get(field)
+                if not _non_empty_string(value) or not value.startswith("https://"):
+                    errors.append(f"{prefix} {field} must be an https URL for a selected source")
         if source.get("real_service_acceptance") is not False:
             errors.append(f"{prefix} real_service_acceptance must be false")
+
         revision = source.get("revision")
         if revision is not None and not _non_empty_string(revision):
             errors.append(f"{prefix} revision must be null or a non-empty string")
-        if source.get("version_or_revision") != revision and "version_or_revision" in source:
-            errors.append(f"{prefix} version_or_revision disagrees with revision")
-        status = source.get("download_status")
-        if status not in DOWNLOAD_STATUSES:
-            errors.append(f"{prefix} invalid download_status")
-        if source.get("license_status") is None or not _non_empty_string(source.get("license_status")):
-            errors.append(f"{prefix} license_status must be non-empty")
+        if not _string_list(source.get("language")):
+            errors.append(f"{prefix} language must be a non-empty list of strings")
+        if not _string_list(source.get("jurisdiction")):
+            errors.append(f"{prefix} jurisdiction must be a non-empty list of strings")
+
         allowed = source.get("allowed_use")
         forbidden = source.get("forbidden_use")
-        if not isinstance(allowed, list) or not all(_non_empty_string(item) for item in allowed):
-            errors.append(f"{prefix} allowed_use must be a list of strings")
-        if not isinstance(forbidden, list) or not all(_non_empty_string(item) for item in forbidden):
-            errors.append(f"{prefix} forbidden_use must be a list of strings")
-        if isinstance(allowed, list) and isinstance(forbidden, list) and set(allowed) & set(forbidden):
-            errors.append(f"{prefix} allowed_use overlaps forbidden_use")
-        if source_id in EXPECTED_ALLOWED_USE and set(allowed or []) != EXPECTED_ALLOWED_USE[source_id]:
-            errors.append(f"{prefix} allowed_use does not match the fixed source scope")
-        if not REQUIRED_FORBIDDEN_USE <= set(forbidden or []):
-            errors.append(f"{prefix} forbidden_use is missing a required business boundary")
+        if not _string_list(allowed):
+            errors.append(f"{prefix} allowed_use must be a non-empty list of strings")
+        if not _string_list(forbidden):
+            errors.append(f"{prefix} forbidden_use must be a non-empty list of strings")
+        if _string_list(allowed) and _string_list(forbidden):
+            if set(allowed) & set(forbidden):
+                errors.append(f"{prefix} allowed_use overlaps forbidden_use")
+            unsafe_allowed = set(allowed) & REQUIRED_FORBIDDEN_USE
+            if unsafe_allowed:
+                errors.append(f"{prefix} allowed_use contains prohibited truth scope: {sorted(unsafe_allowed)}")
+            missing_forbidden = REQUIRED_FORBIDDEN_USE - set(forbidden)
+            if missing_forbidden:
+                errors.append(f"{prefix} forbidden_use is missing a required business boundary")
+
         sha = source.get("sha256")
         if sha is not None and (not isinstance(sha, str) or not SHA256.fullmatch(sha)):
             errors.append(f"{prefix} sha256 must be null or 64 lowercase hex characters")
-        if status == "not_downloaded":
+        if record_type == "dataset":
+            if download_status == "not_applicable":
+                errors.append(f"{prefix} dataset download_status cannot be not_applicable")
+            storage = source.get("restricted_storage_location")
+            if not _non_empty_string(storage) or "outside_git" not in storage:
+                errors.append(f"{prefix} storage must explicitly be outside_git restricted storage")
+        elif record_type == "open_source_service":
+            if not isinstance(category, str) or category not in {"identity_service", "merchant_api_service"}:
+                errors.append(f"{prefix} open_source_service must use an identity or merchant API category")
+            if download_status != "not_applicable":
+                errors.append(f"{prefix} open_source_service download_status must be not_applicable")
+            if status != "target_not_integrated":
+                errors.append(f"{prefix} open_source_service status must be target_not_integrated")
+            if sha is not None or source.get("download_date") is not None or source.get("actual_filename") is not None:
+                errors.append(f"{prefix} open_source_service cannot claim a downloaded dataset")
+        elif record_type == "source_gap":
+            if status != "source_gap" or download_status != "not_applicable":
+                errors.append(f"{prefix} source_gap must have source_gap status and not_applicable download_status")
+            if source.get("canonical_url") is not None or source.get("dataset_card_url") is not None:
+                errors.append(f"{prefix} source_gap must not invent a source URL")
+            if sha is not None or source.get("download_date") is not None or source.get("actual_filename") is not None:
+                errors.append(f"{prefix} source_gap cannot claim a downloaded dataset")
+
+        if download_status == "not_downloaded":
             if sha is not None:
                 errors.append(f"{prefix} not_downloaded source must have null sha256")
             for field in ("download_date", "actual_filename"):
                 if source.get(field) is not None:
                     errors.append(f"{prefix} not_downloaded source must have null {field}")
-        else:
+        elif download_status == "downloaded":
+            if status != "admitted":
+                errors.append(f"{prefix} downloaded source must be admitted")
             if not _date(source.get("download_date")):
                 errors.append(f"{prefix} downloaded source needs an ISO download_date")
             if not _non_empty_string(source.get("actual_filename")):
@@ -204,15 +308,33 @@ def validate_manifest(payload: Any) -> list[str]:
                 errors.append(f"{prefix} downloaded source needs revision")
             if not str(source.get("license_status", "")).startswith("verified"):
                 errors.append(f"{prefix} downloaded source needs verified license_status")
+            if not isinstance(source.get("privacy_status"), str) or source.get("privacy_status") not in READY_PRIVACY_STATUSES:
+                errors.append(f"{prefix} downloaded source needs completed privacy review")
             if source.get("original_source_terms_status") != "verified":
                 errors.append(f"{prefix} downloaded source needs verified source terms")
             if not _non_empty_string(source.get("original_source_terms_url")):
                 errors.append(f"{prefix} downloaded source needs original_source_terms_url")
-        storage = source.get("restricted_storage_location")
-        if not _non_empty_string(storage) or "outside_git" not in storage:
-            errors.append(f"{prefix} storage must explicitly be outside_git restricted storage")
-    if source_ids != REQUIRED_SOURCE_IDS:
-        errors.append(f"source_id set must be {sorted(REQUIRED_SOURCE_IDS)}")
+
+        if status == "admitted":
+            if record_type != "dataset":
+                errors.append(f"{prefix} only a dataset can be admitted")
+            if not str(source.get("license_status", "")).startswith("verified"):
+                errors.append(f"{prefix} admitted source needs verified license_status")
+            if not isinstance(source.get("privacy_status"), str) or source.get("privacy_status") not in READY_PRIVACY_STATUSES:
+                errors.append(f"{prefix} admitted source needs completed privacy review")
+            if source.get("original_source_terms_status") != "verified" or not _non_empty_string(source.get("original_source_terms_url")):
+                errors.append(f"{prefix} admitted source needs verified original source terms")
+            if revision is None:
+                errors.append(f"{prefix} admitted source needs a pinned revision")
+
+        if (
+            record_type == "dataset"
+            and download_status != "downloaded"
+            and status != "admitted"
+            and (sha is not None or source.get("download_date") is not None or source.get("actual_filename") is not None)
+        ):
+            errors.append(f"{prefix} unadmitted dataset cannot claim downloaded artifacts")
+
     return errors
 
 
@@ -231,10 +353,10 @@ def main() -> int:
         for error in errors:
             print(f"FAIL {error}")
         return 1
-    print(f"PASS public source manifest: {len(payload['sources'])} sources; sha256={file_sha256(args.manifest)}")
+    print(f"PASS public source manifest: {len(payload['sources'])} records; sha256={file_sha256(args.manifest)}")
     for source in payload["sources"]:
-        state = "READY" if source["download_status"] == "downloaded" else "NOT_RUN"
-        print(f"{source['source_id']}: {state}; revision={source['revision'] or 'unverified'}; license={source['license_status']}")
+        state = source["status"].upper()
+        print(f"{source['source_id']}: {state}; revision={source['revision'] or 'unverified'}; license={source['license_status']}; download={source['download_status']}")
     return 0
 
 

@@ -36,11 +36,10 @@ than real OIDC, merchant API, M2/M3 or production acceptance.
 
 This directory contains versioned evaluation definitions, not customer data or
 credentials. The first 60-case set uses a deterministic synthetic tenant set
-for policy, FAQ, factual mock, and access-control scenarios. Public data sources
-for a separate product retrieval track are listed in
-`public-data-sources.manifest.json`: Amazon Science ESCI and the
-`McAuley-Lab/Amazon-Reviews-2023` dataset distributed through Hugging Face.
-They are not part of the 60-case business-policy truth set.
+for policy, FAQ, factual mock, and access-control scenarios. The frozen 60
+cases, 37 synthetic documents, approved answer points, and evidence sidecars
+remain a separate baseline; public-source candidates do not rewrite or supply
+their business truth.
 
 Current aligned synthetic status is revision-1: all 60 source mappings have
 been reviewed and approved for this synthetic corpus, validation is `PASS`, and
@@ -49,12 +48,46 @@ synthetic-only and carry `real_service_acceptance=false`; this does not change
 the immutable 60-case input or claim real merchant, model, or customer-service
 quality.
 
-`validate_public_sources.py` validates this manifest locally and without
-network access. A source may remain selected while its `revision`, dataset
-card/source terms, license, download date, and SHA-256 are pending. The
-validator rejects a non-null hash for a `not_downloaded` source, use-scope
-overlap, missing restricted-storage declaration, and any
-`real_service_acceptance` value other than `false`.
+`public-data-sources.manifest.json` is the versioned source admission register
+for public datasets, open-source service targets, and unresolved source gaps.
+Each record declares category, record type, language, jurisdiction, license
+and privacy state, permitted/prohibited use, acquisition state, and provenance
+notes. `validate_public_sources.py` checks it offline. A dataset cannot be
+marked admitted or downloaded until its source terms and license scope are
+verified, privacy/field review is complete, a revision is pinned, and restricted
+storage is declared. Service targets and source gaps cannot claim downloaded
+datasets. No raw public data is checked into Git.
+
+The current source rails are deliberately distinct:
+
+- Keycloak is the target for local OIDC protocol integration with synthetic
+  test accounts only. Its selected distribution/version license still needs
+  verification; Keycloak is not currently deployed or integrated.
+- Medusa 2.21.2 is the target local REST service. The recorded MIT scope
+  excludes Enterprise-only content. It is not a real merchant API, and its
+  local catalog/orders are test records.
+- Open Food Facts is a candidate food-product catalog. Its official terms
+  distinguish ODbL database, DbCL individual content, and CC BY-SA product
+  images; the first candidate excludes images and still needs field/scope
+  review.
+- UCI Online Retail II remains blocked: its page displays CC BY 4.0 while the
+  UCI API license metadata is blank. Do not download it until that conflict,
+  selected fields, and privacy handling are resolved. Any derived local
+  inventory/order fixtures must remove customer identifiers and bind source
+  revision, input hash, and transformation version.
+- Amazon ESCI and Amazon Reviews remain separate product retrieval/parsing
+  candidates pending license and privacy review. Hugging Face distribution is
+  not itself a license grant.
+- Chinese official FAQ/regulation sources and Chinese community Q&A remain
+  explicit source gaps. English community QA may be evaluated on its own track
+  after license, attribution, and privacy review; it is never merchant-policy
+  or customer-reply truth.
+
+Publicly sourced data may be called real public-source data for its documented
+scope. Open-source local service integration and records derived into a local
+Medusa test store are separate evidence classes. None represents real
+merchant-production data, and every record retains
+`real_service_acceptance=false`.
 
 `run_public_data_baseline.py` is a separate public product-data track. It does
 not read `synthetic_cases.jsonl`, call a model, or contact the network. Until a
@@ -66,8 +99,10 @@ calculations. Reports include `source_id`, `revision`, `license_status`,
 `input_sha256`, `pipeline_version`, and `real_service_acceptance=false`.
 ESCI is restricted to product retrieval/ranking metrics. Amazon Reviews is
 restricted to product metadata/text parsing, mapping, deduplication, and text
-retrieval experiments. Neither source is merchant policy, price, inventory,
-order, permission, or customer-reply truth.
+retrieval experiments. The runner remains a product-ranking tool; other source
+categories need their own purpose-specific evaluator and admission checks.
+None of these sources is merchant policy, current price/inventory/order,
+permission, or customer-reply truth.
 
 The public-source manifest, mapping, JSONL, and CSV inputs use strict UTF-8
 parsing. Duplicate JSON keys, malformed JSON, non-object JSONL rows, invalid
@@ -102,10 +137,11 @@ status counts, missing notes, duplicate IDs, evidence drift, and either
 The generated set is a development fixture and cannot be used to claim M2
 real-service acceptance. `esci-lite.manifest.json` remains the compatibility
 manifest for the ESCI-lite subset. `public-data-sources.manifest.json` records
-the broader Amazon/Hugging Face source decisions. No public raw data is
-downloaded or committed until its revision, terms/license, and SHA-256 are
-recorded. Hugging Face is a distribution channel; its dataset card and the
-original source terms control use.
+the current dataset, service-target, and source-gap decisions. No public raw
+data is downloaded or committed until its revision, terms/license, privacy
+review, and SHA-256 are recorded. A public page or distribution channel does
+not by itself grant permission; the dataset card and original source terms
+control use.
 
 Each case includes a query, expected document IDs, answer points, intent,
 information source, tags, authorization context, business date, and source

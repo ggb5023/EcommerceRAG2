@@ -26,6 +26,16 @@
 
 开发身份、商家 fake 和受控资料不构成真实身份或真实商家接入；真实模型调用也不能证明生产业务验收。证据分层与限制见 FACTS。
 
+## 数据来源与服务目标
+
+`eval/public-data-sources.manifest.json` 管理公开数据集、开源服务目标和未解决的来源缺口，并记录类别、语言/司法辖区、许可与隐私状态、用途范围和获取状态。候选来源只有在原始条款、许可证范围、revision、字段/隐私审查和仓外存储均落实后才能准入；未满足时保持未下载。原始公开数据不进入 Git.
+
+当前实现仍使用固定开发身份及 Go 商家 facts fake。Keycloak OIDC 是未来本地集成目标，使用本地创建的合成测试账号；所选发行版许可仍需核实，当前没有 Keycloak 服务或真实 OIDC 集成。Medusa 2.21.2 是未来本地 REST 集成目标；记录的 MIT 许可仅覆盖非 Enterprise 内容，Enterprise 内容排除。Medusa 本地服务或测试账号都不代表真实商家 API。
+
+Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库、DbCL 单项内容和 CC BY-SA 商品图片，首批候选排除图片并待字段审查。UCI Online Retail II 页面标注 CC BY 4.0、API 许可字段为空，解决差异并完成隐私审查前不下载或准入。中文官方 FAQ/政策和中文社区问答尚有来源缺口；英文社区问答单独评测并保留语言与许可归属，不能作为商家政策或客服答案真值。公开数据派生的 Medusa 库存/订单是本地测试记录，删除客户标识并绑定来源版本、输入 hash 和转换版本。
+
+以上均是数据来源或服务集成的开发证据，不构成生产商家数据或验收；`real_service_acceptance` 保持 `false`。冻结的 60 条案例、37 份合成文档、答案点和 evidence sidecar 继续独立，不由公开数据补写或改写。
+
 ## 跨语言契约
 
 Proto/gRPC 是唯一跨语言业务契约。字段、状态、错误、取消或 deadline 变化先更新 `proto/rag/v1/rag.proto`，再通过 `bash scripts/generate-proto.sh` 同步 Go/Python 生成代码。兼容检查使用 `scripts/check-proto.sh`；不得手改生成文件或另建平行业务 HTTP/JSON 接口。

@@ -42,6 +42,14 @@
 - Proto/gRPC 是 Go 与 Python 的唯一跨语言契约。字段、状态、错误、取消或 deadline 变化先修改 `proto/rag/v1/rag.proto`，再用 `bash scripts/generate-proto.sh` 同步生成代码；不新增平行的业务 HTTP/JSON 契约。现有授权回验传输差异见 `docs/architecture.md`。
 - 已应用迁移不可修改；数据库结构变化必须新增 checksum 迁移，并在独立库、非超级用户且无 `BYPASSRLS` 条件下验证。应用进程不执行 DDL。
 
+## 数据来源与准入
+
+- `eval/public-data-sources.manifest.json` 是开源数据、开源服务目标和来源缺口的版本化登记入口。公开 URL、候选条目或“开放数据”标签本身不构成下载或业务使用授权。
+- 下载/准入数据前，逐来源核对原始条款、许可证范围、revision、语言/司法辖区、字段与隐私处理、用途边界和仓外受限存储；待核验来源只能保持候选且未下载。
+- 原始公开数据不得进入 Git。由公开数据生成的本地库存/订单仅是测试记录，移除客户标识，并保留来源 revision、输入 SHA-256 和转换版本。
+- 公开数据仅用于清单批准的用途；社区问答不能作为商家政策或客服答案真值。Keycloak/Medusa 本地开源服务目标不等于真实身份或商家生产服务，相关结果保持 `real_service_acceptance=false`。
+- 冻结的 60 条案例、37 份合成文档、答案点和 evidence sidecar 与新增公开数据轨分离；不得为适配公开来源而修改既有真值或评测输入。
+
 ## 技术栈与检查入口
 
 - Go 控制面采用 HTTP/SSE、gRPC/Protobuf；Python AI 面采用 LangChain/LangGraph、内部 FastAPI；客服和管理前端采用 Vue、TypeScript、Vite；持久化采用 PostgreSQL/pgvector、pg_trgm 和 Redis。

@@ -10,6 +10,8 @@
 - 表级权限及单写者边界由 checksum 迁移和受限数据库角色落实；应用进程不执行 DDL，已应用迁移保持不变，新结构通过新增迁移引入。
 - PostgreSQL/pgvector 与 Redis 提供共享持久化和协调能力。当前开发目标不部署本地模型。
 - Go 控制面可通过显式 `V2_FACTS_BASE_URL` 加载版本化 `facts.HTTPProvider`；未配置时事实查询 fail-closed。`go/cmd/facts-fake` 是 loopback 开发 fake，固定返回商品/库存/价格/订单/物流并带 mock、版本、观察时间和租户/店铺绑定。
+- 当前开发身份与商家事实仍由固定身份/本地 mock 和版本化 facts fake 提供；Keycloak OIDC 与 Medusa REST 是后续本地开源服务目标，尚未部署或集成。Medusa 本地数据和由公开数据派生的交易记录属于测试数据，不是生产商家数据。
+- 冻结的 60 条合成案例、37 份合成文档、批准答案点和 evidence sidecar 属于独立基线；公开来源清单建立隔离数据轨，不修改或补写该基线真值。
 
 ## 工作区职责
 
@@ -23,7 +25,8 @@
 - 实现行为以源码、Proto、迁移和测试为准；运行报告只证明报告明确记录的范围。
 - fixture、静态检查、隔离 synthetic、真实 Provider 和生产结果属于不同证据层级。
 - 低层检查通过不代表真实身份、真实电商数据、生产就绪或更高里程碑通过。
-- V2 开发使用固定身份或本地 OIDC mock、版本化商家 API fake、现有业务文档及受控 Markdown/CSV/DOCX fixture；模型集成与受控全链路使用真实百炼，默认回归保持离线。真实 OIDC/API 缺失不阻塞重构；在线调用显式选择 profile 并遵守授权预算，替代输入保留授权和故障边界，各类证据分别记录。
+- 公开来源准入由 `eval/public-data-sources.manifest.json` 记录分类、许可/隐私状态、语言/司法辖区和用途边界；待核验来源不得下载或标为准入。公开数据、开源服务本地集成和派生本地测试记录是不同证据类别，均不代表生产商家数据。
+- V2 开发当前使用固定身份、本地商家 API fake、现有业务文档及受控 Markdown/CSV/DOCX fixture；模型集成与受控全链路使用真实百炼，默认回归保持离线。真实 OIDC/API 尚未接入；在线调用显式选择 profile 并遵守预算规则，各类证据分别记录。
 
 ## 文档职责
 
