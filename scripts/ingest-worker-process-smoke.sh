@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Controlled runtime harness for the Go gateway process that hosts the
-# synthetic ingestion worker. It never starts a service or discovers secrets.
-# The operator supplies a loopback endpoint, an exact gateway PID, a PID file
+# Controlled runtime harness for the independent V2 Python ingestion worker.
+# It never discovers secrets or kills a process inferred from a service name.
+# The operator supplies a loopback endpoint, an exact worker PID, a PID file
 # maintained by an approved restart script, and a job that is being processed.
 
-base=${ADMIN_HTTP_BASE:-http://127.0.0.1:8082}
+base=${ADMIN_HTTP_BASE:-http://127.0.0.1:8080}
 pid_file=${INGEST_WORKER_PID_FILE:-}
 restart_script=${INGEST_WORKER_RESTART_SCRIPT:-}
 job_id=${INGEST_WORKER_JOB_ID:-}
-shop_id=${INGEST_WORKER_SHOP_ID:-demo-shop-east}
+shop_id=${INGEST_WORKER_SHOP_ID:-shop-demo}
 old_pid=${INGEST_WORKER_PID:-}
-process_marker=${INGEST_WORKER_PROCESS_MARKER:-gateway}
+process_marker=${INGEST_WORKER_PROCESS_MARKER:-app.ingest.worker_main}
 lease_wait=${INGEST_WORKER_LEASE_WAIT_SECONDS:-50}
 restart_timeout=${INGEST_WORKER_RESTART_TIMEOUT_SECONDS:-30}
 settle_timeout=${INGEST_WORKER_SETTLE_TIMEOUT_SECONDS:-90}
@@ -38,6 +38,16 @@ esac
 [[ -f "$pid_file" ]] || not_run "worker PID file does not exist"
 [[ -x "$restart_script" ]] || not_run "restart script is not executable"
 [[ -n "$process_marker" ]] || not_run "INGEST_WORKER_PROCESS_MARKER is empty"
+# Reject every timing error before the rehearsal can kill a live process.
+[[ "$lease_wait" =~ ^[0-9]{1,3}$ ]] && (( 10#$lease_wait >= 45 && 10#$lease_wait <= 600 )) ||
+  not_run "INGEST_WORKER_LEASE_WAIT_SECONDS must be between 45 and 600"
+for timeout in "$restart_timeout" "$settle_timeout"; do
+  [[ "$timeout" =~ ^[0-9]{1,3}$ ]] && (( 10#$timeout >= 1 && 10#$timeout <= 600 )) ||
+    not_run "restart and settle timeouts must be between 1 and 600"
+done
+lease_wait=$((10#$lease_wait))
+restart_timeout=$((10#$restart_timeout))
+settle_timeout=$((10#$settle_timeout))
 
 read_pid() {
   local value
@@ -89,7 +99,7 @@ before_epoch=$(printf '%s' "$job_json" | json_value fencing_epoch) || fail "job 
 
 # This is the destructive part of the rehearsal. It is limited to the exact
 # PID supplied by the operator and is never inferred from a service name.
-kill -KILL "$old_pid" 2>/dev/null || fail "could not kill the supplied worker gateway PID"
+kill -KILL "$old_pid" 2>/dev/null || fail "could not kill the supplied worker PID"
 deadline=$((SECONDS + 10))
 while kill -0 "$old_pid" 2>/dev/null; do
   (( SECONDS < deadline )) || fail "killed process did not exit"
@@ -97,11 +107,8 @@ while kill -0 "$old_pid" 2>/dev/null; do
 done
 echo "killed_pid=$old_pid"
 
-# The current gateway lease is 45 seconds. Waiting longer is required before
-# a new process can claim the same job.
-if (( lease_wait < 45 )); then
-  not_run "INGEST_WORKER_LEASE_WAIT_SECONDS must be at least 45"
-fi
+# The default V2 worker lease is 45 seconds. Waiting longer is required before
+# a new process can claim the same job. Configuration was checked before kill.
 sleep "$lease_wait"
 
 # The restart script is an explicit operator-owned action. It must obtain its
@@ -114,13 +121,16 @@ while (( SECONDS < deadline )); do
   if [[ -f "$pid_file" ]]; then
     candidate=$(read_pid)
     if [[ "$candidate" != "$old_pid" ]] && kill -0 "$candidate" 2>/dev/null; then
-      new_pid=$candidate
-      break
+      cmdline=$(tr '\0' ' ' < "/proc/$candidate/cmdline" 2>/dev/null || true)
+      if [[ "$cmdline" == *"$process_marker"* ]]; then
+        new_pid=$candidate
+        break
+      fi
     fi
   fi
   sleep 0.5
 done
-[[ -n "$new_pid" ]] || fail "restarted gateway PID was not observed"
+[[ -n "$new_pid" ]] || fail "restarted worker PID was not observed"
 echo "restarted_pid=$new_pid"
 
 deadline=$((SECONDS + settle_timeout))

@@ -4,14 +4,15 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from multiprocessing import get_context
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
-
 from app.ingest.commands import CommandStore, command_action, payload_digest
 from app.ingest.database import (
     IngestAuthorizationError,
@@ -24,7 +25,7 @@ from app.ingest.worker import IngestWorker, parse_persisted_package
 from app.providers import MockProvider
 from app.providers.config import validate_values
 from app.providers.contracts import ProviderError
-from app.storage import FilesystemObjectStore
+from app.storage import FilesystemObjectStore, ObjectStoreError
 from rag.v1 import rag_pb2
 
 
@@ -180,6 +181,69 @@ def test_expired_worker_is_fenced_and_new_owner_recovers(db):
     assert takeover.fencing_epoch == claim.fencing_epoch + 1
     db.worker._process(takeover)
     assert version(db, job.job_id)[3] == "ready"
+
+
+def test_killed_worker_recovers_after_real_lease_expiry(db):
+    """Kill the actual worker during embedding; never edit lease/version rows."""
+    job = db.submit()
+    process_context = get_context("fork")
+    parent, child = process_context.Pipe(duplex=False)
+
+    def run_worker():
+        parent.close()
+        db.worker.lease_seconds = 5
+        for _ in range(100):
+            claim = db.worker._claim()
+            assert claim is not None
+            if claim.job_id == job.job_id:
+                break
+            db.worker._process(claim)
+        else:
+            raise AssertionError("target job was not claimed")
+
+        async def held_embedding(_parsed, _cancel):
+            child.send(claim)
+            threading.Event().wait()
+
+        db.worker._embed = held_embedding
+        db.worker._process(claim)
+
+    process = process_context.Process(target=run_worker)
+    process.start()
+    child.close()
+    try:
+        assert parent.poll(15), "worker never reached real parsing/embedding"
+        old_claim = parent.recv()
+        with psycopg.connect(db.values["V2_INGEST_DSN"]) as conn:
+            assert conn.execute("SELECT status,lease_expires_at>now() FROM ingest_job WHERE id=%s", (job.job_id,)).fetchone() == ("running", True)
+        assert version(db, job.job_id) is None
+        process.kill()
+        process.join(timeout=5)
+        assert process.exitcode == -9
+        assert db.worker._claim() is None, "unexpired lease was stolen"
+        deadline = time.monotonic() + 10
+        takeover = None
+        while time.monotonic() < deadline:
+            takeover = db.worker._claim()
+            if takeover:
+                break
+            time.sleep(0.1)
+        assert takeover is not None and takeover.job_id == job.job_id
+        assert takeover.fencing_epoch == old_claim.fencing_epoch + 1
+        parsed, sha = parse_persisted_package(old_claim.manifest, old_claim.files, tenant=db.scope().tenant_id, shop="shop-test")
+        with pytest.raises(RuntimeError, match="stale"):
+            db.worker._publish_reviewable(old_claim, parsed, sha)
+        db.worker._process(takeover)
+        row = version(db, job.job_id)
+        assert row[2:5] == (takeover.fencing_epoch, "ready", "pending")
+        with psycopg.connect(db.values["V2_AI_DSN"]) as conn:
+            assert conn.execute("SELECT count(*) FROM document_version WHERE tenant_id=%s", (db.tenant,)).fetchone() == (1,)
+        assert cleanup_orphans(db.objects, db.store.conn_string) == 0
+    finally:
+        if process.is_alive():
+            process.kill()
+        process.join(timeout=5)
+        parent.close()
 
 
 def test_cancel_publish_race_has_single_result(db):
@@ -340,6 +404,57 @@ def test_unknown_commit_outcome_preserves_committed_artifacts(db, monkeypatch):
     for artifact in row[5]["artifact_bundle"]["artifacts"]:
         db.objects.get_bytes(artifact["object_key"], expected_sha256=artifact["sha256"])
     approve_publish(db, row)
+
+
+def test_orphan_delete_failure_does_not_block_other_objects_or_later_recovery(db, monkeypatch):
+    job = db.submit()
+    original = db.worker._publish_reviewable
+
+    def fail_before_commit(*_args):
+        raise RuntimeError("injected before version transaction")
+
+    monkeypatch.setattr(db.worker, "_publish_reviewable", fail_before_commit)
+    for _ in range(100):
+        claim = db.worker._claim()
+        assert claim is not None
+        if claim.job_id == job.job_id:
+            db.worker._process(claim)
+            break
+        original_claim = db.worker._publish_reviewable
+        db.worker._publish_reviewable = original
+        db.worker._process(claim)
+        db.worker._publish_reviewable = original_claim
+    else:
+        pytest.fail("submitted job was not claimed")
+    assert version(db, job.job_id) is None
+    with psycopg.connect(db.store.conn_string) as conn:
+        keys = [row[0] for row in conn.execute(
+            "SELECT object_key FROM ingest_artifact_object WHERE tenant_id=%s AND job_id=%s AND status='stored' ORDER BY object_key",
+            (db.tenant, job.job_id),
+        )]
+    assert len(keys) == 5
+    failing_key = keys[0]
+
+    class FaultStore:
+        def delete(self, key):
+            if key == failing_key:
+                raise ObjectStoreError("injected deletion failure")
+            db.objects.delete(key)
+
+    cleanup_orphans(FaultStore(), db.store.conn_string)
+    with psycopg.connect(db.store.conn_string) as conn:
+        states = dict(conn.execute(
+            "SELECT object_key,status FROM ingest_artifact_object WHERE tenant_id=%s AND job_id=%s",
+            (db.tenant, job.job_id),
+        ))
+    assert states[failing_key] == "stored"
+    assert all(state == "cleaned" for key, state in states.items() if key != failing_key)
+    assert (db.objects.root / failing_key).is_file()
+    cleanup_orphans(db.objects, db.store.conn_string)
+    with psycopg.connect(db.store.conn_string) as conn:
+        assert conn.execute("SELECT count(*) FROM ingest_artifact_object WHERE tenant_id=%s AND job_id=%s AND status<>'cleaned'", (db.tenant, job.job_id)).fetchone() == (0,)
+    assert not any((db.objects.root / key).exists() for key in keys)
+    assert cleanup_orphans(db.objects, db.store.conn_string) == 0
 
 
 def test_corrupt_artifact_publication_is_rejected_durably(db):

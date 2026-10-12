@@ -3,10 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
-
 
 REPO = Path(__file__).resolve().parents[1]
 HARNESS = REPO / "scripts" / "ingest-worker-process-smoke.sh"
@@ -79,6 +77,37 @@ class WorkerProcessHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 3)
             self.assertIn("does not match INGEST_WORKER_PROCESS_MARKER", result.stdout)
             self.assertIsNone(target.poll(), "marker rejection must not kill the target")
+        finally:
+            target.terminate()
+            target.wait(timeout=5)
+
+    def test_invalid_timing_does_not_kill_matching_target(self) -> None:
+        target = subprocess.Popen(["sleep", "30"])
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                pid_file = root / "worker.pid"
+                restart = root / "restart.sh"
+                pid_file.write_text(f"{target.pid}\n")
+                restart.write_text("#!/usr/bin/env bash\nexit 99\n")
+                restart.chmod(0o700)
+                for key, value in (
+                    ("INGEST_WORKER_LEASE_WAIT_SECONDS", "44"),
+                    ("INGEST_WORKER_LEASE_WAIT_SECONDS", "invalid"),
+                    ("INGEST_WORKER_RESTART_TIMEOUT_SECONDS", "0"),
+                    ("INGEST_WORKER_SETTLE_TIMEOUT_SECONDS", "-1"),
+                ):
+                    with self.subTest(key=key, value=value):
+                        result = run_harness({
+                            "INGEST_WORKER_PID_FILE": str(pid_file),
+                            "INGEST_WORKER_RESTART_SCRIPT": str(restart),
+                            "INGEST_WORKER_JOB_ID": "fixture-job",
+                            "INGEST_WORKER_PROCESS_MARKER": "sleep",
+                            key: value,
+                        })
+                        self.assertEqual(result.returncode, 3)
+                        self.assertIn("NOT_RUN/CONFIG_BLOCKED", result.stdout)
+                        self.assertIsNone(target.poll(), "invalid timing must not kill the target")
         finally:
             target.terminate()
             target.wait(timeout=5)

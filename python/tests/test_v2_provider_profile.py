@@ -1,9 +1,8 @@
 from unittest.mock import patch
 
 import pytest
-
-from app import rag_service
 from app.configuration import require_online_budget
+from app.rpc import rag as rag_service
 
 
 class Context:
@@ -25,11 +24,12 @@ def request_context():
         permission_revision="1",
         role="operator",
         enforce_document_scope=True,
+        scope_audience="ai",
     )
 
 
 def test_v2_langchain_mock_profile_reaches_grpc_handlers_without_network():
-    with patch.object(rag_service, "_PROFILE", "v2_langchain_mock"):
+    with patch.dict("os.environ", {"RAG_PROFILE": "v2_langchain_mock"}):
         service = rag_service.RagService(scope_validator=lambda _: None)
         context = request_context()
         understood = service.Understand(
@@ -70,7 +70,7 @@ def test_v2_langchain_mock_profile_reaches_grpc_handlers_without_network():
 
 
 def test_v2_understand_exposes_fact_tool_requirement_to_go():
-    with patch.object(rag_service, "_PROFILE", "v2_langgraph_fixture"):
+    with patch.dict("os.environ", {"RAG_PROFILE": "v2_langgraph_fixture"}):
         response = rag_service.RagService(scope_validator=lambda _: None).Understand(
             rag_service.rag_pb2.UnderstandRequest(
                 context=request_context(), query="保温杯价格是多少？"
@@ -80,13 +80,14 @@ def test_v2_understand_exposes_fact_tool_requirement_to_go():
     assert list(response.required_fact_tools) == ["get_price"]
 
 
-def test_v2_profile_marks_only_bailian_as_non_mock():
-    with patch.object(rag_service, "_PROFILE", "v2_langgraph_fixture"):
-        assert rag_service.RagService._v2_is_mock() is True
-    with patch.object(rag_service, "_PROFILE", "v2_langchain_mock"):
-        assert rag_service.RagService._v2_is_mock() is True
-    with patch.object(rag_service, "_PROFILE", "v2_langchain_bailian"):
-        assert rag_service.RagService._v2_is_mock() is False
+@pytest.mark.parametrize("profile,expected", [
+    ("v2_langgraph_fixture", True), ("v2_langchain_mock", True), ("v2_langchain_bailian", False),
+])
+def test_v2_profile_marks_only_bailian_as_non_mock(profile, expected):
+    # Marker projection does not initialize an online Provider or read secrets.
+    service = object.__new__(rag_service.RagService)
+    service.profile = profile
+    assert service._v2_is_mock() is expected
 
 
 def test_v2_scope_forwards_signed_execution_identity():
@@ -101,7 +102,7 @@ def test_v2_scope_forwards_signed_execution_identity():
 
 
 def test_v2_generate_rejects_invalid_fact_before_provider_call():
-    with patch.object(rag_service, "_PROFILE", "v2_langchain_mock"):
+    with patch.dict("os.environ", {"RAG_PROFILE": "v2_langchain_mock"}):
         service = rag_service.RagService(scope_validator=lambda _: None)
         context = request_context()
         try:

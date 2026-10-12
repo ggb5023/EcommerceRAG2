@@ -20,6 +20,7 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from app.ingest.artifacts import ArtifactInput, store_artifact_bundle
+from app.ingest.bundles import _delete_bundles
 from app.storage import FilesystemObjectStore, ObjectStoreError
 
 
@@ -45,31 +46,27 @@ def run(python: Path) -> dict[str, object]:
         )
         first = store_artifact_bundle(store, tenant_id="fault-tenant", shop_id="fault-shop", document_version_id="v-11111111111111111111", artifacts=inputs)
         second = store_artifact_bundle(store, tenant_id="fault-tenant", shop_id="fault-shop", document_version_id="v-22222222222222222222", artifacts=inputs)
-        calls = 0
+        class FaultStore:
+            failures = 1
 
-        def cleanup(bundle, inject=False):
-            nonlocal calls
-            calls += 1
-            if inject:
-                return False, "test_injected_cleanup_failure"
-            complete = True
-            for record in bundle.all_records:
-                try:
-                    store.delete(record.object_key)
-                except Exception:  # noqa: BLE001 - report only completion
-                    complete = False
-            return complete, "" if complete else "cleanup_incomplete"
+            def delete(self, key):
+                if self.failures:
+                    self.failures -= 1
+                    raise ObjectStoreError("injected storage deletion failure")
+                store.delete(key)
 
-        injected, injected_code = cleanup(first, inject=True)
-        continued, continued_code = cleanup(second)
-        recovered, recovered_code = cleanup(first)
-        if injected or injected_code != "test_injected_cleanup_failure":
-            raise RuntimeError("first cleanup call was not the injected incomplete response")
-        if not continued or not recovered or continued_code or recovered_code:
-            raise RuntimeError("cleanup did not recover after the injected response")
+        faulty = FaultStore()
+        # Exercise the shared bundler's real cleanup, including partial progress
+        # and idempotent deletion of objects already removed by earlier attempts.
+        if _delete_bundles(faulty, [first]):
+            raise RuntimeError("cleanup hid a failed deletion")
+        if not any((store.root / record.object_key).exists() for record in first.all_records):
+            raise RuntimeError("injection did not leave an observable orphan")
+        if not _delete_bundles(faulty, [second]) or not _delete_bundles(faulty, [first]):
+            raise RuntimeError("cleanup did not recover after the injected failure")
         assert_missing(store, first)
         assert_missing(store, second)
-    return {"status": "PASS", "profile": "v2_ingest_artifact_fixture", "failure_budget": 1, "bundles_called": calls, "first_response": "injected_incomplete", "later_cleanup": "continued_and_recovered", "raw_content_saved": False, "real_service_acceptance": False, "online_provider_called": False, "public_crawler_called": False}
+    return {"status": "PASS", "profile": "v2_ingest_artifact_fixture", "failure_budget": 1, "bundles_called": 3, "first_response": "injected_incomplete", "later_cleanup": "continued_and_recovered", "raw_content_saved": False, "real_service_acceptance": False, "online_provider_called": False, "public_crawler_called": False}
 
 
 def main():

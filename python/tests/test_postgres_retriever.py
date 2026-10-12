@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
-
 from app.retrieval.postgres import PostgresRetriever, _vector_literal
 
 
@@ -24,7 +25,7 @@ def test_retriever_rejects_incomplete_scope_before_database_call():
         retriever.search(query="question", query_vector=[0.0] * 1024, scope={})
 
 
-@pytest.mark.skipif(not os.environ.get("M1_APP_DATABASE_URL"), reason="isolated database DSN is not configured")
+@pytest.mark.skipif(not os.environ.get("V2_INTEGRATION_ENV"), reason="isolated V2 configuration is not supplied")
 @pytest.mark.parametrize("query,expected_content", [
     ("persistent bottle", "V2 persistent bottle"),
     ("配送需要几个工作日？", "标准配送通常需要 2-5 个工作日"),
@@ -34,7 +35,16 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
     """Exercise independent channels in the dedicated DB, then remove fixture rows."""
     import psycopg
 
-    dsn = os.environ["M1_APP_DATABASE_URL"]
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from v2_services import load_values
+
+    values = load_values(Path(os.environ["V2_INTEGRATION_ENV"]))
+    dsn = values["V2_INGEST_DSN"]
+    for selected in (dsn, values["V2_AI_DSN"]):
+        with psycopg.connect(selected) as conn:
+            database, superuser, bypass = conn.execute("SELECT current_database(),rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
+            assert database.startswith("ecr_v2_test_") and not superuser and not bypass
+
     key = "v2-retriever-test-" + uuid.uuid4().hex[:12]
     source_hash = "a" * 64
     vector = "[1," + ",".join("0" for _ in range(1023)) + "]"
@@ -86,7 +96,7 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
             )
         connection.commit()
     try:
-        retriever = PostgresRetriever(dsn, dense_candidates=2, sparse_candidates=2)
+        retriever = PostgresRetriever(values["V2_AI_DSN"], dense_candidates=2, sparse_candidates=2)
         retriever.verify_schema()
         result = retriever.search(
             query=query,

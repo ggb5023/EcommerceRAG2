@@ -1,391 +1,82 @@
+"""Validate active V2 submission/parser contracts without legacy RPCs."""
 from __future__ import annotations
 
 import hashlib
-import unittest
 from dataclasses import replace
-from unittest.mock import patch
 
-import grpc
-
-from app.ingest.artifacts import (
-    ArtifactBundle,
-    ArtifactInput,
-    ArtifactRecord,
-    read_manifest,
-    store_artifact_bundle,
+import pytest
+from app.ingest.package_validation import _inspect_package
+from app.ingest.worker import (
+    ClaimedFile,
+    PackageValidationError,
+    parse_persisted_package,
 )
-from app.ingest.pipeline import parser_for
-from app.ingest.service import (
-    IngestService,
-    _consume_test_delete_fault,
-    _delete_bundles,
-)
-from app.storage import FilesystemObjectStore, ObjectStoreError
 from rag.v1 import rag_pb2
 
 
 class AbortContext:
     def abort(self, code, details):
-        raise RuntimeError((code, details))
+        raise ValueError(details)
 
 
-class IngestServiceTests(unittest.TestCase):
-    def make_request(self, *, path: str = "docs/guide.md", content: bytes | None = None):
-        raw = content or b"# Shipping\n\nSynthetic delivery takes two days.\n"
-        digest = hashlib.sha256(raw).hexdigest()
-        manifest = (
-            "schema_version: 1\n"
-            "pipeline_version: synthetic-parser-v1\n"
-            "source:\n  id: synthetic-source\n  name: Synthetic source\n"
-            "documents:\n"
-            f"  - document_id: shipping\n    title: Shipping\n    path: {path}\n"
-            "    format: markdown\n    disclosure_class: external_allowed\n"
-            f"    sha256: {digest}\n"
-            "    tenant_id: forged-tenant\n    shop_id: forged-shop\n"
-        )
-        return rag_pb2.ParsePackageRequest(
-            manifest_yaml=manifest,
-            files=[rag_pb2.PackageFile(path=path, content=raw)],
-            tenant_id="server-tenant",
-            shop_id="server-shop",
-        )
-
-    @staticmethod
-    def make_bundle():
-        record = ArtifactRecord(
-            artifact_type="raw",
-            object_key="server-tenant/server-shop/v-test/raw/"
-            + "0" * 64,
-            sha256="0" * 64,
-            size_bytes=1,
-            content_type="application/octet-stream",
-        )
-        manifest = ArtifactRecord(
-            artifact_type="artifact-manifest",
-            object_key="server-tenant/server-shop/v-test/artifact-manifest/"
-            + "1" * 64,
-            sha256="1" * 64,
-            size_bytes=1,
-            content_type="application/json",
-        )
-        return ArtifactBundle(
-            tenant_id="server-tenant",
-            shop_id="server-shop",
-            document_version_id="v-test",
-            records=(record,),
-            manifest=manifest,
-            artifact_set_sha256="2" * 64,
-        )
-
-    def test_failed_bundle_cleanup_reports_whether_all_objects_were_deleted(self):
-        class Store:
-            def __init__(self, failing=False):
-                self.failing = failing
-                self.deleted = []
-
-            def delete(self, key):
-                self.deleted.append(key)
-                if self.failing:
-                    raise RuntimeError("vendor secret must not escape")
-
-        bundle = self.make_bundle()
-        clean_store = Store()
-        self.assertTrue(_delete_bundles(clean_store, [bundle]))
-        self.assertEqual(len(clean_store.deleted), 2)
-        failing_store = Store(failing=True)
-        self.assertFalse(_delete_bundles(failing_store, [bundle]))
-        self.assertEqual(len(failing_store.deleted), 2)
-
-    def test_delete_fault_injection_is_test_profile_only_and_bounded(self):
-        with patch.dict(
-            "os.environ",
-            {"APP_ENV": "test", "RAG_PROFILE": "synthetic_import_mock",
-             "INGEST_TEST_DELETE_FAILURES": "1"},
-            clear=False,
-        ):
-            self.assertTrue(_consume_test_delete_fault())
-            self.assertFalse(_consume_test_delete_fault())
-
-        with patch.dict(
-            "os.environ",
-            {"APP_ENV": "development", "RAG_PROFILE": "synthetic_import_mock",
-             "INGEST_TEST_DELETE_FAILURES": "1"},
-            clear=False,
-        ):
-            self.assertFalse(_consume_test_delete_fault())
-
-    def test_delete_fault_injection_rejects_invalid_test_budget(self):
-        with patch.dict(
-            "os.environ",
-            {"APP_ENV": "test", "RAG_PROFILE": "synthetic_import_mock",
-             "INGEST_TEST_DELETE_FAILURES": "invalid"},
-            clear=False,
-        ), self.assertRaisesRegex(ValueError, "must be an integer"):
-            _consume_test_delete_fault()
-
-    def test_bundle_cleanup_continues_after_first_bundle_delete_failure(self):
-        first = self.make_bundle()
-        second = self.make_bundle()
-        second = replace(
-            second,
-            document_version_id="v-second",
-            records=tuple(
-                replace(
-                    record,
-                    object_key=record.object_key.replace("/v-test/", "/v-second/"),
-                )
-                for record in second.records
-            ),
-            manifest=replace(
-                second.manifest,
-                object_key=second.manifest.object_key.replace(
-                    "/v-test/", "/v-second/"
-                ),
-            ),
-        )
-
-        class Store:
-            def __init__(self):
-                self.deleted = []
-                self.fail_once = True
-
-            def delete(self, key):
-                self.deleted.append(key)
-                if self.fail_once:
-                    self.fail_once = False
-                    raise RuntimeError("simulated first bundle delete failure")
-
-        store = Store()
-        self.assertFalse(_delete_bundles(store, [first, second]))
-        self.assertEqual(len(store.deleted), 4)
-        self.assertTrue(any("/v-test/" in key for key in store.deleted))
-        self.assertTrue(any("/v-second/" in key for key in store.deleted))
-
-    def test_parse_failure_reports_incomplete_artifact_cleanup(self):
-        class Store:
-            def delete(self, key):
-                raise RuntimeError("secret storage detail")
-
-        first = b"# First\n\nFirst document.\n"
-        second = b"# Second\n\nSecond document.\n"
-        first_hash = hashlib.sha256(first).hexdigest()
-        second_hash = hashlib.sha256(second).hexdigest()
-        manifest = (
-            "schema_version: 1\n"
-            "pipeline_version: synthetic-parser-v1\n"
-            "source:\n  id: synthetic-source\n  name: Synthetic source\n"
-            "documents:\n"
-            f"  - document_id: first\n    title: First\n    path: docs/first.md\n"
-            "    format: markdown\n    disclosure_class: external_allowed\n"
-            f"    sha256: {first_hash}\n"
-            f"  - document_id: second\n    title: Second\n    path: docs/second.md\n"
-            "    format: markdown\n    disclosure_class: external_allowed\n"
-            f"    sha256: {second_hash}\n"
-        )
-        request = rag_pb2.ParsePackageRequest(
-            manifest_yaml=manifest,
-            files=[
-                rag_pb2.PackageFile(path="docs/first.md", content=first),
-                rag_pb2.PackageFile(path="docs/second.md", content=second),
-            ],
-            tenant_id="server-tenant",
-            shop_id="server-shop",
-        )
-        with (
-            patch("app.ingest.service._artifact_store", return_value=Store()),
-            patch(
-                "app.ingest.service.parser_for",
-                side_effect=[parser_for("markdown"), ValueError("bad input")],
-            ),
-            patch(
-                    "app.ingest.service.store_artifact_bundle",
-                    return_value=self.make_bundle(),
-            ),
-        ):
-            error_text = ""
-            try:
-                IngestService().ParsePackage(request, AbortContext())
-            except RuntimeError as raised:
-                error_text = raised.args[0][1]
-                self.assertRegex(error_text, "artifact bundle cleanup was incomplete")
-            else:
-                self.fail("ParsePackage should reject incomplete artifact cleanup")
-        self.assertNotIn("secret", error_text)
-
-    def test_delete_artifact_bundle_removes_validated_bundle(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as directory, patch.dict(
-            "os.environ",
-            {"RAG_PROFILE": "synthetic_import_mock", "INGEST_ARTIFACT_BUNDLE_ROOT": directory},
-            clear=False,
-        ):
-            store = FilesystemObjectStore(directory)
-            bundle = store_artifact_bundle(
-                store,
-                tenant_id="server-tenant",
-                shop_id="server-shop",
-                document_version_id="v-0123456789abcdef0123",
-                artifacts=(
-                    ArtifactInput("raw", b"raw", "application/octet-stream"),
-                    ArtifactInput("parsed", b"parsed", "application/jsonl"),
-                    ArtifactInput("chunks", b"chunks", "application/jsonl"),
-                    ArtifactInput("parse-report", b"report", "application/json"),
-                ),
-            )
-            request = rag_pb2.DeleteArtifactBundleRequest(
-                tenant_id="server-tenant",
-                shop_id="server-shop",
-                artifact_bundle=rag_pb2.ArtifactBundleReference(
-                    document_version_id=bundle.document_version_id,
-                    manifest_object_key=bundle.manifest.object_key,
-                    manifest_sha256=bundle.manifest.sha256,
-                    artifact_set_sha256=bundle.artifact_set_sha256,
-                    real_service_acceptance=False,
-                    artifacts=[
-                        rag_pb2.ArtifactRecord(
-                            artifact_type=record.artifact_type,
-                            object_key=record.object_key,
-                            sha256=record.sha256,
-                            size_bytes=record.size_bytes,
-                            content_type=record.content_type,
-                        )
-                        for record in bundle.records
-                    ],
-                ),
-            )
-            result = IngestService().DeleteArtifactBundle(request, AbortContext())
-            self.assertTrue(result.complete)
-            for record in bundle.all_records:
-                with self.assertRaises(ObjectStoreError):
-                    store.head(record.object_key)
-
-    def test_delete_artifact_bundle_rejects_scope_and_boundary_changes(self):
-        reference = rag_pb2.ArtifactBundleReference(
-            document_version_id="v-0123456789abcdef0123",
-            manifest_object_key="other-tenant/server-shop/v-0123456789abcdef0123/artifact-manifest/" + "1" * 64,
-            manifest_sha256="1" * 64,
-            artifact_set_sha256="2" * 64,
-            real_service_acceptance=True,
-        )
-        request = rag_pb2.DeleteArtifactBundleRequest(
-            tenant_id="server-tenant", shop_id="server-shop", artifact_bundle=reference
-        )
-        with self.assertRaisesRegex(RuntimeError, "artifact cleanup reference is invalid"):
-            IngestService().DeleteArtifactBundle(request, AbortContext())
-
-    def test_parses_manifest_files_and_uses_server_scope(self):
-        result = IngestService().ParsePackage(self.make_request(), AbortContext())
-        self.assertEqual(result.source_id, "synthetic-source")
-        self.assertEqual(result.documents[0].source_hash,
-                         hashlib.sha256(b"# Shipping\n\nSynthetic delivery takes two days.\n").hexdigest())
-        self.assertFalse(result.documents[0].external_allowed)
-        self.assertIn('"tenant_id": "server-tenant"', result.documents[0].chunks[0].metadata_json)
-        self.assertIn('"shop_id": "server-shop"', result.documents[0].chunks[0].metadata_json)
-        self.assertEqual(result.documents[0].chunks[0].content_type, "heading")
-        self.assertEqual(result.documents[0].chunks[0].char_start, 0)
-        self.assertGreater(result.documents[0].chunks[0].char_end,
-                           result.documents[0].chunks[0].char_start)
-
-    def test_validate_package_returns_build_metadata_without_parsing(self):
-        request = self.make_request()
-        with patch("app.ingest.service.parser_for", side_effect=AssertionError("validator must not parse")):
-            result = IngestService().ValidatePackage(request, AbortContext())
-        self.assertEqual(result.source_id, "synthetic-source")
-        self.assertEqual(result.pipeline_version, "synthetic-parser-v1")
-        self.assertEqual(result.documents[0].document_id, "shipping")
-        self.assertEqual(result.documents[0].disclosure_class, "external_allowed")
-        self.assertRegex(result.documents[0].version_id, r"^v-[0-9a-f]{20}$")
-
-    def test_validate_and_parse_share_hash_and_document_contract(self):
-        request = self.make_request()
-        service = IngestService()
-        validated = service.ValidatePackage(request, AbortContext())
-        parsed = service.ParsePackage(request, AbortContext())
-        self.assertEqual(validated.manifest_sha256, parsed.manifest_sha256)
-        self.assertEqual(validated.documents[0].document_id, parsed.documents[0].document_id)
-        self.assertEqual(validated.documents[0].source_hash, parsed.documents[0].source_hash)
-
-    def test_rejects_path_traversal_and_hash_mismatch(self):
-        context = AbortContext()
-        with self.assertRaises(RuntimeError) as raised:
-            IngestService().ParsePackage(self.make_request(path="../guide.md"), context)
-        self.assertEqual(raised.exception.args[0][0], grpc.StatusCode.INVALID_ARGUMENT)
-
-        with self.assertRaises(RuntimeError):
-            IngestService().ValidatePackage(self.make_request(path="../guide.md"), context)
-
-        request = self.make_request()
-        request.manifest_yaml = request.manifest_yaml.replace("sha256: ", "sha256: 0")
-        with self.assertRaises(RuntimeError):
-            IngestService().ParsePackage(request, context)
-
-    def test_rejects_unreferenced_files(self):
-        request = self.make_request()
-        request.files.add(path="extra.md", content=b"not declared")
-        with self.assertRaisesRegex(RuntimeError, "unreferenced"):
-            IngestService().ParsePackage(request, AbortContext())
-
-    def test_rejects_documents_that_produce_no_chunks(self):
-        request = self.make_request(content=b"\n\n")
-        with self.assertRaisesRegex(RuntimeError, "no content chunks"):
-            IngestService().ParsePackage(request, AbortContext())
-
-    def test_synthetic_profile_returns_verified_artifact_bundle_reference(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as directory:
-            with patch.dict(
-                "os.environ",
-                {
-                    "RAG_PROFILE": "synthetic_import_mock",
-                    "INGEST_ARTIFACT_BUNDLE_ROOT": directory,
-                },
-                clear=False,
-            ):
-                result = IngestService().ParsePackage(self.make_request(), AbortContext())
-            reference = result.documents[0].artifact_bundle
-            self.assertTrue(reference.document_version_id)
-            self.assertRegex(reference.manifest_sha256, r"^[0-9a-f]{64}$")
-            self.assertRegex(reference.artifact_set_sha256, r"^[0-9a-f]{64}$")
-            self.assertFalse(reference.real_service_acceptance)
-            self.assertEqual(
-                {record.artifact_type for record in reference.artifacts},
-                {"raw", "parsed", "chunks", "parse-report"},
-            )
-            store = FilesystemObjectStore(directory)
-            for record in reference.artifacts:
-                data, metadata = store.get_bytes(record.object_key, expected_sha256=record.sha256)
-                self.assertEqual(len(data), record.size_bytes)
-                self.assertEqual(metadata.sha256, record.sha256)
-            manifest_record = store.head(reference.manifest_object_key)
-            self.assertEqual(manifest_record.sha256, reference.manifest_sha256)
-            # The helper also verifies artifact_set_sha256 and the boundary flag.
-            bundle_like = type("Bundle", (), {
-                "manifest": type("Manifest", (), {
-                    "object_key": reference.manifest_object_key,
-                    "sha256": reference.manifest_sha256,
-                    "size_bytes": manifest_record.size_bytes,
-                })(),
-                "artifact_set_sha256": reference.artifact_set_sha256,
-            })()
-            self.assertEqual(read_manifest(store, bundle_like)["real_service_acceptance"], False)
-
-    def test_artifact_bundle_root_is_not_allowed_for_m1_profile(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as directory, patch.dict(
-            "os.environ",
-            {"RAG_PROFILE": "m1_fixture_mock", "INGEST_ARTIFACT_BUNDLE_ROOT": directory},
-            clear=False,
-        ):
-            try:
-                IngestService().ParsePackage(self.make_request(), AbortContext())
-            except RuntimeError:
-                pass
-            else:
-                self.fail("m1 profile must reject artifact bundle storage")
+def package(content=b"# Shipping\n\nOrders leave within two days.\n", path="docs/shipping.md"):
+    sha = hashlib.sha256(content).hexdigest()
+    manifest = ("schema_version: 1\npipeline_version: v2-parser-test\nsource:\n  id: docs\n  name: Docs\n"
+                f"documents:\n  - document_id: shipping\n    title: Shipping\n    path: {path}\n"
+                f"    format: markdown\n    sha256: {sha}\n    disclosure_class: external_allowed\n"
+                "    tenant_id: forged-tenant\n    shop_id: forged-shop\n")
+    return rag_pb2.ValidatePackageRequest(manifest_yaml=manifest,
+        files=[rag_pb2.PackageFile(path=path, content=content)], tenant_id="server-tenant", shop_id="server-shop")
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_submission_validation_matches_worker_binding_and_server_scope():
+    request = package()
+    validated = _inspect_package(request, AbortContext())
+    assert validated["manifest_sha256"] == hashlib.sha256(request.manifest_yaml.encode()).hexdigest()
+    assert validated["uploaded"] == {request.files[0].path: bytes(request.files[0].content)}
+    doc = validated["documents"][0]
+    claimed = ClaimedFile(1, 1, doc["document_id"], doc["path"], doc["source_hash"], request.files[0].content)
+    parsed, dataset_hash = parse_persisted_package(request.manifest_yaml, (claimed,), tenant=request.tenant_id, shop=request.shop_id)
+    chunks = parsed["documents"][0]["chunks"]
+    assert chunks and len(dataset_hash) == 64
+    assert all(chunk["metadata"]["tenant_id"] == "server-tenant" and chunk["metadata"]["shop_id"] == "server-shop" for chunk in chunks)
+    assert parsed["documents"][0]["spec"] == doc
+
+
+@pytest.mark.parametrize("path", ["../escape.md", "/absolute.md", "docs/../escape.md", "docs\\escape.md", "docs//shipping.md"])
+def test_submission_rejects_unsafe_paths(path):
+    with pytest.raises(ValueError, match="unsafe"):
+        _inspect_package(package(path=path), AbortContext())
+
+
+@pytest.mark.parametrize("fault", ["hash", "unreferenced", "duplicate_file", "duplicate_document", "format"])
+def test_submission_rejects_integrity_and_binding_failures(fault):
+    request = package()
+    if fault == "hash":
+        request.files[0].content = b"changed bytes"
+    elif fault == "unreferenced":
+        request.files.add(path="extra.md", content=b"extra")
+    elif fault == "duplicate_file":
+        request.files.add().CopyFrom(request.files[0])
+    elif fault == "duplicate_document":
+        request.manifest_yaml += request.manifest_yaml.split("documents:\n", 1)[1]
+    else:
+        request.manifest_yaml = request.manifest_yaml.replace("format: markdown", "format: csv")
+    with pytest.raises(ValueError):
+        _inspect_package(request, AbortContext())
+
+
+def test_worker_rejects_empty_document_before_any_persistence():
+    request = package(content=b"   \n")
+    spec = _inspect_package(request, AbortContext())["documents"][0]
+    claimed = ClaimedFile(1, 1, "shipping", spec["path"], spec["source_hash"], request.files[0].content)
+    with pytest.raises(PackageValidationError):
+        parse_persisted_package(request.manifest_yaml, (claimed,), tenant=request.tenant_id, shop=request.shop_id)
+
+
+def test_worker_rechecks_claimed_source_hash():
+    request = package()
+    spec = _inspect_package(request, AbortContext())["documents"][0]
+    claimed = ClaimedFile(1, 1, "shipping", spec["path"], spec["source_hash"], request.files[0].content)
+    with pytest.raises(PackageValidationError):
+        parse_persisted_package(request.manifest_yaml, (replace(claimed, content=b"tampered"),), tenant=request.tenant_id, shop=request.shop_id)

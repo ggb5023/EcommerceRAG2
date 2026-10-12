@@ -9,9 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import grpc
-
-from app.rag_service import rag_pb2
-from rag.v1 import rag_pb2_grpc
+from rag.v1 import rag_pb2, rag_pb2_grpc
 
 
 class AuthorityHandler(BaseHTTPRequestHandler):

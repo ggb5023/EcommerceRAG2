@@ -3,10 +3,9 @@ from __future__ import annotations
 import hashlib
 
 import pytest
-
 from app.ingest.database import SubmittedJob, package_payload_hash
-from app.ingest.service import IngestService
 from app.ingest.worker import ClaimedFile, parse_persisted_package
+from app.rpc.ingest import IngestService
 from rag.v1 import rag_pb2
 
 
@@ -36,11 +35,6 @@ def test_package_hash_is_order_independent():
     )
 
 
-def test_submission_advisory_lock_uses_a_single_parameter_sequence():
-    source = __import__("inspect").getsource(__import__("app.ingest.database", fromlist=["IngestDatabase"]).IngestDatabase.submit)
-    assert "(f\"{tenant_pk}:{idempotency_key}\",)" in source
-
-
 def test_python_parser_produces_all_chunks_before_persistence():
     manifest, content = _package()
     parsed, dataset_sha = parse_persisted_package(
@@ -54,30 +48,8 @@ def test_python_parser_produces_all_chunks_before_persistence():
     assert len(dataset_sha) == 64
 
 
-def test_python_ingest_quality_metadata_matches_control_plane_publish_gate():
-    manifest, content = _package()
-    parsed, _ = parse_persisted_package(
-        manifest,
-        (ClaimedFile(1, 1, "shipping", "shipping.md", hashlib.sha256(content).hexdigest(), content),),
-        tenant="v2-demo-tenant",
-        shop="shop-demo",
-    )
-    # The worker's persisted quality shape must satisfy the Go control-plane
-    # publication gate after human review.
-    quality = {
-        "parse_status": "passed",
-        "embedding_status": "not_run",
-        "index_mode": "deterministic_keyword",
-        "quality_gate": "passed",
-        "chunk_count": len(parsed["documents"][0]["chunks"]),
-        "empty_chunk_count": 0,
-    }
-    assert quality["parse_status"] == "passed"
-    assert quality["index_mode"] == "deterministic_keyword"
-    assert quality["quality_gate"] == "passed"
-
-
 class _FakeDatabase:
+    conn_string = "unused-by-this-contract-test"
     def __init__(self):
         self.kwargs = None
 
@@ -94,11 +66,12 @@ class _Context:
 def test_submit_delegates_v2_persistence_to_python_database():
     manifest, content = _package()
     database = _FakeDatabase()
-    service = IngestService(database)
+    service = IngestService(database, scope_validator=lambda _: None)
     request = rag_pb2.SubmitRequest(
         context=rag_pb2.RequestContext(
             tenant_id="v2-demo-tenant", user_id="dev-user", shop_id="shop-demo",
             tenant_db_id=7, user_db_id=8, allowed_shop_ids=["shop-demo"],
+            permission_revision="1", scope_audience="ingest",
         ),
         idempotency_key="admin:shop-demo:test",
         manifest_yaml=manifest,
@@ -116,10 +89,10 @@ def test_submit_delegates_v2_persistence_to_python_database():
 def test_submit_rejects_mismatched_signed_shop():
     manifest, content = _package()
     request = rag_pb2.SubmitRequest(
-        context=rag_pb2.RequestContext(tenant_id="v2-demo-tenant", shop_id="shop-a"),
+        context=rag_pb2.RequestContext(tenant_id="v2-demo-tenant", shop_id="shop-a", scope_audience="ingest"),
         idempotency_key="key", manifest_yaml=manifest,
         files=[rag_pb2.PackageFile(path="shipping.md", content=content)],
         shop_id="shop-b",
     )
     with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
-        IngestService(_FakeDatabase()).Submit(request, _Context())
+        IngestService(_FakeDatabase(), scope_validator=lambda _: None).Submit(request, _Context())

@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import grpc
 import pytest
-
+from app.authorization import ScopeError
 from app.chains.provider import build_provider_chains
 from app.graph.fixtures import FIXTURE_CORPUS
 from app.graph.service import LangGraphRagService
@@ -78,6 +78,68 @@ def test_final_rpc_rejects_legacy_profile_and_wrong_audience():
     request_scope.scope_audience = "ingest"
     with pytest.raises(Abort) as error:
         service.Understand(rag_pb2.UnderstandRequest(context=request_scope, query="test"), Context())
+    assert error.value.args[0][0] == grpc.StatusCode.PERMISSION_DENIED
+
+
+@pytest.mark.parametrize("field,value", [
+    ("tenant_id", ""), ("user_id", ""), ("request_id", ""),
+    ("permission_revision", ""), ("shop_id", "outside"),
+    ("allowed_shop_ids", []), ("all_shops", True), ("enforce_document_scope", False),
+])
+def test_final_rpc_rejects_incomplete_or_widened_identity(field, value):
+    identity = scope()
+    if field == "allowed_shop_ids":
+        del identity.allowed_shop_ids[:]
+    else:
+        setattr(identity, field, value)
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    with pytest.raises(Abort) as error:
+        list(service.Search(rag_pb2.SearchRequest(context=identity, query="保温杯"), Context()))
+    assert error.value.args[0][0] == grpc.StatusCode.PERMISSION_DENIED
+
+
+def test_final_rpc_rechecks_authority_between_generated_events():
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    evidence = [item for response in service.Search(rag_pb2.SearchRequest(context=scope(), query="保温杯"), Context()) for item in response.evidence]
+    assert evidence
+    revoked = False
+
+    def authority(_scope):
+        if revoked:
+            raise ScopeError(grpc.StatusCode.PERMISSION_DENIED)
+
+    service._scope_validator = authority
+    stream = service.Generate(rag_pb2.GenerateRequest(context=scope(), query="保温杯", evidence=evidence, response_purpose="customer_reply"), Context())
+    assert next(stream).WhichOneof("event") == "delta"
+    revoked = True
+    with pytest.raises(Abort) as error:
+        next(stream)
+    assert error.value.args[0][0] == grpc.StatusCode.PERMISSION_DENIED
+
+
+def test_cancelled_rpc_stops_before_generating_output():
+    class Cancelled(Context):
+        def is_active(self):
+            return False
+
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    with pytest.raises(Abort) as error:
+        list(service.Generate(rag_pb2.GenerateRequest(context=scope(), query="保温杯"), Cancelled()))
+    assert error.value.args[0][0] == grpc.StatusCode.CANCELLED
+
+
+@pytest.mark.parametrize("field,value", [
+    ("tenant_id", "other-tenant"), ("shop_id", "other-shop"),
+    ("document_id", "other-document"), ("disclosure_class", "internal_only"),
+    ("disclosure_class", "unclassified"), ("customer_eligible", False),
+])
+def test_final_rpc_rejects_out_of_scope_or_ineligible_generation_evidence(field, value):
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    evidence = [item for response in service.Search(rag_pb2.SearchRequest(context=scope(), query="保温杯"), Context()) for item in response.evidence]
+    assert evidence
+    setattr(evidence[0], field, value)
+    with pytest.raises(Abort) as error:
+        list(service.Generate(rag_pb2.GenerateRequest(context=scope(), query="保温杯", evidence=evidence, response_purpose="customer_reply"), Context()))
     assert error.value.args[0][0] == grpc.StatusCode.PERMISSION_DENIED
 
 
