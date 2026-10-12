@@ -29,9 +29,13 @@ def migrate() -> None:
     if versions != [f"{i:04}" for i in range(1, len(files) + 1)]:
         raise ValueError("migration sequence is incomplete")
     with psycopg.connect(os.environ["V2_MIGRATION_DSN"], autocommit=True) as conn:
-        database = conn.execute("SELECT current_database()").fetchone()[0]
+        database, superuser, bypass_rls = conn.execute(
+            "SELECT current_database(),rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user"
+        ).fetchone()
         if "v2" not in database:
             raise ValueError("migration requires a dedicated V2 database")
+        if superuser or bypass_rls:
+            raise ValueError("migration requires a non-superuser without bypass RLS")
         conn.execute("SELECT pg_advisory_lock(742019)")
         exists = conn.execute("SELECT to_regclass('schema_migration') IS NOT NULL").fetchone()[0]
         recorded = {}
