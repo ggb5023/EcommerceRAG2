@@ -6,7 +6,11 @@ from pathlib import Path
 
 from app.configuration import require_online_budget
 from app.providers import MockProvider, build_provider
-from app.providers.config import load_provider_config, validate_values
+from app.providers.config import (
+    ensure_secure_config_file,
+    load_provider_config,
+    validate_values,
+)
 from app.storage import AlibabaOSSObjectStore, FilesystemObjectStore, load_oss_config
 
 
@@ -20,8 +24,9 @@ def load_embedding_provider():
         }))
     if profile == "v2_langchain_bailian":
         require_online_budget()
-        return build_provider(load_provider_config(os.environ.get(
-            "V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")))
+        path = os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")
+        ensure_secure_config_file(path)
+        return build_provider(load_provider_config(path))
     raise ValueError("an explicit v2 Provider profile is required")
 
 

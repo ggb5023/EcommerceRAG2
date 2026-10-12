@@ -21,6 +21,7 @@ from typing import Any, Protocol
 
 from app.facts import extract_order_entities, infer_fact_tools
 
+from .budget import BudgetLedger
 from .config import ProviderConfig
 from .contracts import (
     ControlResult,
@@ -366,7 +367,8 @@ class AlibabaBailianProvider:
     provider_name = "aliyun-bailian"
 
     def __init__(
-        self, config: ProviderConfig, transport: HTTPTransport | None = None
+        self, config: ProviderConfig, transport: HTTPTransport | None = None,
+        *, test_mode: bool = False,
     ) -> None:
         if config.profile != "aliyun-bailian":
             raise ValueError(
@@ -374,6 +376,12 @@ class AlibabaBailianProvider:
             )
         self.config = config
         self.transport = transport or UrllibTransport()
+        if test_mode and (isinstance(self.transport, UrllibTransport)
+                          or not self.config.endpoint.endswith(".test")):
+            raise ProviderError("config_blocked", "test mode requires an offline transport and test endpoint")
+        # A real transport cannot be constructed without the durable ledger.
+        # Injected transports are explicitly marked test-only by unit tests.
+        self.ledger = None if test_mode else BudgetLedger.from_environment()
 
     def _url(self, path: str) -> str:
         return self.config.endpoint.rstrip("/") + "/" + path.lstrip("/")
@@ -391,6 +399,9 @@ class AlibabaBailianProvider:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
             "utf-8"
         )
+        reservation = None
+        if self.ledger is not None:
+            reservation = self.ledger.reserve(slot, self.config.models[slot], dict(payload), region=self.config.region)
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -410,6 +421,8 @@ class AlibabaBailianProvider:
                 cancel_event=cancel_event,
             )
         except ProviderError as error:
+            if reservation is not None:
+                self.ledger.record(reservation, error_code=error.code, http_status=error.status)
             messages = {
                 "cancelled": "provider request cancelled",
                 "timeout": "provider request timed out",
@@ -426,10 +439,24 @@ class AlibabaBailianProvider:
                 request_id=error.request_id,
             ) from error
         except TimeoutError as error:
+            if reservation is not None:
+                self.ledger.record(reservation, error_code="timeout")
             raise ProviderError(
                 "timeout", "provider request timed out", slot=slot, retryable=True
             ) from error
-        return _json(response, slot), response
+        try:
+            data = _json(response, slot)
+        except ProviderError as error:
+            if reservation is not None:
+                self.ledger.record(reservation, error_code=error.code, http_status=error.status)
+            raise
+        if reservation is not None:
+            metadata = dict(data)
+            if not metadata.get("request_id") and not metadata.get("id"):
+                metadata["request_id"] = next((value for key, value in response.headers.items()
+                                               if key.lower() in {"x-request-id", "request-id"}), None)
+            self.ledger.record(reservation, data=metadata, http_status=response.status)
+        return data, response
 
     @staticmethod
     def _path(slot: str) -> str:
@@ -451,6 +478,8 @@ class AlibabaBailianProvider:
             "model": self.config.control_model,
             "messages": _messages(messages),
             "response_format": {"type": "json_object"},
+            "max_tokens": 256,
+            "enable_thinking": False,
         }
         if response_schema is not None:
             payload["response_format"] = {
@@ -480,6 +509,8 @@ class AlibabaBailianProvider:
         payload: dict[str, Any] = {
             "model": self.config.generation_model,
             "messages": _messages(messages),
+            "max_tokens": 512,
+            "enable_thinking": False,
         }
         if response_schema is not None:
             payload["response_format"] = {

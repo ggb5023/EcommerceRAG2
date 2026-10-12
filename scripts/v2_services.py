@@ -17,10 +17,11 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "python"))
 SYSTEM_KEYS = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"}
 COMMON_KEYS = {"APP_ENV", "RAG_PROFILE", "PYTHONPATH", "PYTHONUNBUFFERED"}
 STORAGE_KEYS = {"INGEST_STORAGE_PROFILE", "INGEST_ARTIFACT_ROOT"}
-PROVIDER_KEYS = {"V2_PROVIDER_CONFIG", "V2_ONLINE_BUDGET_CNY"}
+PROVIDER_KEYS = {"V2_PROVIDER_CONFIG", "V2_ONLINE_BUDGET_CNY", "V2_ONLINE_BUDGET_LEDGER", "V2_ONLINE_BUDGET_ID"}
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
@@ -102,6 +103,13 @@ def configure(values: dict[str, str]) -> dict[str, str]:
             raise StartupError("online profile requires a positive CNY budget") from None
         if not budget.is_finite() or budget <= 0:
             raise StartupError("online profile requires a positive CNY budget")
+        from app.providers.budget import BudgetLedger
+        from app.providers.contracts import ProviderError
+        try:
+            BudgetLedger(Path(values.get("V2_ONLINE_BUDGET_LEDGER", "")),
+                         values.get("V2_ONLINE_BUDGET_ID", ""), raw_budget)
+        except ProviderError:
+            raise StartupError("online profile requires a valid shared budget ledger") from None
     if values.get("INGEST_STORAGE_PROFILE") not in {"filesystem", "oss"}:
         raise StartupError("INGEST_STORAGE_PROFILE must be filesystem or oss")
     if values["INGEST_STORAGE_PROFILE"] == "filesystem" and not Path(values.get("INGEST_ARTIFACT_ROOT", "")).is_absolute():

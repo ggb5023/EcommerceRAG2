@@ -116,7 +116,7 @@ class AlibabaProviderTests(unittest.IsolatedAsyncioTestCase):
         self, responses: list[HTTPResponse | BaseException]
     ) -> tuple[AlibabaBailianProvider, FakeTransport]:
         transport = FakeTransport(responses)
-        return AlibabaBailianProvider(self.config, transport), transport
+        return AlibabaBailianProvider(self.config, transport, test_mode=True), transport
 
     async def test_four_slots_parse_and_keep_secret_out_of_payload(self):
         dense = [0.25] * 1024

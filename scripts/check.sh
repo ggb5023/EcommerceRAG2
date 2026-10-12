@@ -12,7 +12,7 @@ while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts doc
 test -x scripts/v2-local-services.sh
 shellcheck -S warning scripts/*.sh docker/db/*.sh docker/db/init/*.sh
 (cd go; go test -p 2 ./...; go vet ./...)
-(cd python; uv sync --frozen; uv run pytest -q; uv run ruff check app ../scripts/artifact-cleanup-fault-smoke.py ../scripts/v2_services.py; uv run python -c 'from app.providers.contracts import EmbeddingResult; from app.rpc.server import build_server')
+(cd python; uv sync --frozen; uv run pytest -q; uv run ruff check app ../scripts/artifact-cleanup-fault-smoke.py ../scripts/v2_services.py ../scripts/provider-budget.py; uv run python -c 'from app.providers.contracts import EmbeddingResult; from app.rpc.server import build_server')
 (cd python; uv run python ../scripts/provider-smoke.py --response-fixture ../scripts/provider-smoke-fixture.json)
 (cd python; uv run python ../scripts/artifact-storage-smoke.py)
 (cd python; uv run python ../scripts/artifact-cleanup-fault-smoke.py)

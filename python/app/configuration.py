@@ -54,3 +54,5 @@ def require_online_budget() -> None:
         raise ValueError("online profile requires a positive CNY budget") from None
     if not budget.is_finite() or budget <= 0:
         raise ValueError("online profile requires a positive CNY budget")
+    from app.providers.budget import BudgetLedger
+    BudgetLedger.from_environment()

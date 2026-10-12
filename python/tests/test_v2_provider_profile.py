@@ -132,7 +132,13 @@ def test_online_profile_rejects_invalid_budget(monkeypatch, raw_budget):
         require_online_budget()
 
 
-def test_online_profile_accepts_positive_finite_budget(monkeypatch):
+def test_online_profile_accepts_positive_finite_budget(monkeypatch, tmp_path):
+    from app.providers.budget import initialize_ledger
+    tmp_path.chmod(0o700)
+    path = tmp_path / "budget.sqlite"
+    initialize_ledger(path, "unit-test", "12.50")
     monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
     monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "12.50")
+    monkeypatch.setenv("V2_ONLINE_BUDGET_LEDGER", str(path))
+    monkeypatch.setenv("V2_ONLINE_BUDGET_ID", "unit-test")
     require_online_budget()
