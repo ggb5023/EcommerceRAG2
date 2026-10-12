@@ -1,4 +1,38 @@
-# M2 Evaluation Sources
+# Evaluation Sources
+
+## V2 controlled live lifecycle
+
+Run `python/.venv/bin/python eval/run_v2_live_lifecycle.py` from the repository
+root for an offline PLAN. It parses controlled Markdown, CSV and reproducible
+DOCX fixtures, records their origins/hashes and estimates the complete bounded
+batch using reviewed pricing. Planning makes no HTTP or Provider request.
+
+Live acceptance requires an empty independent `v2_live` index, a non-superuser
+without BYPASSRLS, running V2 services, and their protected online configuration:
+
+```sh
+python/.venv/bin/python eval/run_v2_live_lifecycle.py --live \
+  --runtime-env /path/to/protected-runtime.env \
+  --base-url http://127.0.0.1:18081 \
+  --report /path/to/private/new-lifecycle-report.json
+```
+
+Use the already authorized cumulative budget ledger; never initialize a new
+window to rerun acceptance. The batch must fit the remaining reservation budget.
+The HTTP address and identity must match the runtime. The runner submits through
+Go, waits for actual Python ingestion, reviews/publishes through Go commands,
+then checks version-bound retrieval and generation citations for all three
+formats and refusal against the initial empty index. Unknown command outcomes
+are polled without resubmission. PASS requires successful request metadata for
+control, document/query Embedding, Rerank and generation in their proper phases.
+
+Reports are new `0600` files containing metadata/hashes, source revision,
+migration checksums and budget reservations. They exclude source text, answers,
+vectors, credentials and DSNs. Existing reports cannot be overwritten. The
+index contains published versions after the run, so the same runtime cannot be
+used for another empty-index run. Development identity and synthetic fixtures
+keep `real_service_acceptance=false`; this is V2 development acceptance rather
+than real OIDC, merchant API, M2/M3 or production acceptance.
 
 This directory contains versioned evaluation definitions, not customer data or
 credentials. The first 60-case set uses a deterministic synthetic tenant set
