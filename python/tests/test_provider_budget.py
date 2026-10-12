@@ -163,6 +163,17 @@ def test_failed_reservation_stops_before_transport(monkeypatch, ledger):
     assert transport.calls == 0 and not ledger.path.exists()
 
 
+def test_http_failure_keeps_request_fingerprint_without_body(monkeypatch, ledger):
+    environment(monkeypatch, ledger)
+    transport = Transport(HTTPResponse(400, {"X-Request-ID": "failed-request"}, b"sensitive response"))
+    with pytest.raises(ProviderError):
+        asyncio.run(AlibabaBailianProvider(config(), transport).control([{"role": "user", "content": "fixture"}]))
+    with sqlite3.connect(ledger.path) as conn:
+        row = conn.execute("SELECT request_id_sha256,http_status,error_code,state FROM attempt").fetchone()
+    assert row == (__import__("hashlib").sha256(b"failed-request").hexdigest(), 400, "http_error", "error")
+    assert b"sensitive response" not in ledger.path.read_bytes()
+
+
 def test_constructor_requires_ledger_even_without_v2_profile(monkeypatch):
     monkeypatch.delenv("V2_ONLINE_BUDGET_LEDGER", raising=False)
     with pytest.raises(ProviderError):

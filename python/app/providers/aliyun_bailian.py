@@ -361,6 +361,19 @@ def _structured(
     return dict(value)
 
 
+def _response_format(schema: Mapping[str, Any], slot: str) -> dict[str, Any]:
+    """Translate a vendor-neutral schema to the chat API's named envelope."""
+    actual = schema.get("schema", schema)
+    if not isinstance(actual, Mapping) or actual.get("type") != "object":
+        raise ProviderError("invalid_input", "response schema must describe an object", slot=slot)
+    name = schema.get("name", slot)
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+        raise ProviderError("invalid_input", "response schema name is invalid", slot=slot)
+    return {"type": "json_schema", "json_schema": {
+        "name": name, "strict": True, "schema": dict(actual),
+    }}
+
+
 class AlibabaBailianProvider:
     """All four Bailian slots behind one explicitly selected profile."""
 
@@ -422,7 +435,8 @@ class AlibabaBailianProvider:
             )
         except ProviderError as error:
             if reservation is not None:
-                self.ledger.record(reservation, error_code=error.code, http_status=error.status)
+                self.ledger.record(reservation, data={"request_id": error.request_id},
+                                   error_code=error.code, http_status=error.status)
             messages = {
                 "cancelled": "provider request cancelled",
                 "timeout": "provider request timed out",
@@ -447,8 +461,11 @@ class AlibabaBailianProvider:
         try:
             data = _json(response, slot)
         except ProviderError as error:
+            request_id = next((value for key, value in response.headers.items()
+                               if key.lower() in {"x-request-id", "request-id"}), None)
             if reservation is not None:
-                self.ledger.record(reservation, error_code=error.code, http_status=error.status)
+                self.ledger.record(reservation, data={"request_id": request_id},
+                                   error_code=error.code, http_status=response.status)
             raise
         if reservation is not None:
             metadata = dict(data)
@@ -482,10 +499,7 @@ class AlibabaBailianProvider:
             "enable_thinking": False,
         }
         if response_schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": dict(response_schema),
-            }
+            payload["response_format"] = _response_format(response_schema, "control")
         data, response = await self._call(
             "control", payload, timeout_s=timeout_s, cancel_event=cancel_event
         )
@@ -513,10 +527,7 @@ class AlibabaBailianProvider:
             "enable_thinking": False,
         }
         if response_schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": dict(response_schema),
-            }
+            payload["response_format"] = _response_format(response_schema, "generation")
         data, response = await self._call(
             "generation", payload, timeout_s=timeout_s, cancel_event=cancel_event
         )

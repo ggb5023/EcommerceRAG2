@@ -205,6 +205,32 @@ class AlibabaProviderTests(unittest.IsolatedAsyncioTestCase):
             transport.calls[0]["url"],
             "https://dashscope.example.test/compatible-mode/v1/chat/completions",
         )
+        self.assertEqual(transport.calls[0]["body"]["response_format"], {
+            "type": "json_schema", "json_schema": {
+                "name": "control", "strict": True, "schema": {"type": "object"},
+            },
+        })
+
+    async def test_raw_schemas_are_wrapped_and_invalid_schema_never_sends(self):
+        for slot in ("control", "generation"):
+            provider, transport = self.make_provider([response({
+                "request_id": "schema-test", "choices": [{
+                    "message": {"content": '{"answer":"supported"}'}, "finish_reason": "stop",
+                }],
+            })])
+            schema = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+            await getattr(provider, "control" if slot == "control" else "generate")(
+                [{"role": "user", "content": "controlled input"}], response_schema=schema)
+            self.assertEqual(transport.calls[0]["body"]["response_format"], {
+                "type": "json_schema", "json_schema": {"name": slot, "strict": True, "schema": schema},
+            })
+            self.assertNotIn("name", schema)
+        for schema in ({"type": "array"}, {"name": "bad name", "schema": {"type": "object"}}):
+            provider, transport = self.make_provider([])
+            with self.assertRaises(ProviderError) as raised:
+                await provider.control([{"role": "user", "content": "controlled input"}], response_schema=schema)
+            self.assertEqual(raised.exception.code, "invalid_input")
+            self.assertEqual(transport.calls, [])
 
     async def test_structured_output_and_response_errors_are_classified(self):
         provider, _ = self.make_provider(
