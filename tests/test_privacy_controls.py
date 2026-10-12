@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('infra_config', ROOT / 'scripts/infra_config.py')
 infra = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(infra)
+GUARD_SPEC = importlib.util.spec_from_file_location('privacy_guard', ROOT / 'scripts/privacy_guard.py')
+privacy = importlib.util.module_from_spec(GUARD_SPEC)
+GUARD_SPEC.loader.exec_module(privacy)
 
 
 class PrivacyControls(unittest.TestCase):
@@ -50,6 +53,38 @@ class PrivacyControls(unittest.TestCase):
         (self.repo / 'docs/design.md').write_text('Private design')
         self.git('add', '-f', 'docs/design.md')
         self.assertEqual(self.guard().returncode, 1)
+
+    def test_only_exact_public_architecture_is_publishable(self):
+        shutil.copy2(ROOT / '.gitignore', self.repo / '.gitignore')
+        public_path = self.repo / 'docs/architecture.md'
+        public_path.parent.mkdir()
+        public_path.write_text('Public stable architecture\n')
+        ignored = self.git('check-ignore', 'docs/architecture.md', check=False)
+        self.assertEqual(ignored.returncode, 1)
+        self.git('add', '.gitignore', 'docs/architecture.md')
+        self.assertEqual(self.guard('--identity').returncode, 0)
+        self.git('commit', '-qm', 'Add stable public architecture')
+        self.assertEqual(self.guard('--history').returncode, 0)
+
+        for name in ('docs/design.md', 'docs/internal.txt', 'docs/nested/architecture.md',
+                     'docs/architecture.md/private.txt', 'docs/Architecture.md',
+                     '.local/dev-docs/docs/architecture.md'):
+            with self.subTest(name=name):
+                self.assertEqual(self.git('check-ignore', name, check=False).returncode, 0)
+                # Inspect both index and reachable history policies, even if Git
+                # ignores the private path or a force-add would bypass that rule.
+                self.assertTrue(privacy.blocked_path(name))
+
+    def test_public_architecture_still_scanned_for_private_content(self):
+        path = self.repo / 'docs/architecture.md'
+        path.parent.mkdir()
+        secret = 'sk-'+'x'*32
+        path.write_text(secret)
+        self.git('add', '-f', 'docs/architecture.md')
+        result = self.guard()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b'private content in: docs/architecture.md', result.stdout)
+        self.assertNotIn(secret.encode(), result.stdout + result.stderr)
 
     def test_curated_root_docs_allowed_but_archive_blocked(self):
         for name in ('AGENTS.md', 'HANDOFF.md', 'FACTS.md'):

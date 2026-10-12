@@ -9,7 +9,8 @@
 - 七条越权、撤权或过期案例安全报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-safety-20261012.json` PASS，Provider attempt delta=0。不得把安全前置报告升级为业务质量通过。
 - 独立数据库真实 Go→gRPC→Python→百炼 三格式生命周期报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-live-lifecycle-20261012-final4.json` PASS，覆盖 3 个受控 fixture 的提交、解析、审核、发布、检索、重排、生成、引用、终态持久化。它不覆盖 37 文档/53 案例，不代表 M2 或生产就绪。
 - `eval/run_v2_quality_e2e.py` 已要求真实生命周期、独立安全报告、53 eligible 案例、SSE 单调序列和终态持久化；由于现有生命周期只有 3 个 fixture，本轮拒绝伪造 53 案例质量 E2E。
-- 相关验证：`python/.venv/bin/python -m pytest -q eval` 176 passed；changed eval scoped Ruff、privacy guard、git diff check 通过。`scripts/check.sh` 在本轮之前已通过；本轮未重新运行全工程检查。
+- 质量评测代码验证：`python/.venv/bin/python -m pytest -q eval` 176 passed；changed eval scoped Ruff、privacy guard、git diff check 通过。随后本窗口的文档检查器调整后又运行了 `scripts/check.sh`，结果通过。
+- 本窗口完成受 Git 管理的工程文档边界调整：完善 AGENTS/FACTS/README，新增 `docs/architecture.md`，公开检查只要求根入口文档，`.local/` 专题仍为私有。隐私扫描仅增加架构摘要的精确路径例外，内容扫描照常；`bash scripts/check.sh` 在文档和检查器更新后通过。该文档任务独立提交，不推送。
 
 ## 下一步任务
 

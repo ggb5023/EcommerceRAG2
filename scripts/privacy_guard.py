@@ -8,6 +8,7 @@ import sys
 
 PUBLIC_NAME = 'EcommerceRAG Maintainers'
 PUBLIC_EMAIL = 'maintainers@example.invalid'
+PUBLIC_ARCHITECTURE_PATH = 'docs/architecture.md'
 PATTERNS = (
     rb'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',
     rb'LTAI[A-Za-z0-9]{16,}',
@@ -28,11 +29,12 @@ def blocked_path(name):
     lower = name.lower()
     base = path.name.lower()
     private_dirs = {'docs', 'archive', 'backups', '.private', '.local', '.codex', '.workbuddy-ai', '.ssh', '.venv', 'node_modules'}
-    if any(part.lower() in private_dirs for part in path.parts):
+    if name != PUBLIC_ARCHITECTURE_PATH and any(part.lower() in private_dirs for part in path.parts):
         return True
     public_markdown = (
         name == 'README.md'
         or name in {'AGENTS.md', 'HANDOFF.md', 'FACTS.md'}
+        or name == PUBLIC_ARCHITECTURE_PATH
         or name == 'eval/README.md'
         or (name.startswith('data/synthetic/') and path.suffix.lower() in {'.md', '.markdown'})
         or name == 'data/web/README.md'

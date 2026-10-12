@@ -18,6 +18,8 @@ REQUIRED_AGENT_SECTIONS = (
 )
 HANDOFF_SECTIONS = ("当前进度", "下一步任务", "遗留问题")
 REQUIRED_FACTS_SECTIONS = ("架构结论", "工作区职责", "证据边界", "文档职责")
+ARCHITECTURE_PATH = "docs/architecture.md"
+ARCHITECTURE_LINKS = ("../AGENTS.md", "../FACTS.md", "../README.md")
 
 
 def check(repo_root: Path) -> list[str]:
@@ -34,6 +36,12 @@ def check(repo_root: Path) -> list[str]:
     agents = read("AGENTS.md")
     handoff = read("HANDOFF.md")
     facts = read("FACTS.md")
+    architecture = read(ARCHITECTURE_PATH)
+
+    architecture_links = set(re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", architecture))
+    for destination in ARCHITECTURE_LINKS:
+        if destination not in architecture_links:
+            errors.append(f"{ARCHITECTURE_PATH}: missing relative link {destination}")
 
     for heading in REQUIRED_AGENT_SECTIONS:
         if f"## {heading}" not in agents:
@@ -70,7 +78,7 @@ def main() -> int:
         for message in errors:
             print(f"FAIL documentation entry: {message}", file=sys.stderr)
         return 1
-    print("PASS documentation entry: AGENTS.md, HANDOFF.md and FACTS.md")
+    print(f"PASS documentation entry: AGENTS.md, HANDOFF.md, FACTS.md and {ARCHITECTURE_PATH}")
     return 0
 
 

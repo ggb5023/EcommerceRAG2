@@ -51,6 +51,10 @@ Evidence.
 ## 文档职责
 Roles.
 """
+ARCHITECTURE = """# Architecture
+
+[Rules](../AGENTS.md), [Facts](../FACTS.md), [Startup](../README.md).
+"""
 
 
 class BaselineCheckerTests(unittest.TestCase):
@@ -60,6 +64,8 @@ class BaselineCheckerTests(unittest.TestCase):
         (self.root / "AGENTS.md").write_text(AGENTS, encoding="utf-8")
         (self.root / "HANDOFF.md").write_text(HANDOFF, encoding="utf-8")
         (self.root / "FACTS.md").write_text(FACTS, encoding="utf-8")
+        (self.root / "docs").mkdir()
+        (self.root / "docs/architecture.md").write_text(ARCHITECTURE, encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -88,6 +94,27 @@ class BaselineCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("use only", result.stderr)
+
+    def test_missing_public_architecture_fails(self) -> None:
+        (self.root / "docs/architecture.md").unlink()
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/architecture.md: cannot read", result.stderr)
+
+    def test_architecture_requires_each_root_link(self) -> None:
+        for destination in ("../AGENTS.md", "../FACTS.md", "../README.md"):
+            with self.subTest(destination=destination):
+                (self.root / "docs/architecture.md").write_text(
+                    ARCHITECTURE.replace(f"]({destination})", f"]({destination[3:]})"),
+                    encoding="utf-8",
+                )
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"missing relative link {destination}", result.stderr)
+
+    def test_private_topics_are_not_required(self) -> None:
+        self.assertFalse((self.root / ".local").exists())
+        self.assertEqual(self.run_checker().returncode, 0)
 
     def test_archive_is_not_a_baseline_input(self) -> None:
         archive = self.root / ".local/dev-docs/archive"

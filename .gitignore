@@ -1,5 +1,5 @@
 # Credentials and local state
-# Only the curated root guidance and project landing page are published.
+# Publish curated guidance, the architecture summary and approved fixture docs.
 *.md
 !/README.md
 !/AGENTS.md
@@ -10,7 +10,8 @@
 !data/
 !data/synthetic/
 !data/synthetic/**/*.md
-docs/
+/docs/**
+!/docs/architecture.md
 .private/
 *.bundle
 *.patch
