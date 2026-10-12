@@ -282,7 +282,7 @@ def main():
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     run = uuid4().hex[:12]
-    report = {"status": "PLAN", "profile": "v2_langchain_bailian", "real_service_acceptance": False,
+    report = {"report_version": "v2-live-lifecycle-v1", "status": "PLAN", "profile": "v2_langchain_bailian", "real_service_acceptance": False,
               "run_id": run, "inputs": [], "queries": [], "published": {}}
     handle = None
     ledger = None
@@ -305,10 +305,9 @@ def main():
             "worktree": subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).splitlines(),
         }
         import psycopg
-        from v2_services import load_values
-
         from app.providers.budget import BudgetLedger
         from app.providers.config import ensure_secure_config_file, load_provider_config
+        from v2_services import load_values
 
         values = load_values(args.runtime_env)
         if values.get("RAG_PROFILE") != report["profile"]:
