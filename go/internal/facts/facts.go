@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -22,12 +23,12 @@ var ErrInvalidResponse = errors.New("fact provider returned an invalid response"
 // implementation may call a read-only platform adapter, but Python never gets
 // a tool name or credentials that Go has not approved.
 type Provider interface {
-	Lookup(context.Context, string, *ragv1.RequestContext) (*ragv1.Fact, error)
+	Lookup(context.Context, string, *ragv1.RequestContext, string) (*ragv1.Fact, error)
 }
 
 type UnavailableProvider struct{}
 
-func (UnavailableProvider) Lookup(context.Context, string, *ragv1.RequestContext) (*ragv1.Fact, error) {
+func (UnavailableProvider) Lookup(context.Context, string, *ragv1.RequestContext, string) (*ragv1.Fact, error) {
 	return nil, ErrUnavailable
 }
 
@@ -37,6 +38,10 @@ var allowedFactTools = map[string]struct{}{
 	"get_order_status": {},
 	"get_logistics":    {},
 	"compare_products": {},
+}
+
+func requiresResourceBinding(tool string) bool {
+	return tool == "get_order_status" || tool == "get_logistics"
 }
 
 func ValidateNames(names []string) error {
@@ -74,7 +79,7 @@ func FailureCode(err error) string {
 	}
 }
 
-func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext, names []string) ([]*ragv1.Fact, error) {
+func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext, names []string, resourceID string) ([]*ragv1.Fact, error) {
 	if err := ValidateNames(names); err != nil {
 		return nil, err
 	}
@@ -84,21 +89,41 @@ func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext,
 	if provider == nil {
 		return nil, ErrUnavailable
 	}
+	for _, name := range names {
+		if requiresResourceBinding(name) && (scope == nil || strings.TrimSpace(resourceID) == "") {
+			return nil, ErrUnauthorized
+		}
+	}
 	result := make([]*ragv1.Fact, 0, len(names))
 	for _, name := range names {
-		fact, err := provider.Lookup(ctx, name, scope)
+		boundResource := ""
+		if requiresResourceBinding(name) {
+			boundResource = resourceID
+		}
+		fact, err := provider.Lookup(ctx, name, scope, boundResource)
 		if err != nil {
 			return nil, err
 		}
 		if fact == nil || fact.ToolName != name || fact.ValueJson == "" || fact.ObservedAt == "" {
-			return nil, fmt.Errorf("fact tool returned an invalid result: %s", name)
+			return nil, fmt.Errorf("%w: fact tool returned an invalid result: %s", ErrInvalidResponse, name)
 		}
-		var value any
+		if requiresResourceBinding(name) && fact.ResourceId != resourceID {
+			return nil, fmt.Errorf("%w: fact tool returned an unauthorized resource: %s", ErrInvalidResponse, name)
+		}
+		if !requiresResourceBinding(name) && fact.ResourceId != "" {
+			return nil, fmt.Errorf("%w: unexpected resource for %s", ErrInvalidResponse, name)
+		}
+		var value map[string]any
 		if err := json.Unmarshal([]byte(fact.ValueJson), &value); err != nil || value == nil {
-			return nil, fmt.Errorf("fact tool returned invalid JSON: %s", name)
+			return nil, fmt.Errorf("%w: fact tool returned invalid JSON: %s", ErrInvalidResponse, name)
+		}
+		if requiresResourceBinding(name) {
+			if value["order_id"] != resourceID {
+				return nil, fmt.Errorf("%w: fact tool returned a mismatched order: %s", ErrInvalidResponse, name)
+			}
 		}
 		if _, err := time.Parse(time.RFC3339, fact.ObservedAt); err != nil {
-			return nil, fmt.Errorf("fact tool returned invalid observed_at: %s", name)
+			return nil, fmt.Errorf("%w: fact tool returned invalid observed_at: %s", ErrInvalidResponse, name)
 		}
 		result = append(result, fact)
 	}

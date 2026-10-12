@@ -44,6 +44,7 @@ class GraphState(TypedDict, total=False):
     intent: str
     information_source: str
     required_fact_tools: list[str]
+    entities: list[dict[str, Any]]
     confidence: float
     clarification: str
     seed_evidence: list[Evidence]

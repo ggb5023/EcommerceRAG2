@@ -19,7 +19,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.facts import infer_fact_tools
+from app.facts import extract_order_entities, infer_fact_tools
 
 from .config import ProviderConfig
 from .contracts import (
@@ -765,6 +765,7 @@ class MockProvider:
             "information_source": "realtime_business" if tools else "knowledge",
             "rewritten_query": query,
             "required_fact_tools": tools,
+            "entities": extract_order_entities(query),
             "clarification": "请补充商品或具体问题。" if vague else "",
             "confidence": 0.2 if vague else 0.95,
         }

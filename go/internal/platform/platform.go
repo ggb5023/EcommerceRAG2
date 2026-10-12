@@ -34,7 +34,7 @@ type PolicySource interface {
 }
 
 type FactSource interface {
-	GetFact(context.Context, *ragv1.RequestContext, string) (*ragv1.Fact, error)
+	GetFact(context.Context, *ragv1.RequestContext, string, string) (*ragv1.Fact, error)
 }
 
 type IdentitySource interface {
@@ -65,14 +65,14 @@ type ScopedFactSource struct {
 	Source FactSource
 }
 
-func (s ScopedFactSource) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext) (*ragv1.Fact, error) {
+func (s ScopedFactSource) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext, resourceID string) (*ragv1.Fact, error) {
 	if err := ValidateScope(scope); err != nil {
 		return nil, err
 	}
 	if s.Source == nil {
 		return nil, ErrNotConfigured
 	}
-	fact, err := s.Source.GetFact(ctx, scope, tool)
+	fact, err := s.Source.GetFact(ctx, scope, tool, resourceID)
 	if err != nil {
 		return nil, err
 	}

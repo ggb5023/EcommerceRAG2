@@ -50,6 +50,8 @@ message Fact {
   string value_json = 2;
   string observed_at = 3;
   bool is_mock = 4;
+  // Optional business resource binding, e.g. the requested order_id.
+  string resource_id = 5;
 }
 service RagService {
   rpc Understand(UnderstandRequest) returns (UnderstandResponse);

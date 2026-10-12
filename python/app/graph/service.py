@@ -208,6 +208,14 @@ class LangGraphRagService:
                 raise PermissionError("fact value is invalid JSON") from error
             if not isinstance(parsed, Mapping):
                 raise PermissionError("fact value must be an object")
+            resource_id = fact.get("resource_id", "")
+            if not isinstance(resource_id, str):
+                raise PermissionError("fact resource binding is invalid")
+            if name in {"get_order_status", "get_logistics"}:
+                if not resource_id.strip() or parsed.get("order_id") != resource_id:
+                    raise PermissionError("order fact does not match its authorized resource")
+            elif resource_id:
+                raise PermissionError("non-order fact contains an unexpected resource binding")
             try:
                 datetime.fromisoformat(observed)
             except ValueError as error:
@@ -217,6 +225,7 @@ class LangGraphRagService:
                 "value_json": value,
                 "observed_at": observed,
                 "is_mock": bool(fact.get("is_mock", False)),
+                "resource_id": resource_id,
             })
         return checked
 

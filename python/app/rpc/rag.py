@@ -141,7 +141,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
             _abort_v2_error(context, error)
         _ensure_grpc_active(context)
-        return rag_pb2.UnderstandResponse(rewritten_query=result.get('rewritten_query', query), intent=result.get('intent', 'knowledge'), information_source=result.get('information_source', 'own_knowledge'), required_fact_tools=result.get('required_fact_tools', []), clarification=result.get('clarification', ''), confidence=float(result.get('confidence', 0.0)), reason=result.get('reason', 'v2_langgraph_fixture'))
+        entities = [rag_pb2.EntitySlot(name=item['name'], value=item['value'], confidence=float(item['confidence'])) for item in result.get('entities', [])]
+        return rag_pb2.UnderstandResponse(rewritten_query=result.get('rewritten_query', query), intent=result.get('intent', 'knowledge'), information_source=result.get('information_source', 'own_knowledge'), required_fact_tools=result.get('required_fact_tools', []), clarification=result.get('clarification', ''), entities=entities, confidence=float(result.get('confidence', 0.0)), reason=result.get('reason', 'v2_langgraph_fixture'))
 
     def Search(self, request, context):
         self._authorize(request.context, context)
@@ -166,7 +167,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         try:
             _ensure_grpc_active(context)
             evidence = [self._v2_input_evidence(item) for item in request.evidence]
-            facts = self._v2._validate_facts([{'tool_name': item.tool_name, 'value_json': item.value_json, 'observed_at': item.observed_at, 'is_mock': item.is_mock} for item in request.facts])
+            facts = self._v2._validate_facts([{'tool_name': item.tool_name, 'value_json': item.value_json, 'observed_at': item.observed_at, 'is_mock': item.is_mock, 'resource_id': item.resource_id} for item in request.facts])
             service = self._provider_v2 or self._v2
             result = asyncio.run(service.arun_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, facts=facts, response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='generate')) if self._provider_v2 else service.run_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, response_purpose=request.response_purpose or 'internal', phase='generate')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:

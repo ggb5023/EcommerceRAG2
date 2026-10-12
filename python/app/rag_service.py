@@ -329,10 +329,15 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
                 _abort_v2_error(context, error)
             _ensure_grpc_active(context)
+            entities = [
+                rag_pb2.EntitySlot(name=item["name"], value=item["value"], confidence=float(item["confidence"]))
+                for item in result.get("entities", [])
+            ]
             return rag_pb2.UnderstandResponse(
                 rewritten_query=result.get("rewritten_query", query), intent=result.get("intent", "knowledge"),
                 information_source=result.get("information_source", "own_knowledge"),
                 required_fact_tools=result.get("required_fact_tools", []),
+                entities=entities,
                 clarification=result.get("clarification", ""), confidence=float(result.get("confidence", 0.0)),
                 reason=result.get("reason", "v2_langgraph_fixture"),
             )
@@ -519,6 +524,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
                         "value_json": item.value_json,
                         "observed_at": item.observed_at,
                         "is_mock": item.is_mock,
+                        "resource_id": item.resource_id,
                     }
                     for item in request.facts
                 ])

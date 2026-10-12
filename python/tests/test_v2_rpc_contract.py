@@ -44,6 +44,32 @@ def test_final_rpc_adapter_preserves_query_stream_and_facts():
     assert list(facts.required_fact_tools) == ["get_price"]
 
 
+@pytest.mark.parametrize("profile", ["v2_langchain_mock", "v2_langgraph_fixture"])
+def test_order_routes_extract_only_explicit_order_resource_ids(profile):
+    service = RagService(profile=profile, scope_validator=lambda _: None)
+    explicit = service.Understand(
+        rag_pb2.UnderstandRequest(context=scope(), query="查询订单号 V2-ORDER-001 的物流状态"), Context(),
+    )
+    assert list(explicit.required_fact_tools) == ["get_order_status", "get_logistics"]
+    assert [(item.name, item.value) for item in explicit.entities] == [("order_id", "V2-ORDER-001")]
+    missing = service.Understand(
+        rag_pb2.UnderstandRequest(context=scope(), query="订单状态？"), Context(),
+    )
+    assert list(missing.required_fact_tools) == ["get_order_status"]
+    assert not missing.entities
+
+
+@pytest.mark.parametrize("field", ["confidence", "entities"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True])
+def test_control_rejects_nonfinite_or_boolean_confidence(field, value):
+    from app.graph.workflow import _provider_understand_result
+
+    structured = {"confidence": 0.9, "entities": []}
+    structured[field] = value if field == "confidence" else [{"name": "order_id", "value": "ORDER-1", "confidence": value}]
+    with pytest.raises(TypeError):
+        _provider_understand_result({"structured": structured}, "订单号 ORDER-1")
+
+
 def test_final_rpc_rejects_legacy_profile_and_wrong_audience():
     with pytest.raises(ValueError):
         RagService(profile="m1_fixture_mock")
@@ -102,7 +128,7 @@ def test_rpc_phases_call_only_their_provider_slots_and_preserve_logistics_facts(
     assert calls == ["control", "embedding:query", "rerank"]
     generated = list(service.Generate(rag_pb2.GenerateRequest(
         context=request_scope, query=understood.rewritten_query, evidence=evidence,
-        facts=[rag_pb2.Fact(tool_name="get_logistics", value_json='{"status":"in_transit"}',
+        facts=[rag_pb2.Fact(tool_name="get_logistics", resource_id="V2-ORDER-001", value_json='{"order_id":"V2-ORDER-001","status":"in_transit"}',
                            observed_at="2026-10-12T00:00:00Z", is_mock=True)],
         response_purpose="customer_reply",
     ), ctx))
@@ -130,3 +156,15 @@ def test_development_profiles_route_all_go_fact_tools(profile, query, tools):
     assert list(response.required_fact_tools) == tools
     assert response.intent == "factual"
     assert response.information_source == "realtime_business"
+
+
+def test_provider_understanding_validates_order_entity_shape():
+    from app.graph.workflow import _provider_understand_result
+
+    result = _provider_understand_result({"structured": {
+        "rewritten_query": "查询订单号 V2-ORDER-001 的物流状态",
+        "intent": "factual", "information_source": "realtime_business",
+        "required_fact_tools": ["get_logistics"], "clarification": "", "confidence": 0.9,
+        "entities": [{"name": "order_id", "value": "V2-ORDER-001", "confidence": 0.99}],
+    }}, "查询订单号 V2-ORDER-001 的物流状态")
+    assert result["entities"] == [{"name": "order_id", "value": "V2-ORDER-001", "confidence": 0.99}]

@@ -10,7 +10,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableLambda
 
-from app.facts import infer_fact_tools
+from app.facts import extract_order_entities, infer_fact_tools
 
 
 def _understand(payload: dict[str, Any]) -> dict[str, Any]:
@@ -28,12 +28,14 @@ def _understand(payload: dict[str, Any]) -> dict[str, Any]:
             "reason": "v2_fixture_missing_subject",
         }
     required_fact_tools = infer_fact_tools(query)
+    entities = extract_order_entities(query)
     factual = bool(required_fact_tools)
     return {
         "rewritten_query": query,
         "intent": "factual" if factual else "knowledge",
         "information_source": "realtime_business" if factual else "own_knowledge",
         "required_fact_tools": required_fact_tools,
+        "entities": entities,
         "clarification": "",
         "confidence": 0.95,
         "reason": "v2_fixture_router",

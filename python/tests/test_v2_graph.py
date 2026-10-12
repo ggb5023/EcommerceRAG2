@@ -76,6 +76,22 @@ def test_fact_contract_rejects_unknown_tools_and_accepts_authorized_shape():
         "is_mock": True,
     }])
     assert facts[0]["tool_name"] == "get_stock"
+    bound = service._validate_facts([{
+        "tool_name": "get_order_status", "resource_id": "V2-ORDER-001",
+        "value_json": '{"order_id":"V2-ORDER-001","status":"in_transit"}',
+        "observed_at": "2026-10-12T00:00:00Z", "is_mock": True,
+    }])
+    assert bound[0]["resource_id"] == "V2-ORDER-001"
+    for invalid in [
+        {"tool_name": "get_order_status", "resource_id": "", "value_json": '{"order_id":"V2-ORDER-001"}', "observed_at": "2026-10-12T00:00:00Z"},
+        {"tool_name": "get_logistics", "resource_id": "V2-ORDER-001", "value_json": '{"order_id":"OTHER-ORDER"}', "observed_at": "2026-10-12T00:00:00Z"},
+    ]:
+        try:
+            service._validate_facts([invalid])
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("unbound or mismatched order facts must fail closed")
     try:
         service._validate_facts([{
             "tool_name": "delete_order",

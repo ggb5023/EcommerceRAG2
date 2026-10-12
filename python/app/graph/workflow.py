@@ -18,7 +18,7 @@ from .state import Evidence, GraphState, Scope
 
 CONTROL_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "required": ["rewritten_query", "intent", "information_source", "required_fact_tools", "clarification", "confidence"],
+    "required": ["rewritten_query", "intent", "information_source", "required_fact_tools", "entities", "clarification", "confidence"],
     "properties": {
         "rewritten_query": {"type": "string"},
         "intent": {"type": "string"},
@@ -26,6 +26,7 @@ CONTROL_SCHEMA: dict[str, Any] = {
         "required_fact_tools": {"type": "array", "items": {"type": "string"}},
         "clarification": {"type": "string"},
         "confidence": {"type": "number"},
+        "entities": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "confidence": {"type": "number"}}, "required": ["name", "value", "confidence"]}},
     },
 }
 GENERATION_SCHEMA: dict[str, Any] = {
@@ -300,8 +301,19 @@ def _provider_understand_result(value: object, query: str) -> dict[str, Any]:
     if not isinstance(structured, Mapping):
         raise TypeError("provider control structured output is invalid")
     confidence = structured.get("confidence", 0.0)
-    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not math.isfinite(confidence):
         raise TypeError("provider control confidence is invalid")
+    raw_entities = structured.get("entities", [])
+    if not isinstance(raw_entities, list):
+        raise TypeError("provider control entities are invalid")
+    entities: list[dict[str, Any]] = []
+    for item in raw_entities:
+        if not isinstance(item, Mapping) or not isinstance(item.get("name"), str) or not isinstance(item.get("value"), str):
+            raise TypeError("provider control entity is invalid")
+        entity_confidence = item.get("confidence", 0.0)
+        if not isinstance(entity_confidence, (int, float)) or isinstance(entity_confidence, bool) or not math.isfinite(entity_confidence):
+            raise TypeError("provider control entity confidence is invalid")
+        entities.append({"name": item["name"].strip(), "value": item["value"].strip(), "confidence": max(0.0, min(1.0, float(entity_confidence)))})
     return {
         "rewritten_query": str(structured.get("rewritten_query", query)).strip() or query,
         "intent": str(structured.get("intent", "knowledge")),
@@ -309,6 +321,7 @@ def _provider_understand_result(value: object, query: str) -> dict[str, Any]:
         "required_fact_tools": _checked_fact_tools(structured.get("required_fact_tools", infer_fact_tools(query))),
         "clarification": str(structured.get("clarification", "")),
         "confidence": max(0.0, min(1.0, float(confidence))),
+        "entities": entities,
         "reason": "provider_control",
         "provider_trace": value.get("provider", {}),
     }
@@ -320,7 +333,7 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
         raise RuntimeError("request cancelled")
     result = await chains.control.ainvoke({
         "messages": [
-            {"role": "system", "content": "Classify the request and return only the requested JSON fields."},
+            {"role": "system", "content": "Classify the request and return only the requested JSON fields. Extract an order_id only when an explicit order identifier appears in the user query; never guess or substitute an example order. If the query asks for order or logistics status without an explicit identifier, leave entities empty so the control plane can ask a clarification."},
             {"role": "user", "content": state["query"]},
         ],
         "response_schema": CONTROL_SCHEMA,

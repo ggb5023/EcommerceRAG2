@@ -12,9 +12,12 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +34,36 @@ import (
 )
 
 const turnTimeout = 60 * time.Second
+
+var orderIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+var queryResourcePattern = regexp.MustCompile(`[A-Za-z0-9_-]+`)
+
+func routedOrderResource(response *ragv1.UnderstandResponse, query string) (string, bool) {
+	if response == nil {
+		return "", false
+	}
+	ids := make([]string, 0, 1)
+	for _, entity := range response.Entities {
+		if entity.GetName() != "order_id" {
+			continue
+		}
+		confidence := entity.GetConfidence()
+		if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0.5 || confidence > 1 {
+			return "", false
+		}
+		id := strings.TrimSpace(entity.GetValue())
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) != 1 || !orderIDPattern.MatchString(ids[0]) {
+		return "", false
+	}
+	if !slices.Contains(queryResourcePattern.FindAllString(query, -1), ids[0]) {
+		return "", false
+	}
+	return ids[0], true
+}
 
 func isV2Profile(profile string) bool {
 	return profile == "v2_langgraph_fixture" || profile == "v2_langchain_mock" || profile == "v2_langchain_bailian"
@@ -844,6 +877,16 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", auth.FailureCode(err), "")
 		return
 	}
+	ensureScopeAuthorized := func() bool {
+		if !ensureAuthorized() {
+			return false
+		}
+		if g.authority().CurrentRevision() != base.PermissionRevision {
+			finish("FAILED", "permission_changed", "")
+			return false
+		}
+		return true
+	}
 	if parentTurnID != 0 && isV2Profile(g.profile) {
 		parentScope, scopeErr := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
 		if scopeErr != nil {
@@ -871,7 +914,27 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(state, code, "")
 		return
 	}
-	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools)
+	if routed == nil {
+		finish("FAILED", "invalid_routing_response", "")
+		return
+	}
+	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
+	factResourceID := ""
+	if orderToolsRequired {
+		orderID, valid := routedOrderResource(routed, query)
+		if !valid {
+			routed.Intent = "clarification"
+			routed.Clarification = "请提供有效订单号后再查询订单或物流状态。"
+			routed.Confidence = 0.2
+			routed.RequiredFactTools = nil
+		} else {
+			factResourceID = orderID
+		}
+	}
+	if !ensureScopeAuthorized() {
+		return
+	}
+	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools, factResourceID)
 	if factErr != nil {
 		for _, toolName := range routed.RequiredFactTools {
 			_, _ = g.db.Exec(context.Background(), `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
@@ -885,7 +948,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
 	}
 	if routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5 {
-		if !ensureAuthorized() {
+		if !ensureScopeAuthorized() {
 			return
 		}
 		clarification := routed.Clarification
@@ -909,7 +972,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("ASKING", "", clarification)
 		return
 	}
-	if !ensureAuthorized() {
+	if !ensureScopeAuthorized() {
 		return
 	}
 	search, err := g.rag.Search(ctx, &ragv1.SearchRequest{Context: base, Query: routed.RewrittenQuery, ResponsePurpose: "customer_reply"})
@@ -939,7 +1002,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			finish("FAILED", "provider_profile_mismatch", "")
 			return
 		}
-		if !ensureAuthorized() {
+		if !ensureScopeAuthorized() {
 			return
 		}
 		for _, item := range part.Evidence {
@@ -958,7 +1021,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 	}
 	for i, item := range evidence {
-		if !ensureAuthorized() {
+		if !ensureScopeAuthorized() {
 			return
 		}
 		if _, err = g.db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
@@ -973,7 +1036,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", "persistence_failed", "")
 		return
 	}
-	if !ensureAuthorized() {
+	if !ensureScopeAuthorized() {
 		return
 	}
 	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"})
@@ -986,7 +1049,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	isMock := mockOutput
 	sawProfileMarker := false
 	for {
-		if !ensureAuthorized() {
+		if !ensureScopeAuthorized() {
 			return
 		}
 		part, recvErr := gen.Recv()
@@ -1003,7 +1066,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			}
 			return
 		}
-		if !ensureAuthorized() {
+		if !ensureScopeAuthorized() {
 			return
 		}
 		switch value := part.Event.(type) {
@@ -1057,7 +1120,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				return
 			}
 			text := answer.String()
-			if !ensureAuthorized() {
+			if !ensureScopeAuthorized() {
 				return
 			}
 

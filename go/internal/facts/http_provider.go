@@ -23,21 +23,25 @@ type HTTPProvider struct {
 }
 
 type httpFactResponse struct {
-	Version   string          `json:"version"`
-	TenantID  string          `json:"tenant_id"`
-	ShopID    string          `json:"shop_id"`
-	ToolName  string          `json:"tool_name"`
-	ValueJSON json.RawMessage `json:"value_json"`
-	Observed  string          `json:"observed_at"`
-	IsMock    bool            `json:"is_mock"`
+	Version    string          `json:"version"`
+	TenantID   string          `json:"tenant_id"`
+	ShopID     string          `json:"shop_id"`
+	ToolName   string          `json:"tool_name"`
+	ValueJSON  json.RawMessage `json:"value_json"`
+	Observed   string          `json:"observed_at"`
+	IsMock     bool            `json:"is_mock"`
+	ResourceID string          `json:"resource_id"`
 }
 
-func (p HTTPProvider) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext) (*ragv1.Fact, error) {
+func (p HTTPProvider) Lookup(ctx context.Context, tool string, scope *ragv1.RequestContext, resourceID string) (*ragv1.Fact, error) {
 	if err := ValidateNames([]string{tool}); err != nil {
 		return nil, err
 	}
 	if err := validateScope(scope); err != nil {
 		return nil, err
+	}
+	if requiresResourceBinding(tool) && strings.TrimSpace(resourceID) == "" {
+		return nil, ErrUnauthorized
 	}
 	base := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
 	if base == "" {
@@ -60,6 +64,9 @@ func (p HTTPProvider) Lookup(ctx context.Context, tool string, scope *ragv1.Requ
 	request.Header.Set("X-Tenant-ID", scope.TenantId)
 	request.Header.Set("X-User-ID", scope.UserId)
 	request.Header.Set("X-Shop-ID", scope.ShopId)
+	if requiresResourceBinding(tool) {
+		request.Header.Set("X-Fact-Resource-ID", resourceID)
+	}
 	client := p.Client
 	if client == nil {
 		client = &http.Client{Timeout: 3 * time.Second}
@@ -95,10 +102,22 @@ func (p HTTPProvider) Lookup(ctx context.Context, tool string, scope *ragv1.Requ
 	if json.Unmarshal(body, &payload) != nil || payload.Version != version || payload.TenantID != scope.TenantId || payload.ShopID != scope.ShopId || payload.ToolName != tool || len(payload.ValueJSON) == 0 || !json.Valid(payload.ValueJSON) || string(payload.ValueJSON) == "null" {
 		return nil, ErrInvalidResponse
 	}
+	if !requiresResourceBinding(tool) && payload.ResourceID != "" {
+		return nil, ErrInvalidResponse
+	}
+	if requiresResourceBinding(tool) && payload.ResourceID != resourceID {
+		return nil, ErrInvalidResponse
+	}
+	if requiresResourceBinding(tool) {
+		var value map[string]any
+		if json.Unmarshal(payload.ValueJSON, &value) != nil || value["order_id"] != resourceID {
+			return nil, ErrInvalidResponse
+		}
+	}
 	if _, err := time.Parse(time.RFC3339, payload.Observed); err != nil {
 		return nil, ErrInvalidResponse
 	}
-	return &ragv1.Fact{ToolName: tool, ValueJson: string(payload.ValueJSON), ObservedAt: payload.Observed, IsMock: payload.IsMock}, nil
+	return &ragv1.Fact{ToolName: tool, ValueJson: string(payload.ValueJSON), ObservedAt: payload.Observed, IsMock: payload.IsMock, ResourceId: payload.ResourceID}, nil
 }
 
 func validateScope(scope *ragv1.RequestContext) error {

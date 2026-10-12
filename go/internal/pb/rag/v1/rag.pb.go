@@ -493,11 +493,13 @@ func (x *Evidence) GetTenantId() string {
 }
 
 type Fact struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ToolName      string                 `protobuf:"bytes,1,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
-	ValueJson     string                 `protobuf:"bytes,2,opt,name=value_json,json=valueJson,proto3" json:"value_json,omitempty"`
-	ObservedAt    string                 `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	IsMock        bool                   `protobuf:"varint,4,opt,name=is_mock,json=isMock,proto3" json:"is_mock,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ToolName   string                 `protobuf:"bytes,1,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
+	ValueJson  string                 `protobuf:"bytes,2,opt,name=value_json,json=valueJson,proto3" json:"value_json,omitempty"`
+	ObservedAt string                 `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	IsMock     bool                   `protobuf:"varint,4,opt,name=is_mock,json=isMock,proto3" json:"is_mock,omitempty"`
+	// Optional business resource binding, e.g. the requested order_id.
+	ResourceId    string `protobuf:"bytes,5,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -558,6 +560,13 @@ func (x *Fact) GetIsMock() bool {
 		return x.IsMock
 	}
 	return false
+}
+
+func (x *Fact) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
 }
 
 type UnderstandRequest struct {
@@ -3527,14 +3536,16 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	" \x01(\tR\x06shopId\x12)\n" +
 	"\x10disclosure_class\x18\v \x01(\tR\x0fdisclosureClass\x12+\n" +
 	"\x11customer_eligible\x18\f \x01(\bR\x10customerEligible\x12\x1b\n" +
-	"\ttenant_id\x18\r \x01(\tR\btenantId\"|\n" +
+	"\ttenant_id\x18\r \x01(\tR\btenantId\"\x9d\x01\n" +
 	"\x04Fact\x12\x1b\n" +
 	"\ttool_name\x18\x01 \x01(\tR\btoolName\x12\x1d\n" +
 	"\n" +
 	"value_json\x18\x02 \x01(\tR\tvalueJson\x12\x1f\n" +
 	"\vobserved_at\x18\x03 \x01(\tR\n" +
 	"observedAt\x12\x17\n" +
-	"\ais_mock\x18\x04 \x01(\bR\x06isMock\"\x84\x01\n" +
+	"\ais_mock\x18\x04 \x01(\bR\x06isMock\x12\x1f\n" +
+	"\vresource_id\x18\x05 \x01(\tR\n" +
+	"resourceId\"\x84\x01\n" +
 	"\x11UnderstandRequest\x120\n" +
 	"\acontext\x18\x01 \x01(\v2\x16.rag.v1.RequestContextR\acontext\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12'\n" +

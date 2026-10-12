@@ -57,17 +57,25 @@ func NewFakeHandler(version, fault string) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"version":"wrong"}`))
 			return
+
 		}
 		tenant, shop := r.Header.Get("X-Tenant-ID"), r.Header.Get("X-Shop-ID")
+		resourceID := r.Header.Get("X-Fact-Resource-ID")
 		if tenant == "" || shop == "" || tenant != "v2-demo-tenant" || shop != "shop-demo" {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		if tool == "get_order_status" || tool == "get_logistics" {
+			if r.Header.Get("X-User-ID") != "dev-user" || resourceID != "V2-ORDER-001" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
 		values := map[string]any{
 			"get_stock":        map[string]any{"sku": "V2-CUP-480", "available": 12, "as_of": "2026-10-12"},
 			"get_price":        map[string]any{"sku": "V2-CUP-480", "amount_cents": 8900, "currency": "CNY"},
-			"get_order_status": map[string]any{"order_id": "V2-ORDER-001", "status": "in_transit"},
-			"get_logistics":    map[string]any{"order_id": "V2-ORDER-001", "carrier": "fixture-express", "status": "in_transit"},
+			"get_order_status": map[string]any{"order_id": resourceID, "status": "in_transit"},
+			"get_logistics":    map[string]any{"order_id": resourceID, "carrier": "fixture-express", "status": "in_transit"},
 			"compare_products": map[string]any{"left": "V2-CUP-480", "right": "V2-CUP-750", "price_delta_cents": 2000},
 		}
 		value, ok := values[tool]
@@ -75,9 +83,23 @@ func NewFakeHandler(version, fault string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		payload := map[string]any{"version": version, "tenant_id": tenant, "shop_id": shop, "tool_name": tool, "value_json": value, "observed_at": fakeObservedAt, "is_mock": true}
+		payload := map[string]any{"version": version, "tenant_id": tenant, "shop_id": shop, "tool_name": tool, "value_json": value, "observed_at": fakeObservedAt, "is_mock": true, "resource_id": resourceID}
 		if fault == "wrong_owner" {
 			payload["shop_id"] = "other-shop"
+		}
+		if fault == "wrong_order" || fault == "wrong_order_body" {
+			if fault == "wrong_order" {
+				payload["resource_id"] = "OTHER-ORDER"
+			}
+			if object, ok := payload["value_json"].(map[string]any); ok {
+				object["order_id"] = "OTHER-ORDER"
+			}
+		}
+		if fault == "missing_fields" {
+			delete(payload, "value_json")
+		}
+		if fault == "missing_version" {
+			delete(payload, "version")
 		}
 		if fault == "empty" {
 			payload["value_json"] = nil
