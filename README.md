@@ -14,7 +14,7 @@ Run the two Vite frontends separately against the HTTP address from the V2 runti
 
 Business migrations require a non-superuser without `BYPASSRLS`. An infrastructure administrator first creates the independent database, service roles, and `vector`/`pg_trgm` extensions; application processes never apply DDL.
 
-The active runtime is `go/cmd/server`, `app.rpc.server`, `app.rpc.ingest_server`, and `app.ingest.worker_main`. Legacy Python RPC entrypoints and synthetic HTTP runners have been retired. HTTP `/v1`, Proto `rag.v1`, and historical SQL migrations retain their names. Go submits and controls ingestion; the independent Python worker owns ingestion writes.
+The active runtime is `go/cmd/gateway`, `app.rpc.server`, `app.rpc.ingest_server`, and `app.ingest.worker_main`. Legacy Python RPC entrypoints and synthetic HTTP runners have been retired. HTTP `/v1`, Proto `rag.v1`, and historical SQL migrations retain their names. Go submits and controls ingestion; the independent Python worker owns ingestion writes.
 
 With the offline V2 stack and both Vite frontends running, execute `cd web && node tests/v2-lifecycle.browser.mjs` for upload, review, publish, cited answers, rollback, and revocation. `node tests/workspace.browser.mjs` checks customer sessions/SSE, and `V2_AUTHORITY_FIXTURE_ENV=/path/to/protected-test.env node tests/v2-authority.browser.mjs` checks actual revocation and permission changes in the isolated database. The authority harness requires a dedicated `ecr_v2_test_` database and its restricted migration credentials for authority fixtures.
 

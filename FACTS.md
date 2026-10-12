@@ -14,7 +14,7 @@
 - `/opt/ecommerce-rag-v2` 是活动 Dev 工作树，分支为 `refactor/v2-rebuild`。
 - `/opt/ecommerce-rag-ops` 是约定的独立 DB 运维工作区，负责 PostgreSQL/pgvector、Redis、迁移、备份和隔离测试；本开发主机没有该目录，不能据此推断远端运维环境已部署。当前隔离验收使用显式配置的独立测试库。
 - `/opt/ecommerce-rag` 作为只读旧工程参考和回滚来源保留。
-- V2 活动入口固定为 `go/cmd/server`、`app.rpc.server`、`app.rpc.ingest_server` 和 `app.ingest.worker_main`。旧 Python RPC 入口和 synthetic HTTP 工具已退出；HTTP `/v1`、Proto `rag.v1`、历史迁移及数据库约束 fixture 保留。Go 不运行资料 writer。
+- V2 活动入口固定为 `go/cmd/gateway`、`app.rpc.server`、`app.rpc.ingest_server` 和 `app.ingest.worker_main`。旧 Python RPC 入口和 synthetic HTTP 工具已退出；HTTP `/v1`、Proto `rag.v1`、历史迁移及数据库约束 fixture 保留。Go 不运行资料 writer。
 
 ## 证据边界
 

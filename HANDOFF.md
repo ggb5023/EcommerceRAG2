@@ -3,7 +3,7 @@
 ## 当前进度
 
 - 活动工作树 `/opt/ecommerce-rag-v2`，分支 `refactor/v2-rebuild`。本轮开发重构的能力、代码、运行证据和文档已收口；退出基线以本文件所在本地提交为准，最终提交/工作树与 G1–G8 审计见 `.local/dev-docs/archive/20261012-v2-completion-audit.json`。Gateway 恢复提交 `a08f99b`，四进程浏览器恢复提交 `9102671`；未推送或合并。
-- 活动入口固定为 Go `cmd/server` 和 Python `app.rpc.server`、`app.rpc.ingest_server`、`app.ingest.worker_main`。旧 Python RPC、synthetic HTTP 与 Go artifact-binding 工具已退出；有效权限/解析/管理用例迁到当前实现，HTTP `/v1`、`rag.v1` 和历史迁移保留。能力替代与证据统一在私有 `V1到V2能力迁移清单.md`。
+- 活动入口固定为 Go `cmd/gateway` 和 Python `app.rpc.server`、`app.rpc.ingest_server`、`app.ingest.worker_main`。旧 Python RPC、synthetic HTTP 与 Go artifact-binding 工具已退出；有效权限/解析/管理用例迁到当前实现，HTTP `/v1`、`rag.v1` 和历史迁移保留。能力替代与证据统一在私有 `V1到V2能力迁移清单.md`。
 - Gateway 使用独立 advisory lock 连接限制每库单实例；ready 前将中断执行持久化为 FAILED/`gateway_restarted` 或 CANCELLED，连续 SSE 同事务写入，不自动重发模型请求。实际四进程 crash/restart 浏览器 6 项通过，DONE/ASKING 保留并可恢复。
 - 最终基础检查通过：Go、Proto、双前端测试/build、facts fake 矩阵；最终 Python `291 passed/27 skipped`。默认跳过的 24 个摄取与 3 个检索参数用例已在独立库实际执行通过（worker 24 项、retriever 共 5 项）；Go 管理权限/命令对账及 Go→Python 跨进程通过。新增真实 SIGKILL、自然 lease 到期、接管/fencing、单对象清理失败重试，以及管理申请/批准/撤销/不可变审计回归。
 - 双前端生命周期 13 项、客服工作台 12 项、实际撤权/权限版本浏览器 3 项通过；最新生命周期报告 `.local/v2-lifecycle/browser/f19625bfb9ac/report.json`。完整脱敏报告路径及 hash 在最终审计中。
