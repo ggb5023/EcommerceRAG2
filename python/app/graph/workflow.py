@@ -629,7 +629,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "配送承诺时效能力，即使订单信息齐全也不能保证到货时间。不重复核验步骤。"
         )
     needs_evidence_limits = bool(evidence and not facts and not needs_plan and not needs_delivery_limit)
-    needs_applicability = bool(needs_evidence_limits and re.search(r'规则|标准|运输|适用|policy|standard|transport',
+    needs_applicability = bool(needs_evidence_limits and re.search(r'规则|标准|运输|policy|standard|transport',
                                                                  state['query'], re.IGNORECASE))
     needs_reason = bool(needs_evidence_limits and re.search(r'为什么|为何|原因|why|reason', state['query'], re.IGNORECASE))
     if needs_evidence_limits:

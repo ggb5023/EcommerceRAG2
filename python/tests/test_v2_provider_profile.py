@@ -493,3 +493,22 @@ def test_rpc_failure_diagnostics_log_only_allowlisted_reasons_and_request_hash(c
     assert 'reason=' + expected in caplog.text
     assert message not in caplog.text
     assert 'private-request' not in caplog.text
+
+
+def test_historical_snapshot_limits_do_not_require_rule_applicability_dimensions():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            assert 'applicability_dimensions' not in payload['response_schema']['required']
+            return {'structured': {'answer': '这是历史库存快照。', 'citation_ids': ['source'],
+                'evidence_limits': '不能保证下单时仍有库存；引用前重新核对时间和店铺。',
+                'next_inputs': ''}}
+
+    result = asyncio.run(provider_generate_node({'query': '介绍商品库存历史快照及其适用限制。',
+        'evidence': [{'id': 'source', 'content': '库存快照；引用前重新核对时间和店铺。'}]},
+        SimpleNamespace(generation=Generation())))
+    assert '重新核对时间和店铺' in result['answer']
