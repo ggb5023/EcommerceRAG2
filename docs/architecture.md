@@ -30,7 +30,7 @@
 
 `eval/public-data-sources.manifest.json` 管理公开数据集、开源服务目标和未解决的来源缺口，并记录类别、语言/司法辖区、许可与隐私状态、用途范围和获取状态。候选来源只有在原始条款、许可证范围、revision、字段/隐私审查和仓外存储均落实后才能准入；未满足时保持未下载。原始公开数据不进入 Git.
 
-当前实现仍使用固定开发身份及 Go 商家 facts fake。Keycloak OIDC 是未来本地集成目标，使用本地创建的合成测试账号；所选发行版许可仍需核实，当前没有 Keycloak 服务或真实 OIDC 集成。Medusa 2.21.2 是未来本地 REST 集成目标；记录的 MIT 许可仅覆盖非 Enterprise 内容，Enterprise 内容排除。Medusa 本地服务或测试账号都不代表真实商家 API。
+当前 Go 可显式选择固定开发身份或本地 Keycloak OIDC bearer profile；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。未实现浏览器登录或生产会话。Medusa 2.21.2 是未来本地 REST 集成目标；记录的 MIT 许可仅覆盖非 Enterprise 内容，Enterprise 内容排除。Medusa 本地服务或测试账号都不代表真实商家 API。
 
 Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库、DbCL 单项内容和 CC BY-SA 商品图片，首批候选排除图片并待字段审查。UCI Online Retail II 页面标注 CC BY 4.0、API 许可字段为空，解决差异并完成隐私审查前不下载或准入。中文官方 FAQ/政策和中文社区问答尚有来源缺口；英文社区问答单独评测并保留语言与许可归属，不能作为商家政策或客服答案真值。公开数据派生的 Medusa 库存/订单是本地测试记录，删除客户标识并绑定来源版本、输入 hash 和转换版本。
 

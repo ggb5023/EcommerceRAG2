@@ -80,7 +80,7 @@
       "restricted_storage_location": "no_dataset_acquisition; test-account credentials remain in protected runtime configuration",
       "allowed_use": ["local_merchant_rest_api_integration_with_test_accounts", "public_catalog_fixture_mapping"],
       "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "enterprise_only_content"],
-      "notes": "The package declaration identifies MIT coverage for non-Enterprise content. This is a local open-source service target, not a real merchant API or production merchant data source.",
+      "notes": "The selected 2.21.2 package is mixed-licensed. Its authoritative Enterprise list includes framework policies and transformed copies; default startup calls policiesLoader. The MIT non-Enterprise declaration alone does not establish that this runtime excludes those materials. Deployment remains blocked by runtime-scope review; a separate 2.18.0 MIT distribution candidate has been audited but is not selected or deployed. This is not a real merchant API or production data source.",
       "real_service_acceptance": false
     },
     {

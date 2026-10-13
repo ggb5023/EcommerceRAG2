@@ -9,8 +9,9 @@
 - V2 表级写入按服务角色划分：Go 写会话、执行、终态结果、SSE、控制命令和授权审计；Python AI 写 checkpoint/retrieval trace；Python 摄取单写 source、job、item、version、chunk、发布状态和摄取命令回执。每张业务表只有一个写入方，Go 提交意图与 Python 摄取回执分表保存。
 - 表级权限及单写者边界由 checksum 迁移和受限数据库角色落实；应用进程不执行 DDL，已应用迁移保持不变，新结构通过新增迁移引入。
 - PostgreSQL/pgvector 与 Redis 提供共享持久化和协调能力。当前开发目标不部署本地模型。
+- OIDC 身份按请求隔离，并绑定到既有 Go 数据库 tenant/user/shop；token 角色、范围与权限版本必须匹配，不能创建或扩权。Go 同时校验签名、issuer、audience、真实时间到期与实时 introspection。OIDC revision 固定，旧 token 不自动升级；Python scope 回验关联同一 token 的在线活跃状态，仍沿用 Proto，无新 DDL。浏览器登录和生产会话未实现。
 - Go 控制面可通过显式 `V2_FACTS_BASE_URL` 加载版本化 `facts.HTTPProvider`；未配置时事实查询 fail-closed。`go/cmd/facts-fake` 是 loopback 开发 fake，固定返回商品/库存/价格/订单/物流并带 mock、版本、观察时间和租户/店铺绑定。
-- 当前开发身份与商家事实仍由固定身份/本地 mock 和版本化 facts fake 提供；Keycloak OIDC 与 Medusa REST 是后续本地开源服务目标，尚未部署或集成。Medusa 本地数据和由公开数据派生的交易记录属于测试数据，不是生产商家数据。
+- Go 可显式选择固定开发身份或本地 Keycloak OIDC bearer profile；商家事实仍由版本化 facts fake 提供。Keycloak 的固定发行版、Apache-2.0 与 notice 指纹由 `docker/identity/images.lock.json` 管理；使用本地合成测试账号，不代表生产身份。Medusa REST 尚未部署集成；原固定版本2.21.2的混合许可需要核实实际运行范围，不能只凭非 Enterprise MIT 声明放行默认启动。公开数据派生的本地库存/订单属于测试记录。
 - 冻结的 60 条合成案例、37 份合成文档、批准答案点和 evidence sidecar 属于独立基线；公开来源清单建立隔离数据轨，不修改或补写该基线真值。
 
 ## 工作区职责

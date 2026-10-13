@@ -2,31 +2,26 @@
 
 ## 当前进度
 
-- 活动工作树 `/opt/ecommerce-rag-v2`，分支 `refactor/v2-rebuild`。小功能本地提交，不推送、不合并；V1 代码和数据库保留。用户已授权不限额度百炼并确认 generation 免费额度限制解除。代理语义复核记录 `reviewer_kind=agent`、`human_review_completed=false`，不冒充人工。
-- 冻结输入保持不变：60 案例、37 文档、原答案点、alignment、context-v2 evidence sidecar、历史报告；边界契约 SHA-256 `33d3a9b2f8006a6134f4698ccd3d70a10a4c5d61119bd16b7a6ac0895376eb6e`。四模型、1024 维、control 256/generation 512 token、原共享账本和 60 RPM 不变。
-- 已有会话 Proto 字段、Go 六条/8192 字节授权历史、20 个 Rerank 正文候选和最多 8 条生成上下文继续使用。本接续完善生成的条件、来源级别、适用维度、原因缺口和配送能力限制；实际生成字段须受来源与引用支持，不能从评测真值补答案。control 现只消费用户历史，区分唯一资源与缺版本/日期，防止助手来源或比较造成误澄清。HTTP/SSE、浏览器、DDL 无新增契约。
-- 历史日期 2026-09-29 的最新完整 r40，在业务修复提交 `1d3d30b` 上实际执行 53/53 并逐例代理复核。独立边界门禁 PASS：高风险 42/42、普通 11/11、必需证据 49/49、适用引用 49/49，4 个无需引用的澄清单独报告。报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-boundary-gate-paid-full-r40-20261013.json`；受限复核包 `/var/lib/ecommerce-rag/quality-review/boundary-agent-paid-full-r40-20261013/`，capture 位于 `boundary-history-paid-full-r40-20261013/`。这只证明历史轨，整体阶段仍进行中。
-- 原答案点门禁独立 NOT_PASSED：r40 44/53，44 支持、9 遗漏、0 矛盾、0 失真。遗漏 syn-012/013/014/016/025/026/029/031/042；不能用边界澄清或有限摘要抹去。原报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-original-gate-paid-full-r40-20261013.json`；组件批准基线及其人工 sidecar 不覆盖新入口答案。
-- 与 r40 绑定的七安全案例及四项撤权/旧结果回放 PASS，Provider 增量 0：`v2-boundary-safety-paid-full-r40-20261013.json`。唯一前文 r37 定向 3/3；缺前文、多候选、错误指代及 ASKING 父轮次补 SKU/订单后新授权读取的 r38 八场景执行和语义复核 PASS；syn-004 r39 三次连续实际入口与语义 PASS，原非确定性截断根因仍 NOT_PROVEN。
-- 失败历史全部保留：r22 边界 47/53；r29 因中断仅 44 主案例及前置 capture，无完整报告；r32 历史边界 53/53 但早于最终指代修复；r36 52/53，syn-031 已有唯一 USB-C 前文却误澄清，按真实失败记录后修复。不得选历史最好结果替代当前代码验收。
-- 当前日期 r41 定向 12 例全部 FAILED：control `qwen3.8-flash` 返回 403 `AllocationQuota.FreeTierOnly`，账本为 `allocation_quota`；不是预算或本地限流耗尽。generation 解除不证明其他模型已解除。失败报告、capture 和逐例失败复核已保留；已通知用户关闭 control 的免费额度限制，尚未收到该模型解除确认。已停止新增模型请求，未换模型或新建账本。
-- r42 对上述 12 个 FAILED 和一条实际 CANCELLED 共 13 个终态，四进程真实停启后比对 HTTP 结果与持久化 SSE hash，全部不变；序列连续、gap replay、幂等保持，取消后无答案/引用/可复制回复或晚到结果，恢复未新增 Provider 请求。只证明失败关闭/取消恢复，不能替代当前时效答案验收。汇总 `/var/lib/ecommerce-rag/real-docs/reports/v2-boundary-paid-window-r43-20261013.json` 为 IN_PROGRESS。
-- 已补 HTTP 批跑全局账户阻塞保护：根据每例新增原共享账本错误，遇到 allocation_quota/鉴权/预算阻塞停止后续案例，保留失败并记录计划、实际与未运行项；部分批次不能过 53 门禁，历史错误不阻断新授权批次。提交 `ba34516`，新增七项检查；本接续 `1d3d30b` 修复用户指代及两项回归测试。
-- 最新基础检查 PASS：Python 393 passed/27 skipped；Go test/vet、Proto、双前端 19+5 测试和构建、facts fake 故障矩阵通过。eval 281 passed；指代定向 74 passed，ruff、文档、隐私和差异检查通过。27 个数据库跳过此前用 `ecr_v2_test_20261013_checks` 补跑 30 项、Go 授权/命令对账 PASS；非超级用户/无 BYPASSRLS、25 迁移 checksum、vector 0.8.6/pg_trgm 已验证。没有因本次仅控制指代与评测工具改动重复数据库或前端业务流程。
-- 既有实际浏览器恢复 6、权限/撤权 3、双前端生命周期 13 PASS；脱敏证明 `/var/lib/ecommerce-rag/real-docs/reports/v2-boundary-offline-verification-20261013.json`。该报告是早先独立验证，不能当作新增在线答案证明。
-- 独立验收库 `ecr_v2_dev_20261013_temporal` 保留 37 文档真实提交/解析/切片/Embedding/审核/发布结果：36 发布、1 unclassified 不可见。生命周期报告 `v2-live-lifecycle-temporal-20261013.json`。此库已经填充，不是空库。
-- 公开 eval 说明、FACTS 与私有模型/验收专题同步；本窗口记录 `.local/dev-docs/archive/20261013-付费恢复与证据边界复测.md`。资料来源/接口专题沿用本窗口此前更新，不增加状态矩阵或改历史归档。临时四进程/facts fake 已停止，其他既有服务保持。
+- 活动树 `/opt/ecommerce-rag-v2`、`refactor/v2-rebuild`；按文件本地提交，不推送/合并。用户已确认control和generation免费额度限制解除，沿用原四模型、1024维、原共享账本及60RPM；百炼付费不限额度授权有效。代理复核是 `reviewer_kind=agent`、`human_review_completed=false`。
+- 冻结60案例、37文档、答案点/alignment/evidence与边界契约保持不变。契约hash `33d3a9b2f8006a6134f4698ccd3d70a10a4c5d61119bd16b7a6ac0895376eb6e`。原历史和失败报告均保留。
+- 合成V2证据边界阶段现PASS：历史r40完整53/53，高风险42/42、普通11/11、必需证据与适用引用49/49，4个无引用澄清单列；本次current r45十二例、r46八补充场景实际执行和逐案代理复核均PASS。r47对23个DONE/ASKING及1个CANCELLED实际四进程重启，HTTP/SSE hash不变、连续序列/回放正确、恢复Provider增量0。阶段汇总 `/var/lib/ecommerce-rag/real-docs/reports/v2-boundary-stage-acceptance-r48-20261014.json`；只批准合成资料证据边界，不是生产外部服务。
+- 原答案点门禁独立NOT_PASSED：r40 44/53、9遗漏、0矛盾/失真。遗漏012/013/014/016/025/026/029/031/042保留，不能用边界摘要/澄清改写原真值。原报告 `v2-original-gate-paid-full-r40-20261013.json`。r41 control403十二个FAILED及r42失败/取消恢复证据均不改写。
+- r40同批七安全案例和四项撤权/旧结果回放PASS、Provider增量0；r38历史八补充场景PASS，r39 syn004三次连续入口语义PASS。原syn004截断根因仍NOT_PROVEN。当前轨UTC业务日2026-10-13与历史业务日2026-09-29分开；本窗口当地时间跨到2026-10-14，身份/token/权限/撤权一直用真实时钟。
+- 已完成本地Keycloak26.8.1 OIDC bearer协议集成。固定官方镜像及发行Apache-2.0/third-party notice hash核验；合成账号自定义身份属性仅ADMIN_EDIT。Go每请求私有session、映射既有DB身份、签名/到期/introspection，数据库角色/店铺/revision匹配；scope回验关联token活跃性。22项实际本地入口检查PASS，含Go→gRPC→Python、logout/过期/撤权/权限变化/旧结果拒绝；真实暂停身份服务时503失败关闭。报告 `keycloak-protocol-r2-20261014.json`、`keycloak-outage-r3-20261014.json`、聚合 `keycloak-stage-acceptance-r4-20261014.json`；全部real_service_acceptance=false。浏览器登录/Cookie/CSRF与生产身份未实现。
+- 代码提交：3021074（JWT/JWKS/introspection）、f350e2e（请求私有身份/Go权限/scope回验）、0ef60ab（本地服务锁/来源准入证明/评测驱动）。HTTP/SSE业务字段、Proto、DDL未改。协议验收默认离线AI；原真实百炼边界证据与此分开。
+- 最新基础检查PASS：`bash scripts/check.sh`含Python394passed/27skipped、Go test/vet、Proto、双前端19+5测试及构建、facts故障矩阵；eval284passed，Go race/身份隔离、supervisor19passed，ruff/文档/隐私/差异检查PASS。默认27个DB跳过沿用先前隔离库30项和Go权限/对账证明；迁移25项checksum、非super/noBYPASSRLS、vector0.8.6/pg_trgm先前核验。实际浏览器恢复6、权限3、生命周期13及独立DB范围仍见 `v2-boundary-offline-verification-20261013.json`，不当作新增OIDC浏览器登录证据。
+- 独立验收库 `ecr_v2_dev_20261013_temporal` 保留37文档生命周期：36发布、1unclassified不可见，报告 `v2-live-lifecycle-temporal-20261013.json`。本轮授权fixture已恢复，仅修改synthetic身份，未SQL写最终业务表。
+- Medusa2.21.2的npm SRI、实际发行声明及source LICENSE/Enterprise范围已核验：默认启动调用明确列入Enterprise目录的policiesLoader，MIT非Enterprise声明不能证明运行排除，未部署。2.18.0作为具体纯MIT候选已核验包内声明、source许可证与SRI，报告 `medusa-2-18-candidate-audit-20261014.json`，未选定、未部署；已发异步版本问题，等待用户决定。该候选npm包缺LICENSE文件，重分发须保留对应source MIT原文。
 
 ## 下一步任务
 
-1. 收到 control 模型 `qwen3.8-flash` 免费额度限制解除确认后，用原配置和原账本先做一次入口验证；继续 60 RPM，不用新模型/账本绕过。新批跑有账户阻塞保护，所有新报告不可覆盖历史。
-2. 重跑当前日期的旧库存、价格、促销、公告、标准及报道定向验证；明确观测时间、mock、来源版本与缺口，不把历史快照/无日期资料当当前事实。补跑 SKU/订单 ASKING 子轮次，并对新 DONE/ASKING 终态做重启结果/SSE hash 比对。FAILED/CANCELLED 恢复已验证，不能升级为答案通过。
-3. 保持 r40 独立边界与原答案点评分分别报告。仅历史、当前时效、补充场景、安全、取消与恢复证据齐全后，报告“合成资料上的 V2 证据边界验收通过”；原答案点缺口和 real_service_acceptance=false 保持可见。
-4. 放行后按 Keycloak → Medusa 2.21.2 → Open Food Facts 推进。固定发行版许可、字段/隐私/用途先核验；Keycloak 使用合成测试身份，经 Go 授权与撤权验证；Medusa 经 Go facts 边界；OFF 排除图片，获准同源字段分别进入商品目录与 RAG 生命周期。
+1. 等待用户对Medusa版本选择的回复：改用核验后的2.18.0，或保留2.21.2并继续核实默认运行许可；不能擅自改变明确固定版本或开启/绕过Enterprise许可机制。版本确认后经Go facts边界做REST集成、范围/归属/故障矩阵及本地测试记录验收。
+2. Medusa通过后完成Open Food Facts字段/隐私/用途准入再获取固定revision，排除图片；同一批准字段分别经Medusa目录API和现有RAG摄取/审核/发布流程，记录源hash/转换版本，保留独立数据轨。原始公开数据尚未下载。
+3. 保留原答案点缺口；后续功能回归不能宣称M2/M3、生产OIDC、真实商家或生产就绪。浏览器登录尚未实现，现有双前端development profile继续独立回归。
 
 ## 遗留问题
 
-- 整体阶段 IN_PROGRESS：历史轨边界 PASS，但当前时效受 control 免费额度设置阻塞，未通过语义与 DONE/ASKING 恢复验证，不进入服务集成。原答案点仍 NOT_PASSED。
-- Keycloak/Medusa 尚未部署集成，公开原始数据未下载。Keycloak 26.8.1 官方源代码许可已只读核对为 Apache 2.0，未完成选定发行包核验或准入，不改成集成事实。OFF 字段/隐私/用途、UCI 许可差异、Amazon/社区与中文 FAQ/政策来源缺口保留。
-- V1 备份恢复及只读封存未执行，七天保留期尚未开始；不删除 V1 代码或数据库。旧代码未提交改动不是已验证回滚基线。
-- `/opt/ecommerce-rag-ops` 是职责约定，开发主机无该目录；生产多实例、容量、灾备、生产身份/商家 API、M2/M3 未验收。LangGraph pending-deprecation warning 保留。
+- 总体计划进行中。质量边界与本地Keycloak协议通过；Medusa默认运行许可范围/固定版本选择待解除，OFF字段与来源准入未完成。UCI许可差异、Amazon/社区、中文FAQ政策缺口保持。
+- V1代码/数据库不删除。备份恢复及只读封存尚未执行，七天保留期未开始；旧树未提交改动不是回滚基线。
+- `/opt/ecommerce-rag-ops` 是职责约定，本机无该目录；生产多实例、灾备、容量及生产身份/商家API未验收。LangGraph pending-deprecation warning保留。
+- 运行与停止方法见私有接口/运维专题及README；本轮日志与受限原文均仓外或.local，凭据不进入Git。窗口记录 `.local/dev-docs/archive/20261013-control解除与当前轨验收.md`。
