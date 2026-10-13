@@ -47,6 +47,10 @@ per-document hashes separately from the hash of the submitted bytes. It keeps
 `internal_only` and `unclassified` disclosure classes. Internal sources may be
 published for authorized internal use; unclassified sources stay unpublished.
 Neither class becomes customer-copyable evidence.
+The Markdown upload manifest carries the frozen `effective_from`/`effective_to`
+values; chunk scope/classification/dates must agree with document metadata.
+PASS checks that persisted chunk dates equal the source values. Earlier reports
+without dates only prove their recorded scope and cannot prove temporal filters.
 
 If ingestion completed but review/publication failed, `--resume-report` accepts
 the original failed report only for the same database, corpus hash, uploaded
@@ -344,6 +348,86 @@ answer-hash, evidence-ID and citation metadata.  It refuses to run without a
 passing lifecycle report and a loopback URL.  The existing lifecycle runner
 remains the authoritative test for upload, review, publication, persistence,
 replay and cross-process recovery; this driver does not bypass those contracts.
+The driver now repeats the turn idempotency key, compares refreshed results and
+replays SSE from a midpoint. FAILED/CANCELLED results prevent PASS; every case
+remains in the new report. `--capture-dir` writes immutable raw turn results in
+an owned directory outside Git (0700 directory, 0600 files).
+Live runs require `--runtime-env`: the report binds the protected configuration,
+model/profile/schema/instruction hashes, implementation hashes, Git commit and
+existing budget-window identity, plus request-count boundaries and case latency.
+Repeated `--case-id` selects a targeted regression; the final gate still requires
+all 53 cases. `quality-scenarios.v1.json` separately binds controlled conversation
+prerequisites to the frozen case/query hashes. Each scenario submits its prior
+turns through Go in the same conversation and requires DONE, idempotency and
+replay before querying the unchanged evaluation case; failed prerequisites fail
+the case. Reports and restricted captures bind prerequisite captures and
+persisted `fact_read` metadata (tool/resource, observation time, value hash,
+mock marker). No history or final result is inserted directly into SQL.
+The earbud fake fact is a separate test record, deliberately different from
+the historical document snapshot; it cannot become merchant truth.
+Go validates a unique explicit user SKU and shop ownership before rereading
+inventory/price. Multiple candidates and assistant-invented identifiers clarify.
+Python receives history as untrusted user data, never a system instruction.
+Catalog suitability recommendations reach document retrieval before selecting a
+SKU; explicit live inventory and price requests retain the resource checks.
+Generation retains a bound fact's resource ID, observation time and mock marker.
+Clarification workflow questions require a validated `clarification_plan` with
+separate object, question-type, time, region and source-scope questions; Python renders the actual model
+questions before subsequent advice. Schema validity never approves their meaning.
+Each question is bounded to 40 characters and the subsequent answer to 120;
+the generation slot and its 512-token parameter remain fixed.
+Document storage versions are provenance, not external standard revisions or
+publication dates. Missing source dates/versions must remain explicit gaps;
+the evaluator never repairs the frozen truth to make them pass.
+
+Build a separate HTTP answer review package with `build_human_review_package.py`
+using the HTTP report and capture directory. It shows actual answers, evidence,
+citations, customer reply and frozen expected points, and starts unreviewed.
+The original component review cannot approve different HTTP answer hashes.
+For HTTP captures, `build_human_review_sidecar.py` requires completed per-case
+review fields and explicit delivered support IDs; it never assigns support
+automatically. The quality gate accepts these via `--e2e-review` and
+`--e2e-capture-dir`, alongside the original component review.
+After explicit user delegation, both review tools accept `--reviewer-kind agent`.
+Complete every case's `review_fields` by reading the answer and delivered chunks,
+then write a protected `agent-attestation.json` with version
+`v2-agent-review-attestation-v1`, `reviewer_kind=agent`, `review_completed=true`,
+`human_review_completed=false`, `delegation_authorization=explicit_user_instruction`,
+`review_method=delegated_agent_semantic_review_v1`, the package/report/cases hashes,
+reviewed count and `real_service_acceptance=false`. The converter rejects missing
+delegation, unreviewed cases, changed review inputs and support outside the capture.
+Agent provenance remains explicit in the gate; thresholds are unchanged. A request
+to approve every case never overrides an observed omission or contradiction.
+Free-text review notes and point annotations stay in the restricted package;
+the sidecar exports only check flags, point states, support IDs, hashes and
+bounded lowercase issue codes. Notes never become report fields.
+The gate scores component `semantic` and HTTP `e2e_semantic` independently,
+with reviewed/passed counts, failed/high-risk case IDs, answer-point support,
+omission, contradiction and distortion rates. Refusal/clarification accuracy
+uses only frozen contracts that explicitly require it; an empty subset is
+`null`, not perfect accuracy. Metadata metrics never include private notes or
+answer text. Component support delivery/ranking metrics describe the component
+context; they cannot establish delivery or answer quality in the HTTP layer.
+HTTP packages also accept a complete captured `NOT_PASSED` batch so failed
+executions can be reviewed and preserved. A failed/cancelled turn must receive a
+failed review; this never changes the batch status or the gate's execution checks.
+
+Overall PASS also needs seven-case Go HTTP/SSE safety evidence. The existing
+`run_v2_quality_safety.py` context-audit report proves pre-Provider exclusion;
+it does not establish entrypoint authorization, revocation or expiry. Missing
+HTTP semantic review or entrypoint safety keeps the overall gate NOT_PASSED.
+`run_v2_quality_safety_http.py --live` exercises the seven frozen safety queries
+against Go and checks the original shared ledger before/after each query. It
+requires matching lifecycle/E2E hashes, protected runtime/authority configurations,
+an explicitly named independent database, non-superuser/no-BYPASSRLS roles and
+matching migration checksums. Only reversible identity/temporary ACL fixtures are
+changed; source and result tables are never written. PASS requires actual local
+authorization denial, zero Provider requests, no restricted evidence, persisted
+terminal/SSE replay where a turn exists, and four old-result/replay revocation or
+permission-version checks. Offline exclusion evidence cannot replace this report.
+Safety can be measured against a complete captured `NOT_PASSED` entrypoint batch;
+case identity and a persisted result for revocation replay remain required. Its
+safety PASS never changes execution or semantic status in the final gate.
 
 `run_bailian_retrieval.py` is an explicit, metadata-only provider experiment.
 Without `--live` it performs input checks and reports `NOT_RUN`; with
@@ -562,3 +646,10 @@ points and the exact evidence shown to the model. Package case files are
 review fields only as an unapproved template. The reviewer must not edit the
 query, expected points, evidence, or hashes. A later human sidecar must bind to
 the same baseline and captures before `quality_gate.py` can evaluate it.
+
+Chat HTTP 200 alone is insufficient: incomplete finish reasons (`length`,
+`content_filter`, `tool_calls`), invalid envelopes/request identity, structured
+JSON/schema or usage fail before the shared ledger records success. Failed chat validation
+keeps the request fingerprint, HTTP status, valid usage and full reservation;
+response bodies remain outside the ledger. Historical attempts are not
+rewritten. This diagnostic contract is not semantic approval or a retry policy.

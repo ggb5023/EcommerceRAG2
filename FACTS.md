@@ -17,7 +17,7 @@
 
 - `/opt/ecommerce-rag-v2` 是 V2 活动 Dev 工作树。
 - `/opt/ecommerce-rag-ops` 是约定的独立 DB 运维工作区，负责 PostgreSQL/pgvector、Redis、迁移、备份和隔离测试；该职责约定不证明实际运维环境已部署。
-- `/opt/ecommerce-rag` 作为只读旧工程参考和回滚来源保留。
+- `/opt/ecommerce-rag` 作为只读旧工程参考保留；未提交改动不是可验证的回滚基线，回滚须另有已验证的代码与数据库备份。
 - V2 活动入口固定为 `go/cmd/gateway`、`app.rpc.server`、`app.rpc.ingest_server` 和 `app.ingest.worker_main`。旧 Python RPC 入口和 synthetic HTTP 工具已退出；HTTP `/v1`、Proto `rag.v1`、历史迁移及数据库约束 fixture 保留。Go 不运行资料 writer。
 
 ## 证据边界
@@ -25,6 +25,7 @@
 - 实现行为以源码、Proto、迁移和测试为准；运行报告只证明报告明确记录的范围。
 - fixture、静态检查、隔离 synthetic、真实 Provider 和生产结果属于不同证据层级。
 - 低层检查通过不代表真实身份、真实电商数据、生产就绪或更高里程碑通过。
+- 语义复核区分人工、受明确委托的代理及工程诊断。代理复核保留 `reviewer_kind=agent` 和委托来源，不成为 `human`；词面诊断不成为语义批准。HTTP 答案必须独立绑定其 capture、实际证据和冻结真值，质量与安全门槛不因审核者变化而降低。
 - 公开来源准入由 `eval/public-data-sources.manifest.json` 记录分类、许可/隐私状态、语言/司法辖区和用途边界；待核验来源不得下载或标为准入。公开数据、开源服务本地集成和派生本地测试记录是不同证据类别，均不代表生产商家数据。
 - V2 开发当前使用固定身份、本地商家 API fake、现有业务文档及受控 Markdown/CSV/DOCX fixture；模型集成与受控全链路使用真实百炼，默认回归保持离线。真实 OIDC/API 尚未接入；在线调用显式选择 profile 并遵守预算规则，各类证据分别记录。
 

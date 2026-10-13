@@ -2,37 +2,30 @@
 
 ## 当前进度
 
-- 用户已确认仓外 53 案例人工复核包通过人工审核。见证文件与绑定 sidecar 已生成；最新质量门禁报告仍为 `NOT_PASSED`，唯一缺口是 Go HTTP/SSE E2E 证据。
-- 新提交 `f235801` 增加人工复核见证 sidecar 工具和测试。工作树随后增加 37 文档生命周期 runner、E2E 严格校验和生命周期测试改动，尚未提交。
-
-- 活动工作树 `/opt/ecommerce-rag-v2`，分支 `refactor/v2-rebuild`；本轮未推送或合并。质量闭环新增提交 `0a7ab64`（受限证据上下文、答案 capture、定向案例）和 `2e468bd`（分层质量门禁）。
-- 固定 revision-1 输入、37 文档、批准 evidence sidecar 和 53/7 安全分区未修改。百炼固定 control、Embedding、Rerank、generation 槽位；用户已授权本阶段不限额度，但所有调用仍保留共享 SQLite 预算、限流和失败预留。
-- 新 generation 契约已提交为 `115eba3`：有相关证据时不得返回空答案点，拒答/澄清/来源限制/冲突/时效规则必须显式表达，并保持日期、版本、数字、单位和限定词。定向 9 案例复测 41 次请求通过；完整新回归 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-full-generation-gate-20261013.json` 完成 53/53、236 次请求，使用独立质量窗口账本，`real_service_acceptance=false`。
-- 新回归答案 capture 位于仓外 `/var/lib/ecommerce-rag/quality-review/full-generation-gate-20261013/`，新人工复核包位于 `/var/lib/ecommerce-rag/quality-review/human-review-full-generation-20261013/`；用户已确认包内文件人工审核通过，sidecar 已绑定基线、案例和 capture hash。
-- 完整 context-neighbors 百炼报告 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-full-context-neighbors-20261012.json`：53/53、236 requests、PASS transport；同版本 source-neighbor 扩展后批准证据完整交付 53/53；Rerank Recall@5=1.0、MRR=0.981132、nDCG@5=0.986073。
-- 答案原文只保存在仓外 `/var/lib/ecommerce-rag/quality-review/full-context-neighbors` 的 0600 文件；工程诊断 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-engineering-review-v2-20261012.json` 明确 `reviewer_kind=engineering`、`human_review_completed=false`。模型拒答/澄清/时效/限定词表现未达门槛，质量门禁 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-gate-v2-20261012.json` 为 `NOT_PASSED`（高风险失败 42、普通通过率 0）。
-- 七条越权、撤权或过期案例安全报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-safety-20261012.json` PASS，Provider attempt delta=0。不得把安全前置报告升级为业务质量通过。
-- 独立数据库真实 Go→gRPC→Python→百炼 三格式生命周期报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-live-lifecycle-20261012-final4.json` PASS，覆盖 3 个受控 fixture 的提交、解析、审核、发布、检索、重排、生成、引用、终态持久化。它不覆盖 37 文档/53 案例，不代表 M2 或生产就绪。
-- `eval/run_v2_quality_e2e.py` 已要求真实生命周期、独立安全报告、53 eligible 案例、SSE 单调序列和终态持久化，并拒绝只有 3 个 fixture 的生命周期报告。`eval/run_v2_live_lifecycle.py` 已扩展为提交、审核和发布仓外批准的 37 文档 corpus，保留原始 hash、披露分类和动态 Embedding 预算。
-- 质量评测代码验证：`python/.venv/bin/python -m pytest -q eval` 176 passed；changed eval scoped Ruff、privacy guard、git diff check 通过。随后本窗口的文档检查器调整后又运行了 `scripts/check.sh`，结果通过。
-- 本窗口完成受 Git 管理的工程文档边界调整：完善 AGENTS/FACTS/README，新增 `docs/architecture.md`，公开检查只要求根入口文档，`.local/` 专题仍为私有。隐私扫描仅增加架构摘要的精确路径例外，内容扫描照常；`bash scripts/check.sh` 在文档和检查器更新后通过。该文档任务独立提交，不推送。
-- 本窗口新增开源来源准入规则与 v3 manifest/validator：登记 Keycloak 本地 OIDC 目标、Medusa 2.21.2 REST 目标、Open Food Facts、UCI Online Retail II、Amazon ESCI/Reviews、英文 Stack Exchange 问答候选和中文 FAQ/社区问答缺口。UCI 页面与 API 许可元数据冲突；Keycloak 选定发行版许可待核验；待许可/隐私审核的数据均未下载。Medusa MIT 范围排除 Enterprise 内容。公开数据、开源服务本地集成和派生本地测试记录分别标记，`real_service_acceptance=false`。
-- 来源变更同步到 `AGENTS.md`、`FACTS.md`、`README.md`、`docs/architecture.md`、`eval/README.md` 和私有专题 `.local/dev-docs/docs/数据来源与评测输入.md`；新增 `eval/test_validate_public_sources.py`。冻结的 60 条案例、37 份合成文档、批准答案点和 evidence sidecar 未改。
-- 来源校验器通过，`python/.venv/bin/pytest -q eval` 为 185 passed，相关 Ruff 通过；`python3 scripts/check-doc-baseline.py`、`python3 scripts/check-docs.py`、`python3 scripts/privacy_guard.py --identity`、`git diff --check` 和 `bash scripts/check.sh` 通过。最新完整检查中 Python 为 292 passed、27 skipped；双前端测试/构建及 Go 检查通过。没有下载公开数据、部署服务或发起新的模型请求。最新门禁复核报告为 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-gate-human-review-20261013-rerun.json`。
+- 活动工作树 `/opt/ecommerce-rag-v2`，分支 `refactor/v2-rebuild`。用户委托 Codex 逐例语义审核，记录 `reviewer_kind=agent`、`human_review_completed=false`；不能把请求“全部通过”当作验收结论。本轮未推送、合并或修改 V1。
+- 冻结 revision-1 的 60 条案例、37 文档、alignment、答案点和 context-v2 evidence sidecar 未改。百炼四槽位、1024 维、control 256/generation 512 token 上限不变；不限额度开发授权仍使用原共享账本、限流和失败预留。
+- 独立 `ecr_v2_dev_20261013_temporal` 已有 37 文档生命周期证据，保留源有效日期、披露分类及非超级用户边界；36 文档发布、1 个 unclassified 保持不可见。生命周期报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-live-lifecycle-temporal-20261013.json`。本库已经填充，不能再次称为空库。
+- 最新完整入口批次 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-http-e2e-compact-five-20261013-full.json` 完成全部 53 条：50 DONE、2 ASKING、1 FAILED，207 次 Provider 请求，工程状态 `NOT_PASSED`。幂等、刷新、SSE 单调序列和回放保留逐例证据；成功终态不能替代答案质量。
+- 最新代理复核修订版 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-agent-review-http-e2e-compact-five-20261013-r2.json`：37 通过、16 失败、11 个高风险失败；普通案例通过率 6/11，引用有效率 49/53。实际原文 capture 在 `/var/lib/ecommerce-rag/quality-review/http-e2e-compact-five-20261013-full/`；逐例备注和见证在 `/var/lib/ecommerce-rag/quality-review/agent-http-e2e-compact-five-20261013-r2/`。首版及所有历史报告保留，不覆盖。
+- 新七案例 Go HTTP/SSE 安全报告 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-safety-http-compact-five-20261013-full.json` 为 PASS；全部 Provider 增量 0，4 项旧结果/回放撤权和权限版本检查 PASS。安全报告绑定本轮完整入口和生命周期；它不改变答案批次失败状态。
+- 最新组合门禁 `/var/lib/ecommerce-rag/real-docs/reports/v2-quality-gate-agent-compact-five-20261013-final-r2.json` 为 `NOT_PASSED`。组件已批准基线仍 PASS；入口支持率 38/53、遗漏率 14/53、失真率 1/53、未发现矛盾或严重安全错误，整体不能放行。
+- 本轮修复了目录推荐过早依赖 SKU、Fact 资源/观察时间/mock 元数据、五字段澄清计划及其固定 token 预算、失败批次审核与独立安全验证。新增 Provider 修复将不完整 finish reason/非法 JSON/schema/usage 的 HTTP 200 记为失败并保留请求指纹、有效 usage 和费用预留；新增评分按组件/HTTP 分别输出语义指标，不导出私有备注。
+- `syn-004` 本轮 control 输出达 256 token 上限后 FAILED；3 次受控同问题诊断返回 stop、91–109 token，未复现原失败。诊断 `/var/lib/ecommerce-rag/real-docs/reports/v2-control-diagnostic-20261013.json` 不替代完整入口，原失败具体原因仍未证实，旧账本不改写。
+- 验证：`bash scripts/check.sh` PASS（Python 341 passed/27 skipped；Go 测试/vet、Proto、双前端 19+5 测试与构建、商家 fake 故障矩阵）。最新 eval 234 passed；Provider/graph/RPC 定向 96 passed。真实浏览器 lifecycle 13 项与 workspace 12 项 PASS；报告分别在 `.local/v2-lifecycle/browser/` 与 `.local/v2-workspace/browser/`，精确运行路径见本轮私有归档。
+- 本轮验收四进程和 facts fake 已停止，用户已有 Vite 进程保留。启动继续使用 `bash scripts/v2-local-services.sh --env /path/to/protected-runtime.env`，真实验收配置须匹配 Go 地址、独立库、四槽位和原账本。新 Provider 失败分类有离线测试；最新完整在线批次在该修复前运行，不能宣称已验证新代码的全部真实模型行为。
+- 文档已同步 AGENTS、FACTS、README、eval README，以及私有模型/接口/验收专题；过程留在 `.local/dev-docs/archive/20261013-质量入口代理复核续作.md`。本轮功能提交包含 `c92076a`、`d573ee8`、`cd3ae92`、`6847f88`、`9a21ce7`、`24f3740`、`dea0343`、`b8d3c03`、`4e1b543`、`f9db3ba`、`80d661d`。
 
 ## 下一步任务
 
-1. 由数据库运维提供带 pgvector 0.8.6 的新空 V2 数据库；当前 `ecr_v2_test_20261011` 缺少 `vector` 扩展，不能由受限迁移账号自行安装。
-2. 在新空库运行 checksum 迁移、身份种子和四进程，再以 `/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/documents.jsonl` 执行 37 文档生命周期。
-3. 生命周期 PASS 后运行 53 条 Go HTTP/SSE E2E，再用人工 sidecar、安全报告和 E2E 报告运行最终质量门禁。
-4. 完成上述验证后运行 `bash scripts/check.sh`、文档检查、数据库跨进程和双前端回归。推送/合并仍需用户明确授权。
-5. OIDC/商家 API 后续集成前，核验选定 Keycloak 发行版许可证、确定服务版本与运行范围，再设计本地合成测试账号和 Medusa 测试数据；不得把本地集成结果描述为真实生产商家验收。
-6. 公开数据后续获取前先解决 UCI 许可元数据差异，完成各候选的字段/隐私、语言/司法辖区和用途审查；当前中文官方 FAQ/政策与中文社区语料缺口保持显式，不用许可未明来源填补。
+1. 以最新 r2 代理包逐例修复，而非反复重跑取最好答案。优先定位 `syn-004` control 非确定性输出，并修复 `syn-015` 快照版本遗漏、`syn-024` 跨资源条件套用、`syn-028/029` 无证据例子、`syn-037` 工作流步骤遗漏。
+2. 为 `syn-007/031` 建立独立、版本化、hash 绑定的前置会话场景；只经 Go 实际提交，不改变冻结查询或 SQL 插入历史。`syn-013/016` 缺唯一 SKU；确认快照/实时事实路由和已有合法来源绑定，不能从商品片段猜商品 ID。
+3. 对 `syn-012/017/025/026/027/028/029` 登记资料或接口能力缺口：现有冻结输入没有款式用途、当前承诺时效接口、实际今天公告、标准修订/发布日期、本月报道或成分清单。不修改基线真值、补造证据或引入未准入来源；新增来源应走独立批准数据轨及后续验收设计。
+4. 每项修复先定向高风险案例，再完整 53 条、新代理复核及与该批次绑定的七安全案例，另写报告；达到门槛后才能按 Keycloak → Medusa → Open Food Facts 顺序继续集成。
+5. 按影响补齐隔离数据库故障、权限浏览器和重启恢复验证。本轮默认跳过的 27 项数据库测试尚未重跑，不能用 foundation PASS 替代。保持小提交和文档同步，不推送。
 
 ## 遗留问题
 
-- 当前质量门禁为 `NOT_PASSED`，新 generation 完整回归和人工复核已通过组件门槛，但 53 条 Go HTTP/SSE 入口证据尚未生成；不能报告 V2 质量基线通过。真实 OIDC、真实商家 API、M2/M3 或生产就绪仍未验收。
-- Keycloak OIDC、Medusa REST 均未部署或集成；Keycloak 精确发行版许可待核验。UCI Online Retail II 页面标注 CC BY 4.0 而 UCI API license 元数据为空；Open Food Facts 虽记录了数据/内容许可范围，具体字段和隐私审查尚未完成；Amazon 与社区来源仍待许可/隐私核验，中文官方 FAQ/政策和中文社区问答暂无已选来源。
-- `run_v2_quality_e2e.py` 的真实 53 案例运行尚未执行：新 37 文档 runner 已就绪，但独立空库缺少 pgvector 扩展，迁移在 `0001` 的 `halfvec` 类型处阻塞。
-- 百炼完整批次账本和失败预留必须保留，不能清零、覆盖或改写历史报告。生产多实例恢复、容量和灾备不在本阶段证据内。
-- `/opt/ecommerce-rag-ops` 是 DB 运维职责约定，本开发主机没有该目录；LangChain pending-deprecation warning 保留。
+- 质量门禁未通过，失败 ID：syn-004、007、012、013、014、015、016、017、024、025、026、027、028、029、031、037。拒答安全不等于冻结合成答案点完成；模型提示词不能补足不存在的源事实。
+- 原始公开数据未下载；Keycloak/Medusa 尚未部署或集成。Keycloak 精确发行版许可、Open Food Facts 字段/隐私/用途审核仍需完成；UCI 页面/API 许可差异、Amazon/社区许可及中文 FAQ/政策来源缺口保留。
+- V1 代码只读保留；本轮未执行 V1 备份恢复验证、只读封存或删除，不能认为七天封存期已开始。公网 DB 主机此前 SSH/5432 超时，本轮没有改动其基础设施。
+- `/opt/ecommerce-rag-ops` 是职责约定，本开发主机没有该目录。保留 LangGraph pending-deprecation warning。生产多实例、容量、灾备、M2/M3 不在已验收范围；`real_service_acceptance=false`。
