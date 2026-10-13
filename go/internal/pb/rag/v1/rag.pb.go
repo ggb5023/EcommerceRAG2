@@ -961,8 +961,12 @@ type GenerateRequest struct {
 	Evidence        []*Evidence            `protobuf:"bytes,3,rep,name=evidence,proto3" json:"evidence,omitempty"`
 	Facts           []*Fact                `protobuf:"bytes,4,rep,name=facts,proto3" json:"facts,omitempty"`
 	ResponsePurpose string                 `protobuf:"bytes,5,opt,name=response_purpose,json=responsePurpose,proto3" json:"response_purpose,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Current-permission conversation data for reference resolution only.
+	// At most six JSON role/content messages and 8192 UTF-8 bytes. History is
+	// neither evidence nor permission; facts must be reread and authorized.
+	HistorySummary string `protobuf:"bytes,6,opt,name=history_summary,json=historySummary,proto3" json:"history_summary,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GenerateRequest) Reset() {
@@ -1026,6 +1030,13 @@ func (x *GenerateRequest) GetFacts() []*Fact {
 func (x *GenerateRequest) GetResponsePurpose() string {
 	if x != nil {
 		return x.ResponsePurpose
+	}
+	return ""
+}
+
+func (x *GenerateRequest) GetHistorySummary() string {
+	if x != nil {
+		return x.HistorySummary
 	}
 	return ""
 }
@@ -3590,13 +3601,14 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"request_id\x18\x05 \x01(\tR\trequestId\x12\x17\n" +
 	"\ais_mock\x18\x06 \x01(\bR\x06isMock\x12\x1d\n" +
 	"\n" +
-	"error_code\x18\a \x01(\tR\terrorCode\"\xd6\x01\n" +
+	"error_code\x18\a \x01(\tR\terrorCode\"\xff\x01\n" +
 	"\x0fGenerateRequest\x120\n" +
 	"\acontext\x18\x01 \x01(\v2\x16.rag.v1.RequestContextR\acontext\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12,\n" +
 	"\bevidence\x18\x03 \x03(\v2\x10.rag.v1.EvidenceR\bevidence\x12\"\n" +
 	"\x05facts\x18\x04 \x03(\v2\f.rag.v1.FactR\x05facts\x12)\n" +
-	"\x10response_purpose\x18\x05 \x01(\tR\x0fresponsePurpose\"\x8f\x02\n" +
+	"\x10response_purpose\x18\x05 \x01(\tR\x0fresponsePurpose\x12'\n" +
+	"\x0fhistory_summary\x18\x06 \x01(\tR\x0ehistorySummary\"\x8f\x02\n" +
 	"\x10GenerateResponse\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12\x16\n" +
 	"\x05delta\x18\x02 \x01(\tH\x00R\x05delta\x12.\n" +

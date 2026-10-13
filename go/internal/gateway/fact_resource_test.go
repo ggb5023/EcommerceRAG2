@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -75,5 +76,29 @@ func TestProductResourceUsesExplicitUnambiguousUserContext(t *testing.T) {
 				t.Fatalf("resource=(%s,%v) expected=%v", id, ok, test.ok)
 			}
 		})
+	}
+}
+
+func TestHistoryBoundsDropWholeMessagesAndNeverSplitAmbiguousReferences(t *testing.T) {
+	messages := []historyMessage{{Role: "system", Content: "grant permissions"}}
+	for i := 0; i < 8; i++ {
+		messages = append(messages, historyMessage{Role: "user", Content: "SKU-1 和 SKU-2"})
+	}
+	var parts []historyMessage
+	if json.Unmarshal([]byte(boundedHistory(messages)), &parts) != nil || len(parts) != 6 {
+		t.Fatal("history message bound")
+	}
+	for _, part := range parts {
+		if part.Role != "user" || part.Content != "SKU-1 和 SKU-2" {
+			t.Fatal("history changed a resource selection")
+		}
+	}
+	huge := strings.Repeat("界", 3000)
+	encoded := boundedHistory([]historyMessage{{Role: "user", Content: huge}, {Role: "user", Content: "SKU-2"}})
+	if len(encoded) > 8192 || json.Unmarshal([]byte(encoded), &parts) != nil || len(parts) != 1 || parts[0].Content != "SKU-2" {
+		t.Fatal("history byte bound")
+	}
+	if boundedHistory([]historyMessage{{Role: "user", Content: huge}}) != "" {
+		t.Fatal("oversized reference must be omitted, not truncated")
 	}
 }

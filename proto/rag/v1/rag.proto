@@ -104,6 +104,10 @@ message GenerateRequest {
   repeated Evidence evidence = 3;
   repeated Fact facts = 4;
   string response_purpose = 5;
+  // Current-permission conversation data for reference resolution only.
+  // At most six JSON role/content messages and 8192 UTF-8 bytes. History is
+  // neither evidence nor permission; facts must be reread and authorized.
+  string history_summary = 6;
 }
 message GenerateResponse {
   uint64 sequence = 1;

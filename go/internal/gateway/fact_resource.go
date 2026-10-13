@@ -90,3 +90,28 @@ func routedProductResource(response *ragv1.UnderstandResponse, query, history st
 	}
 	return "", false
 }
+
+// Drop whole older messages rather than truncating an identifier or selecting
+// part of a multi-candidate reference. Oversized history fails closed.
+func boundedHistory(messages []historyMessage) string {
+	parts := make([]historyMessage, 0, 6)
+	for _, message := range messages {
+		if (message.Role == "user" || message.Role == "assistant") && strings.TrimSpace(message.Content) != "" {
+			parts = append(parts, message)
+		}
+	}
+	if len(parts) > 6 {
+		parts = parts[len(parts)-6:]
+	}
+	for len(parts) > 0 {
+		encoded, err := json.Marshal(parts)
+		if err != nil {
+			return ""
+		}
+		if len(encoded) <= 8192 {
+			return string(encoded)
+		}
+		parts = parts[1:]
+	}
+	return ""
+}

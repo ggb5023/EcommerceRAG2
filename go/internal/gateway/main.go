@@ -783,11 +783,7 @@ func (g *gateway) historySummary(ctx context.Context, conversationID, currentTur
 	if rows.Err() != nil {
 		return ""
 	}
-	encoded, err := json.Marshal(parts)
-	if err != nil {
-		return ""
-	}
-	return string(encoded)
+	return boundedHistory(parts)
 }
 
 func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string, parentTurnID, parentExecutionID, executionNo int64) {
@@ -954,7 +950,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	} else if productToolsRequired {
 		sku, valid := routedProductResource(routed, query, history)
 		if !valid {
-			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU 后再查询当前库存或价格。"
+			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
 			routed.RequiredFactTools = nil
 		} else {
 			factResourceID = sku
@@ -1081,7 +1077,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
+	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply", HistorySummary: history}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")

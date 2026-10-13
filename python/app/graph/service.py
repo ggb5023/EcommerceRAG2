@@ -69,7 +69,7 @@ class LangGraphRagService:
         selected_chains = provider_chains if provider_chains is not None else self.provider_chains
         payload: GraphState = {
             "query": query,
-            "history_summary": history_summary,
+            "history_summary": self._validate_history(history_summary),
             "scope": scope,
             "response_purpose": response_purpose,
             "is_mock": selected_chains is None,
@@ -93,6 +93,7 @@ class LangGraphRagService:
         scope: Scope,
         evidence: list[dict],
         facts: list[dict] | None = None,
+        history_summary: str = "",
         response_purpose: str = "internal",
         provider_chains: ProviderChainSet | None = None,
         cancel_event: Any | None = None,
@@ -111,6 +112,7 @@ class LangGraphRagService:
             "seed_evidence": checked,
             "evidence": checked,
             "facts": checked_facts,
+            "history_summary": self._validate_history(history_summary),
             "is_mock": selected_chains is None,
             "business_date": self.business_date,
         }
@@ -126,6 +128,20 @@ class LangGraphRagService:
         return result
 
     @staticmethod
+    def _validate_history(value: str) -> str:
+        if not isinstance(value, str) or len(value.encode("utf-8")) > 8192:
+            raise ValueError("conversation history exceeds its bound")
+        if not value:
+            return ""
+        messages = json.loads(value)
+        if (not isinstance(messages, list) or len(messages) > 6
+                or any(not isinstance(m, dict) or set(m) != {"role", "content"}
+                       or m["role"] not in {"user", "assistant"} or not isinstance(m["content"], str)
+                       for m in messages)):
+            raise ValueError("conversation history is invalid")
+        return value
+
+    @staticmethod
     def _validate_query(query: str, response_purpose: str, scope: Scope) -> None:
         if not query.strip():
             raise ValueError("query is required")
@@ -139,7 +155,7 @@ class LangGraphRagService:
         self._validate_query(query, response_purpose, scope)
         return self._invoke({
             "query": query,
-            "history_summary": history_summary,
+            "history_summary": self._validate_history(history_summary),
             "scope": scope,
             "response_purpose": response_purpose,
         }, phase)
@@ -234,7 +250,7 @@ class LangGraphRagService:
             })
         return checked
 
-    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], response_purpose: str = "internal", phase: str = "full") -> GraphState:
+    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], history_summary: str = "", response_purpose: str = "internal", phase: str = "full") -> GraphState:
         """Render approved evidence without allowing the graph to widen it."""
         if self.provider_chains is not None:
             raise RuntimeError("provider-backed graph requires arun")
@@ -249,5 +265,6 @@ class LangGraphRagService:
             "scope": scope,
             "response_purpose": response_purpose,
             "seed_evidence": checked_evidence,
+            "history_summary": self._validate_history(history_summary),
             "evidence": checked_evidence,
         }, phase)
