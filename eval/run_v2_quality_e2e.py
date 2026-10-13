@@ -12,6 +12,9 @@ import argparse
 import hashlib
 import json
 import os
+import sqlite3
+import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -22,12 +25,35 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "eval"))
+from quality_capture import capture, secure_directory
+
 DEFAULT_REVISION_ROOT = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional")
 DEFAULT_CASES = DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.jsonl"
+DEFAULT_SCENARIOS = ROOT / "eval/quality-scenarios.v1.json"
 
 
 class E2EFailure(RuntimeError):
     pass
+
+
+def load_scenarios(path: Path, cases_path: Path, cases: list[dict]) -> dict[str, list[str]]:
+    value = json.loads(path.read_bytes())
+    if (value.get("scenario_version") != "v2-quality-conversation-v1"
+            or value.get("cases_sha256") != hashlib.sha256(cases_path.read_bytes()).hexdigest()):
+        raise E2EFailure("scenario_baseline_mismatch")
+    by_id = {case["case_id"]: case for case in cases}
+    scenarios = {}
+    for item in value["scenarios"]:
+        identifier = item["case_id"]
+        queries = item["prerequisite_queries"]
+        if (identifier in scenarios or identifier not in by_id
+                or item["query_sha256"] != digest(by_id[identifier]["query"])
+                or not isinstance(queries, list) or not 1 <= len(queries) <= 3
+                or any(not isinstance(query, str) or not query.strip() for query in queries)):
+            raise E2EFailure("scenario_invalid")
+        scenarios[identifier] = queries
+    return scenarios
 
 
 def digest(value: str) -> str:
@@ -43,6 +69,46 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise E2EFailure("evaluation case is not an object")
             rows.append(value)
     return rows
+
+
+def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "python"))
+    from app.graph.workflow import (
+        CONTROL_SCHEMA,
+        GENERATION_INSTRUCTION,
+        GENERATION_SCHEMA,
+    )
+    from app.providers.config import ensure_secure_config_file, load_provider_config
+    from v2_services import load_values
+
+    values = load_values(path)
+    if values.get("RAG_PROFILE") != "v2_langchain_bailian" or base_url != "http://" + values.get("HTTP_ADDR", ""):
+        raise E2EFailure("online_runtime_identity_invalid")
+    config_path = Path(values["V2_PROVIDER_CONFIG"])
+    ensure_secure_config_file(config_path)
+    config = load_provider_config(config_path)
+    if config.profile != "aliyun-bailian":
+        raise E2EFailure("online_provider_profile_invalid")
+    files = ("eval/run_v2_quality_e2e.py", "python/app/graph/workflow.py", "python/app/graph/service.py",
+             "python/app/rpc/rag.py", "python/app/retrieval/postgres.py", "proto/rag/v1/rag.proto",
+             "python/app/providers/aliyun_bailian.py", "go/internal/gateway/main.go",
+             "go/internal/gateway/request_policy.go", "go/internal/gateway/fact_resource.go",
+             "go/internal/facts/facts.go", "go/internal/facts/http_provider.go", "go/internal/facts/fake_server.go")
+    return {"profile": config.profile, "region": config.region, "models": config.models,
+            "embedding_dimensions": config.embedding_dimensions, "timeout_s": config.timeout_s, "quota_rpm": config.quota_rpm,
+            "generation_instruction_sha256": digest(GENERATION_INSTRUCTION),
+            "provider_schema_sha256": digest(json.dumps([CONTROL_SCHEMA, GENERATION_SCHEMA], sort_keys=True)),
+            "runtime_config_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "budget_identity_sha256": digest(values["V2_ONLINE_BUDGET_ID"]),
+            "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}, Path(values["V2_ONLINE_BUDGET_LEDGER"])
+
+
+def budget_snapshot(path: Path) -> dict[str, int]:
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+        count, last = conn.execute("SELECT count(*),coalesce(max(rowid),0) FROM attempt").fetchone()
+    return {"attempt_count": count, "last_sequence": last}
 
 
 class HTTP:
@@ -107,15 +173,25 @@ def _document_ids(result: Mapping[str, Any]) -> list[str]:
     return [str(item.get("documentId")) for item in evidence if isinstance(item, Mapping) and item.get("documentId")]
 
 
-def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[str, Any]:
+def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
+             capture_dir: Path | None = None, prerequisite_queries: list[str] | None = None,
+             conversation_id: str | None = None) -> dict[str, Any]:
     case_id = str(case.get("case_id", ""))
     if not case_id:
         raise E2EFailure("case_id_missing")
-    body = {"title": "quality-eval"}
-    conversation = http.call("POST", "/v1/conversations", body, key=f"quality-conversation-{case_id}")
-    conversation_id = conversation.get("id")
+    if conversation_id is None:
+        body = {"title": "quality-eval"}
+        conversation = http.call("POST", "/v1/conversations", body, key=f"quality-conversation-{case_id}")
+        conversation_id = conversation.get("id")
     if not conversation_id:
         raise E2EFailure("conversation_id_missing")
+    prerequisites = []
+    for index, query in enumerate(prerequisite_queries or []):
+        prior = run_case(http, {"case_id": f"{case_id}-context-{index + 1}", "query": query},
+                         timeout_s=timeout_s, capture_dir=capture_dir, conversation_id=conversation_id)
+        prerequisites.append(prior)
+        if not case_passed(prior) or prior["status"] != "DONE":
+            raise E2EFailure("scenario_prerequisite_failed")
     turn = http.call(
         "POST",
         f"/v1/conversations/{conversation_id}/turns",
@@ -125,6 +201,9 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[s
     request_id = turn.get("request_id")
     if not request_id:
         raise E2EFailure("request_id_missing")
+    repeated = http.call("POST", f"/v1/conversations/{conversation_id}/turns",
+                         {"query": str(case.get("query", ""))}, key=f"quality-turn-{case_id}")
+    idempotent = repeated.get("request_id") == request_id
     deadline = time.monotonic() + timeout_s
     result: Mapping[str, Any] = {}
     sse_events = http.events(f"/v1/turns/{request_id}/events")
@@ -140,7 +219,17 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[s
     tags = {str(tag) for tag in case.get("tags", []) if isinstance(tag, str)}
     excluded = "unauthorized" in tags and ("safety_and_routing" in tags or "freshness" in tags)
     document_ids = _document_ids(result)
-    return {
+    refreshed = http.call("GET", f"/v1/turns/{request_id}")
+    pivot = len(sse_events) // 2
+    last_id = int(sse_events[pivot - 1]["id"]) if pivot else 0
+    replay = http.events(f"/v1/turns/{request_id}/events", last_event_id=last_id)
+    replay_matches = replay == sse_events[pivot:]
+    evidence = result.get("evidence") or []
+    evidence_ids = {item.get("id") for item in evidence}
+    citations = result.get("citations") or []
+    citation_valid = all(item.get("evidence_id") in evidence_ids for item in citations)
+    fact_reads = [json.loads(event["data"]) for event in sse_events if event["event"] == "fact_read"]
+    row = {
         "case_id": case_id,
         "request_id": request_id,
         "status": result.get("status"),
@@ -155,7 +244,28 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float) -> dict[s
         "sse_sequence_monotonic": all(int(sse_events[i]["id"]) < int(sse_events[i + 1]["id"])
                                         for i in range(len(sse_events) - 1) if sse_events[i].get("id") and sse_events[i + 1].get("id")),
         "terminal_persisted": result.get("status") in {"DONE", "ASKING", "FAILED", "CANCELLED"},
+        "successful_terminal": result.get("status") in {"DONE", "ASKING"},
+        "idempotent_turn": idempotent,
+        "refresh_matches": refreshed == result,
+        "sse_replay_matches": replay_matches,
+        "citation_ids_valid": citation_valid,
+        "case_sha256": digest(json.dumps(case, ensure_ascii=False, sort_keys=True)),
+        "query_sha256": digest(str(case.get("query", ""))),
+        "prerequisite_results": prerequisites,
+        "fact_reads": fact_reads,
     }
+    if capture_dir is not None:
+        row.update(capture(capture_dir, {"capture_version": "v2-http-quality-capture-v1",
+                                        "case_id": case_id, "case_sha256": row["case_sha256"],
+                                        "query_sha256": row["query_sha256"], "result": dict(result),
+                                        "prerequisite_results": prerequisites, "fact_reads": fact_reads}))
+    return row
+
+
+def case_passed(row: Mapping[str, Any]) -> bool:
+    checks = ("terminal_persisted", "successful_terminal", "sse_sequence_monotonic",
+              "idempotent_turn", "refresh_matches", "sse_replay_matches", "citation_ids_valid")
+    return all(row.get(check) is True for check in checks) and row.get("sse_event_count", 0) > 0
 
 
 def write_report(path: Path, payload: Mapping[str, Any]) -> None:
@@ -184,6 +294,12 @@ def main() -> int:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=60)
     parser.add_argument("--timeout-s", type=float, default=65.0)
+    parser.add_argument("--capture-dir", type=Path,
+                        help="owned 0700 directory outside Git; immutable 0600 raw turn captures")
+    parser.add_argument("--runtime-env", type=Path, help="protected online runtime identity; required for live runs")
+    parser.add_argument("--case-id", action="append", default=[], help="targeted regression; full gate still requires 53 cases")
+    parser.add_argument("--scenarios", type=Path, default=DEFAULT_SCENARIOS,
+                        help="versioned conversation prerequisites, separate from frozen cases")
     args = parser.parse_args()
     if args.report.exists():
         print(json.dumps({"status": "FAIL", "issues": ["output_exists"], "online_requests_made": False}))
@@ -206,9 +322,19 @@ def main() -> int:
         cases = [case for case in all_cases if case.get("case_id") not in excluded_ids][: args.limit]
         if len(cases) != min(args.limit, 53):
             raise E2EFailure("eligible_case_partition_invalid")
+        scenarios = load_scenarios(args.scenarios, args.cases, load_jsonl(args.cases))
+        if args.case_id:
+            selected = set(args.case_id)
+            if not selected.issubset({case["case_id"] for case in cases}):
+                raise E2EFailure("targeted_case_partition_invalid")
+            cases = [case for case in cases if case["case_id"] in selected]
         if not args.live:
             print(json.dumps({"status": "PLAN", "case_count": len(cases), "real_service_acceptance": False}))
             return 0
+        if args.runtime_env is None:
+            raise E2EFailure("protected_runtime_identity_required")
+        identity, ledger = runtime_identity(args.runtime_env, args.base_url)
+        budget_before = budget_snapshot(ledger)
         http = HTTP(args.base_url)
         session = http.call("GET", "/v1/session")
         if not isinstance(session, Mapping):
@@ -218,25 +344,42 @@ def main() -> int:
         if (session.get("is_mock") is not False
                 and session.get("profile") != "v2_langchain_bailian"):
             raise E2EFailure("unexpected_runtime_profile")
-        results = [run_case(http, case, timeout_s=args.timeout_s) for case in cases]
-        if any(not row["terminal_persisted"] or row["sse_event_count"] == 0 or not row["sse_sequence_monotonic"] for row in results):
-            raise E2EFailure("sse_or_terminal_persistence_invalid")
+        if args.capture_dir:
+            secure_directory(args.capture_dir)
+        results = []
+        for case in cases:
+            started = time.monotonic()
+            try:
+                row = run_case(http, case, timeout_s=args.timeout_s, capture_dir=args.capture_dir,
+                               prerequisite_queries=scenarios.get(case["case_id"], []))
+            except E2EFailure as error:
+                row = {"case_id": case["case_id"], "status": "FAILED", "failure_code": str(error),
+                       "terminal_persisted": False, "successful_terminal": False}
+            row["latency_ms"] = round((time.monotonic() - started) * 1000)
+            results.append(row)
+            print(json.dumps({"case_id": results[-1]["case_id"], "status": results[-1]["status"],
+                              "completed": len(results)}, ensure_ascii=False), flush=True)
+        passed = all(case_passed(row) for row in results)
         payload = {
             "report_version": "v2-quality-e2e-v2",
-            "status": "PASS",
+            "status": "PASS" if passed else "NOT_PASSED",
             "case_count": len(results),
             "results": results,
             "lifecycle_report_sha256": hashlib.sha256(args.lifecycle_report.read_bytes()).hexdigest(),
             "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
+            "scenarios_sha256": hashlib.sha256(args.scenarios.read_bytes()).hexdigest(),
             "excluded_case_ids": sorted(excluded_ids),
             "safety_report_sha256": hashlib.sha256(args.safety_report.read_bytes()).hexdigest(),
             "real_service_acceptance": False,
             "model_quality_claim": False,
             "online_requests_made": True,
+            "provider_identity": identity,
+            "budget_before": budget_before,
+            "budget_after": budget_snapshot(ledger),
         }
         write_report(args.report, payload)
-        print(json.dumps({"status": "PASS", "case_count": len(results), "real_service_acceptance": False}))
-        return 0
+        print(json.dumps({"status": payload["status"], "case_count": len(results), "real_service_acceptance": False}))
+        return 0 if passed else 4
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, E2EFailure) as error:
         print(json.dumps({"status": "FAIL", "issues": [str(error)], "online_requests_made": False}))
         return 3

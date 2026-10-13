@@ -1,0 +1,13 @@
+{
+  "scenario_version": "v2-quality-conversation-v1",
+  "cases_sha256": "9653bb00a8da6b38d54a4bba7d666b72f51fb8a5283b084985f0d65e5afa90df",
+  "scenarios": [
+    {
+      "case_id": "syn-019",
+      "query_sha256": "4aa43d21759925c84816d7672e47799a976942c873cd0b92252a2fd9aafdf392",
+      "prerequisite_queries": [
+        "请介绍蓝牙耳机 SKU-EAR-200 的库存历史快照及其适用限制。"
+      ]
+    }
+  ]
+}
