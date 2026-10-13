@@ -652,6 +652,9 @@ actual model text is rendered separately so applicable conditions, source
 limits and missing original records are not discarded in a short summary.
 These fields can be empty when inapplicable; their presence does not establish
 correctness. Facts and clarification workflows retain their separate contracts.
+Review the complete applicability conditions and the trigger for any default
+workflow count. A source label or an uncertainty statement cannot substitute
+for a missing condition, and lack of proof does not establish a negative fact.
 
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,
