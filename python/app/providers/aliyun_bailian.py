@@ -481,6 +481,7 @@ class AlibabaBailianProvider:
         try:
             if slot in {"control", "generation"}:
                 content, _ = _content(data, slot)
+                _request_id(response, data)
                 response_format = payload.get("response_format", {})
                 if slot == "control" or response_format:
                     schema = response_format.get("json_schema")

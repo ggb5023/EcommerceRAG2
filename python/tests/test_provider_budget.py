@@ -255,6 +255,26 @@ def test_constructor_requires_ledger_even_without_v2_profile(monkeypatch):
         AlibabaBailianProvider(config(), UrllibTransport(), test_mode=True)
 
 
+@pytest.mark.parametrize("slot", ["control", "generation"])
+def test_chat_without_request_identity_is_not_recorded_as_success(monkeypatch, ledger, slot):
+    ledger.extend_authorized_cap("1", authorization="test-missing-chat-id")
+    environment(monkeypatch, ledger)
+    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "1")
+    transport = Transport(HTTPResponse(200, {}, json.dumps({
+        "choices": [{"message": {"content": '{"answer":"private-output"}'}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }).encode()))
+    provider = AlibabaBailianProvider(config(), transport)
+    method = provider.control if slot == "control" else provider.generate
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(method([{"role": "user", "content": "private-input"}]))
+    assert error.value.code == "invalid_response" and transport.calls == 1
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute("SELECT state,error_code,request_id_sha256 FROM attempt").fetchone() == (
+            "error", "invalid_response", None)
+    assert ledger.summary()["requests"] == 1
+
+
 @pytest.mark.parametrize("failure", [ProviderError("timeout", "test"), TimeoutError(), HTTPResponse(429, {}, b"{}"), HTTPResponse(200, {}, b"invalid")])
 def test_network_failure_reserves_and_budget_exhaustion_never_sends(monkeypatch, ledger, failure):
     environment(monkeypatch, ledger)
