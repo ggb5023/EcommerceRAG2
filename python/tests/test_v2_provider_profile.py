@@ -348,3 +348,28 @@ def test_missing_reference_requires_clarification_before_retrieval(query, needs_
                 'clarification': '请明确指代对象？', 'confidence': .9}}
     result = asyncio.run(provider_understand_node({'query': query}, SimpleNamespace(control=Control())))
     assert result['clarification'] == '请明确指代对象？'
+
+
+@pytest.mark.parametrize('limit', [None, '', 3, '长' * 81,
+    '当前仅能核验物流状态，配送承诺时效能力未连接，补齐订单仍不能保证到货时间。'])
+def test_delivery_workflow_requires_and_renders_actual_capability_limit(limit):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            assert 'delivery_capability_limit' in payload['response_schema']['required']
+            return {'structured': {'answer': '需核对订单、线路和截单时间。', 'citation_ids': ['source'],
+                'delivery_capability_limit': limit}}
+    call = provider_generate_node({'query': '明天能否送到新区，应查什么？',
+        'evidence': [{'id': 'source', 'content': '核对订单、发货地、线路、截单时间。'}]},
+        SimpleNamespace(generation=Generation()))
+    if isinstance(limit, str) and 0 < len(limit) <= 80:
+        result = asyncio.run(call)
+        assert result['answer'].endswith(limit)
+        assert [c['id'] for c in result['citations']] == ['source']
+    else:
+        with pytest.raises(ValueError, match='delivery capability'):
+            asyncio.run(call)

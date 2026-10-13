@@ -642,6 +642,12 @@ an owned `0700` directory outside the repository. Each generated answer and its
 actual evidence is stored once in a new `0600` file. Metadata reports retain only
 its opaque ID and SHA-256. Capture is optional for diagnostics, but a semantic
 quality claim requires review bound to the captured answer and report hashes.
+Delivery-promise questions require a model-generated capability-limit field
+alongside the answer. The returned statement is rendered verbatim and must
+explain that logistics-status lookup does not supply an arrival promise;
+having complete order details does not remove that capability gap. Schema
+validity still requires separate semantic review of the actual statement.
+
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,
 generation adapter parameters, Provider configuration and budget window.

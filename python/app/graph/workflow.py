@@ -576,6 +576,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         citation_schema['minItems'] = 1
     schema = dict(GENERATION_SCHEMA,
                   properties=dict(GENERATION_SCHEMA['properties'], citation_ids=citation_schema))
+    needs_delivery_limit = bool(re.search(r"送到|到货|配送.*时效|delivery.*(?:promise|arrive)",
+                                         state['query'], re.IGNORECASE))
     instruction = GENERATION_INSTRUCTION + (
         "answer不超过260字，没有最低字数要求。已回答的问题不补与问题无关的缺口、"
         "理由或操作建议；只写必要事实与限制。来源没有原因时直接说未说明原因，"
@@ -611,6 +613,14 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "citation_ids须包含实际支持澄清问题的规则正文，不能只引用补检次数的资料。"
             "answer只写30至60字的后续步骤与限制，硬上限120字，不能重复五项问题。"
             "应先澄清再按适用规则检索，不能先执行默认搜索。512 token内完整输出。"
+        )
+    if needs_delivery_limit:
+        schema = dict(schema, required=[*schema['required'], 'delivery_capability_limit'],
+                      properties=dict(schema['properties'],
+                          delivery_capability_limit={'type': 'string', 'minLength': 1, 'maxLength': 80}))
+        instruction += (
+            "JSON另含delivery_capability_limit，单独说明已接入物流状态查询但未提供"
+            "配送承诺时效能力，即使订单信息齐全也不能保证到货时间。不重复核验步骤。"
         )
     capability_instruction = " 只读能力元数据不是可引用来源，仅回答与本题相关的能力边界。"
     if re.search(r"配送|物流|到货|送到|deliver|logistic", state['query'], re.IGNORECASE):
@@ -671,6 +681,13 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         # Render the model's actual questions, without inventing missing values
         # or treating schema validity as semantic approval.
         answer = "\n".join(f"{index}. {plan[key].strip()}" for index, key in enumerate(keys, 1)) + "\n\n" + answer
+    if needs_delivery_limit:
+        limit = structured.get('delivery_capability_limit') if isinstance(structured, Mapping) else None
+        if not isinstance(limit, str) or not limit.strip() or len(limit) > 80:
+            raise ValueError('provider generation delivery capability limit is invalid')
+        # Render the actual model statement, not a substituted answer. Its
+        # meaning still requires the separate semantic review.
+        answer = answer.rstrip() + '\n\n' + limit.strip()
     citation_ids = structured.get("citation_ids") if isinstance(structured, Mapping) else None
     if (not isinstance(citation_ids, list) or any(not isinstance(identifier, str) for identifier in citation_ids)
             or len(citation_ids) != len(set(citation_ids))):
