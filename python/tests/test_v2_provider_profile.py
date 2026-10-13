@@ -480,3 +480,16 @@ def test_reason_question_requires_actual_model_reason_or_explicit_source_gap(rea
     else:
         with pytest.raises(ValueError, match='reason evidence'):
             asyncio.run(call)
+
+
+@pytest.mark.parametrize('message,expected', [
+    ('provider generation evidence answer has no citation', 'citation_missing'),
+    ('provider generation applicability dimensions lack cited support', 'applicability_uncited'),
+    ('private response content and connection secret', 'execution_rejected'),
+])
+def test_rpc_failure_diagnostics_log_only_allowlisted_reasons_and_request_hash(caplog, message, expected):
+    with pytest.raises(RuntimeError):
+        rag_service._abort_v2_error(Context(), ValueError(message), stage='generate', request_id='private-request')
+    assert 'reason=' + expected in caplog.text
+    assert message not in caplog.text
+    assert 'private-request' not in caplog.text

@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import math
 import os
 from typing import Any
 
 import grpc
+from rag.v1 import rag_pb2, rag_pb2_grpc
 
 from app.authorization import ScopeError, validate_scope
 from app.graph.runtime import (
@@ -17,7 +20,6 @@ from app.graph.runtime import (
 )
 from app.graph.service import LangGraphRagService
 from app.providers.contracts import ProviderError
-from rag.v1 import rag_pb2, rag_pb2_grpc
 
 
 def _valid_scope(ctx: Any) -> bool:
@@ -63,7 +65,23 @@ def _ensure_grpc_active(context: Any) -> None:
     if callable(checker) and (not checker()):
         context.abort(_grpc_cancel_code(context), 'request cancelled')
 
-def _abort_v2_error(context: Any, error: Exception) -> None:
+def _abort_v2_error(context: Any, error: Exception, *, stage: str = 'unknown', request_id: str = '') -> None:
+    # Allowlisted classifications only: arbitrary exception strings can include
+    # user content, provider responses or connection secrets.
+    reasons = {
+        'provider generation evidence limits are invalid': 'evidence_limits_invalid',
+        'provider generation delivery capability limit is invalid': 'delivery_limit_invalid',
+        'provider generation applicability dimensions are invalid': 'applicability_invalid',
+        'provider generation applicability dimensions lack cited support': 'applicability_uncited',
+        'provider generation reason evidence is invalid': 'reason_evidence_invalid',
+        'provider generation evidence answer has no citation': 'citation_missing',
+        'provider generation citation is outside supplied evidence': 'citation_outside_scope',
+        'provider generation citation IDs are invalid': 'citation_invalid',
+    }
+    reason = reasons.get(str(error), 'execution_rejected')
+    logging.getLogger(__name__).warning('v2_execution_rejected stage=%s reason=%s request_sha256=%s',
+        stage if stage in {'understand', 'search', 'generate'} else 'unknown', reason,
+        hashlib.sha256(request_id.encode()).hexdigest())
     if isinstance(error, PermissionError):
         context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
     if isinstance(error, (ValueError, TypeError)):
@@ -139,7 +157,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             service = self._provider_v2 or self._v2
             result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), history_summary=request.history_summary, response_purpose='internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='understand')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), history_summary=request.history_summary, response_purpose='internal', phase='understand')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
-            _abort_v2_error(context, error)
+            _abort_v2_error(context, error, stage='understand', request_id=request.context.request_id)
         _ensure_grpc_active(context)
         entities = [rag_pb2.EntitySlot(name=item['name'], value=item['value'], confidence=float(item['confidence'])) for item in result.get('entities', [])]
         return rag_pb2.UnderstandResponse(rewritten_query=result.get('rewritten_query', query), intent=result.get('intent', 'knowledge'), information_source=result.get('information_source', 'own_knowledge'), required_fact_tools=result.get('required_fact_tools', []), clarification=result.get('clarification', ''), entities=entities, confidence=float(result.get('confidence', 0.0)), reason=result.get('reason', 'v2_langgraph_fixture'))
@@ -154,7 +172,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             service = self._provider_v2 or self._v2
             result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='search')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose=request.response_purpose or 'internal', phase='search')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
-            _abort_v2_error(context, error)
+            _abort_v2_error(context, error, stage='search', request_id=request.context.request_id)
         for item in result.get('evidence', []):
             _ensure_grpc_active(context)
             self._authorize(request.context, context)
@@ -171,7 +189,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             service = self._provider_v2 or self._v2
             result = asyncio.run(service.arun_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, facts=facts, history_summary=request.history_summary, response_purpose=request.response_purpose or 'internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='generate')) if self._provider_v2 else service.run_with_evidence(query=request.query, scope=self._v2_scope(request.context), evidence=evidence, history_summary=request.history_summary, response_purpose=request.response_purpose or 'internal', phase='generate')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
-            _abort_v2_error(context, error)
+            _abort_v2_error(context, error, stage='generate', request_id=request.context.request_id)
         sequence = 0
         for chunk in [result.get('answer', '')[i:i + 32] for i in range(0, len(result.get('answer', '')), 32)]:
             _ensure_grpc_active(context)
