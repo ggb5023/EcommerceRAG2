@@ -441,3 +441,21 @@ def test_applicability_conditions_are_model_supplied_bounded_and_not_inferred(di
     else:
         with pytest.raises(ValueError, match='applicability'):
             asyncio.run(call)
+
+
+def test_applicability_dimension_needs_support_from_a_cited_source():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            return {'structured': {'answer': '有限规则摘要。', 'citation_ids': ['other'],
+                'evidence_limits': '', 'next_inputs': '', 'applicability_dimensions': ['路线']}}
+
+    with pytest.raises(ValueError, match='lack cited support'):
+        asyncio.run(provider_generate_node({'query': '运输规则？', 'evidence': [
+            {'id': 'source', 'content': '运输适用范围包含路线。'},
+            {'id': 'other', 'content': '另一个独立来源，不能支持运输维度。'}]},
+            SimpleNamespace(generation=Generation())))
