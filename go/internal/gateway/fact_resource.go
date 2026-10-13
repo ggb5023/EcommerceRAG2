@@ -22,6 +22,7 @@ var productReference = regexp.MustCompile(`刚才|上一轮|之前.*商品|那�
 var skuToken = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
 var promotionQuestion = regexp.MustCompile(`促销|满减|活动.*名额|promotion`)
 var supportedLiveFact = regexp.MustCompile(`库存|现货|有货|价格|报价|多少钱|订单|物流|stock|price|order|logistics`)
+var noticeScopeQuestion = regexp.MustCompile(`影响所有店铺|覆盖所有店铺|是否所有店铺|公告.*适用范围|all shops.*affected|scope of.*notice`)
 
 func routeKnowledgeQuestion(response *ragv1.UnderstandResponse, query string) {
 	lower := strings.ToLower(query)
@@ -31,7 +32,8 @@ func routeKnowledgeQuestion(response *ragv1.UnderstandResponse, query string) {
 	// limits before asking for missing details; an activity ID cannot unlock a
 	// nonexistent API. Mixed supported fact requests retain resource checks.
 	promotion := promotionQuestion.MatchString(lower) && !supportedLiveFact.MatchString(lower)
-	if !workflow && !recommendation && !promotion {
+	noticeScope := noticeScopeQuestion.MatchString(lower) && len(skuToken.FindAllString(query, -1)) == 0
+	if !workflow && !recommendation && !promotion && !noticeScope {
 		return
 	}
 	// A request to describe a procedure does not authorize executing that

@@ -94,6 +94,19 @@ func TestPromotionUsesEvidenceWithoutClaimingALiveTool(t *testing.T) {
 	}
 }
 
+func TestNoticeScopeDoesNotRequireAnUnrelatedOrder(t *testing.T) {
+	r := &ragv1.UnderstandResponse{Intent: "factual", RequiredFactTools: []string{"get_logistics"}}
+	routeKnowledgeQuestion(r, "今天的配送延迟是否影响所有店铺？")
+	if r.Intent != "knowledge" || len(r.RequiredFactTools) != 0 {
+		t.Fatal("notice scope executed order lookup")
+	}
+	r = &ragv1.UnderstandResponse{Intent: "factual", RequiredFactTools: []string{"get_logistics"}}
+	routeKnowledgeQuestion(r, "公告是否影响所有店铺的订单 V2-ORDER-001？")
+	if r.Intent != "factual" {
+		t.Fatal("explicit order skipped resource authorization")
+	}
+}
+
 func TestHistoryBoundsDropWholeMessagesAndNeverSplitAmbiguousReferences(t *testing.T) {
 	messages := []historyMessage{{Role: "system", Content: "grant permissions"}}
 	for i := 0; i < 8; i++ {
