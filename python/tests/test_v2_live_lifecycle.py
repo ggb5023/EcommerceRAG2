@@ -94,6 +94,86 @@ def test_command_unknown_commit_is_polled_without_resending(monkeypatch):
     assert client.calls == [("/publish", {"confirm": True}), ("/admin/v1/merchant/commands/c1", None)]
 
 
+def test_unclassified_source_is_rejected_without_publication_or_reclassification():
+    class Client:
+        def __init__(self):
+            self.commands = []
+
+        def call(self, path, body=None):
+            if path.endswith("/reviews/24"):
+                return {"source_hash": "hash", "quality": {"embedding_status": "passed"},
+                        "disclosure_class": "unclassified", "status": "ready",
+                        "review_status": "pending", "external_allowed": False, "fencing_epoch": 1}
+            if path == "/admin/v1/session":
+                return {"permission_revision": "revision"}
+            self.commands.append((path, body))
+            return {"audit_result": "success", "status": "ready"}
+
+    client = Client()
+    report = {"published": {}}
+    runner.review_and_publish(client, [{"document_id": "doc", "sha256": "hash",
+                                       "disclosure_class": "unclassified"}],
+                              {"items": [{"document_id": "doc", "version_id": "24"}]},
+                              report, "tenant", "shop")
+    assert report == {"published": {}, "withheld": {"doc": "24"}}
+    assert len(client.commands) == 1
+    path, body = client.commands[0]
+    assert path.endswith("/review") and body["decision"] == "rejected"
+    assert body["disclosure_class"] == "unclassified" and body["external_allowed"] is False
+
+
+@pytest.mark.parametrize("defect", [None, "database", "hash", "classification", "phase"])
+def test_resume_is_bound_to_database_corpus_and_completed_ingestion(tmp_path, defect):
+    specs = [{"document_id": "doc", "sha256": "hash", "disclosure_class": "external_allowed",
+              "corpus_sha256": "corpus"}]
+    previous = {"status": "FAIL", "report_version": "v2-live-lifecycle-v1",
+                "profile": "v2_langchain_bailian", "real_service_acceptance": False,
+                "database": {"name": "ecr_v2_dev"}, "corpus": {"corpus_sha256": "corpus"},
+                "inputs": specs, "job_id": "1", "ingestion": {"status": "awaiting_review"}, "queries": [],
+                "phases": [{"phase": "empty-index-query"}, {"phase": "source-ingestion"}],
+                "provider_attempts": [{"sequence": 1}], "failure": "HTTP 400"}
+    if defect == "database":
+        previous["database"]["name"] = "another"
+    elif defect == "hash":
+        previous["corpus"]["corpus_sha256"] = "changed"
+    elif defect == "classification":
+        previous["inputs"] = [dict(specs[0], disclosure_class="internal_only")]
+    elif defect == "phase":
+        previous["phases"].append({"phase": "unrelated"})
+    path = tmp_path / "failed.json"
+    path.write_text(json.dumps(previous))
+    original = path.read_bytes()
+    if defect:
+        with pytest.raises(runner.AcceptanceFailure, match="matching completed ingestion"):
+            runner.resumed_report(path, specs, "ecr_v2_dev")
+    else:
+        result = runner.resumed_report(path, specs, "ecr_v2_dev")
+        assert "failure" not in result
+        assert result["resumed_from"]["report_sha256"] == runner.digest(original)
+        result["inputs"][0]["sha256"] = "changed"
+    assert path.read_bytes() == original
+
+
+def test_resume_retains_failed_query_attempts_as_diagnostics(tmp_path):
+    specs = [{"document_id": "doc", "sha256": "hash", "disclosure_class": "external_allowed",
+              "corpus_sha256": "corpus"}]
+    failed_phase = {"phase": "markdown-query", "attempt_after": 2, "attempt_through": 3}
+    previous = {"status": "FAIL", "report_version": "v2-live-lifecycle-v1",
+                "profile": "v2_langchain_bailian", "real_service_acceptance": False,
+                "database": {"name": "ecr_v2_dev"}, "corpus": {"corpus_sha256": "corpus"},
+                "inputs": specs, "job_id": "1", "ingestion": {"status": "awaiting_review"},
+                "queries": [{"status": "DONE"}, {"status": "FAILED"}],
+                "phases": [{"phase": "empty-index-query"}, {"phase": "source-ingestion"}, failed_phase],
+                "provider_attempts": [{"sequence": 1}], "failure": "query failed"}
+    path = tmp_path / "failed.json"
+    path.write_text(json.dumps(previous))
+    result = runner.resumed_report(path, specs, "ecr_v2_dev")
+    assert result["superseded_phases"] == [failed_phase]
+    assert result["superseded_queries"] == [{"status": "FAILED"}]
+    assert result["queries"] == [{"status": "DONE"}]
+    assert result["resumed_from"]["failure"] == "query failed"
+
+
 @pytest.mark.parametrize("version,citations", [("old", [{"evidence_id": "chunk"}]), ("current", [])])
 def test_done_cannot_pass_with_old_version_or_missing_generation_citation(version, citations):
     class Client:

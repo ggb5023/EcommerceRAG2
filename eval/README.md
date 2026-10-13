@@ -27,8 +27,10 @@ through Go commands, then checks version-bound retrieval and generation
 citations for representative external documents and refusal against the
 initial empty index. Unknown command outcomes are polled without resubmission.
 PASS requires successful request metadata for control, document/query
-Embedding, Rerank and generation in their proper phases, plus all 37 published
-document identities and the source corpus hash.
+Embedding, Rerank and generation in their proper phases, plus all 37 ingested
+document identities and the source corpus hash. Frozen classifications permit
+36 publications; the one `unclassified` source receives a rejected review and
+stays unpublished. Changing its classification to pass acceptance is forbidden.
 
 Reports are new `0600` files containing metadata/hashes, source revision,
 migration checksums and budget reservations. They exclude source text, answers,
@@ -42,8 +44,20 @@ The offline plan still uses three deterministic Markdown/CSV/DOCX fixtures so
 it can run without the external corpus. The 37-document live runner rebuilds
 uploadable Markdown from immutable chunk metadata; it records original
 per-document hashes separately from the hash of the submitted bytes. It keeps
-`internal_only` and `unclassified` disclosure classes through review and
-publication, so they cannot become customer-copyable evidence.
+`internal_only` and `unclassified` disclosure classes. Internal sources may be
+published for authorized internal use; unclassified sources stay unpublished.
+Neither class becomes customer-copyable evidence.
+
+If ingestion completed but review/publication failed, `--resume-report` accepts
+the original failed report only for the same database, corpus hash, uploaded
+hashes, disclosure classes, job and versions. Use a new `--report` path and the
+same runtime and ledger. It rechecks live review states and completes remaining
+Go commands without resubmitting documents or repeating document Embedding.
+The new report binds the original report hash and source revision and retains
+its Provider phase evidence; the failed report is never changed. Query failures
+require diagnosis and an explicit rerun: previous query phases/results remain
+as superseded diagnostics, and all intervening ledger attempts are recorded
+separately and do not count toward successful lifecycle slot coverage.
 
 This directory contains versioned evaluation definitions, not customer data or
 credentials. The first 60-case set uses a deterministic synthetic tenant set

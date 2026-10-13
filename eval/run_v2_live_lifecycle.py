@@ -8,6 +8,7 @@ Reports contain metadata and hashes, never answers, source text or secrets.
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import hashlib
 import io
@@ -275,6 +276,88 @@ def wait_job(http, job, *, timeout_s=300):
     raise AcceptanceFailure("ingestion deadline exceeded")
 
 
+def review_and_publish(http, specs, status, report, tenant, shop):
+    """Keep frozen disclosure labels; unclassified sources stay unpublished."""
+    report.setdefault("withheld", {})
+    for spec in specs:
+        item = next(i for i in status["items"] if i["document_id"] == spec["document_id"])
+        version = item["version_id"]
+        detail = http.call("/admin/v1/merchant/reviews/" + version)
+        if (detail["source_hash"] != spec["sha256"]
+                or detail["quality"]["embedding_status"] != "passed"
+                or detail["disclosure_class"] != spec["disclosure_class"]):
+            raise AcceptanceFailure("review integrity failed")
+        disclosure = spec["disclosure_class"]
+        if disclosure == "unclassified":
+            if detail["status"] != "ready" or detail["external_allowed"]:
+                raise AcceptanceFailure("unclassified source became visible")
+            if detail["review_status"] == "pending":
+                admin = http.call("/admin/v1/session")
+                command(http, f"/admin/v1/merchant/versions/{version}/review", {
+                    "confirm": True, "permission_revision": admin["permission_revision"],
+                    "reason": "Frozen source classification is unclassified; publication is withheld.",
+                    "expected_fencing_epoch": detail["fencing_epoch"], "decision": "rejected",
+                    "disclosure_class": disclosure, "external_allowed": False,
+                    "expected_hash": spec["sha256"],
+                })
+            elif detail["review_status"] != "rejected":
+                raise AcceptanceFailure("unclassified review state is invalid")
+            report["withheld"][spec["document_id"]] = version
+            continue
+        if detail["status"] == "active" and detail["review_status"] == "approved":
+            report["published"][spec["document_id"]] = version
+            continue
+        if detail["status"] != "ready":
+            raise AcceptanceFailure("source is not reviewable or active")
+        admin = http.call("/admin/v1/session")
+        base = {"confirm": True, "permission_revision": admin["permission_revision"],
+                "reason": "Reviewed approved synthetic source and its immutable hash.",
+                "expected_fencing_epoch": detail["fencing_epoch"]}
+        if detail["review_status"] == "pending":
+            command(http, f"/admin/v1/merchant/versions/{version}/review", dict(
+                base, decision="approved", disclosure_class=disclosure,
+                external_allowed=disclosure == "external_allowed", expected_hash=spec["sha256"]))
+        elif detail["review_status"] != "approved":
+            raise AcceptanceFailure("source review was rejected")
+        admin = http.call("/admin/v1/session")
+        outcome = command(http, f"/admin/v1/merchant/versions/{version}/publish", dict(
+            base, permission_revision=admin["permission_revision"], tenant_id=tenant,
+            shop_id=shop, document_id=spec["document_id"], version_hash=spec["sha256"]))
+        if outcome.get("status") != "active":
+            raise AcceptanceFailure("publication did not reach active")
+        report["published"][spec["document_id"]] = version
+
+
+def resumed_report(path, specs, database):
+    """Resume only the completed ingestion phase of the same frozen corpus."""
+    previous = json.loads(path.read_bytes())
+    expected = {s["document_id"]: (s["sha256"], s["disclosure_class"]) for s in specs}
+    actual = {s["document_id"]: (s["sha256"], s["disclosure_class"])
+              for s in previous.get("inputs", [])}
+    if (previous.get("status") != "FAIL" or previous.get("report_version") != "v2-live-lifecycle-v1"
+            or previous.get("profile") != "v2_langchain_bailian"
+            or previous.get("real_service_acceptance") is not False
+            or previous.get("database", {}).get("name") != database
+            or previous.get("corpus", {}).get("corpus_sha256") != specs[0]["corpus_sha256"]
+            or actual != expected or not previous.get("job_id")
+            or previous.get("ingestion", {}).get("status") != "awaiting_review"
+            or [p["phase"] for p in previous.get("phases", [])][:2] != ["empty-index-query", "source-ingestion"]
+            or any(p["phase"] not in {"markdown-query", "csv-query", "docx-query"}
+                   for p in previous.get("phases", [])[2:])
+            or not previous.get("provider_attempts")):
+        raise AcceptanceFailure("resume requires matching completed ingestion evidence")
+    report = copy.deepcopy(previous)
+    report["resumed_from"] = {"report_sha256": digest(path.read_bytes()),
+                              "failure": report.pop("failure", None),
+                              "source_revision": report.get("source_revision")}
+    report.pop("budget_after", None)
+    report.setdefault("superseded_phases", []).extend(report["phases"][2:])
+    report["phases"] = report["phases"][:2]
+    report.setdefault("superseded_queries", []).extend(report["queries"][1:])
+    report["queries"] = report["queries"][:1]
+    return report
+
+
 def query(http, question, report, *, expected=None, terms=()):
     conversation = http.call("/v1/conversations", {})
     accepted = http.call(f'/v1/conversations/{conversation["id"]}/turns', {"query": question})
@@ -324,6 +407,10 @@ def validate_provider_evidence(report, models):
     if len(phases) != len(expected) or {p["phase"] for p in phases} != set(expected):
         raise AcceptanceFailure("incomplete Provider phase evidence")
     covered = []
+    covered.extend(report.get("intervening_provider_sequences", []))
+    for item in report.get("superseded_phases", []):
+        covered.extend(a["sequence"] for a in attempts
+                       if item["attempt_after"] < a["sequence"] <= item["attempt_through"])
     for item in phases:
         batch = [a for a in attempts if item["attempt_after"] < a["sequence"] <= item["attempt_through"]]
         counts = {}
@@ -340,8 +427,9 @@ def validate_provider_evidence(report, models):
     if sorted(covered) != sorted(a["sequence"] for a in attempts):
         raise AcceptanceFailure("Provider requests outside lifecycle phases")
     chunks = report.get("indexed_chunks", [])
+    versions = dict(report.get("withheld", {}), **report["published"])
     if not chunks or any(c["embedding_model"] != models["embedding"] or c["embedding_dim"] != 1024
-                         or report["published"].get(c["document_id"]) != c["version_id"] for c in chunks):
+                         or versions.get(c["document_id"]) != c["version_id"] for c in chunks):
         raise AcceptanceFailure("indexed vectors do not match published Provider versions")
 
 
@@ -352,6 +440,8 @@ def main():
     parser.add_argument("--runtime-env", type=Path)
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--resume-report", type=Path,
+                        help="failed completed-ingestion report; same database, new output only")
     args = parser.parse_args()
     run = uuid4().hex[:12]
     report = {"report_version": "v2-live-lifecycle-v1", "status": "PLAN", "profile": "v2_langchain_bailian", "real_service_acceptance": False,
@@ -417,41 +507,49 @@ def main():
             # Independently provisioned development databases may use the
             # generated ecr_v2_test_* name rather than the optional v2_live
             # label; migration and role checks still enforce the boundary.
-            if "v2" not in name or superuser or bypass or conn.execute("SELECT count(*) FROM chunk").fetchone()[0]:
+            if ("v2" not in name or superuser or bypass
+                    or (not args.resume_report and conn.execute("SELECT count(*) FROM chunk").fetchone()[0])):
                 raise AcceptanceFailure("empty isolated live index required")
             report["database"] = {"name": name, "role": role, "superuser": superuser, "bypass_rls": bypass,
                                   "migrations": [dict(zip(("version", "checksum_sha256"), row)) for row in
                                                  conn.execute("SELECT version,checksum_sha256 FROM schema_migration ORDER BY version")]}
+        if args.resume_report:
+            current_revision = report["source_revision"]
+            resume_boundary = attempt_start
+            report = resumed_report(args.resume_report, specs, name)
+            report["source_revision"] = current_revision
+            if report["budget_before"]["window_id"] != ledger.window_id:
+                raise AcceptanceFailure("resume budget window changed")
+            attempt_start = min(a["sequence"] for a in report["provider_attempts"]) - 1
+            last_previous = max(a["sequence"] for a in report["provider_attempts"])
+            with sqlite3.connect(ledger.path.as_uri() + "?mode=ro", uri=True) as conn:
+                report.setdefault("intervening_provider_sequences", []).extend(row[0] for row in conn.execute(
+                    "SELECT rowid FROM attempt WHERE rowid>? AND rowid<=? ORDER BY rowid",
+                    (last_previous, resume_boundary)))
         session = http.call("/v1/session")
         if (session.get("profile") != report["profile"] or session.get("tenantId") != tenant
                 or session.get("userId") != values["V2_IDENTITY_USER"] or session.get("shopId") != shop):
             raise AcceptanceFailure("HTTP profile does not match online runtime")
-        with phase(report, ledger, "empty-index-query", embedding_text_type="query"):
-            query(http, "本店是否提供月球快递？", report)
-        body, content_type = upload_body(specs, shop, run)
-        with phase(report, ledger, "source-ingestion", embedding_text_type="document"):
-            accepted = http.call("/admin/v1/merchant/sources/import", body, content_type=content_type)
-            report["job_id"] = accepted["job_id"]
-            status = wait_job(http, accepted["job_id"], timeout_s=600)
+        if args.resume_report:
+            status = http.call("/admin/v1/merchant/ingestion/" + report["job_id"])
+            if status["status"] not in {"awaiting_review", "done"}:
+                raise AcceptanceFailure("resumed ingestion state changed")
+            actual = {i["document_id"]: i["version_id"] for i in status["items"]}
+            expected = {i["document_id"]: i["version_id"] for i in report["ingestion"]["items"]}
+            if actual != expected:
+                raise AcceptanceFailure("resumed ingestion versions changed")
+        else:
+            with phase(report, ledger, "empty-index-query", embedding_text_type="query"):
+                query(http, "本店是否提供月球快递？", report)
+            body, content_type = upload_body(specs, shop, run)
+            with phase(report, ledger, "source-ingestion", embedding_text_type="document"):
+                accepted = http.call("/admin/v1/merchant/sources/import", body, content_type=content_type)
+                report["job_id"] = accepted["job_id"]
+                status = wait_job(http, accepted["job_id"], timeout_s=600)
         report["ingestion"] = {"status": status["status"], "items": [
             {k: item.get(k) for k in ("document_id", "version_id", "version_hash", "fencing_epoch", "status")}
             for item in status["items"]]}
-        for spec in specs:
-            item = next(i for i in status["items"] if i["document_id"] == spec["document_id"])
-            version = item["version_id"]
-            detail = http.call("/admin/v1/merchant/reviews/" + version)
-            if detail["source_hash"] != spec["sha256"] or detail["quality"]["embedding_status"] != "passed":
-                raise AcceptanceFailure("review integrity failed")
-            admin = http.call("/admin/v1/session")
-            disclosure = spec.get("disclosure_class", "external_allowed")
-            base = {"confirm": True, "permission_revision": admin["permission_revision"], "reason": "Reviewed approved synthetic source and its immutable hash.",
-                    "expected_fencing_epoch": detail["fencing_epoch"]}
-            command(http, f"/admin/v1/merchant/versions/{version}/review", dict(base, decision="approved", disclosure_class=disclosure, external_allowed=disclosure == "external_allowed", expected_hash=spec["sha256"]))
-            admin = http.call("/admin/v1/session")
-            outcome = command(http, f"/admin/v1/merchant/versions/{version}/publish", dict(base, permission_revision=admin["permission_revision"], tenant_id=tenant, shop_id=shop, document_id=spec["document_id"], version_hash=spec["sha256"]))
-            if outcome.get("status") != "active":
-                raise AcceptanceFailure("publication did not reach active")
-            report["published"][spec["document_id"]] = version
+        review_and_publish(http, specs, status, report, tenant, shop)
         selected = {item["document_id"]: item for item in specs}
         if all(key in selected for key in ("aligned-product-bedding-v1", "aligned-fact-promotion-v1", "aligned-web-usbc-v1")):
             query_cases = (
@@ -469,6 +567,19 @@ def main():
             with phase(report, ledger, label, embedding_text_type="query"):
                 query(http, question, report, expected=expected)
         with psycopg.connect(values["V2_GATEWAY_DSN"]) as conn:
+            lifecycle_states = {row[0]: row[1:] for row in conn.execute(
+                "SELECT d.logical_key,v.id::text,v.status,v.review_status,v.disclosure_class,v.external_allowed "
+                "FROM document_version v JOIN document d ON d.id=v.document_id AND d.tenant_id=v.tenant_id")}
+            for spec in specs:
+                version, state, reviewed, disclosure, external = lifecycle_states[spec["document_id"]]
+                withheld = spec["disclosure_class"] == "unclassified"
+                if (disclosure != spec["disclosure_class"] or external != (disclosure == "external_allowed")
+                        or state != ("ready" if withheld else "active")
+                        or reviewed != ("rejected" if withheld else "approved")
+                        or (report["withheld"] if withheld else report["published"])[spec["document_id"]] != version):
+                    raise AcceptanceFailure("final lifecycle classification or visibility changed")
+            report["publication_counts"] = {"published": len(report["published"]),
+                                             "withheld": len(report["withheld"])}
             report["indexed_chunks"] = [dict(zip(("evidence_id", "document_id", "version_id", "source_sha256",
                 "chunk_sha256", "embedding_model", "embedding_dim"), row)) for row in conn.execute(
                 "SELECT 'db-chunk-'||c.id,d.logical_key,c.version_id::text,v.source_hash,c.chunk_hash,c.embedding_model,c.embedding_dim "
