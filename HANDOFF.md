@@ -18,7 +18,7 @@
 - 本窗口完成受 Git 管理的工程文档边界调整：完善 AGENTS/FACTS/README，新增 `docs/architecture.md`，公开检查只要求根入口文档，`.local/` 专题仍为私有。隐私扫描仅增加架构摘要的精确路径例外，内容扫描照常；`bash scripts/check.sh` 在文档和检查器更新后通过。该文档任务独立提交，不推送。
 - 本窗口新增开源来源准入规则与 v3 manifest/validator：登记 Keycloak 本地 OIDC 目标、Medusa 2.21.2 REST 目标、Open Food Facts、UCI Online Retail II、Amazon ESCI/Reviews、英文 Stack Exchange 问答候选和中文 FAQ/社区问答缺口。UCI 页面与 API 许可元数据冲突；Keycloak 选定发行版许可待核验；待许可/隐私审核的数据均未下载。Medusa MIT 范围排除 Enterprise 内容。公开数据、开源服务本地集成和派生本地测试记录分别标记，`real_service_acceptance=false`。
 - 来源变更同步到 `AGENTS.md`、`FACTS.md`、`README.md`、`docs/architecture.md`、`eval/README.md` 和私有专题 `.local/dev-docs/docs/数据来源与评测输入.md`；新增 `eval/test_validate_public_sources.py`。冻结的 60 条案例、37 份合成文档、批准答案点和 evidence sidecar 未改。
-- 来源校验器通过，`python/.venv/bin/pytest -q eval` 为 185 passed，相关 Ruff 通过；`python3 scripts/check-doc-baseline.py`、`python3 scripts/check-docs.py`、`python3 scripts/privacy_guard.py --identity`、`git diff --check` 和 `bash scripts/check.sh` 通过。完整检查中 Python 为 291 passed、27 skipped；双前端测试/构建及 Go 检查通过。没有下载公开数据、部署服务或发起新的模型请求。最新门禁复核报告为 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-gate-human-review-20261013-rerun.json`。
+- 来源校验器通过，`python/.venv/bin/pytest -q eval` 为 185 passed，相关 Ruff 通过；`python3 scripts/check-doc-baseline.py`、`python3 scripts/check-docs.py`、`python3 scripts/privacy_guard.py --identity`、`git diff --check` 和 `bash scripts/check.sh` 通过。最新完整检查中 Python 为 292 passed、27 skipped；双前端测试/构建及 Go 检查通过。没有下载公开数据、部署服务或发起新的模型请求。最新门禁复核报告为 `/var/lib/ecommerce-rag/real-docs/reports/bailian-quality-gate-human-review-20261013-rerun.json`。
 
 ## 下一步任务
 
