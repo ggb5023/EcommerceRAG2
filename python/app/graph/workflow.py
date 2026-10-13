@@ -38,7 +38,7 @@ GENERATION_SCHEMA: dict[str, Any] = {
                    "clarification_plan": {
                        "type": "object",
                        "required": ["object_question", "time_question", "location_question", "source_scope_question"],
-                       "properties": {name: {"type": "string", "minLength": 1, "maxLength": 1000}
+                       "properties": {name: {"type": "string", "minLength": 1, "maxLength": 50}
                                       for name in ("object_question", "time_question", "location_question", "source_scope_question")},
                        "additionalProperties": False,
                    }},
@@ -521,14 +521,19 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     schema = GENERATION_SCHEMA
     instruction = GENERATION_INSTRUCTION
     if needs_plan:
-        schema = dict(GENERATION_SCHEMA, required=[*GENERATION_SCHEMA["required"], "clarification_plan"])
+        schema = dict(GENERATION_SCHEMA, required=[*GENERATION_SCHEMA["required"], "clarification_plan"],
+                      properties=dict(GENERATION_SCHEMA["properties"],
+                                      answer={"type": "string", "minLength": 1, "maxLength": 160}))
         instruction += (
             " This question asks about a clarification workflow. Return clarification_plan "
             "with four concrete questions tailored to this request: object and question type, "
             "date/time range, relevant region, and public sources versus shop business scope. "
             "These are requests for missing information, never assertions that facts were found. "
             "Explain these prerequisites before any default search action; do not replace them "
-            "with the generic phrase 'confirm object and intent'."
+            "with the generic phrase 'confirm object and intent'. Keep each question under "
+            "50 characters, and answer under 160 characters. The answer should contain only "
+            "the supported next steps and limitations; do not repeat the plan in the answer. "
+            "Return compact JSON within the fixed 512-token output budget."
         )
     result = await chains.generation.ainvoke({
         "messages": [
@@ -549,8 +554,10 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         plan = structured.get("clarification_plan") if isinstance(structured, Mapping) else None
         keys = GENERATION_SCHEMA["properties"]["clarification_plan"]["required"]
         if (not isinstance(plan, Mapping) or set(plan) != set(keys)
-                or any(not isinstance(plan[key], str) or not plan[key].strip() or len(plan[key]) > 1000 for key in keys)):
+                or any(not isinstance(plan[key], str) or not plan[key].strip() or len(plan[key]) > 50 for key in keys)):
             raise ValueError("provider generation clarification plan is invalid")
+        if len(answer) > 160:
+            raise ValueError("provider generation clarification answer is too long")
         # Render the model's actual questions, without inventing missing values
         # or treating schema validity as semantic approval.
         answer = "\n".join(f"{index}. {plan[key].strip()}" for index, key in enumerate(keys, 1)) + "\n\n" + answer
