@@ -49,6 +49,22 @@ def partition(cases, audit):
     return [case for case in cases if case["case_id"] in excluded]
 
 
+def validate_e2e_identity(e2e, cases, cases_hash, lifecycle_hash):
+    # Safety is measured independently of answer quality. A complete failed
+    # batch may be audited, but the final gate still requires execution PASS.
+    rows = e2e.get("results", [])
+    eligible = {case["case_id"] for case in cases} - set(SCENARIOS)
+    if (e2e.get("report_version") != "v2-quality-e2e-v2"
+            or e2e.get("status") not in {"PASS", "NOT_PASSED"}
+            or e2e.get("case_count") != 53 or len(rows) != 53
+            or {row.get("case_id") for row in rows} != eligible
+            or not rows[0].get("request_id") or rows[0].get("terminal_persisted") is not True
+            or e2e.get("cases_sha256") != cases_hash
+            or e2e.get("lifecycle_report_sha256") != lifecycle_hash
+            or e2e.get("real_service_acceptance") is not False):
+        raise E2EFailure("e2e_identity_invalid")
+
+
 def attempts(path):
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
         return int(conn.execute("SELECT count(*) FROM attempt").fetchone()[0])
@@ -214,16 +230,13 @@ def main():
     try:
         if args.report.exists():
             raise E2EFailure("output_exists")
-        cases = partition(load_jsonl(args.cases), json.loads(args.audit.read_bytes()))
+        all_cases = load_jsonl(args.cases)
+        cases = partition(all_cases, json.loads(args.audit.read_bytes()))
         lifecycle = json.loads(args.lifecycle_report.read_bytes())
         e2e = json.loads(args.e2e_report.read_bytes())
         if lifecycle.get("status") != "PASS" or lifecycle.get("corpus", {}).get("document_count") != 37:
             raise E2EFailure("lifecycle_invalid")
-        if (e2e.get("status") != "PASS" or e2e.get("case_count") != 53
-                or e2e.get("cases_sha256") != sha256(args.cases)
-                or e2e.get("lifecycle_report_sha256") != sha256(args.lifecycle_report)
-                or e2e.get("real_service_acceptance") is not False):
-            raise E2EFailure("e2e_identity_invalid")
+        validate_e2e_identity(e2e, all_cases, sha256(args.cases), sha256(args.lifecycle_report))
         report.update(cases_sha256=sha256(args.cases), audit_sha256=sha256(args.audit),
                       lifecycle_report_sha256=sha256(args.lifecycle_report), e2e_report_sha256=sha256(args.e2e_report))
         if not args.live:

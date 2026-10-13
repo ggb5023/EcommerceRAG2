@@ -54,3 +54,27 @@ def test_partition_preserves_all_frozen_cases():
         runner.partition(cases[:-1], audit)
     with pytest.raises(runner.E2EFailure, match="partition"):
         runner.partition(cases[:-1] + [cases[0]], audit)
+
+
+@pytest.mark.parametrize("defect", [None, "failed_batch", "missing_case", "duplicate_case", "wrong_hash", "missing_persisted_result"])
+def test_safety_can_be_measured_for_a_complete_failed_batch_without_upgrading_it(defect):
+    cases = [{"case_id": i} for i in runner.SCENARIOS] + [{"case_id": f"eligible-{i}"} for i in range(53)]
+    report = {"report_version": "v2-quality-e2e-v2", "status": "NOT_PASSED" if defect == "failed_batch" else "PASS",
+              "case_count": 53, "cases_sha256": "cases", "lifecycle_report_sha256": "lifecycle",
+              "real_service_acceptance": False,
+              "results": [{"case_id": f"eligible-{i}", "request_id": f"request-{i}", "terminal_persisted": True}
+                          for i in range(53)]}
+    if defect == "missing_case":
+        report["results"].pop()
+    elif defect == "duplicate_case":
+        report["results"][-1] = report["results"][0]
+    elif defect == "wrong_hash":
+        report["lifecycle_report_sha256"] = "different"
+    elif defect == "missing_persisted_result":
+        report["results"][0]["terminal_persisted"] = False
+    if defect in {None, "failed_batch"}:
+        runner.validate_e2e_identity(report, cases, "cases", "lifecycle")
+        assert report["status"] == ("NOT_PASSED" if defect == "failed_batch" else "PASS")
+    else:
+        with pytest.raises(runner.E2EFailure, match="identity"):
+            runner.validate_e2e_identity(report, cases, "cases", "lifecycle")
