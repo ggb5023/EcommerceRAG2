@@ -635,6 +635,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         instruction += (
             "JSON另含evidence_limits和next_inputs。answer只给直接回答或有限摘要，目标100字内；"
             "evidence_limits照录本题相关正文的适用维度、否定和流程规则，保留完整条件句；"
+            "先写问题主题来源的适用条件枚举，再写否定；通用来源权威规则不能替代主题条件。"
             "不用‘等’省略枚举，不把‘对于某类需求’省成所有流程的规则，保留标注级别要求。"
             "优先这些正文句子，不能用合成、临时或非真实标签替代。确无相关限制才为空。"
             "有具体更新缺口仍照录通用适用维度，公开研究仍照录补检条件及次数，不声称已搜索。"
@@ -675,7 +676,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     )
     limits_reminder = (
         "\nevidence_limits保留上面相关正文的完整条件句与枚举，含否定和默认次数触发条件、"
-        "标注规则，不重复frontmatter或来源标签。next_inputs只请求解除真实缺口的输入。"
+        "标注规则；优先主题正文的条件枚举，不用通用来源质量规则代替它。"
+        "不重复frontmatter或来源标签。next_inputs只请求解除真实缺口的输入。"
         if needs_evidence_limits else ""
     )
     messages.append({"role": "user", "content": f"Evaluation/business date: {state.get('business_date', '')}\n"
