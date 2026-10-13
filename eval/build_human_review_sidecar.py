@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 from collections.abc import Mapping
@@ -167,10 +168,20 @@ def build_sidecar(
                         or not set(support).issubset(delivered)
                         or point["status"] == "supported" and not support):
                     raise ValueError("http_human_support_binding_invalid")
-                points.append(dict(point, expected_sha256=hashlib.sha256(
-                    str(cases[case_id]["expected_answer_points"][index]).encode()).hexdigest()))
-            rows.append(dict(fields, case_id=case_id, risk=contract["risk"],
-                             capture_sha256=result["capture_sha256"], points=points))
+                points.append({"point_index": index, "status": point["status"],
+                               "support_chunk_ids": support, "expected_sha256": hashlib.sha256(
+                                   str(cases[case_id]["expected_answer_points"][index]).encode()).hexdigest()})
+            issues = fields.get("issue_codes", [])
+            if (not isinstance(issues, list) or len(issues) != len(set(issues))
+                    or any(not isinstance(code, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code) is None
+                           for code in issues)):
+                raise ValueError("http_review_issue_codes_invalid")
+            # Free-text notes and point annotations belong only to the restricted
+            # package. Copying the whole review dict can leak answers into reports.
+            rows.append({"case_id": case_id, "risk": contract["risk"],
+                         "capture_sha256": result["capture_sha256"], "points": points,
+                         "review_status": fields["review_status"], "security_error": fields["security_error"],
+                         **{check: fields[check] for check in CHECKS}, "issue_codes": issues})
             continue
         evidence = captured.get("evidence")
         if not isinstance(evidence, list):
