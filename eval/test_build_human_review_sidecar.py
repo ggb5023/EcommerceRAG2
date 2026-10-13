@@ -24,7 +24,8 @@ def test_sidecar_rejects_unattested_package(tmp_path: Path):
         )
 
 
-@pytest.mark.parametrize("defect", [None, "unauthorized", "unreviewed", "answer_changed", "support_outside", "issue_text"])
+@pytest.mark.parametrize("defect", [None, "unauthorized", "unreviewed", "answer_changed", "support_outside", "issue_text",
+                                     "failed_execution", "failed_pass_claim"])
 def test_delegated_http_review_binds_actual_inputs_and_never_infers_approval(tmp_path, defect):
     import hashlib
 
@@ -43,12 +44,15 @@ def test_delegated_http_review_binds_actual_inputs_and_never_infers_approval(tmp
                  "result": {"answer": "supported answer", "status": "DONE", "citations": [],
                             "customer_reply": {"can_copy": False},
                             "evidence": [{"id": "chunk", "snippet": "source"}]}}
+        if index == 0 and defect in {"failed_execution", "failed_pass_claim"}:
+            value["result"].update(status="FAILED", answer="")
         path = captures / f"{identifier}.json"
         path.write_text(json.dumps(value))
         path.chmod(0o600)
         rows.append({"case_id": identifier, "capture_id": path.name, "capture_sha256": MODULE.sha256(path)})
     report_path, cases_path = tmp_path / "report.json", tmp_path / "cases.jsonl"
-    report_path.write_text(json.dumps({"report_version": "v2-quality-e2e-v2", "status": "PASS", "case_count": 53, "results": rows}))
+    report_status = "NOT_PASSED" if defect in {"failed_execution", "failed_pass_claim"} else "PASS"
+    report_path.write_text(json.dumps({"report_version": "v2-quality-e2e-v2", "status": report_status, "case_count": 53, "results": rows}))
     cases_path.write_text("\n".join(json.dumps(case) for case in cases))
     package = tmp_path / "package"
     manifest = build_package(report_path, cases_path, captures, package, reviewer_kind="agent")
@@ -68,6 +72,9 @@ def test_delegated_http_review_binds_actual_inputs_and_never_infers_approval(tmp
                 value["review_fields"]["points"][0]["support_chunk_ids"] = ["absent"]
             elif defect == "issue_text":
                 value["review_fields"]["issue_codes"] = ["private answer excerpt"]
+            elif defect == "failed_execution":
+                value["review_fields"].update(review_status="fail", issue_codes=["execution_failed"],
+                                              points=[{"point_index": 0, "status": "omitted", "support_chunk_ids": []}])
         path.write_text(json.dumps(value))
     attestation = {"attestation_version": "v2-agent-review-attestation-v1", "package_version": manifest["package_version"],
                    "reviewer_kind": "agent", "review_completed": True, "human_review_completed": False,
@@ -77,7 +84,7 @@ def test_delegated_http_review_binds_actual_inputs_and_never_infers_approval(tmp
                    "reviewed_case_count": 53, "real_service_acceptance": False}
     (package / "agent-attestation.json").write_text(json.dumps(attestation))
     arguments = (report_path, package, captures, cases_path, tmp_path / "out.json")
-    if defect:
+    if defect not in {None, "failed_execution"}:
         with pytest.raises(ValueError):
             MODULE.build_sidecar(*arguments, reviewer_kind="agent")
         assert not arguments[-1].exists()
@@ -87,5 +94,6 @@ def test_delegated_http_review_binds_actual_inputs_and_never_infers_approval(tmp
         assert len(result["rows"]) == 53 and len(result["agent_attestation_sha256"]) == 64
         assert "private answer excerpt" not in arguments[-1].read_text()
         assert "private point excerpt" not in arguments[-1].read_text()
-        assert result["rows"][0]["issue_codes"] == ["source_gap"]
+        assert result["rows"][0]["issue_codes"] == ["execution_failed" if defect == "failed_execution" else "source_gap"]
+        assert result["rows"][0]["review_status"] == ("fail" if defect == "failed_execution" else "pass")
         assert "private answer excerpt" in (package / "cases/case-0.json").read_text()

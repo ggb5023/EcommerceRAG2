@@ -101,7 +101,8 @@ def build_sidecar(
         str(value["case_id"]): value
         for value in (load_json_line(line) for line in cases_path.read_text(encoding="utf-8").splitlines() if line.strip())
     }
-    if report.get("status") != "PASS" or report.get("case_count" if http_report else "eligible_case_count") != REQUIRED_CASES:
+    if (report.get("status") not in ({"PASS", "NOT_PASSED"} if http_report else {"PASS"})
+            or report.get("case_count" if http_report else "eligible_case_count") != REQUIRED_CASES):
         raise ValueError("baseline_report_invalid")
     if attestation.get("baseline_report_sha256") != sha256(report_path):
         raise ValueError("review_package_report_hash_mismatch")
@@ -155,6 +156,8 @@ def build_sidecar(
                     or type(fields.get("security_error")) is not bool
                     or any(type(fields.get(check)) is not bool for check in CHECKS)):
                 raise ValueError("http_case_human_review_missing")
+            if turn.get("status") not in {"DONE", "ASKING"} and fields["review_status"] != "fail":
+                raise ValueError("http_failed_execution_cannot_pass_review")
             supplied = fields.get("points")
             if not isinstance(supplied, list) or len(supplied) != len(cases[case_id]["expected_answer_points"]):
                 raise ValueError("http_review_point_count_invalid")

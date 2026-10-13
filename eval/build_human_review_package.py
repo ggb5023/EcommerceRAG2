@@ -94,9 +94,13 @@ def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output
         raise ValueError("reviewer_kind_invalid")
     report = _load_json(report_path)
     cases = _load_cases(cases_path)
-    if not isinstance(report, dict) or report.get("status") != "PASS":
-        raise ValueError("baseline_report_not_pass")
+    if not isinstance(report, dict):
+        raise TypeError("baseline_report_invalid_type")
     http_report = report.get("report_version") == "v2-quality-e2e-v2"
+    # Persisted failed turns still need explicit review. This does not grant
+    # transport PASS; the quality gate independently checks execution status.
+    if report.get("status") not in ({"PASS", "NOT_PASSED"} if http_report else {"PASS"}):
+        raise ValueError("baseline_report_not_pass")
     rows = report.get("results" if http_report else "case_results")
     if not isinstance(rows, list) or len(rows) != REQUIRED_CASES:
         raise ValueError("baseline_case_count_invalid")
