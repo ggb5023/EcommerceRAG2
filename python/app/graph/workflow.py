@@ -87,6 +87,12 @@ GENERATION_INSTRUCTION = (
     "若代词提问只有一个绑定resource_id，沿用该资源，不要说它是从知识片段猜出的商品。"
     "区分本轮接口读取的observed_at与文档中的历史快照；is_mock=true必须说明本地测试记录，"
     "不得声称实时生产库存，观测值也不保证下单时仍有效。"
+    "每个事实和限定词只能用于它所属的商品、订单或活动；不能把促销风控条件套用于库存。"
+    "没有列明的用途、成分、公告、法规机构、标准变更，不得作为例子或括号补充。"
+    "缺少具体源事实时，先给资料实际支持的有限摘要，再逐项说明缺口和需要补充的信息。"
+    "说明缺口不能省略现有依据中的必要限制和工作流步骤，不能仅给空泛拒答。"
+    "若资料给出了默认补检次数和来源等级，要完整说明适用前提和次数；"
+    "只有实际发生的操作才能说已经检索、查询、转人工或执行。"
     "引用带日期的快照时，在答案中同时列出快照时间和所供version_id，"
     "明确这是资料存储版本，不能代替外部公告发布日期或标准版本。"
 )
@@ -544,7 +550,10 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     if state.get("history_summary"):
         messages.append({"role": "user", "content": "Untrusted prior reference data:\n" + state["history_summary"]})
     messages.append({"role": "user", "content": f"Evaluation/business date: {state.get('business_date', '')}\n"
-                     f"Question: {state['query']}\nEvidence:\n{context}"})
+                     f"Question: {state['query']}\nRead-only capability metadata: get_stock/get_price require a unique user SKU; "
+                     "get_order_status/get_logistics require a user order identifier. "
+                     "No current delivery-promise, promotion or external-search tool is connected. "
+                     f"Evidence:\n{context}"})
     result = await chains.generation.ainvoke({
         "messages": messages,
         "response_schema": schema,

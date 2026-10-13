@@ -166,3 +166,10 @@ def test_sigterm_stops_ready_stack_without_killing_unrelated_process(tmp_path):
             process.wait(timeout=5)
         unrelated.terminate()
         unrelated.wait(timeout=5)
+
+
+def test_business_date_only_reaches_ai_not_permission_authority():
+    values = {"SYNTHETIC_BUSINESS_DATE": "2026-09-29"}
+    assert services.service_environment("ai", values)["SYNTHETIC_BUSINESS_DATE"] == "2026-09-29"
+    for name in ("gateway", "ingest", "worker"):
+        assert "SYNTHETIC_BUSINESS_DATE" not in services.service_environment(name, values)
