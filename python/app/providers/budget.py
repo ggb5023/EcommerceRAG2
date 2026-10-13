@@ -163,6 +163,22 @@ class BudgetLedger:
                          (identifier, slot, model, hashlib.sha256(body).hexdigest(), input_bound, output_bound, cost))
         return identifier
 
+    def extend_authorized_cap(self, cap_cny: str, *, authorization: str) -> None:
+        """Explicit operator action; retain every request and record the change."""
+        new_cap = _amount(cap_cny)
+        if (new_cap <= self.cap_micro or not authorization or len(authorization) > 128
+                or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for c in authorization)):
+            raise _blocked()
+        with self._transaction() as conn:
+            self._verify(conn)
+            conn.execute("CREATE TABLE IF NOT EXISTS cap_amendment(authorization TEXT PRIMARY KEY,"
+                         "old_cap_micro INTEGER NOT NULL,new_cap_micro INTEGER NOT NULL,"
+                         "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))")
+            conn.execute("INSERT INTO cap_amendment(authorization,old_cap_micro,new_cap_micro) VALUES(?,?,?)",
+                         (authorization, self.cap_micro, new_cap))
+            conn.execute("UPDATE window SET cap_micro=? WHERE id=?", (new_cap, self.window_id))
+        self.cap_micro = new_cap
+
     def record(self, identifier: str, *, data: dict | None = None,
                http_status: int | None = None, error_code: str | None = None) -> None:
         """Keep the full reservation even after errors or missing usage."""

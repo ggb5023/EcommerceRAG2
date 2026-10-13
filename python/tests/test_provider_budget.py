@@ -59,6 +59,34 @@ def test_failures_usage_and_restart_never_refund(ledger):
     assert rows[0][0] == "error" and rows[1][1] and len(rows[1][2]) == 64
 
 
+def test_explicit_cap_extension_preserves_attempts_and_blocks_stale_callers(ledger):
+    identifier = reserve(ledger)
+    ledger.record(identifier, error_code="timeout")
+    before = ledger.summary()
+    stale = BudgetLedger(ledger.path, "shared-test", "0.02")
+    ledger.extend_authorized_cap("0.04", authorization="test-operator-approval")
+    after = ledger.summary()
+    assert after["requests"] == before["requests"] == 1
+    assert after["reserved_cny"] == before["reserved_cny"]
+    assert after["cap_cny"] == "0.04" and after["window_id"] == before["window_id"]
+    with pytest.raises(ProviderError):
+        reserve(stale)
+    with sqlite3.connect(ledger.path) as c:
+        assert c.execute("SELECT authorization,old_cap_micro,new_cap_micro FROM cap_amendment").fetchall() == [
+            ("test-operator-approval", 20000, 40000)]
+        assert c.execute("SELECT id,state FROM attempt").fetchall() == [(identifier, "error")]
+
+
+@pytest.mark.parametrize("cap,authorization", [("0.01", "approval"), ("0.02", "approval"),
+                                               ("Infinity", "approval"), ("0.04", ""),
+                                               ("0.04", "raw chat or secret")])
+def test_invalid_extension_never_changes_existing_budget(ledger, cap, authorization):
+    before = ledger.summary()
+    with pytest.raises(ProviderError):
+        ledger.extend_authorized_cap(cap, authorization=authorization)
+    assert ledger.summary() == before
+
+
 def test_many_processes_share_cap_and_crashed_attempts_remain_reserved(ledger):
     code = """
 import sys
