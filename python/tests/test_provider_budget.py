@@ -316,7 +316,7 @@ def test_retry_keeps_both_reservations_and_transient_failure(monkeypatch, ledger
     asyncio.run(AlibabaBailianProvider(config(), transport).control([{'role': 'user', 'content': 'controlled'}]))
     with sqlite3.connect(ledger.path) as conn:
         rows = conn.execute('SELECT state,error_code,http_status FROM attempt ORDER BY rowid').fetchall()
-    assert rows == [('error', 'upstream_error', 503), ('success', None, 200)]
+    assert rows == [('error', 'upstream_error', 503), ('response', None, 200)]
     assert transport.calls == 2
 
 
