@@ -227,6 +227,9 @@ def test_generation_can_use_bound_facts_without_document_evidence(is_mock):
             assert "resource_id=SKU-1" in content
             assert f"is_mock={str(is_mock).lower()}" in content
             assert "observed_at=2026-10-12T00:00:00Z" in content
+            instruction = payload["messages"][0]["content"]
+            assert "180至220字" not in instruction
+            assert "get_logistics" not in instruction
             return {"structured": {"answer": "本地测试记录有7件，不保证下单库存。", "citation_ids": []}}
 
     result = asyncio.run(provider_generate_node({"query": "SKU-1 库存？", "evidence": [],
