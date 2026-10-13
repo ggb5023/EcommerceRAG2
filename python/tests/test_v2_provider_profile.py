@@ -238,14 +238,14 @@ def test_generation_can_use_bound_facts_without_document_evidence(is_mock):
     assert result["citations"] == [] and result["can_copy"] is False
 
 
-@pytest.mark.parametrize("defect", [None, "missing", "empty", "extra", "wrong_type", "long_question", "long_answer"])
+@pytest.mark.parametrize("defect", [None, "missing", "empty", "extra", "wrong_type", "long_question", "long_answer", "missing_question_type"])
 def test_clarification_workflow_renders_questions_and_rejects_missing_plan(defect):
     import asyncio
     from types import SimpleNamespace
 
     from app.graph.workflow import provider_generate_node
 
-    plan = {"object_question": "请确认需要比较的对象与问题类型？", "time_question": "需要哪一段时间的信息？",
+    plan = {"object_question": "请确认需要比较的对象？", "question_type_question": "您希望解决哪类问题？", "time_question": "需要哪一段时间的信息？",
             "location_question": "涉及哪个地区？", "source_scope_question": "查询公开来源还是店内业务？"}
     if defect == "empty":
         plan["time_question"] = "  "
@@ -255,6 +255,8 @@ def test_clarification_workflow_renders_questions_and_rejects_missing_plan(defec
         plan["location_question"] = 3
     elif defect == "long_question":
         plan["object_question"] = "对象" * 26
+    elif defect == "missing_question_type":
+        del plan["question_type_question"]
 
     class Generation:
         async def ainvoke(self, payload):
