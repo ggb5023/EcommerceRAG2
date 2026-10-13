@@ -41,7 +41,18 @@ var allowedFactTools = map[string]struct{}{
 }
 
 func requiresResourceBinding(tool string) bool {
-	return tool == "get_order_status" || tool == "get_logistics"
+	return resourceField(tool) != ""
+}
+
+func resourceField(tool string) string {
+	switch tool {
+	case "get_order_status", "get_logistics":
+		return "order_id"
+	case "get_stock", "get_price":
+		return "sku"
+	default:
+		return ""
+	}
 }
 
 func ValidateNames(names []string) error {
@@ -89,7 +100,14 @@ func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext,
 	if provider == nil {
 		return nil, ErrUnavailable
 	}
+	boundField := ""
 	for _, name := range names {
+		if field := resourceField(name); field != "" {
+			if boundField != "" && boundField != field {
+				return nil, ErrUnauthorized
+			}
+			boundField = field
+		}
 		if requiresResourceBinding(name) && (scope == nil || strings.TrimSpace(resourceID) == "") {
 			return nil, ErrUnauthorized
 		}
@@ -118,8 +136,8 @@ func Lookup(ctx context.Context, provider Provider, scope *ragv1.RequestContext,
 			return nil, fmt.Errorf("%w: fact tool returned invalid JSON: %s", ErrInvalidResponse, name)
 		}
 		if requiresResourceBinding(name) {
-			if value["order_id"] != resourceID {
-				return nil, fmt.Errorf("%w: fact tool returned a mismatched order: %s", ErrInvalidResponse, name)
+			if value[resourceField(name)] != resourceID {
+				return nil, fmt.Errorf("%w: fact tool returned a mismatched resource: %s", ErrInvalidResponse, name)
 			}
 		}
 		if _, err := time.Parse(time.RFC3339, fact.ObservedAt); err != nil {

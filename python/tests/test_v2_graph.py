@@ -71,7 +71,8 @@ def test_fact_contract_rejects_unknown_tools_and_accepts_authorized_shape():
     service = LangGraphRagService()
     facts = service._validate_facts([{
         "tool_name": "get_stock",
-        "value_json": '{"available":true}',
+        "value_json": '{"sku":"SKU-1","available":4}',
+        "resource_id": "SKU-1",
         "observed_at": "2026-10-09T00:00:00Z",
         "is_mock": True,
     }])
@@ -83,6 +84,8 @@ def test_fact_contract_rejects_unknown_tools_and_accepts_authorized_shape():
     }])
     assert bound[0]["resource_id"] == "V2-ORDER-001"
     for invalid in [
+        {"tool_name": "get_stock", "resource_id": "", "value_json": '{"sku":"SKU-1"}', "observed_at": "2026-10-12T00:00:00Z"},
+        {"tool_name": "get_price", "resource_id": "SKU-1", "value_json": '{"sku":"OTHER-SKU"}', "observed_at": "2026-10-12T00:00:00Z"},
         {"tool_name": "get_order_status", "resource_id": "", "value_json": '{"order_id":"V2-ORDER-001"}', "observed_at": "2026-10-12T00:00:00Z"},
         {"tool_name": "get_logistics", "resource_id": "V2-ORDER-001", "value_json": '{"order_id":"OTHER-ORDER"}', "observed_at": "2026-10-12T00:00:00Z"},
     ]:

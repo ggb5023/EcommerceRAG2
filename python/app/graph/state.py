@@ -38,6 +38,7 @@ class Evidence(TypedDict):
 
 class GraphState(TypedDict, total=False):
     query: str
+    history_summary: str
     rewritten_query: str
     scope: Scope
     response_purpose: str

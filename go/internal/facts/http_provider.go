@@ -110,7 +110,7 @@ func (p HTTPProvider) Lookup(ctx context.Context, tool string, scope *ragv1.Requ
 	}
 	if requiresResourceBinding(tool) {
 		var value map[string]any
-		if json.Unmarshal(payload.ValueJSON, &value) != nil || value["order_id"] != resourceID {
+		if json.Unmarshal(payload.ValueJSON, &value) != nil || value[resourceField(tool)] != resourceID {
 			return nil, ErrInvalidResponse
 		}
 	}

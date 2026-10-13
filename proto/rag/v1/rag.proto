@@ -50,7 +50,10 @@ message Fact {
   string value_json = 2;
   string observed_at = 3;
   bool is_mock = 4;
-  // Optional business resource binding, e.g. the requested order_id.
+  // Required for get_order_status/get_logistics (order_id) and
+  // get_stock/get_price (sku). Must match the corresponding value_json field.
+  // Go resolves the resource from explicit user data and checks ownership;
+  // an AI rewrite alone never authorizes a resource or a cached fact value.
   string resource_id = 5;
 }
 service RagService {
@@ -65,6 +68,8 @@ service RagService {
 message UnderstandRequest {
   RequestContext context = 1;
   string query = 2;
+  // Untrusted conversation data from Go, filtered by current permission
+  // revision. JSON messages with role/content; never an authorization grant.
   string history_summary = 3;
 }
 message UnderstandResponse {

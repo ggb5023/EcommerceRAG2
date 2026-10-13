@@ -764,23 +764,30 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
 	rows, err := g.db.Query(ctx, `SELECT m.Role, COALESCE(m.content,'')
 		FROM message m JOIN turn t ON t.tenant_id=m.tenant_id AND t.id=m.turn_id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4)
+		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND t.status IN ('DONE','ASKING') AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4 AND e.execution_no=(SELECT max(latest.execution_no) FROM conversation_execution latest WHERE latest.tenant_id=t.tenant_id AND latest.turn_id=t.id))
 		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, g.session.TenantID, conversationID, currentTurnID, g.authority().CurrentRevision())
 	if err != nil {
 		return ""
 	}
 	defer rows.Close()
-	parts := make([]string, 0, 6)
+	parts := make([]historyMessage, 0, 6)
 	for rows.Next() {
 		var role, content string
 		if rows.Scan(&role, &content) == nil && strings.TrimSpace(content) != "" {
-			parts = append(parts, role+": "+content)
+			parts = append(parts, historyMessage{Role: role, Content: content})
 		}
 	}
 	for left, right := 0, len(parts)-1; left < right; left, right = left+1, right-1 {
 		parts[left], parts[right] = parts[right], parts[left]
 	}
-	return strings.Join(parts, "\n")
+	if rows.Err() != nil {
+		return ""
+	}
+	encoded, err := json.Marshal(parts)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string, parentTurnID, parentExecutionID, executionNo int64) {
@@ -875,6 +882,10 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureAuthorized() {
 		return
 	}
+	if requestPolicyDenied(query) {
+		finish("FAILED", "permission_denied", "")
+		return
+	}
 	_ = writeEvent("status", map[string]any{"type": "status", "status": "EXECUTING", "is_mock": mockOutput})
 	base, err := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, turnID, executionID)
 	if err != nil {
@@ -911,8 +922,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 	}
 
+	history := g.historySummary(ctx, conversationID, turnID)
 	routed, err := g.rag.Understand(ctx, &ragv1.UnderstandRequest{Context: base, Query: query,
-		HistorySummary: g.historySummary(ctx, conversationID, turnID)}, grpc.WaitForReady(true))
+		HistorySummary: history}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
@@ -922,9 +934,14 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", "invalid_routing_response", "")
 		return
 	}
+	routeDocumentedWorkflow(routed, query)
 	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
+	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
 	factResourceID := ""
-	if orderToolsRequired {
+	if orderToolsRequired && productToolsRequired {
+		routed.Intent, routed.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
+		routed.RequiredFactTools = nil
+	} else if orderToolsRequired {
 		orderID, valid := routedOrderResource(routed, query)
 		if !valid {
 			routed.Intent = "clarification"
@@ -933,6 +950,14 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			routed.RequiredFactTools = nil
 		} else {
 			factResourceID = orderID
+		}
+	} else if productToolsRequired {
+		sku, valid := routedProductResource(routed, query, history)
+		if !valid {
+			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU 后再查询当前库存或价格。"
+			routed.RequiredFactTools = nil
+		} else {
+			factResourceID = sku
 		}
 	}
 	if !ensureScopeAuthorized() {
@@ -948,6 +973,17 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		return
 	}
 	for _, fact := range factResults {
+		if !ensureScopeAuthorized() {
+			return
+		}
+		valueHash := sha256.Sum256([]byte(fact.ValueJson))
+		if err := writeEvent("fact_read", map[string]any{
+			"type": "fact_read", "tool_name": fact.ToolName, "resource_id": fact.ResourceId,
+			"observed_at": fact.ObservedAt, "value_sha256": hex.EncodeToString(valueHash[:]), "is_mock": fact.IsMock,
+		}); err != nil {
+			finish("FAILED", "fact_evidence_persistence_failed", "")
+			return
+		}
 		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
 			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
 	}
@@ -1043,7 +1079,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
+	// Retrieval may use a rewrite; generation must retain the user's conditions
+	// and requested workflow, which a retrieval-oriented rewrite can omit.
+	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")

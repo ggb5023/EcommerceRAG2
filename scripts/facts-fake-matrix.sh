@@ -49,6 +49,7 @@ request_status() {
   local actual
   actual=$(curl --silent --show-error --output "$tmp/body" --write-out '%{http_code}' \
     -H 'X-Tenant-ID: v2-demo-tenant' -H 'X-User-ID: dev-user' -H 'X-Shop-ID: shop-demo' \
+    -H 'X-Fact-Resource-ID: V2-CUP-480' \
     "http://127.0.0.1:$port/v1/facts/$tool")
   [[ "$actual" == "$expected" ]] || {
     echo "FAIL facts fake $tool status=$actual expected=$expected" >&2

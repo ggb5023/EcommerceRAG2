@@ -71,9 +71,24 @@ func NewFakeHandler(version, fault string) http.Handler {
 				return
 			}
 		}
+		if tool == "get_stock" || tool == "get_price" {
+			if resourceID != "V2-CUP-480" && resourceID != "V2-CUP-750" && resourceID != "SKU-EAR-200" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		stock, price := 12, 8900
+		if resourceID == "V2-CUP-750" {
+			stock, price = 0, 10900
+		}
+		if resourceID == "SKU-EAR-200" {
+			// Independently versioned fake fact, deliberately different from
+			// the historical document snapshot. It is not merchant truth.
+			stock, price = 7, 15900
+		}
 		values := map[string]any{
-			"get_stock":        map[string]any{"sku": "V2-CUP-480", "available": 12, "as_of": "2026-10-12"},
-			"get_price":        map[string]any{"sku": "V2-CUP-480", "amount_cents": 8900, "currency": "CNY"},
+			"get_stock":        map[string]any{"sku": resourceID, "available": stock, "as_of": "2026-10-12"},
+			"get_price":        map[string]any{"sku": resourceID, "amount_cents": price, "currency": "CNY"},
 			"get_order_status": map[string]any{"order_id": resourceID, "status": "in_transit"},
 			"get_logistics":    map[string]any{"order_id": resourceID, "carrier": "fixture-express", "status": "in_transit"},
 			"compare_products": map[string]any{"left": "V2-CUP-480", "right": "V2-CUP-750", "price_delta_cents": 2000},
@@ -93,6 +108,14 @@ func NewFakeHandler(version, fault string) http.Handler {
 			}
 			if object, ok := payload["value_json"].(map[string]any); ok {
 				object["order_id"] = "OTHER-ORDER"
+			}
+		}
+		if fault == "wrong_product" {
+			payload["resource_id"] = "OTHER-SKU"
+		}
+		if fault == "wrong_product" || fault == "wrong_product_body" {
+			if object, ok := value.(map[string]any); ok {
+				object["sku"] = "OTHER-SKU"
 			}
 		}
 		if fault == "missing_fields" {

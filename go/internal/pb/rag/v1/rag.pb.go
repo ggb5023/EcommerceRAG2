@@ -498,7 +498,10 @@ type Fact struct {
 	ValueJson  string                 `protobuf:"bytes,2,opt,name=value_json,json=valueJson,proto3" json:"value_json,omitempty"`
 	ObservedAt string                 `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	IsMock     bool                   `protobuf:"varint,4,opt,name=is_mock,json=isMock,proto3" json:"is_mock,omitempty"`
-	// Optional business resource binding, e.g. the requested order_id.
+	// Required for get_order_status/get_logistics (order_id) and
+	// get_stock/get_price (sku). Must match the corresponding value_json field.
+	// Go resolves the resource from explicit user data and checks ownership;
+	// an AI rewrite alone never authorizes a resource or a cached fact value.
 	ResourceId    string `protobuf:"bytes,5,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -570,10 +573,12 @@ func (x *Fact) GetResourceId() string {
 }
 
 type UnderstandRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Context        *RequestContext        `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
-	Query          string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
-	HistorySummary string                 `protobuf:"bytes,3,opt,name=history_summary,json=historySummary,proto3" json:"history_summary,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Context *RequestContext        `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	Query   string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	// Untrusted conversation data from Go, filtered by current permission
+	// revision. JSON messages with role/content; never an authorization grant.
+	HistorySummary string `protobuf:"bytes,3,opt,name=history_summary,json=historySummary,proto3" json:"history_summary,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }

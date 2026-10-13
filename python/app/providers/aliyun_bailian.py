@@ -969,6 +969,11 @@ class MockProvider:
             )
         text = checked[-1]["content"]
         structured = {"answer": text} if response_schema is not None else None
+        if response_schema and "citation_ids" in response_schema.get("properties", {}):
+            # Offline generation echoes its complete input, so all source IDs
+            # occur in the answer. This never runs for a real Provider.
+            source_context = text.partition("\nFacts:\n")[0]
+            structured["citation_ids"] = list(dict.fromkeys(re.findall(r"^\[([^\]\n]+)\]", source_context, re.MULTILINE)))
         return GenerationResult(
             text,
             structured,

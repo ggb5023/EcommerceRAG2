@@ -57,6 +57,7 @@ class LangGraphRagService:
         *,
         query: str,
         scope: Scope,
+        history_summary: str = "",
         response_purpose: str = "internal",
         provider_chains: ProviderChainSet | None = None,
         cancel_event: Any | None = None,
@@ -68,6 +69,7 @@ class LangGraphRagService:
         selected_chains = provider_chains if provider_chains is not None else self.provider_chains
         payload: GraphState = {
             "query": query,
+            "history_summary": history_summary,
             "scope": scope,
             "response_purpose": response_purpose,
             "is_mock": selected_chains is None,
@@ -131,12 +133,13 @@ class LangGraphRagService:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
 
-    def run(self, *, query: str, scope: Scope, response_purpose: str = "internal", phase: str = "full") -> GraphState:
+    def run(self, *, query: str, scope: Scope, history_summary: str = "", response_purpose: str = "internal", phase: str = "full") -> GraphState:
         if self.provider_chains is not None:
             raise RuntimeError("provider-backed graph requires arun")
         self._validate_query(query, response_purpose, scope)
         return self._invoke({
             "query": query,
+            "history_summary": history_summary,
             "scope": scope,
             "response_purpose": response_purpose,
         }, phase)
@@ -211,9 +214,11 @@ class LangGraphRagService:
             resource_id = fact.get("resource_id", "")
             if not isinstance(resource_id, str):
                 raise PermissionError("fact resource binding is invalid")
-            if name in {"get_order_status", "get_logistics"}:
-                if not resource_id.strip() or parsed.get("order_id") != resource_id:
-                    raise PermissionError("order fact does not match its authorized resource")
+            resource_field = ("order_id" if name in {"get_order_status", "get_logistics"}
+                              else "sku" if name in {"get_stock", "get_price"} else None)
+            if resource_field:
+                if not resource_id.strip() or parsed.get(resource_field) != resource_id:
+                    raise PermissionError("fact does not match its authorized resource")
             elif resource_id:
                 raise PermissionError("non-order fact contains an unexpected resource binding")
             try:

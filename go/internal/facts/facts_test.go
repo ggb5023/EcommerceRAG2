@@ -9,8 +9,8 @@ import (
 
 type testFactProvider struct{}
 
-func (testFactProvider) Lookup(_ context.Context, name string, _ *ragv1.RequestContext, _ string) (*ragv1.Fact, error) {
-	return &ragv1.Fact{ToolName: name, ValueJson: `{"value":true}`, ObservedAt: "2026-10-09T00:00:00Z"}, nil
+func (testFactProvider) Lookup(_ context.Context, name string, _ *ragv1.RequestContext, resource string) (*ragv1.Fact, error) {
+	return &ragv1.Fact{ToolName: name, ResourceId: resource, ValueJson: `{"sku":"SKU-1","value":true}`, ObservedAt: "2026-10-09T00:00:00Z"}, nil
 }
 
 func TestLookupFactsRequiresAllowlistedUniqueTools(t *testing.T) {
@@ -21,14 +21,14 @@ func TestLookupFactsRequiresAllowlistedUniqueTools(t *testing.T) {
 	if _, err := Lookup(context.Background(), testFactProvider{}, scope, []string{"get_stock", "get_stock"}, ""); err == nil {
 		t.Fatal("duplicate fact tool was accepted")
 	}
-	facts, err := Lookup(context.Background(), testFactProvider{}, scope, []string{"get_stock", "get_price"}, "")
+	facts, err := Lookup(context.Background(), testFactProvider{}, scope, []string{"get_stock", "get_price"}, "SKU-1")
 	if err != nil || len(facts) != 2 {
 		t.Fatalf("allowlisted facts failed: facts=%#v err=%v", facts, err)
 	}
 }
 
 func TestLookupFactsDoesNotInventUnavailableResults(t *testing.T) {
-	if _, err := Lookup(context.Background(), UnavailableProvider{}, &ragv1.RequestContext{}, []string{"get_stock"}, ""); err == nil || FailureCode(err) != "fact_provider_unavailable" {
+	if _, err := Lookup(context.Background(), UnavailableProvider{}, &ragv1.RequestContext{}, []string{"get_stock"}, "SKU-1"); err == nil || FailureCode(err) != "fact_provider_unavailable" {
 		t.Fatalf("unavailable fact provider did not fail closed: %v", err)
 	}
 }

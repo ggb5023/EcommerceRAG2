@@ -137,7 +137,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         try:
             _ensure_grpc_active(context)
             service = self._provider_v2 or self._v2
-            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), response_purpose='internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='understand')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), response_purpose='internal', phase='understand')
+            result = asyncio.run(service.arun(query=query, scope=self._v2_scope(request.context), history_summary=request.history_summary, response_purpose='internal', cancel_event=_GrpcCancelEvent(context), timeout_s=_grpc_timeout(context), phase='understand')) if self._provider_v2 else service.run(query=query, scope=self._v2_scope(request.context), history_summary=request.history_summary, response_purpose='internal', phase='understand')
         except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
             _abort_v2_error(context, error)
         _ensure_grpc_active(context)
