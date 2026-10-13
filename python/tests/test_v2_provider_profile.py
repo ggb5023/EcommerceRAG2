@@ -377,7 +377,7 @@ def test_delivery_workflow_requires_and_renders_actual_capability_limit(limit):
             asyncio.run(call)
 
 
-@pytest.mark.parametrize('defect', [None, 'missing_limits', 'missing_inputs', 'wrong_type', 'oversized'])
+@pytest.mark.parametrize('defect', [None, 'missing_limits', 'missing_inputs', 'wrong_type', 'oversized', 'oversized_limits', 'multiple_limits'])
 def test_evidence_qualifications_survive_rendering_and_incomplete_output_fails_closed(defect):
     import asyncio
     from types import SimpleNamespace
@@ -395,6 +395,10 @@ def test_evidence_qualifications_survive_rendering_and_incomplete_output_fails_c
         output['evidence_limits'] = ['not a string']
     elif defect == 'oversized':
         output['next_inputs'] = '长' * 71
+    elif defect == 'oversized_limits':
+        output['evidence_limits'] = '长' * 201
+    elif defect == 'multiple_limits':
+        output['evidence_limits'] = '原文明确的条件句。' * 15
 
     class Generation:
         async def ainvoke(self, payload):
@@ -403,7 +407,7 @@ def test_evidence_qualifications_survive_rendering_and_incomplete_output_fails_c
     call = provider_generate_node({'query': '近期运输规则更新？', 'evidence': [
         {'id': 'source', 'content': '适用范围：类型、能量、包装、路线；概览不能作为任意订单运输许可。'}]},
         SimpleNamespace(generation=Generation()))
-    if defect:
+    if defect not in {None, 'multiple_limits'}:
         with pytest.raises(ValueError, match='evidence limits'):
             asyncio.run(call)
     else:

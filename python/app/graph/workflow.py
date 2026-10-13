@@ -630,7 +630,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     if needs_evidence_limits:
         schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs'],
                       properties=dict(schema['properties'],
-                          evidence_limits={'type': 'string', 'maxLength': 120},
+                          evidence_limits={'type': 'string', 'maxLength': 200},
                           next_inputs={'type': 'string', 'maxLength': 70}))
         instruction += (
             "JSON另含evidence_limits和next_inputs。answer只给直接回答或有限摘要，目标100字内；"
@@ -638,6 +638,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "不用‘等’省略枚举，不把‘对于某类需求’省成所有流程的规则，保留标注级别要求。"
             "优先这些正文句子，不能用合成、临时或非真实标签替代。确无相关限制才为空。"
             "有具体更新缺口仍照录通用适用维度，公开研究仍照录补检条件及次数，不声称已搜索。"
+            "只摘相关条件句，不复制整段；evidence_limits目标160字内，硬上限200字。"
             "next_inputs只写解除实际证据缺口所需的标识、原始记录及时间字段，目标50字内；"
             "公告须含原文日期及抓取记录，不能用模板替代；没有缺口则为空。"
             "三个字段不重复，共250字内，512 token内完整输出。"
@@ -717,7 +718,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         limits = [structured.get(key) if isinstance(structured, Mapping) else None
                   for key in ('evidence_limits', 'next_inputs')]
         if any(not isinstance(value, str) or len(value) > maximum
-               for value, maximum in zip(limits, (120, 70))):
+               for value, maximum in zip(limits, (200, 70))):
             raise ValueError('provider generation evidence limits are invalid')
         # Preserve the model's actual qualifications and requested inputs.
         # No claim is inferred from schema compliance or filled from eval truth.
