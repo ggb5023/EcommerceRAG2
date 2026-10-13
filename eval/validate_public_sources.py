@@ -67,6 +67,7 @@ SOURCE_STATUSES = {
     "pending_source_and_scope_review",
     "admitted",
     "target_not_integrated",
+    "local_integration_passed",
     "source_gap",
 }
 DOWNLOAD_STATUSES = {"not_downloaded", "downloaded", "not_applicable"}
@@ -87,6 +88,7 @@ LICENSE_STATUSES = {
     "no_source_selected",
     "verified_scope_excludes_images",
     "verified_mit_non_enterprise_content_only",
+    "verified_apache_2_0_selected_distribution",
 }
 PRIVACY_STATUSES = {
     "not_reviewed",
@@ -277,10 +279,26 @@ def validate_manifest(payload: Any) -> list[str]:
                 errors.append(f"{prefix} open_source_service must use an identity or merchant API category")
             if download_status != "not_applicable":
                 errors.append(f"{prefix} open_source_service download_status must be not_applicable")
-            if status != "target_not_integrated":
-                errors.append(f"{prefix} open_source_service status must be target_not_integrated")
+            if not isinstance(status, str) or status not in {"target_not_integrated", "local_integration_passed"}:
+                errors.append(f"{prefix} open_source_service needs an explicit local integration status")
             if sha is not None or source.get("download_date") is not None or source.get("actual_filename") is not None:
                 errors.append(f"{prefix} open_source_service cannot claim a downloaded dataset")
+            if status == "local_integration_passed":
+                artifact = source.get("service_artifact")
+                proof = source.get("local_integration_evidence")
+                if (not isinstance(artifact, dict) or not _non_empty_string(artifact.get("version"))
+                        or artifact.get("version") != revision
+                        or not isinstance(artifact.get("sha256"), str) or not SHA256.fullmatch(artifact["sha256"])
+                        or not isinstance(artifact.get("license_sha256"), str) or not SHA256.fullmatch(artifact["license_sha256"])):
+                    errors.append(f"{prefix} local integration needs pinned service artifact and license hashes")
+                if (not isinstance(proof, dict) or proof.get("status") != "PASS"
+                        or proof.get("real_service_acceptance") is not False
+                        or not isinstance(proof.get("report_sha256"), str) or not SHA256.fullmatch(proof["report_sha256"])):
+                    errors.append(f"{prefix} local integration needs bounded non-production acceptance evidence")
+                if (revision is None or source.get("original_source_terms_status") != "verified"
+                        or not str(source.get("license_status", "")).startswith("verified")
+                        or source.get("privacy_status") != "reviewed_synthetic_test_accounts_only"):
+                    errors.append(f"{prefix} local integration needs verified version, terms, license and test identities")
         elif record_type == "source_gap":
             if status != "source_gap" or download_status != "not_applicable":
                 errors.append(f"{prefix} source_gap must have source_gap status and not_applicable download_status")

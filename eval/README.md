@@ -89,9 +89,10 @@ datasets. No raw public data is checked into Git.
 
 The current source rails are deliberately distinct:
 
-- Keycloak is the target for local OIDC protocol integration with synthetic
-  test accounts only. Its selected distribution/version license still needs
-  verification; Keycloak is not currently deployed or integrated.
+- Keycloak has local synthetic-account OIDC protocol integration. Its pinned
+  distribution, Apache-2.0 license and third-party notice hashes are recorded
+  in `docker/identity/images.lock.json`; browser login and production identity
+  are not accepted by this evidence.
 - Medusa 2.21.2 is the target local REST service. The recorded MIT scope
   excludes Enterprise-only content. It is not a real merchant API, and its
   local catalog/orders are test records.
@@ -794,3 +795,21 @@ Only a passing independent gate permits the next Keycloak → Medusa → Open Fo
 Facts milestone. The allowed conclusion is “合成资料上的 V2 证据边界验收通过”;
 `real_service_acceptance=false` remains mandatory. This work introduces no
 public HTTP/SSE fields, browser API or DDL changes.
+
+
+`run_keycloak_protocol.py` validates the local Keycloak → Go → gRPC → Python
+boundary with protected synthetic accounts. It checks signed-token identity,
+Go database role/shop/revision comparisons, live logout and expiration, and
+rejection of old result replay. An explicit non-superuser authority fixture
+performs reversible synthetic identity changes only; business results are never
+written by SQL. Use `--live --accounts-file … --oidc-config … --runtime-env …
+--authority-env … --capture-dir … --report …`; default invocation only prints a
+plan. Captures remain outside Git with 0700/0600 permissions, tokens are never
+captured, and an interrupted run records NOT_PASSED with partial observations.
+Local offline-AI protocol evidence does not establish model quality, browser
+login, production identity, or `real_service_acceptance`.
+
+Open-source service rows may become `local_integration_passed` only with a
+pinned version, artifact/license hashes, reviewed synthetic accounts, and a
+passing non-production report hash. This service state is independent of
+dataset download/admission and cannot authorize public or production data.

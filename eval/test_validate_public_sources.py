@@ -92,6 +92,24 @@ def test_service_target_cannot_claim_a_dataset_download() -> None:
     assert any("open_source_service cannot claim a downloaded dataset" in error for error in errors)
 
 
+def test_service_integration_requires_distribution_and_nonproduction_evidence() -> None:
+    errors = errors_for('medusa-2.21.2-rest-local-target',
+                        lambda source: source.update(status='local_integration_passed', revision=None))
+    assert any('pinned service artifact' in error for error in errors)
+    assert any('non-production acceptance evidence' in error for error in errors)
+    assert any('verified version' in error for error in errors)
+
+
+def test_service_license_alone_cannot_claim_runtime_acceptance() -> None:
+    def mutation(source):
+        source.update(status='local_integration_passed', revision='26.8.1',
+                      original_source_terms_status='verified',
+                      license_status='verified_apache_2_0_selected_distribution',
+                      service_artifact={'version':'26.8.1','sha256':'a'*64,'license_sha256':'b'*64},
+                      local_integration_evidence={'status':'PASS','report_sha256':'c'*64,'real_service_acceptance':True})
+    assert any('non-production acceptance evidence' in error for error in errors_for('keycloak-oidc-local-target',mutation))
+
+
 def test_source_gap_cannot_be_promoted_without_a_real_source_record() -> None:
     errors = errors_for(
         "cn-official-faq-policy-source-gap",

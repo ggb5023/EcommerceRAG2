@@ -1,0 +1,16 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: [start-dev, --import-realm, --http-port=8080]
+    env_file:
+      - ${KEYCLOAK_BOOTSTRAP_ENV:?provide an owned protected bootstrap env file}
+    ports:
+      - 127.0.0.1:${KEYCLOAK_LOCAL_PORT:-18095}:8080
+    volumes:
+      - type: bind
+        source: ${KEYCLOAK_IMPORT_DIR:?provide a protected synthetic realm directory readable by container uid 1000}
+        target: /opt/keycloak/data/import
+        read_only: true
+      - keycloak-data:/opt/keycloak/data
+volumes:
+  keycloak-data:

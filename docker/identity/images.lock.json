@@ -1,0 +1,11 @@
+{
+  "keycloak": {
+    "version": "26.8.1",
+    "image": "quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244",
+    "distribution_license": "Apache-2.0",
+    "distribution_license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "third_party_notice_url": "https://github.com/keycloak/keycloak/releases/download/26.8.1/third-party-notice-keycloak.html",
+    "third_party_notice_sha256": "14c17647c43f27315d148812a0be6b97b3cc9585463588ebbe67f7282cfe661d"
+  },
+  "real_service_acceptance": false
+}

@@ -1,6 +1,6 @@
 {
   "manifest_version": "public-data-sources-v3",
-  "recorded_at": "2026-10-12",
+  "recorded_at": "2026-10-14",
   "real_service_acceptance": false,
   "download_policy": "Do not acquire raw data until source terms, license scope, language/jurisdiction, privacy and field review, pinned revision, and restricted storage are approved. A candidate or public URL is not permission to download.",
   "storage_policy": "Raw public data stays outside Git in restricted storage. Derived local test records retain source revision, input hash, and transformation version; personal/customer identifiers are removed before use.",
@@ -13,13 +13,17 @@
       "dataset": "Keycloak OIDC local integration target; use only locally created synthetic test accounts",
       "canonical_url": "https://github.com/keycloak/keycloak",
       "dataset_card_url": "https://www.keycloak.org/documentation",
-      "original_source_terms_url": "https://github.com/keycloak/keycloak/blob/main/LICENSE.txt",
-      "original_source_terms_status": "pending_direct_verification",
-      "status": "target_not_integrated",
-      "revision": null,
-      "language": ["en"],
-      "jurisdiction": ["local_development"],
-      "license_status": "pending_selected_distribution_license_verification",
+      "original_source_terms_url": "https://github.com/keycloak/keycloak/blob/26.8.1/LICENSE.txt",
+      "original_source_terms_status": "verified",
+      "status": "local_integration_passed",
+      "revision": "26.8.1",
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "local_development"
+      ],
+      "license_status": "verified_apache_2_0_selected_distribution",
       "privacy_status": "reviewed_synthetic_test_accounts_only",
       "download_status": "not_applicable",
       "download_date": null,
@@ -27,10 +31,30 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "no_dataset_acquisition; local test-account secrets remain in protected runtime configuration",
-      "allowed_use": ["local_oidc_protocol_integration_with_synthetic_test_users"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "public_person_identity_import"],
-      "notes": "Target only; no Keycloak deployment or OIDC integration is claimed. Verify the license for the exact selected distribution/version before adoption.",
-      "real_service_acceptance": false
+      "allowed_use": [
+        "local_oidc_protocol_integration_with_synthetic_test_users"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "public_person_identity_import"
+      ],
+      "notes": "Official fixed-digest Keycloak 26.8.1 distribution license and third-party notice verified. Local synthetic-account OIDC protocol acceptance covers signed tokens, Go database scopes, permission revisions, logout, expiration and identity outages. Browser login and production identity are not accepted; dataset acquisition remains not applicable.",
+      "real_service_acceptance": false,
+      "service_artifact": {
+        "version": "26.8.1",
+        "sha256": "79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "third_party_notice_sha256": "14c17647c43f27315d148812a0be6b97b3cc9585463588ebbe67f7282cfe661d"
+      },
+      "local_integration_evidence": {
+        "status": "PASS",
+        "report_sha256": "3f757028b3939ab9dcc77872df6fdc49abc82af2ed0a1b636d44121ac25835cf",
+        "real_service_acceptance": false
+      }
     },
     {
       "source_id": "medusa-2.21.2-rest-local-target",
