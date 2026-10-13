@@ -118,8 +118,14 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
     if (not isinstance(review, Mapping) or review.get('review_version') != REVIEW_VERSION
             or review.get('baseline_report_sha256') != report['report_sha256']):
         raise ValueError('review_report_binding_invalid')
-    if review.get('reviewer_kind') not in {'engineering', 'human'}:
+    if review.get('reviewer_kind') not in {'engineering', 'human', 'agent'}:
         raise ValueError('reviewer_kind_invalid')
+    if review.get('reviewer_kind') == 'agent' and (
+            review.get('review_method') != 'delegated_agent_semantic_review_v1'
+            or review.get('delegation_authorization') != 'explicit_user_instruction'
+            or review.get('review_completed') is not True or review.get('human_review_completed') is not False
+            or not isinstance(review.get('agent_attestation_sha256'), str) or len(review['agent_attestation_sha256']) != 64):
+        raise ValueError('delegated_agent_review_attestation_missing')
     if capture_dir is None:
         raise ValueError('review_capture_directory_required')
     secure_directory(capture_dir)
@@ -156,7 +162,9 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
         points = row.get('points')
         if not isinstance(points, list) or len(points) != contract['answer_points_total']:
             raise ValueError('review_point_count_mismatch')
-        evidence_ids = {c['chunk_id'] for c in captured.get('evidence', [])}
+        evidence_ids = ({c['id'] for c in captured.get('result', {}).get('evidence', [])}
+                        if captured.get('capture_version') == 'v2-http-quality-capture-v1'
+                        else {c['chunk_id'] for c in captured.get('evidence', [])})
         for index, point in enumerate(points):
             if not isinstance(point, Mapping) or point.get('point_index') != index or point.get('status') not in POINT_STATES:
                 raise ValueError('review_point_status_invalid')
@@ -179,7 +187,8 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
 
 def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir: Path | None = None,
              safety_path: Path | None = None, e2e_path: Path | None = None,
-             cases_path: Path | None = None) -> dict:
+             cases_path: Path | None = None, e2e_review_path: Path | None = None,
+             e2e_capture_dir: Path | None = None) -> dict:
     report = load_json(report_path)
     if not isinstance(report, Mapping):
         raise TypeError('report_root_not_object')
@@ -264,6 +273,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
     else:
         reasons.append('seven_case_safety_evidence_missing')
     e2e = {'status': 'NOT_RUN'}
+    http_semantic = {'status': 'NOT_RUN'}
     if e2e_path:
         e2e = load_json(e2e_path)
         if (e2e.get('report_version') != 'v2-quality-e2e-v2' or e2e.get('status') != 'PASS'
@@ -273,12 +283,62 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
                 or not e2e.get('safety_report_sha256')
                 or e2e.get('real_service_acceptance') is not False):
             reasons.append('e2e_evidence_invalid')
+        if any(r.get('status') not in {'DONE', 'ASKING'}
+               or any(r.get(check) is not True for check in ('terminal_persisted', 'successful_terminal',
+                      'sse_sequence_monotonic', 'idempotent_turn', 'refresh_matches',
+                      'sse_replay_matches', 'citation_ids_valid')) for r in e2e.get('results', [])):
+            reasons.append('e2e_execution_or_replay_failed')
+        if safety.get('evidence_kind') != 'go_http_sse':
+            reasons.append('entrypoint_safety_evidence_missing')
+        else:
+            fingerprint_keys = ('database_identity_sha256', 'runtime_identity_sha256', 'ledger_identity_sha256')
+            replay_checks = safety.get('replay_checks', [])
+            if (safety.get('e2e_report_sha256') != sha256(e2e_path)
+                    or safety.get('lifecycle_report_sha256') != e2e.get('lifecycle_report_sha256')
+                    or safety.get('real_service_acceptance') is not False
+                    or any(not isinstance(safety.get(key), str) or len(safety[key]) != 64
+                           or any(c not in '0123456789abcdef' for c in safety[key]) for key in fingerprint_keys)
+                    or type(safety.get('provider_attempt_before')) is not int
+                    or safety.get('provider_attempt_after') != safety.get('provider_attempt_before')
+                    or len(replay_checks) != 4 or any(r.get('passed') is not True for r in replay_checks)
+                    or {r.get('scenario') for r in replay_checks} != {
+                        'shop_grant_removed', 'identity_revoked', 'permission_revision_changed'}
+                    or any(r.get('request_reached_provider') is not False
+                           or r.get('provider_attempt_before') != r.get('provider_attempt_after')
+                           or any(r.get(key) is not True for key in (
+                               'restricted_evidence_absent', 'citation_ids_valid', 'evidence_customer_qualified'))
+                           or not (r.get('denied_before_turn') is True or
+                                   r.get('terminal_persisted') is True and r.get('sse_replay_valid') is True)
+                           for r in safety_rows)):
+                reasons.append('entrypoint_safety_binding_or_execution_invalid')
+        if e2e_review_path is None:
+            reasons.append('e2e_semantic_review_missing')
+        else:
+            try:
+                review = _load_review(e2e_review_path, dict(e2e, report_sha256=sha256(e2e_path),
+                                     case_results=e2e.get('results', [])), contracts, e2e_capture_dir, frozen_points)
+                ordinary = [r for r in review['rows'] if r['risk'] == 'ordinary']
+                reviewed = [r for r in review['rows'] if r['review_status'] != 'not_reviewed']
+                http_semantic = {'status': 'COMPLETE' if len(reviewed) == REQUIRED_CASES else 'INCOMPLETE',
+                                 'reviewer_kind': review['reviewer_kind'], 'reviewed_cases': len(reviewed),
+                                 'high_risk_failures': sum(r['risk'] == 'high' and r['review_status'] != 'pass' for r in review['rows']),
+                                 'ordinary_pass_rate': sum(r['review_status'] == 'pass' for r in ordinary) / len(ordinary) if ordinary else None,
+                                 'citation_validity_rate': sum(r['citation_correct'] for r in reviewed) / len(reviewed) if reviewed else None,
+                                 'security_errors': sum(r['security_error'] for r in review['rows'])}
+                if (review['reviewer_kind'] not in {'human', 'agent'} or http_semantic['status'] != 'COMPLETE'
+                        or http_semantic['high_risk_failures'] or http_semantic['security_errors']
+                        or http_semantic['ordinary_pass_rate'] is None or http_semantic['ordinary_pass_rate'] < .9
+                        or http_semantic['citation_validity_rate'] is None or http_semantic['citation_validity_rate'] < .95):
+                    reasons.append('e2e_semantic_review_not_passed')
+            except (OSError, ValueError, TypeError, KeyError):
+                reasons.append('e2e_semantic_review_invalid')
     else:
         reasons.append('v2_e2e_evidence_missing')
     return {'report_version': 'v2-quality-gate-v2', 'baseline_report_sha256': report['report_sha256'],
             'provider_identity': report.get('provider_identity', {}), 'retrieval': retrieval,
             'evidence': evidence, 'semantic': semantic, 'safety_status': safety.get('status'),
-            'e2e_status': e2e.get('status'), 'component_quality_status': 'PASS' if not component_reasons else 'NOT_PASSED',
+            'e2e_status': e2e.get('status'), 'e2e_semantic': http_semantic,
+            'component_quality_status': 'PASS' if not component_reasons else 'NOT_PASSED',
             'answer_quality_status': 'PASS' if not reasons else 'NOT_PASSED',
             'model_quality_claim': False, 'real_service_acceptance': False, 'gate_reasons': sorted(set(reasons))}
 
@@ -319,6 +379,8 @@ def main() -> int:
     parser.add_argument('--safety-report', type=Path)
     parser.add_argument('--e2e-report', type=Path)
     parser.add_argument('--cases', type=Path)
+    parser.add_argument('--e2e-review', type=Path)
+    parser.add_argument('--e2e-capture-dir', type=Path)
     parser.add_argument('--template', type=Path)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -329,7 +391,8 @@ def main() -> int:
             return 0
         result = evaluate(args.report, args.review, capture_dir=args.capture_dir,
                           safety_path=args.safety_report, e2e_path=args.e2e_report,
-                          cases_path=args.cases)
+                          cases_path=args.cases, e2e_review_path=args.e2e_review,
+                          e2e_capture_dir=args.e2e_capture_dir)
         if args.output:
             write_report(args.output, result)
         print(json.dumps(result, ensure_ascii=False))

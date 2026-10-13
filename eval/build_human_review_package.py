@@ -88,12 +88,16 @@ def _capture(capture_dir: Path, result: Mapping[str, Any]) -> tuple[dict[str, An
     return value, digest
 
 
-def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output: Path) -> dict[str, Any]:
+def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output: Path,
+                  *, reviewer_kind: str = "human") -> dict[str, Any]:
+    if reviewer_kind not in {"human", "agent"}:
+        raise ValueError("reviewer_kind_invalid")
     report = _load_json(report_path)
     cases = _load_cases(cases_path)
     if not isinstance(report, dict) or report.get("status") != "PASS":
         raise ValueError("baseline_report_not_pass")
-    rows = report.get("case_results")
+    http_report = report.get("report_version") == "v2-quality-e2e-v2"
+    rows = report.get("results" if http_report else "case_results")
     if not isinstance(rows, list) or len(rows) != REQUIRED_CASES:
         raise ValueError("baseline_case_count_invalid")
     secure_directory(capture_dir)
@@ -111,11 +115,16 @@ def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output
         seen.add(case_id)
         captured, capture_sha256 = _capture(capture_dir, result)
         case = cases[case_id]
+        if http_report and (captured.get("query_sha256") != hashlib.sha256(str(case.get("query", "")).encode()).hexdigest()
+                            or captured.get("capture_version") != "v2-http-quality-capture-v1"):
+            raise ValueError("http_capture_query_binding_invalid")
         structured = captured.get("structured")
         generated = structured.get("answer_points", []) if isinstance(structured, Mapping) else []
         if not isinstance(generated, list) or any(not isinstance(item, str) for item in generated):
             raise ValueError("generated_answer_points_invalid")
-        evidence = captured.get("evidence", [])
+        turn = captured.get("result", {}) if http_report else {}
+        evidence = ([dict(item, chunk_id=item["id"], content=item.get("snippet", ""))
+                     for item in turn.get("evidence", [])] if http_report else captured.get("evidence", []))
         if not isinstance(evidence, list):
             raise TypeError("captured_evidence_invalid")
         entry = {
@@ -147,6 +156,12 @@ def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output
                 "issue_codes": [],
             },
         }
+        if http_report:
+            entry.update(answer=turn.get("answer"), terminal_status=turn.get("status"),
+                         citations=turn.get("citations"), customer_reply=turn.get("customer_reply"),
+                         prerequisite_results=captured.get("prerequisite_results", []),
+                         fact_reads=captured.get("fact_reads", []),
+                         evidence_kind="actual_go_http_turn")
         _write_once(case_dir / f"{case_id}.json", entry)
         entries.append({
             "case_id": case_id,
@@ -164,14 +179,15 @@ def build_package(report_path: Path, cases_path: Path, capture_dir: Path, output
         "case_count": len(entries),
         "high_risk_count": sum(item["risk"] == "high" for item in entries),
         "ordinary_count": sum(item["risk"] == "ordinary" for item in entries),
-        "reviewer_kind": "human",
+        "reviewer_kind": reviewer_kind,
+        "review_completed": False,
         "human_review_completed": False,
         "real_service_acceptance": False,
         "instructions": [
             "Review each case against only the frozen expected answer points and delivered evidence.",
             "Record semantic support, omissions, contradictions, distortions, qualifiers, freshness, citations and customer-copy eligibility.",
             "Do not edit query, expected points, evidence, hashes or capture references.",
-            "The package is a review input; it is not an approval until a human sidecar is produced and validated.",
+            "The package is a review input; it is not an approval until a sidecar with the actual reviewer kind is produced and validated.",
         ],
         "entries": entries,
     }
@@ -185,13 +201,15 @@ def main() -> int:
     parser.add_argument("--cases", type=Path, required=True)
     parser.add_argument("--capture-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--reviewer-kind", choices=("human", "agent"), default="human")
     args = parser.parse_args()
     try:
-        result = build_package(args.report, args.cases, args.capture_dir, args.output)
+        result = build_package(args.report, args.cases, args.capture_dir, args.output, reviewer_kind=args.reviewer_kind)
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
         print(json.dumps({"status": "FAIL", "issues": [str(error)]}))
         return 2
-    print(json.dumps({"status": "READY_FOR_HUMAN_REVIEW", "package": str(args.output), "case_count": result["case_count"]}, ensure_ascii=False))
+    print(json.dumps({"status": "READY_FOR_HUMAN_REVIEW" if args.reviewer_kind == "human" else "READY_FOR_AGENT_REVIEW",
+                      "reviewer_kind": args.reviewer_kind, "package": str(args.output), "case_count": result["case_count"]}, ensure_ascii=False))
     return 0
 
 

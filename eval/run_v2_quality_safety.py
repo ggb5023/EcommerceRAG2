@@ -34,7 +34,7 @@ def main() -> int:
         raise SystemExit('safety partition invalid')
     with sqlite3.connect(f'file:{args.ledger}?mode=ro', uri=True) as connection:
         after = int(connection.execute('SELECT count(*) FROM attempt').fetchone()[0])
-    payload = {'report_version': 'v2-quality-safety-v1', 'status': 'PASS',
+    payload = {'report_version': 'v2-quality-safety-v1', 'status': 'PASS', 'evidence_kind': 'offline_context_audit',
                'cases_sha256': hashlib.sha256(args.cases.read_bytes()).hexdigest(),
                'audit_sha256': hashlib.sha256(args.audit.read_bytes()).hexdigest(),
                'results': [{'case_id': case_id, 'passed': True, 'provider_attempt_delta': after - args.before,

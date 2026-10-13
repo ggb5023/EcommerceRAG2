@@ -39,17 +39,33 @@ def inputs(tmp_path):
         row['points'][0].update(status='supported', support_chunk_ids=['chunk'])
     review_path = save(tmp_path / 'review.json', review)
     safety = save(tmp_path / 'safety.json', {'report_version': 'v2-quality-safety-v1', 'status': 'PASS',
+        'evidence_kind': 'go_http_sse',
+        'real_service_acceptance': False, 'lifecycle_report_sha256': 'lifecycle',
+        **dict.fromkeys(('database_identity_sha256', 'runtime_identity_sha256', 'ledger_identity_sha256'), 'a' * 64),
+        'provider_attempt_before': 10, 'provider_attempt_after': 10,
+        'replay_checks': [{'scenario': s, 'passed': True} for s in (
+            'shop_grant_removed', 'shop_grant_removed', 'identity_revoked', 'permission_revision_changed')],
         'cases_sha256': 'cases-hash', 'results': [{'case_id': f'denied-{i}', 'passed': True,
-                                               'provider_attempt_delta': 0} for i in range(7)]})
+            'provider_attempt_delta': 0, 'provider_attempt_before': 10, 'provider_attempt_after': 10,
+            'request_reached_provider': False, 'denied_before_turn': True,
+            **dict.fromkeys(('restricted_evidence_absent', 'citation_ids_valid', 'evidence_customer_qualified'), True)} for i in range(7)]})
     e2e = save(tmp_path / 'e2e.json', {'report_version': 'v2-quality-e2e-v2', 'status': 'PASS',
-        'cases_sha256': 'cases-hash', 'real_service_acceptance': False,
-        'results': [{'case_id': r['case_id']} for r in rows], 'safety_report_sha256': 'safety'})
+        'cases_sha256': 'cases-hash', 'real_service_acceptance': False, 'lifecycle_report_sha256': 'lifecycle',
+        'results': [dict(r, status='DONE', **dict.fromkeys(('terminal_persisted', 'successful_terminal',
+            'sse_sequence_monotonic', 'idempotent_turn', 'refresh_matches', 'sse_replay_matches',
+            'citation_ids_valid'), True)) for r in rows], 'safety_report_sha256': 'safety'})
+    bound_safety = MODULE.load_json(safety)
+    bound_safety['e2e_report_sha256'] = MODULE.sha256(e2e)
+    save(safety, bound_safety)
+    http_review = dict(review, reviewer_kind='human', baseline_report_sha256=MODULE.sha256(e2e))
+    save(tmp_path / 'http-review.json', http_review)
     return report, review_path, directory, safety, e2e
 
 
 def evaluate(paths):
     r, review, directory, safety, e2e = paths
-    return MODULE.evaluate(r, review, capture_dir=directory, safety_path=safety, e2e_path=e2e)
+    return MODULE.evaluate(r, review, capture_dir=directory, safety_path=safety, e2e_path=e2e,
+                           e2e_review_path=r.parent / 'http-review.json', e2e_capture_dir=directory)
 
 
 def test_rank_metrics_multiple_relevant_documents_and_duplicates():
@@ -77,6 +93,54 @@ def test_full_layered_gate_and_missing_e2e_safety(tmp_path):
     assert result['component_quality_status'] == 'PASS'
     assert result['answer_quality_status'] == 'NOT_PASSED'
     assert 'seven_case_safety_evidence_missing' in result['gate_reasons']
+
+
+def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tmp_path):
+    r, review, directory, safety, e2e = inputs(tmp_path)
+    offline = MODULE.load_json(safety)
+    offline.pop('evidence_kind')
+    save(safety, offline)
+    result = MODULE.evaluate(r, review, capture_dir=directory, safety_path=safety, e2e_path=e2e)
+    assert result['component_quality_status'] == 'PASS'
+    assert result['answer_quality_status'] == 'NOT_PASSED'
+    assert 'entrypoint_safety_evidence_missing' in result['gate_reasons']
+    assert 'e2e_semantic_review_missing' in result['gate_reasons']
+
+
+@pytest.mark.parametrize('defect', ['binding', 'replay', 'provider', 'lifecycle'])
+def test_http_safety_label_cannot_hide_missing_runtime_evidence(tmp_path, defect):
+    paths = inputs(tmp_path)
+    safety = MODULE.load_json(paths[3])
+    if defect == 'binding':
+        safety['e2e_report_sha256'] = 'different-run'
+    elif defect == 'replay':
+        safety['replay_checks'] = []
+    elif defect == 'provider':
+        safety['results'][0]['request_reached_provider'] = True
+    else:
+        safety['lifecycle_report_sha256'] = 'different-database'
+    save(paths[3], safety)
+    result = evaluate(paths)
+    assert result['answer_quality_status'] == 'NOT_PASSED'
+    assert 'entrypoint_safety_binding_or_execution_invalid' in result['gate_reasons']
+
+
+@pytest.mark.parametrize('authorized', [False, True])
+def test_delegated_review_keeps_agent_provenance_and_requires_authorization(tmp_path, authorized):
+    paths = inputs(tmp_path)
+    review_path = paths[0].parent / 'http-review.json'
+    review = MODULE.load_json(review_path)
+    review.update(reviewer_kind='agent', review_method='delegated_agent_semantic_review_v1',
+                  review_completed=True, human_review_completed=False, agent_attestation_sha256='b' * 64)
+    if authorized:
+        review['delegation_authorization'] = 'explicit_user_instruction'
+    save(review_path, review)
+    result = evaluate(paths)
+    assert result['answer_quality_status'] == ('PASS' if authorized else 'NOT_PASSED')
+    if authorized:
+        assert result['e2e_semantic']['reviewer_kind'] == 'agent'
+    else:
+        assert 'e2e_semantic_review_invalid' in result['gate_reasons']
 
 
 def test_ordinary_ninety_percent_allows_two_failures(tmp_path):
