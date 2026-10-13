@@ -381,6 +381,8 @@ remain fixed; an overlong or invalid answer fails without automatic retry.
 Successful Go facts answer the already-bound resource without asking for the
 same identifier again or mixing in uncited historical snapshot values. Logistics
 status access does not provide a delivery-promise capability, even with an order ID.
+Workflow citations must support the clarification prerequisites as well as any
+search-count policy; a retrieved topic does not identify the user's missing object.
 Document storage versions are provenance, not external standard revisions or
 publication dates. Missing source dates/versions must remain explicit gaps;
 the evaluator never repairs the frozen truth to make them pass.

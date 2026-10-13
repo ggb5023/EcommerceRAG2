@@ -263,6 +263,7 @@ def test_clarification_workflow_renders_questions_and_rejects_missing_plan(defec
             instruction = payload["messages"][0]["content"]
             assert "answer只写30至60字" in instruction
             assert "180至220字" not in instruction
+            assert "规则正文" in instruction
             value = {"answer": "确认范围后再检索，不预先保证结果。", "citation_ids": ["chunk"]}
             if defect == "long_answer":
                 value["answer"] = "说明" * 81

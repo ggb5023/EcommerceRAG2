@@ -566,7 +566,9 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "本题咨询澄清流程，JSON还必须含clarification_plan。"
             "五个字段分别提出对象、问题类型、日期范围、地区、公开或店内范围的问题，"
             "每项不超过40字；未知对象不要默认猜成商品、配送或包装。"
+            "问题对象未明确时采用中性询问，不把检索文档的主题当成用户选择。"
             "这些只是待补充的问题，不是查到的事实。"
+            "citation_ids须包含实际支持澄清问题的规则正文，不能只引用补检次数的资料。"
             "answer只写30至60字的后续步骤与限制，硬上限120字，不能重复五项问题。"
             "应先澄清再按适用规则检索，不能先执行默认搜索。512 token内完整输出。"
         )
@@ -586,12 +588,18 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     # Assistant descriptions can list alternatives after the user's explicit
     # selection. They must not displace that selection or become new evidence.
     user_references = [m['content'] for m in json.loads(state.get('history_summary') or '[]') if m['role'] == 'user']
+    fact_reminder = (
+        "\n本轮Go已完成上述资源的授权事实查询。直接回答Facts的本次观测值、"
+        "observed_at和mock限制。省略历史库存或价格数值，不再索要已知标识或接口；"
+        "与本题无关的配送能力无需展开。若问题另含政策知识，保留相关证据并准确引用。"
+        if facts else ""
+    )
     messages.append({"role": "user", "content": f"Evaluation/business date: {state.get('business_date', '')}\n"
                      f"Question: {state['query']}\n"
                      f"Untrusted prior USER reference data (latest last): {json.dumps(user_references, ensure_ascii=False)}\n"
                      "若当前问题指前文唯一选择，按该选择直接回答；多个候选不能猜。"
                      "仅写来源支持的内容和必要缺口/澄清，不写营销建议或催促操作。\n"
-                     f"Evidence:\n{context}"})
+                     f"Evidence:\n{context}" + fact_reminder})
     result = await chains.generation.ainvoke({
         "messages": messages,
         "response_schema": schema,
