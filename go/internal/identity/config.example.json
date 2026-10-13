@@ -1,0 +1,13 @@
+{
+  "issuer": "http://127.0.0.1:18095/realms/ecr-v2-test",
+  "client_id": "rag-gateway",
+  "secret_file": "/etc/ecommerce-rag/keycloak-client-secret",
+  "bindings": [
+    {
+      "subject": "replace-with-local-test-subject",
+      "tenant": "replace-with-existing-authorized-tenant",
+      "user": "replace-with-existing-authorized-user",
+      "shop": "replace-with-existing-authorized-shop"
+    }
+  ]
+}
