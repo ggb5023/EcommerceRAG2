@@ -29,6 +29,26 @@ def test_plan_parses_all_formats_without_network_and_is_reproducible(monkeypatch
     assert "content" not in report["inputs"][0]
 
 
+def test_approved_corpus_fixture_is_bound_to_37_documents():
+    corpus = runner.DEFAULT_CORPUS
+    if not corpus.exists():
+        pytest.skip("approved corpus is an external controlled input")
+    specs = runner.corpus_fixtures(corpus, "test", "v2-demo-tenant", "shop-demo")
+    assert len(specs) == 37
+    assert {item["disclosure_class"] for item in specs} == {
+        "external_allowed", "internal_only", "unclassified"
+    }
+    planned = runner.plan(specs, {
+        "control": "qwen3.8-flash", "embedding": "qwen3.7-text-embedding",
+        "rerank": "qwen3.7-text-rerank", "generation": "qwen3.7-plus",
+    })
+    assert planned["source_embedding_requests"] == 37
+    body, content_type = runner.upload_body(specs, "shop-demo", "test")
+    assert content_type.startswith("multipart/form-data; boundary=")
+    assert body.count(b"filename=") == 37
+    assert b"disclosure_class: internal_only" in body
+
+
 @pytest.mark.parametrize("base", ["http://example.com", "https://127.0.0.1", "http://user@127.0.0.1",
                                  "http://127.0.0.1/private", "http://127.0.0.1?x=1"])
 def test_paid_runner_rejects_non_local_bases(base):

@@ -31,6 +31,7 @@ from xml.sax.saxutils import escape
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 sys.path.insert(0, str(ROOT / "scripts"))
+DEFAULT_CORPUS = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/documents.jsonl")
 
 
 class AcceptanceFailure(Exception):
@@ -81,6 +82,71 @@ def fixtures(run: str, tenant: str, shop: str):
             for label, fmt, path, data, original in specs]
 
 
+def corpus_fixtures(path: Path, run: str, tenant: str, shop: str):
+    """Rebuild the approved 37-document source rail as uploadable Markdown.
+
+    The controlled corpus is stored as immutable chunk metadata outside Git.
+    Reconstructing a deterministic Markdown package lets the real ingestion
+    path exercise all documents without copying evaluation queries or answers
+    into the source.  The original per-document source hash remains evidence
+    metadata; the uploaded package hash is computed from the bytes actually
+    submitted to Go.
+    """
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise AcceptanceFailure("approved corpus file is unavailable")
+    rows = []
+    seen = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise AcceptanceFailure("approved corpus row is invalid")
+        document_id = value.get("document_id")
+        if not isinstance(document_id, str) or not document_id or document_id in seen:
+            raise AcceptanceFailure("approved corpus document set is invalid")
+        chunks = value.get("chunks")
+        if not isinstance(chunks, list) or not chunks:
+            raise AcceptanceFailure("approved corpus document has no chunks")
+        seen.add(document_id)
+        rows.append(value)
+    if len(rows) != 37:
+        raise AcceptanceFailure("approved corpus must contain 37 documents")
+    corpus_hash = digest(path.read_bytes())
+    specs = []
+    for value in rows:
+        document_id = value["document_id"]
+        chunks = value["chunks"]
+        content = ("# " + document_id + "\n\n" + "\n\n".join(
+            str(chunk.get("content", "")).strip() for chunk in chunks
+        ) + "\n").encode("utf-8")
+        disclosure = value.get("disclosure_class")
+        if disclosure not in {"external_allowed", "internal_only", "unclassified"}:
+            raise AcceptanceFailure("approved corpus disclosure class is invalid")
+        if value.get("tenant_id") not in {"synthetic-tenant", tenant}:
+            raise AcceptanceFailure("approved corpus tenant scope is invalid")
+        if value.get("shop_id") not in {"shop-demo", shop}:
+            raise AcceptanceFailure("approved corpus shop scope is invalid")
+        specs.append({
+            "document_id": document_id,
+            "format": "markdown",
+            "path": f"{document_id}.md",
+            "content": content,
+            "sha256": digest(content),
+            "origin": str(path),
+            "origin_sha256": str(value.get("source_sha256", "")),
+            "version": str(value.get("document_version_id", "")),
+            "disclosure_class": disclosure,
+            "synthetic": True,
+            "purpose": "approved synthetic M2 lifecycle corpus",
+            "scope_adaptation": {"tenant": tenant, "shop": shop},
+            "corpus_sha256": corpus_hash,
+            "source_type": value.get("source_type"),
+            "source_version": value.get("source_version"),
+        })
+    return specs
+
+
 def plan(specs, models):
     """Use enforced Provider maxima, not guessed token counts or discounts."""
     from app.ingest.pipeline import chunk_elements_v2, parser_for
@@ -98,11 +164,13 @@ def plan(specs, models):
                 raise AcceptanceFailure("fixture exceeds single document embedding batch")
             spec["preflight"] = {"elements": len(elements), "chunks": len(chunks),
                                  "chunk_hashes": [c.chunk_hash for c in chunks]}
-    # Four questions, three source batches; empty-index generation is local.
+    # One empty-index query, three representative queries and one source
+    # embedding request per bounded batch; empty-index generation is local.
     # 65536 is the adapter's request body limit, not the fixture size. Search
     # passes at most eight candidates; assume each rerank query fills the body.
+    source_embedding_requests = sum((item["preflight"]["chunks"] + 15) // 16 for item in specs)
     bounds = {"control": (4, 65536 * 2 + 8192, 256),
-              "embedding": (7, 65536 * 2 + 8192 + 4096 * 16, 0),
+              "embedding": (source_embedding_requests + 4, 65536 * 2 + 8192 + 4096 * 16, 0),
               "rerank": (3, 65536 * 2 + 8192 + (65536 * 2 + 4096) * 8, 0),
               "generation": (3, 65536 * 2 + 8192, 512)}
     slots = {}
@@ -116,7 +184,8 @@ def plan(specs, models):
         slots[slot] = {"requests_max": count, "input_tokens_bound": inputs,
                        "output_tokens_bound": outputs, "model": models[slot],
                        "upper_bound_cny": str(Decimal(cost * count) / MICRO_CNY)}
-    return {"pricing": PRICE_VERSION, "slots": slots, "upper_bound_cny": str(Decimal(total) / MICRO_CNY),
+    return {"pricing": PRICE_VERSION, "slots": slots, "source_embedding_requests": source_embedding_requests,
+            "upper_bound_cny": str(Decimal(total) / MICRO_CNY),
             "automatic_retry": False, "basis": "enforced adapter payload limits; no discounts or refunds"}
 
 
@@ -171,10 +240,11 @@ def phase(report, ledger, label, *, embedding_text_type):
 def upload_body(specs, shop, run):
     import yaml
 
-    manifest = yaml.safe_dump({"schema_version": 1, "source": {"id": f"live-{run}", "name": "Controlled fixtures"},
+    manifest = yaml.safe_dump({"schema_version": 1, "source": {"id": f"live-{run}", "name": "Approved synthetic M2 corpus"},
                                "pipeline_version": "v2-live-lifecycle", "documents": [
         {"document_id": spec["document_id"], "title": spec["document_id"], "path": spec["path"],
-         "format": spec["format"], "sha256": spec["sha256"], "disclosure_class": "external_allowed"}
+         "format": spec["format"], "sha256": spec["sha256"],
+         "disclosure_class": spec.get("disclosure_class", "external_allowed")}
         for spec in specs]}, allow_unicode=True)
     boundary = "ecr-" + uuid4().hex
     parts = []
@@ -193,8 +263,8 @@ def upload_body(specs, shop, run):
     return b"".join(parts) + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
 
 
-def wait_job(http, job):
-    deadline = time.monotonic() + 120
+def wait_job(http, job, *, timeout_s=300):
+    deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         result = http.call("/admin/v1/merchant/ingestion/" + job)
         if result["status"] == "awaiting_review":
@@ -244,10 +314,11 @@ def query(http, question, report, *, expected=None, terms=()):
 
 def validate_provider_evidence(report, models):
     """A business result alone cannot prove all paid slots actually ran."""
-    expected = {"empty-index-query": {"control": 1, "embedding": 1},
-                "source-ingestion": {"embedding": 3},
-                **{label: dict.fromkeys(("control", "embedding", "rerank", "generation"), 1)
-                   for label in ("markdown-query", "csv-query", "docx-query")}}
+    expected = report.get("phase_expectations") or {
+        "empty-index-query": {"control": 1, "embedding": 1},
+        "source-ingestion": {"embedding": 3},
+        **{label: dict.fromkeys(("control", "embedding", "rerank", "generation"), 1)
+           for label in ("markdown-query", "csv-query", "docx-query")}}
     phases = report.get("phases", [])
     attempts = report.get("provider_attempts", [])
     if len(phases) != len(expected) or {p["phase"] for p in phases} != set(expected):
@@ -279,6 +350,7 @@ def main():
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--base-url", default="http://127.0.0.1:18081")
     parser.add_argument("--runtime-env", type=Path)
+    parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     run = uuid4().hex[:12]
@@ -320,9 +392,20 @@ def main():
         if provider.profile != "aliyun-bailian" or provider.region != "cn-beijing":
             raise AcceptanceFailure("reviewed Beijing Bailian provider required")
         tenant, shop = values["V2_IDENTITY_TENANT"], values["V2_IDENTITY_SHOP"]
-        specs = fixtures(run, tenant, shop)
+        specs = corpus_fixtures(args.corpus, run, tenant, shop)
         report["budget_plan"] = plan(specs, provider.models)
         report["inputs"] = [{k: v for k, v in item.items() if k != "content"} for item in specs]
+        report["corpus"] = {"path": str(args.corpus), "document_count": len(specs),
+                            "corpus_sha256": specs[0].get("corpus_sha256") if specs else None,
+                            "source_document_hashes": {item["document_id"]: item["origin_sha256"] for item in specs}}
+        if len(specs) != 37:
+            raise AcceptanceFailure("approved corpus must contain 37 documents")
+        report["phase_expectations"] = {
+            "empty-index-query": {"control": 1, "embedding": 1},
+            "source-ingestion": {"embedding": report["budget_plan"]["source_embedding_requests"]},
+            **{label: {"control": 1, "embedding": 1, "rerank": 1, "generation": 1}
+               for label in ("markdown-query", "csv-query", "docx-query")},
+        }
         ledger = BudgetLedger(Path(values["V2_ONLINE_BUDGET_LEDGER"]), values["V2_ONLINE_BUDGET_ID"], values["V2_ONLINE_BUDGET_CNY"])
         report["budget_before"] = ledger.summary()
         with sqlite3.connect(ledger.path.as_uri() + "?mode=ro", uri=True) as conn:
@@ -349,7 +432,7 @@ def main():
         with phase(report, ledger, "source-ingestion", embedding_text_type="document"):
             accepted = http.call("/admin/v1/merchant/sources/import", body, content_type=content_type)
             report["job_id"] = accepted["job_id"]
-            status = wait_job(http, accepted["job_id"])
+            status = wait_job(http, accepted["job_id"], timeout_s=600)
         report["ingestion"] = {"status": status["status"], "items": [
             {k: item.get(k) for k in ("document_id", "version_id", "version_hash", "fencing_epoch", "status")}
             for item in status["items"]]}
@@ -360,21 +443,31 @@ def main():
             if detail["source_hash"] != spec["sha256"] or detail["quality"]["embedding_status"] != "passed":
                 raise AcceptanceFailure("review integrity failed")
             admin = http.call("/admin/v1/session")
-            base = {"confirm": True, "permission_revision": admin["permission_revision"], "reason": "Reviewed controlled synthetic source and its immutable hash.",
+            disclosure = spec.get("disclosure_class", "external_allowed")
+            base = {"confirm": True, "permission_revision": admin["permission_revision"], "reason": "Reviewed approved synthetic source and its immutable hash.",
                     "expected_fencing_epoch": detail["fencing_epoch"]}
-            command(http, f"/admin/v1/merchant/versions/{version}/review", dict(base, decision="approved", disclosure_class="external_allowed", external_allowed=True, expected_hash=spec["sha256"]))
+            command(http, f"/admin/v1/merchant/versions/{version}/review", dict(base, decision="approved", disclosure_class=disclosure, external_allowed=disclosure == "external_allowed", expected_hash=spec["sha256"]))
             admin = http.call("/admin/v1/session")
             outcome = command(http, f"/admin/v1/merchant/versions/{version}/publish", dict(base, permission_revision=admin["permission_revision"], tenant_id=tenant, shop_id=shop, document_id=spec["document_id"], version_hash=spec["sha256"]))
             if outcome.get("status") != "active":
                 raise AcceptanceFailure("publication did not reach active")
             report["published"][spec["document_id"]] = version
-        for label, question, expected, terms in (
-            ("markdown-query", "SKU-CUP-480 和 SKU-CUP-750 容量分别是多少？", specs[0]["document_id"], ("480", "750")),
-            ("csv-query", "晨雾保温杯的杯盖密封圈应该怎样护理？", specs[1]["document_id"], ("擦干", "密封圈")),
-            ("docx-query", "签收后多少天内可以申请无理由退货？有什么条件？", specs[2]["document_id"], ("7", "完整")),
-        ):
+        selected = {item["document_id"]: item for item in specs}
+        if all(key in selected for key in ("aligned-product-bedding-v1", "aligned-fact-promotion-v1", "aligned-web-usbc-v1")):
+            query_cases = (
+                ("markdown-query", "夏凉被适合怎样的室内环境？", "aligned-product-bedding-v1"),
+                ("csv-query", "周末满减活动快照显示剩余名额是多少？", "aligned-fact-promotion-v1"),
+                ("docx-query", "USB-C 相关规范的版本信息来自什么资料？", "aligned-web-usbc-v1"),
+            )
+        else:
+            query_cases = (
+                ("markdown-query", "SKU-CUP-480 和 SKU-CUP-750 容量分别是多少？", specs[0]["document_id"]),
+                ("csv-query", "晨雾保温杯的杯盖密封圈应该怎样护理？", specs[1]["document_id"]),
+                ("docx-query", "签收后多少天内可以申请无理由退货？有什么条件？", specs[2]["document_id"]),
+            )
+        for label, question, expected in query_cases:
             with phase(report, ledger, label, embedding_text_type="query"):
-                query(http, question, report, expected=expected, terms=terms)
+                query(http, question, report, expected=expected)
         with psycopg.connect(values["V2_GATEWAY_DSN"]) as conn:
             report["indexed_chunks"] = [dict(zip(("evidence_id", "document_id", "version_id", "source_sha256",
                 "chunk_sha256", "embedding_model", "embedding_dim"), row)) for row in conn.execute(

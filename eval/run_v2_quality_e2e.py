@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the frozen evaluation cases through the Go V2 HTTP entrypoint.
 
-The lifecycle runner must first publish the controlled corpus.  This driver
-only creates conversations and turns, then writes metadata-only results.  It
-never stores query text, answers, snippets, cookies, or credentials.
+The lifecycle runner must first publish the approved 37-document corpus.  This
+driver only creates conversations and turns, then writes metadata-only
+results. It never stores query text, answers, snippets, cookies, or credentials.
 """
 
 from __future__ import annotations
@@ -191,7 +191,10 @@ def main() -> int:
     try:
         lifecycle = json.loads(args.lifecycle_report.read_text(encoding="utf-8"))
         if (lifecycle.get("status") != "PASS" or lifecycle.get("real_service_acceptance") is not False
-                or lifecycle.get("report_version") != "v2-live-lifecycle-v1"):
+                or lifecycle.get("report_version") != "v2-live-lifecycle-v1"
+                or lifecycle.get("corpus", {}).get("document_count") != 37
+                or not lifecycle.get("corpus", {}).get("corpus_sha256")
+                or len(lifecycle.get("indexed_chunks", [])) == 0):
             raise E2EFailure("lifecycle_report_not_pass")
         all_cases = load_jsonl(args.cases)
         safety = json.loads(args.safety_report.read_text(encoding="utf-8"))
