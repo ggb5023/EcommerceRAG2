@@ -376,7 +376,7 @@ separate object, question-type, time, region and source-scope questions; Python 
 questions before subsequent advice. Schema validity never approves their meaning.
 Each question is bounded to 40 characters and the subsequent answer to 120;
 the workflow prompt targets 30–60 characters and does not include the ordinary
-180–220-character answer target. The generation slot and its 512-token parameter
+answer-length target. Ordinary answers have no minimum length. The generation slot and its 512-token parameter
 remain fixed; an overlong or invalid answer fails without automatic retry.
 Successful Go facts answer the already-bound resource without asking for the
 same identifier again or mixing in uncited historical snapshot values. Logistics
@@ -391,6 +391,9 @@ filled from evaluation truth. Semantic support is still reviewed independently.
 Facts and clarification workflows use focused generation instructions so unrelated
 capability metadata or the ordinary answer-length target cannot displace their
 requirements. Re-reading a fact does not prove its underlying observation is fresh.
+An actual unresolved prior reference with no user history requires a control
+clarification and zero extracted resources/tools before retrieval; workflow
+quotations and explicit resource IDs retain their respective routing.
 Document storage versions are provenance, not external standard revisions or
 publication dates. Missing source dates/versions must remain explicit gaps;
 the evaluator never repairs the frozen truth to make them pass.

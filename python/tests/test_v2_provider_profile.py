@@ -322,3 +322,29 @@ def test_generation_receives_untrusted_reference_history_without_changing_eviden
 def test_generation_history_rejects_invalid_or_oversized_input(history):
     from app.graph.service import LangGraphRagService
     with pytest.raises(ValueError): LangGraphRagService._validate_history(history)
+
+
+@pytest.mark.parametrize('query, needs_reference', [
+    ('沿用上一问的标准，哪一条最新？', True),
+    ('前面说的那个商品呢？', True),
+    ('刚才 SKU-42 当前库存？', False),
+    ('客户说前面那个，应该先澄清什么？', False),
+])
+def test_missing_reference_requires_clarification_before_retrieval(query, needs_reference):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_understand_node
+
+    class Control:
+        async def ainvoke(self, payload):
+            schema = payload['response_schema']['properties']
+            assert (schema['intent']['enum'] == ['clarification']) is needs_reference
+            if needs_reference:
+                assert schema['clarification']['minLength'] == 1
+                assert schema['entities']['maxItems'] == schema['required_fact_tools']['maxItems'] == 0
+            return {'structured': {'intent': 'clarification', 'information_source': 'knowledge',
+                'rewritten_query': query, 'entities': [], 'required_fact_tools': [],
+                'clarification': '请明确指代对象？', 'confidence': .9}}
+    result = asyncio.run(provider_understand_node({'query': query}, SimpleNamespace(control=Control())))
+    assert result['clarification'] == '请明确指代对象？'
