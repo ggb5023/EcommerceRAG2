@@ -655,6 +655,11 @@ correctness. Facts and clarification workflows retain their separate contracts.
 Review the complete applicability conditions and the trigger for any default
 workflow count. A source label or an uncertainty statement cannot substitute
 for a missing condition, and lack of proof does not establish a negative fact.
+Rule/standard questions return model-selected applicability dimensions found
+literally in the supplied source bodies. The adapter presents those dimensions
+without inventing their values or asserting that a particular rule applies.
+Unknown dimensions fail closed; complete and relevant selection still needs
+semantic review.
 
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,

@@ -384,7 +384,7 @@ def test_evidence_qualifications_survive_rendering_and_incomplete_output_fails_c
 
     from app.graph.workflow import provider_generate_node
 
-    output = {'answer': '资料只给通用运输摘要。', 'citation_ids': ['source'],
+    output = {'answer': '资料只给通用运输摘要。', 'citation_ids': ['source'], 'applicability_dimensions': [],
               'evidence_limits': '类型、能量、包装和路线均影响适用范围；不能据此承诺任意订单运输。',
               'next_inputs': '请提供发布机构、版本和生效日期齐全的原始规则。'}
     if defect == 'missing_limits':
@@ -415,3 +415,29 @@ def test_evidence_qualifications_survive_rendering_and_incomplete_output_fails_c
         assert result['answer'] == '\n\n'.join(output[k] for k in ('answer', 'evidence_limits', 'next_inputs'))
         assert result['can_copy'] is False
         assert [c['id'] for c in result['citations']] == ['source']
+
+
+@pytest.mark.parametrize('dimensions', [None, 1, ['类型', '类型'], ['长' * 21], ['未提供的条件'], ['类型', '能量', '包装', '路线']])
+def test_applicability_conditions_are_model_supplied_bounded_and_not_inferred(dimensions):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            return {'structured': {'answer': '只能说明现有规则摘要。', 'citation_ids': ['source'],
+                'evidence_limits': '缺少当前具体条文。', 'next_inputs': '',
+                'applicability_dimensions': dimensions}}
+
+    call = provider_generate_node({'query': '运输规则近期变化？', 'evidence': [
+        {'id': 'source', 'content': '条件为类型、能量、包装、路线。'}]},
+        SimpleNamespace(generation=Generation()))
+    if dimensions == ['类型', '能量', '包装', '路线']:
+        result = asyncio.run(call)
+        assert '类型、能量、包装、路线' in result['answer']
+        assert '具体值和当前适用性仍须核验' in result['answer']
+        assert result['can_copy'] is False
+    else:
+        with pytest.raises(ValueError, match='applicability'):
+            asyncio.run(call)

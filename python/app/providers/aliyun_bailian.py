@@ -1086,6 +1086,8 @@ class MockProvider:
             for key in ('evidence_limits', 'next_inputs'):
                 if key in response_schema.get('properties', {}):
                     structured[key] = ''
+            if 'applicability_dimensions' in response_schema.get('properties', {}):
+                structured['applicability_dimensions'] = []
         return GenerationResult(
             text,
             structured,

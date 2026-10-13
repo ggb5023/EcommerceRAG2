@@ -627,6 +627,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "配送承诺时效能力，即使订单信息齐全也不能保证到货时间。不重复核验步骤。"
         )
     needs_evidence_limits = bool(evidence and not facts and not needs_plan and not needs_delivery_limit)
+    needs_applicability = bool(needs_evidence_limits and re.search(r'规则|标准|运输|适用|policy|standard|transport',
+                                                                 state['query'], re.IGNORECASE))
     if needs_evidence_limits:
         schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs'],
                       properties=dict(schema['properties'],
@@ -643,6 +645,16 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "next_inputs只写解除实际证据缺口所需的标识、原始记录及时间字段，目标50字内；"
             "公告须含原文日期及抓取记录，不能用模板替代；没有缺口则为空。"
             "三个字段不重复，共250字内，512 token内完整输出。"
+        )
+    if needs_applicability:
+        schema = dict(schema, required=[*schema['required'], 'applicability_dimensions'],
+                      properties=dict(schema['properties'], applicability_dimensions={
+                          'type': 'array', 'maxItems': 8,
+                          'items': {'type': 'string', 'minLength': 1, 'maxLength': 20}}))
+        instruction += (
+            "JSON另含applicability_dimensions数组，逐项提取主题正文中决定规则适用范围的条件名称，"
+            "保留所有并列条件，不填发布元数据或泛化为‘条件等’。正文确无适用维度才为空。"
+            "这只是资料列举的核验维度，不能推断它们的具体值或当前许可。"
         )
     capability_instruction = " 只读能力元数据不是可引用来源，仅回答与本题相关的能力边界。"
     if re.search(r"配送|物流|到货|送到|deliver|logistic", state['query'], re.IGNORECASE):
@@ -725,6 +737,15 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         # Preserve the model's actual qualifications and requested inputs.
         # No claim is inferred from schema compliance or filled from eval truth.
         answer = '\n\n'.join([answer.rstrip(), *(value.strip() for value in limits if value.strip())])
+    if needs_applicability:
+        dimensions = structured.get('applicability_dimensions') if isinstance(structured, Mapping) else None
+        if (not isinstance(dimensions, list) or len(dimensions) > 8
+                or any(not isinstance(value, str) or not value.strip() or len(value) > 20 for value in dimensions)
+                or len(set(dimensions)) != len(dimensions)
+                or any(not any(value in item['content'] for item in evidence) for value in dimensions)):
+            raise ValueError('provider generation applicability dimensions are invalid')
+        if dimensions:
+            answer += '\n\n资料列出的适用核验维度：' + '、'.join(dimensions) + '；其具体值和当前适用性仍须核验。'
     citation_ids = structured.get("citation_ids") if isinstance(structured, Mapping) else None
     if (not isinstance(citation_ids, list) or any(not isinstance(identifier, str) for identifier in citation_ids)
             or len(citation_ids) != len(set(citation_ids))):
@@ -734,6 +755,9 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         raise ValueError("provider generation citation is outside supplied evidence")
     if evidence and not facts and not citation_ids:
         raise ValueError("provider generation evidence answer has no citation")
+    if needs_applicability and any(not any(value in supplied[i]['content'] for i in citation_ids)
+                                   for value in dimensions):
+        raise ValueError('provider generation applicability dimensions lack cited support')
     # Provenance is authoritative metadata, not another generated source fact.
     # Render it from precisely the cited evidence, never an invented external
     # standard revision. This also survives a model omitting the identifier.
