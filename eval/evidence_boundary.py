@@ -103,6 +103,8 @@ def captured_rows(report_path, capture_dir, contract, contract_path=DEFAULT_CONT
             or report.get('cases_sha256') != contract['bindings']['cases_sha256']
             or report.get('scenarios_sha256') != contract['bindings']['scenarios_sha256']
             or report.get('boundary_contract_sha256') != sha256(contract_path)
+            or report.get('temporal_mode') != 'historical'
+            or report.get('provider_identity', {}).get('business_date') != contract['historical_business_date']
             or report.get('real_service_acceptance') is not False):
         raise ValueError('boundary_execution_binding_invalid')
     result = {}
@@ -156,9 +158,6 @@ def make_sidecar(report_path, capture_dir, package_dir, output, original_output,
             or attestation.get('review_package_manifest_sha256') != sha256(package_dir / 'manifest.json')):
         raise ValueError('boundary_attestation_binding_invalid')
     # Independently validate every immutable original input and its honest point review.
-    original = original_sidecar(report_path, package_dir, capture_dir, DEFAULT_CASES,
-                                original_output, reviewer_kind='agent')
-    original_by_id = {r['case_id']: r for r in original['rows']}
     rows = []
     for rule in contract['cases']:
         row, cap = captures[rule['case_id']]
@@ -181,7 +180,15 @@ def make_sidecar(report_path, capture_dir, package_dir, output, original_output,
                      'review_status': review['review_status'], 'security_error': review['security_error'],
                      **{k: review[k] for k in BOUNDARY_CHECKS}, 'requirements': review['requirements'],
                      'support_chunk_ids': review['support_chunk_ids'], 'issue_codes': review['issue_codes'],
-                     'original_point_states': [p['status'] for p in original_by_id[rule['case_id']]['points']]})
+                     'original_point_states': []})
+    # Validate the boundary review before writing either immutable output.
+    if output.exists() or original_output.exists():
+        raise ValueError('output_exists')
+    original = original_sidecar(report_path, package_dir, capture_dir, DEFAULT_CASES,
+                                original_output, reviewer_kind='agent')
+    original_by_id = {r['case_id']: r for r in original['rows']}
+    for row in rows:
+        row['original_point_states'] = [p['status'] for p in original_by_id[row['case_id']]['points']]
     sidecar = {'review_version': 'v2-evidence-boundary-review-v1', 'contract_sha256': sha256(contract_path),
                'e2e_report_sha256': sha256(report_path), 'original_review_sha256': sha256(original_output),
                'reviewer_kind': 'agent', 'human_review_completed': False, 'review_completed': True,
@@ -193,10 +200,37 @@ def make_sidecar(report_path, capture_dir, package_dir, output, original_output,
 
 
 def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
-             contract_path=DEFAULT_CONTRACT):
+             contract_path=DEFAULT_CONTRACT, *, original_review_path=None, attestation_path=None,
+             manifest_path=None):
     contract = validate_contract(contract_path)
     report, captures = captured_rows(report_path, capture_dir, contract, contract_path)
     review = load(review_path)
+    if original_review_path is None or attestation_path is None or manifest_path is None:
+        raise ValueError('boundary_review_provenance_missing')
+    original, attestation, manifest = map(load, (original_review_path, attestation_path, manifest_path))
+    if (review.get('original_review_sha256') != sha256(original_review_path)
+            or review.get('agent_attestation_sha256') != sha256(attestation_path)
+            or original.get('agent_attestation_sha256') != sha256(attestation_path)
+            or original.get('review_package_manifest_sha256') != sha256(manifest_path)
+            or original.get('baseline_report_sha256') != sha256(report_path)
+            or original.get('cases_sha256') != contract['bindings']['cases_sha256']
+            or original.get('reviewer_kind') != 'agent' or original.get('human_review_completed') is not False
+            or original.get('review_completed') is not True
+            or attestation.get('attestation_version') != 'v2-agent-review-attestation-v1'
+            or attestation.get('review_method') != 'delegated_agent_semantic_review_v1'
+            or attestation.get('reviewer_kind') != 'agent' or attestation.get('human_review_completed') is not False
+            or attestation.get('review_completed') is not True
+            or attestation.get('delegation_authorization') != 'explicit_user_instruction'
+            or attestation.get('baseline_report_sha256') != sha256(report_path)
+            or attestation.get('cases_sha256') != contract['bindings']['cases_sha256']
+            or attestation.get('boundary_contract_sha256') != sha256(contract_path)
+            or attestation.get('review_package_manifest_sha256') != sha256(manifest_path)
+            or manifest.get('boundary_contract_sha256') != sha256(contract_path)
+            or attestation.get('real_service_acceptance') is not False):
+        raise ValueError('boundary_review_provenance_invalid')
+    original_by_id = {r['case_id']: r for r in original.get('rows', [])}
+    lifecycle = load(lifecycle_path)
+    indexed = {r['evidence_id']: r for r in lifecycle.get('indexed_chunks', [])}
     expected = {c['case_id']: c for c in contract['cases']}
     if (review.get('review_version') != 'v2-evidence-boundary-review-v1'
             or review.get('contract_sha256') != sha256(contract_path)
@@ -209,6 +243,8 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
             or len({r['case_id'] for r in review['rows']}) != 53
             or {r['case_id'] for r in review['rows']} != set(expected)):
         raise ValueError('boundary_review_binding_invalid')
+    if len(original.get('rows', [])) != 53 or set(original_by_id) != set(expected):
+        raise ValueError('boundary_original_review_set_invalid')
     reasons, failed, ordinary, high, applicable, valid, support_cases, delivered, security = [], [], [], [], 0, 0, 0, 0, 0
     corpus = {d['document_id']: d for d in jsonl(DEFAULT_REVISION_ROOT / 'documents.jsonl')}
     original_states = []
@@ -216,6 +252,12 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
         rule = expected[item['case_id']]
         row, cap = captures[item['case_id']]
         if (item.get('capture_sha256') != row['capture_sha256'] or item.get('risk') != rule['risk']
+                or item.get('review_status') not in {'pass', 'fail'}
+                or original_by_id[item['case_id']].get('capture_sha256') != row['capture_sha256']
+                or item.get('original_point_states') != [p['status'] for p in original_by_id[item['case_id']]['points']]
+                or len(item['original_point_states']) != len(rule['original_point_sha256'])
+                or any(p.get('expected_sha256') != h or p.get('status') not in {'supported', 'omitted', 'contradicted', 'distorted'}
+                       for p, h in zip(original_by_id[item['case_id']]['points'], rule['original_point_sha256']))
                 or set(item.get('requirements', {})) != set(rule['requirements'])
                 or any(type(v) is not bool for v in item['requirements'].values())
                 or any(type(item.get(k)) is not bool for k in (*BOUNDARY_CHECKS, 'security_error'))):
@@ -231,6 +273,12 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
             reasons.append('execution_or_replay_failed')
         result = cap['result']
         evidence = result.get('evidence', [])
+        for evidence_item in evidence:
+            indexed_item = indexed.get(evidence_item.get('id'))
+            if (indexed_item is None or indexed_item.get('document_id') != evidence_item.get('documentId')
+                    or str(indexed_item.get('version_id')) != evidence_item.get('versionId')
+                    or indexed_item.get('chunk_sha256') != digest(evidence_item.get('snippet', ''))):
+                reasons.append('delivered_evidence_lifecycle_mismatch')
         ids = {e['id'] for e in evidence}
         supports = item.get('support_chunk_ids', [])
         if not isinstance(supports, list) or len(set(supports)) != len(supports) or not set(supports).issubset(ids):
@@ -248,7 +296,7 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
                                      for e in evidence)
             delivered += all_delivered
         original_states.extend(item.get('original_point_states', []))
-    safety, lifecycle = load(safety_path), load(lifecycle_path)
+    safety = load(safety_path)
     sr = safety.get('results', [])
     if (safety.get('status') != 'PASS' or safety.get('evidence_kind') != 'go_http_sse'
             or safety.get('e2e_report_sha256') != sha256(report_path)
@@ -257,9 +305,20 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
             or safety.get('real_service_acceptance') is not False
             or len(sr) != 7 or {r.get('case_id') for r in sr} != set(contract['excluded_case_ids'])
             or any(r.get('passed') is not True or r.get('provider_attempt_before') != r.get('provider_attempt_after')
+                   or type(r.get('provider_attempt_before')) is not int or r['provider_attempt_before'] < 0
+                   or r.get('provider_attempt_delta') != 0
+                   or any(r.get(k) is not True for k in ('restricted_evidence_absent', 'citation_ids_valid', 'evidence_customer_qualified'))
+                   or not (r.get('denied_before_turn') is True or r.get('terminal_persisted') is True and r.get('sse_replay_valid') is True)
                    or r.get('request_reached_provider') is not False for r in sr)
             or len(safety.get('replay_checks', [])) != 4
-            or any(r.get('passed') is not True for r in safety['replay_checks'])
+            or any(r.get('passed') is not True or len(r.get('observations', [])) != 2
+                   or {o.get('endpoint') for o in r['observations']} != {'turn_result', 'events'}
+                   or any(o.get('http_status') != 403 or o.get('error_code') not in {'permission_changed', 'execution_permission_changed', 'identity_revoked'}
+                          for o in r['observations']) for r in safety['replay_checks'])
+            or {r.get('scenario') for r in safety['replay_checks']} != {'shop_grant_removed', 'identity_revoked', 'permission_revision_changed'}
+            or type(safety.get('provider_attempt_before')) is not int or safety['provider_attempt_before'] < 0
+            or any(not re.fullmatch(r'[0-9a-f]{64}', str(safety.get(k, '')))
+                   for k in ('database_identity_sha256', 'runtime_identity_sha256', 'ledger_identity_sha256'))
             or safety.get('provider_attempt_before') != safety.get('provider_attempt_after')):
         reasons.append('safety_evidence_invalid')
     if (lifecycle.get('status') != 'PASS' or report.get('lifecycle_report_sha256') != sha256(lifecycle_path)
@@ -290,7 +349,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['validate', 'package', 'sidecar', 'gate'])
     parser.add_argument('--contract', type=Path, default=DEFAULT_CONTRACT)
-    for name in ('report', 'capture-dir', 'package-dir', 'review', 'safety', 'lifecycle', 'output', 'original-output'):
+    for name in ('report', 'capture-dir', 'package-dir', 'review', 'safety', 'lifecycle', 'output', 'original-output', 'original-review', 'attestation', 'manifest'):
         parser.add_argument('--' + name, type=Path)
     args = parser.parse_args()
     try:
@@ -304,7 +363,8 @@ def main():
                                   args.original_output, args.contract)
             result = {'status': 'REVIEWED', 'case_count': len(result['rows'])}
         else:
-            result = evaluate(args.report, args.capture_dir, args.review, args.safety, args.lifecycle, args.contract)
+            result = evaluate(args.report, args.capture_dir, args.review, args.safety, args.lifecycle, args.contract,
+                              original_review_path=args.original_review, attestation_path=args.attestation, manifest_path=args.manifest)
             write_once(args.output, result)
         print(json.dumps(result, ensure_ascii=False))
         return int(result.get('status') == 'NOT_PASSED')
