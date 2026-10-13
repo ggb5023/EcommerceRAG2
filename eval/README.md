@@ -375,7 +375,12 @@ Clarification workflow questions require a validated `clarification_plan` with
 separate object, question-type, time, region and source-scope questions; Python renders the actual model
 questions before subsequent advice. Schema validity never approves their meaning.
 Each question is bounded to 40 characters and the subsequent answer to 120;
-the generation slot and its 512-token parameter remain fixed.
+the workflow prompt targets 30–60 characters and does not include the ordinary
+180–220-character answer target. The generation slot and its 512-token parameter
+remain fixed; an overlong or invalid answer fails without automatic retry.
+Successful Go facts answer the already-bound resource without asking for the
+same identifier again or mixing in uncited historical snapshot values. Logistics
+status access does not provide a delivery-promise capability, even with an order ID.
 Document storage versions are provenance, not external standard revisions or
 publication dates. Missing source dates/versions must remain explicit gaps;
 the evaluator never repairs the frozen truth to make them pass.
