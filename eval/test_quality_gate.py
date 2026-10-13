@@ -107,6 +107,37 @@ def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tm
     assert 'e2e_semantic_review_missing' in result['gate_reasons']
 
 
+def test_http_semantic_scores_actual_points_and_never_exports_review_notes(tmp_path):
+    paths = inputs(tmp_path)
+    review_path = paths[0].parent / 'http-review.json'
+    review = MODULE.load_json(review_path)
+    for index, state in enumerate(('omitted', 'contradicted', 'distorted')):
+        row = review['rows'][index]
+        row.update(review_status='fail', notes='private reviewer text')
+        row['points'][0].update(status=state)
+    review['rows'][25].update(review_status='fail', refusal_clarification_correct=False)
+    save(review_path, review)
+    report = MODULE.load_json(paths[0])
+    for index in (24, 25):
+        report['case_contracts'][index]['requires_refusal_or_clarification'] = True
+    save(paths[0], report)
+    component_review = MODULE.load_json(paths[1])
+    component_review['baseline_report_sha256'] = MODULE.sha256(paths[0])
+    save(paths[1], component_review)
+    result = evaluate(paths)
+    assert result['semantic']['passed_cases'] == 53
+    http = result['e2e_semantic']
+    assert http['reviewed_cases'] == 53 and http['passed_cases'] == 49
+    assert http['failed_case_ids'] == ['case-0', 'case-1', 'case-2', 'case-25']
+    assert http['high_risk_failure_case_ids'] == ['case-25']
+    assert http['answer_point_support_rate'] == 50 / 53
+    assert http['omission_rate'] == http['contradiction_rate'] == http['distortion_rate'] == 1 / 53
+    assert http['refusal_clarification_cases'] == 2
+    assert http['refusal_clarification_correct_rate'] == .5
+    assert result['answer_quality_status'] == 'NOT_PASSED'
+    assert 'private reviewer text' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('defect', ['binding', 'replay', 'provider', 'lifecycle'])
 def test_http_safety_label_cannot_hide_missing_runtime_evidence(tmp_path, defect):
     paths = inputs(tmp_path)

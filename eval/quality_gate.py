@@ -185,6 +185,32 @@ def _load_review(path: Path, report: Mapping, contracts: Mapping, capture_dir: P
     return dict(review)
 
 
+def _semantic_metrics(review: Mapping, contracts: Mapping) -> dict:
+    """Score the actual reviewed layer without copying private review text."""
+    reviewed = [row for row in review['rows'] if row['review_status'] != 'not_reviewed']
+    ordinary = [row for row in reviewed if row['risk'] == 'ordinary']
+    high_failures = [row['case_id'] for row in review['rows']
+                     if row['risk'] == 'high' and row['review_status'] != 'pass']
+    points = [point for row in reviewed for point in row['points']]
+    routing = [row for row in reviewed if contracts[row['case_id']].get('requires_refusal_or_clarification') is True]
+    return {
+        'status': 'COMPLETE' if len(reviewed) == REQUIRED_CASES else 'INCOMPLETE',
+        'reviewer_kind': review['reviewer_kind'], 'reviewed_cases': len(reviewed),
+        'passed_cases': sum(row['review_status'] == 'pass' for row in reviewed),
+        'not_reviewed_cases': REQUIRED_CASES - len(reviewed),
+        'failed_case_ids': sorted(row['case_id'] for row in reviewed if row['review_status'] == 'fail'),
+        'security_errors': sum(row['security_error'] for row in reviewed),
+        'high_risk_failures': len(high_failures), 'high_risk_failure_case_ids': sorted(high_failures),
+        'ordinary_pass_rate': sum(row['review_status'] == 'pass' for row in ordinary) / len(ordinary) if ordinary else None,
+        'citation_validity_rate': sum(row['citation_correct'] for row in reviewed) / len(reviewed) if reviewed else None,
+        'refusal_clarification_cases': len(routing),
+        'refusal_clarification_correct_rate': sum(row['refusal_clarification_correct'] for row in routing) / len(routing) if routing else None,
+        **{key: sum(point['status'] == state for point in points) / len(points) if points else None
+           for key, state in (('answer_point_support_rate', 'supported'), ('omission_rate', 'omitted'),
+                              ('contradiction_rate', 'contradicted'), ('distortion_rate', 'distorted'))},
+    }
+
+
 def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir: Path | None = None,
              safety_path: Path | None = None, e2e_path: Path | None = None,
              cases_path: Path | None = None, e2e_review_path: Path | None = None,
@@ -228,21 +254,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
         evidence = _evidence_metrics(rows, contracts)
         if review_path is not None:
             review = _load_review(review_path, report, contracts, capture_dir, frozen_points)
-            reviewed = [r for r in review['rows'] if r['review_status'] != 'not_reviewed']
-            ordinary = [r for r in reviewed if r['risk'] == 'ordinary']
-            high = [r for r in review['rows'] if r['risk'] == 'high']
-            points = [p for r in reviewed for p in r['points']]
-            semantic = {'status': 'COMPLETE' if len(reviewed) == REQUIRED_CASES else 'INCOMPLETE',
-                        'reviewer_kind': review['reviewer_kind'], 'reviewed_cases': len(reviewed),
-                        'passed_cases': sum(r['review_status'] == 'pass' for r in reviewed),
-                        'not_reviewed_cases': REQUIRED_CASES - len(reviewed),
-                        'security_errors': sum(r['security_error'] for r in reviewed),
-                        'high_risk_failures': sum(r['review_status'] != 'pass' for r in high),
-                        'ordinary_pass_rate': sum(r['review_status'] == 'pass' for r in ordinary) / len(ordinary) if ordinary else None,
-                        'citation_validity_rate': sum(r['citation_correct'] for r in reviewed) / len(reviewed) if reviewed else None,
-                        **{key: sum(p['status'] == status for p in points) / len(points) if points else None
-                           for key, status in (('answer_point_support_rate', 'supported'), ('omission_rate', 'omitted'),
-                                               ('contradiction_rate', 'contradicted'), ('distortion_rate', 'distorted'))}}
+            semantic = _semantic_metrics(review, contracts)
     except (OSError, ValueError, TypeError, KeyError) as error:
         issues.append(str(error) if isinstance(error, ValueError) else 'review_or_report_invalid')
     retrieval = {name: _rank_metrics([r for r in rows if isinstance(r, Mapping)], name + '_hit_at_5')
@@ -317,14 +329,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
             try:
                 review = _load_review(e2e_review_path, dict(e2e, report_sha256=sha256(e2e_path),
                                      case_results=e2e.get('results', [])), contracts, e2e_capture_dir, frozen_points)
-                ordinary = [r for r in review['rows'] if r['risk'] == 'ordinary']
-                reviewed = [r for r in review['rows'] if r['review_status'] != 'not_reviewed']
-                http_semantic = {'status': 'COMPLETE' if len(reviewed) == REQUIRED_CASES else 'INCOMPLETE',
-                                 'reviewer_kind': review['reviewer_kind'], 'reviewed_cases': len(reviewed),
-                                 'high_risk_failures': sum(r['risk'] == 'high' and r['review_status'] != 'pass' for r in review['rows']),
-                                 'ordinary_pass_rate': sum(r['review_status'] == 'pass' for r in ordinary) / len(ordinary) if ordinary else None,
-                                 'citation_validity_rate': sum(r['citation_correct'] for r in reviewed) / len(reviewed) if reviewed else None,
-                                 'security_errors': sum(r['security_error'] for r in review['rows'])}
+                http_semantic = _semantic_metrics(review, contracts)
                 if (review['reviewer_kind'] not in {'human', 'agent'} or http_semantic['status'] != 'COMPLETE'
                         or http_semantic['high_risk_failures'] or http_semantic['security_errors']
                         or http_semantic['ordinary_pass_rate'] is None or http_semantic['ordinary_pass_rate'] < .9
