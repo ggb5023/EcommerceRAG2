@@ -406,6 +406,11 @@ Build a separate HTTP answer review package with `build_human_review_package.py`
 using the HTTP report and capture directory. It shows actual answers, evidence,
 citations, customer reply and frozen expected points, and starts unreviewed.
 The original component review cannot approve different HTTP answer hashes.
+The HTTP batch stops after a new shared-ledger account/configuration error
+(`allocation_quota`, authentication or budget blockage). It preserves the failed
+capture and reports planned, executed and unrun cases separately; a partial
+batch cannot satisfy the 53-case gate. Historical ledger errors do not stop a
+new authorized run, and transient failures retain their ordinary diagnostics.
 For HTTP captures, `build_human_review_sidecar.py` requires completed per-case
 review fields and explicit delivered support IDs; it never assigns support
 automatically. The quality gate accepts these via `--e2e-review` and

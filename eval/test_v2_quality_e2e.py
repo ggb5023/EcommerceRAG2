@@ -137,3 +137,38 @@ def test_context_binding_rejects_foreign_or_duplicate_ids_before_connection(monk
     capture.write_text(json.dumps({'result': {'evidence': [{'id': i} for i in ids]}}))
     with pytest.raises(runner.E2EFailure, match='identity_invalid'):
         runner.read_context_bindings(tmp_path / 'runtime.env', capture)
+
+
+@pytest.mark.parametrize('code, expected_count', [('allocation_quota', 1), ('authentication', 1),
+    ('budget_blocked', 1), ('budget_exhausted', 1), ('upstream_error', 2), ('schema_error', 2)])
+def test_batch_stops_on_global_provider_failure_without_inventing_unrun_rows(monkeypatch, tmp_path, code, expected_count):
+    import sqlite3
+    ledger = tmp_path / 'ledger.sqlite'
+    with sqlite3.connect(ledger) as conn:
+        conn.execute('CREATE TABLE attempt(error_code TEXT)')
+        conn.execute("INSERT INTO attempt VALUES ('allocation_quota')")  # old failure is irrelevant
+    monkeypatch.setattr(runner, 'budget_snapshot', lambda path: {
+        'last_sequence': sqlite3.connect(path).execute('SELECT max(rowid) FROM attempt').fetchone()[0]})
+    monkeypatch.setattr(runner, 'attach_persisted_evidence', lambda *a: None)
+    calls = []
+    def execute(http, case, **kwargs):
+        calls.append(case['case_id'])
+        with sqlite3.connect(ledger) as conn:
+            conn.execute('INSERT INTO attempt VALUES (?)', (code,))
+        return {'case_id': case['case_id'], 'status': 'FAILED', 'capture_id': case['case_id'] + '.json'}
+    monkeypatch.setattr(runner, 'run_case', execute)
+    cases = [{'case_id': 'first'}, {'case_id': 'second'}]
+    rows, reason = runner.run_cases(object(), cases, scenarios={}, runtime_env=None,
+        capture_dir=None, ledger=ledger, timeout_s=1, run_id='test')
+    assert len(rows) == expected_count and calls == [c['case_id'] for c in cases[:expected_count]]
+    assert reason == (code if expected_count == 1 else None)
+    assert all(row['status'] == 'FAILED' and row['capture_id'] for row in rows)
+
+
+def test_batch_blocker_does_not_expose_arbitrary_ledger_text(tmp_path):
+    import sqlite3
+    ledger = tmp_path / 'ledger.sqlite'
+    with sqlite3.connect(ledger) as conn:
+        conn.execute('CREATE TABLE attempt(error_code TEXT)')
+        conn.execute('INSERT INTO attempt VALUES (?)', ('private response content',))
+    assert runner.blocking_provider_error(ledger, 0) is None

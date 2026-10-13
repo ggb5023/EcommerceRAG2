@@ -161,6 +161,38 @@ def budget_snapshot(path: Path) -> dict[str, int]:
     return {"attempt_count": count, "last_sequence": last}
 
 
+def blocking_provider_error(path: Path, after_sequence: int) -> str | None:
+    """Stop a batch on account/configuration failures; never emit raw responses."""
+    blocked = {'allocation_quota', 'authentication', 'budget_exhausted', 'budget_blocked'}
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
+        codes = conn.execute('SELECT error_code FROM attempt WHERE rowid>? ORDER BY rowid',
+                             (after_sequence,)).fetchall()
+    return next((code for (code,) in codes if code in blocked), None)
+
+
+def run_cases(http, cases, *, scenarios, runtime_env, capture_dir, ledger, timeout_s, run_id):
+    results = []
+    stop_reason = None
+    for case in cases:
+        sequence = budget_snapshot(ledger)['last_sequence']
+        started = time.monotonic()
+        try:
+            row = run_case(http, case, timeout_s=timeout_s, capture_dir=capture_dir,
+                           prerequisite_queries=scenarios.get(case['case_id'], []), run_id=run_id)
+        except E2EFailure as error:
+            row = {'case_id': case['case_id'], 'status': 'FAILED', 'failure_code': str(error),
+                   'terminal_persisted': False, 'successful_terminal': False}
+        attach_persisted_evidence(row, runtime_env, capture_dir)
+        row['latency_ms'] = round((time.monotonic() - started) * 1000)
+        results.append(row)
+        print(json.dumps({'case_id': row['case_id'], 'status': row['status'],
+                          'completed': len(results)}, ensure_ascii=False), flush=True)
+        stop_reason = blocking_provider_error(ledger, sequence)
+        if stop_reason:
+            break
+    return results, stop_reason
+
+
 class HTTP:
     def __init__(self, base: str):
         parsed = urllib.parse.urlsplit(base)
@@ -408,25 +440,16 @@ def main() -> int:
             raise E2EFailure("unexpected_runtime_profile")
         if args.capture_dir:
             secure_directory(args.capture_dir)
-        results = []
-        for case in cases:
-            started = time.monotonic()
-            try:
-                row = run_case(http, case, timeout_s=args.timeout_s, capture_dir=args.capture_dir,
-                               prerequisite_queries=scenarios.get(case["case_id"], []), run_id=run_id)
-            except E2EFailure as error:
-                row = {"case_id": case["case_id"], "status": "FAILED", "failure_code": str(error),
-                       "terminal_persisted": False, "successful_terminal": False}
-            attach_persisted_evidence(row, args.runtime_env, args.capture_dir)
-            row["latency_ms"] = round((time.monotonic() - started) * 1000)
-            results.append(row)
-            print(json.dumps({"case_id": results[-1]["case_id"], "status": results[-1]["status"],
-                              "completed": len(results)}, ensure_ascii=False), flush=True)
-        passed = all(case_passed(row) for row in results)
+        results, stop_reason = run_cases(http, cases, scenarios=scenarios, runtime_env=args.runtime_env,
+            capture_dir=args.capture_dir, ledger=ledger, timeout_s=args.timeout_s, run_id=run_id)
+        passed = not stop_reason and len(results) == len(cases) and all(case_passed(row) for row in results)
         payload = {
             "report_version": "v2-quality-e2e-v2",
             "status": "PASS" if passed else "NOT_PASSED",
             "case_count": len(results),
+            "planned_case_count": len(cases),
+            "unrun_case_ids": [case['case_id'] for case in cases[len(results):]],
+            "batch_stop_reason": stop_reason,
             "results": results,
             "lifecycle_report_sha256": hashlib.sha256(args.lifecycle_report.read_bytes()).hexdigest(),
             "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
