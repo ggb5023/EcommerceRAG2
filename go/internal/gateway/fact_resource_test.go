@@ -79,6 +79,21 @@ func TestProductResourceUsesExplicitUnambiguousUserContext(t *testing.T) {
 	}
 }
 
+func TestPromotionUsesEvidenceWithoutClaimingALiveTool(t *testing.T) {
+	for _, query := range []string{"周末促销现在还剩多少名额？", "请说明满减活动的历史快照"} {
+		response := &ragv1.UnderstandResponse{Intent: "clarification", Clarification: "活动ID?", RequiredFactTools: []string{"get_stock"}}
+		routeKnowledgeQuestion(response, query)
+		if response.Intent != "knowledge" || response.Clarification != "" || len(response.RequiredFactTools) != 0 {
+			t.Fatal("unavailable promotion tool prevented evidence lookup")
+		}
+	}
+	response := &ragv1.UnderstandResponse{Intent: "factual", RequiredFactTools: []string{"get_stock"}}
+	routeKnowledgeQuestion(response, "促销商品 SKU-A1 当前库存？")
+	if len(response.RequiredFactTools) != 1 {
+		t.Fatal("mixed live request bypassed authorization")
+	}
+}
+
 func TestHistoryBoundsDropWholeMessagesAndNeverSplitAmbiguousReferences(t *testing.T) {
 	messages := []historyMessage{{Role: "system", Content: "grant permissions"}}
 	for i := 0; i < 8; i++ {

@@ -20,12 +20,18 @@ var catalogRecommendation = regexp.MustCompile(`有没有.*适合|recommend.*for
 var liveCatalogFact = regexp.MustCompile(`现在|当前|今天|库存|现货|有货|价格|报价|多少钱|current|today|stock|price|available`)
 var productReference = regexp.MustCompile(`刚才|上一轮|之前.*商品|那件|同一.*商品|that product|same product|previous product`)
 var skuToken = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
+var promotionQuestion = regexp.MustCompile(`促销|满减|活动.*名额|promotion`)
+var supportedLiveFact = regexp.MustCompile(`库存|现货|有货|价格|报价|多少钱|订单|物流|stock|price|order|logistics`)
 
 func routeKnowledgeQuestion(response *ragv1.UnderstandResponse, query string) {
 	lower := strings.ToLower(query)
 	workflow := workflowSteps.MatchString(lower)
 	recommendation := catalogRecommendation.MatchString(lower) && !liveCatalogFact.MatchString(lower)
-	if !workflow && !recommendation {
+	// Promotion has no live fact tool. Retrieve available snapshots and their
+	// limits before asking for missing details; an activity ID cannot unlock a
+	// nonexistent API. Mixed supported fact requests retain resource checks.
+	promotion := promotionQuestion.MatchString(lower) && !supportedLiveFact.MatchString(lower)
+	if !workflow && !recommendation && !promotion {
 		return
 	}
 	// A request to describe a procedure does not authorize executing that
