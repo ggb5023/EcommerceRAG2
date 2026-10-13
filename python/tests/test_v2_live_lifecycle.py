@@ -47,6 +47,10 @@ def test_approved_corpus_fixture_is_bound_to_37_documents():
     assert content_type.startswith("multipart/form-data; boundary=")
     assert body.count(b"filename=") == 37
     assert b"disclosure_class: internal_only" in body
+    assert all(item["effective_from"] == "2026-01-01" for item in specs)
+    assert b"effective_to: '2026-08-01'" in body
+    revoked = next(s for s in specs if s["document_id"] == "aligned-version-revoked-v1")
+    assert revoked["effective_to"] == "2026-08-01"
 
 
 @pytest.mark.parametrize("base", ["http://example.com", "https://127.0.0.1", "http://user@127.0.0.1",

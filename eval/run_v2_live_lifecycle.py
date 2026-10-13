@@ -128,6 +128,10 @@ def corpus_fixtures(path: Path, run: str, tenant: str, shop: str):
             raise AcceptanceFailure("approved corpus tenant scope is invalid")
         if value.get("shop_id") not in {"shop-demo", shop}:
             raise AcceptanceFailure("approved corpus shop scope is invalid")
+        if any(any(chunk.get(key) != value.get(key) for key in (
+                "tenant_id", "shop_id", "disclosure_class", "effective_from", "effective_to"))
+               for chunk in chunks):
+            raise AcceptanceFailure("approved corpus chunk scope or dates differ from document")
         specs.append({
             "document_id": document_id,
             "format": "markdown",
@@ -144,6 +148,8 @@ def corpus_fixtures(path: Path, run: str, tenant: str, shop: str):
             "corpus_sha256": corpus_hash,
             "source_type": value.get("source_type"),
             "source_version": value.get("source_version"),
+            "effective_from": value.get("effective_from"),
+            "effective_to": value.get("effective_to"),
         })
     return specs
 
@@ -159,7 +165,8 @@ def plan(specs, models):
             path.write_bytes(spec["content"])
             elements = parser_for(spec["format"]).parse(path, document_id=spec["document_id"],
                 version_id="preflight", metadata={"tenant_id": spec["scope_adaptation"]["tenant"],
-                    "shop_id": spec["scope_adaptation"]["shop"], "disclosure_class": "external_allowed"})
+                    "shop_id": spec["scope_adaptation"]["shop"], "disclosure_class": spec["disclosure_class"],
+                    "effective_from": spec.get("effective_from"), "effective_to": spec.get("effective_to")})
             chunks = chunk_elements_v2(elements, max_chars=700)
             if not 1 <= len(chunks) <= 16 or any(len(c.content.encode()) > 8192 for c in chunks):
                 raise AcceptanceFailure("fixture exceeds single document embedding batch")
@@ -245,7 +252,8 @@ def upload_body(specs, shop, run):
                                "pipeline_version": "v2-live-lifecycle", "documents": [
         {"document_id": spec["document_id"], "title": spec["document_id"], "path": spec["path"],
          "format": spec["format"], "sha256": spec["sha256"],
-         "disclosure_class": spec.get("disclosure_class", "external_allowed")}
+         "disclosure_class": spec.get("disclosure_class", "external_allowed"),
+         "effective_from": spec.get("effective_from"), "effective_to": spec.get("effective_to")}
         for spec in specs]}, allow_unicode=True)
     boundary = "ecr-" + uuid4().hex
     parts = []
@@ -331,8 +339,8 @@ def review_and_publish(http, specs, status, report, tenant, shop):
 def resumed_report(path, specs, database):
     """Resume only the completed ingestion phase of the same frozen corpus."""
     previous = json.loads(path.read_bytes())
-    expected = {s["document_id"]: (s["sha256"], s["disclosure_class"]) for s in specs}
-    actual = {s["document_id"]: (s["sha256"], s["disclosure_class"])
+    expected = {s["document_id"]: (s["sha256"], s["disclosure_class"], s.get("effective_from"), s.get("effective_to")) for s in specs}
+    actual = {s["document_id"]: (s["sha256"], s["disclosure_class"], s.get("effective_from"), s.get("effective_to"))
               for s in previous.get("inputs", [])}
     if (previous.get("status") != "FAIL" or previous.get("report_version") != "v2-live-lifecycle-v1"
             or previous.get("profile") != "v2_langchain_bailian"
@@ -581,10 +589,15 @@ def main():
             report["publication_counts"] = {"published": len(report["published"]),
                                              "withheld": len(report["withheld"])}
             report["indexed_chunks"] = [dict(zip(("evidence_id", "document_id", "version_id", "source_sha256",
-                "chunk_sha256", "embedding_model", "embedding_dim"), row)) for row in conn.execute(
-                "SELECT 'db-chunk-'||c.id,d.logical_key,c.version_id::text,v.source_hash,c.chunk_hash,c.embedding_model,c.embedding_dim "
+                "chunk_sha256", "embedding_model", "embedding_dim", "effective_from", "effective_to"), row)) for row in conn.execute(
+                "SELECT 'db-chunk-'||c.id,d.logical_key,c.version_id::text,v.source_hash,c.chunk_hash,c.embedding_model,c.embedding_dim,"
+                "c.effective_from::text,c.effective_to::text "
                 "FROM chunk c JOIN document d ON d.id=c.doc_id AND d.tenant_id=c.tenant_id "
                 "JOIN document_version v ON v.id=c.version_id AND v.tenant_id=c.tenant_id ORDER BY c.id")]
+            for chunk in report["indexed_chunks"]:
+                spec = selected[chunk["document_id"]]
+                if any(chunk[key] != spec.get(key) for key in ("effective_from", "effective_to")):
+                    raise AcceptanceFailure("indexed source effective dates changed")
         report["status"] = "PASS"
     except Exception as error:  # noqa: BLE001 - persist fixed diagnostics for every failed acceptance
         report["failure"] = str(error) if isinstance(error, AcceptanceFailure) else type(error).__name__
