@@ -201,6 +201,7 @@ class PostgresRetriever:
             "AND d.logical_key = ANY(%s::text[]) "
             "AND d.active_version_id = v.id AND d.status = 'active' AND v.status = 'active' "
             "AND v.review_status = 'approved' "
+            "AND c.content_type <> 'heading' AND length(btrim(c.content)) > 0 "
             + disclosure_sql + date_sql,
             disclosure_params + date_params,
         )
@@ -312,3 +313,20 @@ class PostgresRetriever:
     async def asearch(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Run blocking psycopg I/O outside the event loop used by gRPC."""
         return await asyncio.to_thread(self.search, **kwargs)
+
+    async def arecord_trace(self, scope: Mapping[str, Any], candidates: Sequence[Mapping],
+                            evidence: Sequence[Mapping]) -> None:
+        """AI-owned metadata only; never store prompts, text or credentials."""
+        tenant = str(scope.get("tenant_db_id", ""))
+        request_id = str(scope.get("request_id", ""))
+        if not tenant.isdigit() or not request_id:
+            raise ValueError("retrieval trace identity is missing")
+        def write():
+            with self._connect(self._conn_string) as conn:
+                for stage, items in (("v2_candidates", candidates), ("v2_rerank", evidence)):
+                    rows = [{"id": e["id"], "document_id": e["document_id"], "version_id": e["version_id"],
+                             "rank": i, "raw_score": e.get("raw_score"), "rrf_score": e.get("rrf_score"),
+                             "rerank_score": e.get("rerank_score")} for i, e in enumerate(items, 1)]
+                    conn.execute("INSERT INTO retrieval_trace(tenant_id,request_id,stage,candidates_json) "
+                                 "VALUES(%s,%s,%s,%s::jsonb)", (tenant, request_id, stage, json.dumps(rows)))
+        await asyncio.to_thread(write)

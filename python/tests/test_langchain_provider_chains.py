@@ -191,6 +191,7 @@ def test_provider_graph_uses_persistent_retriever_without_fixture_candidates():
         assert result["trace"]["retrieval"]["retrieval"]["retrieval_mode"] == "pgvector_trigram_rrf"
         assert len(retriever.calls) == 1
         assert retriever.calls[0]["scope"]["allowed_document_ids"] == ["persist-doc"]
+        assert retriever.calls[0]["limit"] == 20
 
     asyncio.run(run())
 

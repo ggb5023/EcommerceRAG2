@@ -144,3 +144,20 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
             cursor.execute("DELETE FROM document WHERE id=%s", (document_id,))
             cursor.execute("DELETE FROM source WHERE id=%s", (source_id,))
             cleanup.commit()
+
+
+def test_trace_contains_only_ranked_ids_and_scores_not_source_content():
+    import asyncio
+    import json
+    calls = []
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def execute(self, query, params): calls.append((query, params))
+    retriever = PostgresRetriever('test connection', connect=lambda _: Connection())
+    item = {'id': 'chunk', 'document_id': 'doc', 'version_id': 'version', 'content': 'restricted body',
+            'source_ref': 'restricted origin', 'raw_score': .2, 'rrf_score': .03, 'rerank_score': .8}
+    asyncio.run(retriever.arecord_trace({'tenant_db_id': '1', 'request_id': 'request'}, [item], [item]))
+    assert len(calls) == 2
+    assert 'restricted' not in str(calls)
+    assert json.loads(calls[1][1][-1])[0]['rerank_score'] == .8

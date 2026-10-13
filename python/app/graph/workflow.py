@@ -217,7 +217,7 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
             scope=state["scope"],
             response_purpose=state.get("response_purpose", "internal"),
             business_date=state.get("business_date"),
-            limit=8,
+            limit=20,
         )
         return {
             "candidates": retrieved,

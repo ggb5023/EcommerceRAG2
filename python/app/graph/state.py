@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 
 
 class Scope(TypedDict, total=False):
+    request_id: str
     tenant_id: str
     tenant_db_id: str
     user_id: str

@@ -109,6 +109,16 @@ def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
             "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}, Path(values["V2_ONLINE_BUDGET_LEDGER"])
 
 
+def read_retrieval_trace(runtime_env: Path, request_id: str) -> list[dict]:
+    import psycopg
+    from v2_services import load_values
+    values = load_values(runtime_env)
+    with psycopg.connect(values["V2_AI_DSN"], connect_timeout=5) as conn:
+        rows = conn.execute("SELECT stage,candidates_json FROM retrieval_trace WHERE request_id=%s "
+                            "AND stage IN ('v2_candidates','v2_rerank') ORDER BY id", (request_id,)).fetchall()
+    return [{"stage": stage, "items": items} for stage, items in rows]
+
+
 def budget_snapshot(path: Path) -> dict[str, int]:
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
         count, last = conn.execute("SELECT count(*),coalesce(max(rowid),0) FROM attempt").fetchone()
@@ -366,6 +376,8 @@ def main() -> int:
             except E2EFailure as error:
                 row = {"case_id": case["case_id"], "status": "FAILED", "failure_code": str(error),
                        "terminal_persisted": False, "successful_terminal": False}
+            if row.get("request_id"):
+                row["retrieval_stages"] = read_retrieval_trace(args.runtime_env, row["request_id"])
             row["latency_ms"] = round((time.monotonic() - started) * 1000)
             results.append(row)
             print(json.dumps({"case_id": results[-1]["case_id"], "status": results[-1]["status"],
