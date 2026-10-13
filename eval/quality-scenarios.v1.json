@@ -3,10 +3,24 @@
   "cases_sha256": "9653bb00a8da6b38d54a4bba7d666b72f51fb8a5283b084985f0d65e5afa90df",
   "scenarios": [
     {
+      "case_id": "syn-007",
+      "query_sha256": "b575b4b3eca89159cd440ce76e7bb2a894acc7455c30baf1fd93c7475817244c",
+      "prerequisite_queries": [
+        "我选晴野蓝色收纳箱低款 LB，请介绍其规格。"
+      ]
+    },
+    {
       "case_id": "syn-019",
       "query_sha256": "4aa43d21759925c84816d7672e47799a976942c873cd0b92252a2fd9aafdf392",
       "prerequisite_queries": [
         "请介绍蓝牙耳机 SKU-EAR-200 的库存历史快照及其适用限制。"
+      ]
+    },
+    {
+      "case_id": "syn-031",
+      "query_sha256": "d65827daf32e0517b34d5539b6569f2bd2b0d067c2d5b8c15c54668aa7417db3",
+      "prerequisite_queries": [
+        "请说明 USB-C 标准资料中的版本与发布日期限制。"
       ]
     }
   ]

@@ -1,0 +1,1709 @@
+{
+  "contract_version": "v2-evidence-boundary-contract-v1",
+  "status": "FROZEN",
+  "real_service_acceptance": false,
+  "historical_business_date": "2026-09-29",
+  "bindings": {
+    "cases_sha256": "9653bb00a8da6b38d54a4bba7d666b72f51fb8a5283b084985f0d65e5afa90df",
+    "corpus_sha256": "0895c125e9b3a2cb1631f1fef7072b22cd0a92c1bc3d8a73f85640010f251abf",
+    "alignment_sha256": "179e17a7f21033a695b243a9f782115b5e2afc631d70328538080f4c30468187",
+    "evidence_review_sha256": "16a131c291f47c8ece86f35ee7718ee1f7a86a95d2a6d8e75b4dc1e1c18b023e",
+    "scenarios_sha256": "ee1f9cf1f07503f658781e3ddd112fbe5eefe993ee0e1581e358510faa26c495"
+  },
+  "excluded_case_ids": [
+    "syn-049",
+    "syn-050",
+    "syn-055",
+    "syn-056",
+    "syn-057",
+    "syn-059",
+    "syn-060"
+  ],
+  "thresholds": {
+    "security_errors": 0,
+    "high_risk_pass_rate": 1.0,
+    "ordinary_pass_rate": 0.9,
+    "support_delivery_rate": 0.95,
+    "citation_validity_rate": 0.95
+  },
+  "cases": [
+    {
+      "case_id": "syn-001",
+      "case_sha256": "e9199707531a09e810b561e4552053ca9b50a2c3aa90479bbc783b017e92634f",
+      "query_sha256": "f7ac6f6b079d814249af0ccc27cc9d805acf6afeea9e45250140329173d6a2b6",
+      "original_point_sha256": [
+        "d5e7cb1e2e0b89641ebaa8bc313fda0a16e31083b6b7adace970e93b555eff85"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-bedding-v1",
+          "source_version_id": "v-55b12eef6fe7ada9",
+          "chunk_id": "chunk-2c2a198026195eb2ae4a",
+          "content_sha256": "2e6869da34f90a78512d407954e98b55bbfdf6ae83b755582bc44e1279ef7312"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-002",
+      "case_sha256": "357e467246f7b9540f33c34a4ef7f2ac3e8e5a29f1e28b4074ff6f1a7e5396d5",
+      "query_sha256": "f9e3c743e18e5c840ba33514b028328f5f46408c3a8bc9ad6a11ce81e0b67a6e",
+      "original_point_sha256": [
+        "510a4a7bf0f78e881ea2605377bd60cdbe6e53edb4e687e3848dc67030a99233"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-21792c56b651c2d16d9f",
+          "content_sha256": "69d77382ebe718e66ba20f4fd4eb385c7b5a7f30bff062900b7fa2bbd773d65d"
+        },
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-cb947ba4030f018c5a3c",
+          "content_sha256": "4f6912fea432ab854ec744370c6ecf2f4b3429ba5372fba9aec922e58df1fe4f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-003",
+      "case_sha256": "fded8135e34eb40e166fbae221fcc370052a5d38c2651bccc39e6870a6dff2bc",
+      "query_sha256": "97cd00b0c2a03a1fbc2e953bef491a71bb26c70fc7ea3143d560c2d4b257bfc8",
+      "original_point_sha256": [
+        "88438c3ba2569f1403a2b84af6f74713a2c9f4f01cfe8b30827c493099e6a287"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-bottle-v1",
+          "source_version_id": "v-63b0c21ebed435aa",
+          "chunk_id": "chunk-3a77efbb25a41c53b407",
+          "content_sha256": "83d2b3c9d061828cac5a6d1efdcb8b1f84a0ee3a9b0c96a8ffa7f592474caf61"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-004",
+      "case_sha256": "e0fe243694b351dc29280a6cc09537d24879fb20b8de54c844f339bc0f4d8f63",
+      "query_sha256": "22f035a1773691f26edf6b1109375368070707bc07bc1d88c6b983900d45ec0c",
+      "original_point_sha256": [
+        "04308bd4fc1dc3de1c15b9f717c57007702f46f5f38664ae53ed435579bf75b0"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-sunwear-v1",
+          "source_version_id": "v-32e5a61825a5e602",
+          "chunk_id": "chunk-dac4749c9ea87169feb7",
+          "content_sha256": "654e803dd6f7157f9634ad8dd052c7f4dfd2a528ab008d88a02ea235e6d4b7ac"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-005",
+      "case_sha256": "5722cda2967b4c0b2465298acad9a10975cad8f18d8b8ee4f1758086574a3ee6",
+      "query_sha256": "81d2efea4a15862304ebdbc70887d0e9bea8074e4f1923c1a0eb44fbd3f5c661",
+      "original_point_sha256": [
+        "898cb1444d7c38f8320e69510c7ad744267d442f75b60fed4801a5d01b4d8686"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-plate-v1",
+          "source_version_id": "v-16bf77535f1c7c01",
+          "chunk_id": "chunk-89b0b5dccee6af1f3319",
+          "content_sha256": "7c61205cef01af41a87ac6debca85d9fa7601f5725630c7cec3394f6e3cec0c1"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-006",
+      "case_sha256": "f77a093b4b72e565d82efa817030db380a5411e5d6248f60cef9dcd17a5663e0",
+      "query_sha256": "a31456aa92fb8de5119d096c83252c72b8b5d9464fa310a98b7bb7f32e85e3a1",
+      "original_point_sha256": [
+        "d8040e41e4322809735bc15d266896b6747818bb0d36246b812df25318125d94"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-21792c56b651c2d16d9f",
+          "content_sha256": "69d77382ebe718e66ba20f4fd4eb385c7b5a7f30bff062900b7fa2bbd773d65d"
+        },
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-cb947ba4030f018c5a3c",
+          "content_sha256": "4f6912fea432ab854ec744370c6ecf2f4b3429ba5372fba9aec922e58df1fe4f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-007",
+      "case_sha256": "41b059e4044d9c1d8013f5fa0bab1e044553d9f9153c38b07b46cd97e711bc02",
+      "query_sha256": "b575b4b3eca89159cd440ce76e7bb2a894acc7455c30baf1fd93c7475817244c",
+      "original_point_sha256": [
+        "6fad5336ebabf5009a047ef95c2f8287bc20858fac8048bd5471f09c310a9226"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "resolve_explicit_user_variant",
+        "preserve_dimensions_and_units"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-storage-v1",
+          "source_version_id": "v-97b1e8f3f3dca433",
+          "chunk_id": "chunk-70f64c46ae5d02fce2d9",
+          "content_sha256": "43d24a52189a696316253ae7d1c300e3e4f5d21dc749ef576c4a0a71cbada796"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "5c2bad8c41e97e9c18ce6429f81fdb4b7fc2ec82fa00e28906456714301bc1d0"
+    },
+    {
+      "case_id": "syn-008",
+      "case_sha256": "02b08c5eba81a75d81eee79e075955d84220c13e37ae0c9958c6d3f8a4c82361",
+      "query_sha256": "acd1c4a9869243536bb4f2ec7b3674243749c16d528105eecf9b6033d14c62e6",
+      "original_point_sha256": [
+        "43cdcb463e99595970638d068621b47a9e8a372b1abc75049c7c3dccfdfdb261"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-umbrella-v1",
+          "source_version_id": "v-e7e22b7a7b4b1b50",
+          "chunk_id": "chunk-4432c086d960ae3288d2",
+          "content_sha256": "25c645d498a8d992a7b8b84a6bbf84210b0ff595c420037159b47c75986158e9"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-009",
+      "case_sha256": "67a3172fc949f729ec46fad646d8327793cad36ff5424411d8f06ff7673b2e10",
+      "query_sha256": "7a4c3e0d2a6ec0fc81aeb17167ca728cf66679192650cfa5bfdcdcba4d15e702",
+      "original_point_sha256": [
+        "728e34527e31dd14153b50121b97f6bd6ec767c4706eba5b357a6b9521e89c16"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-21792c56b651c2d16d9f",
+          "content_sha256": "69d77382ebe718e66ba20f4fd4eb385c7b5a7f30bff062900b7fa2bbd773d65d"
+        },
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-cb947ba4030f018c5a3c",
+          "content_sha256": "4f6912fea432ab854ec744370c6ecf2f4b3429ba5372fba9aec922e58df1fe4f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-010",
+      "case_sha256": "29ca3dda280252f7a1125a6cb190051c364e69c286f63c526e331cb9160dd4d5",
+      "query_sha256": "142f432891c66a9a290a84a3f86fcb89d4460d4ccf625fc08442551c50d85aaa",
+      "original_point_sha256": [
+        "a9923f4484b6e77f0033138626863aa43f08bc101d9c0503646d6be6f9fbbc0f"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-rack-v1",
+          "source_version_id": "v-edddb0fbc521354d",
+          "chunk_id": "chunk-e0e25e62c69e128a30b7",
+          "content_sha256": "5103ea1b78c4b1d05cbb51df8557ccf2fc6f4af7d383cc6a68c6945a1ecbe982"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-011",
+      "case_sha256": "8414db05f35203de6caa0d8df8e7164fb6c4fe6956080b01b33f9ec154a122b4",
+      "query_sha256": "cd65a9284f329cc1aabaa102a84f1cf8504346920b56312a52ce049bb6d02756",
+      "original_point_sha256": [
+        "4085e49e63b1cc60f731e034bb42a6357ed5a49ff84bc45baf454f2e3636d239"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-21792c56b651c2d16d9f",
+          "content_sha256": "69d77382ebe718e66ba20f4fd4eb385c7b5a7f30bff062900b7fa2bbd773d65d"
+        },
+        {
+          "document_id": "syn-policy-a",
+          "source_version_id": "v-9f9b9cd15e54e582",
+          "chunk_id": "chunk-cb947ba4030f018c5a3c",
+          "content_sha256": "4f6912fea432ab854ec744370c6ecf2f4b3429ba5372fba9aec922e58df1fe4f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-012",
+      "case_sha256": "4ca50cb345a900f01c1f0ebfe1f444f4065392b821d87651713392e96cd4ad87",
+      "query_sha256": "fd1b7fcd9b6e92e6cf9b21e4b4d2c2102dee13dbf27a5634aa72c92b7b8fb9a5",
+      "original_point_sha256": [
+        "1bff262d569bbea8fee615ea4435bb9c85c3ec112d0cb04fb8daa0405052d1d0"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "distinguish_variants",
+        "state_use_reason_missing"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "invented_variant_use"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-product-storage-v1",
+          "source_version_id": "v-97b1e8f3f3dca433",
+          "chunk_id": "chunk-70f64c46ae5d02fce2d9",
+          "content_sha256": "43d24a52189a696316253ae7d1c300e3e4f5d21dc749ef576c4a0a71cbada796"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-013",
+      "case_sha256": "07adab65819ce14c282245d750e664f94a16018061f8945dc38ce5773e672569",
+      "query_sha256": "ee369b43b954266f85fe5185df1fe0335b5f159ec84c027f27d9fdc25ed30dcd",
+      "original_point_sha256": [
+        "b36ba109478acf7afd9e5399100efa24b2211a3ed7f1a5cf904564e932e703d2"
+      ],
+      "risk": "high",
+      "expected_behavior": "clarify",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "request_unique_sku",
+        "current_fact_requires_authorized_reread"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "guess_sku",
+        "historical_stock_as_current"
+      ],
+      "required_support": [],
+      "citation_applicable": false,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-014",
+      "case_sha256": "4f0665456e9d511e9a79ff327eece9e8cacc5eccd26de9be1ecd8d7b2a983c0b",
+      "query_sha256": "4361055b99b26f9965e8a88c392c177b0faf4d223eb61be874270ed187ee89e6",
+      "original_point_sha256": [
+        "6944089eff9f76be0f987d065ca16d30357860972910cc734aa47c3fee12dfb9"
+      ],
+      "risk": "high",
+      "expected_behavior": "clarify",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "request_order_identifier",
+        "current_fact_requires_authorized_reread"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "guess_order",
+        "document_as_live_order"
+      ],
+      "required_support": [],
+      "citation_applicable": false,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-015",
+      "case_sha256": "80338682c7346d9db520c14f6f18417b1a669d54821d59d9cfdcf839cd256104",
+      "query_sha256": "c39216448ded61f866e18e96a21e7f2dd810038044bf07a1c773c370c44073c4",
+      "original_point_sha256": [
+        "25c32bf64219e4c2025a0c1ab1071536b39fb8348851da3f81aa627ece808238"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "snapshot_time_and_storage_provenance",
+        "promotion_conditions",
+        "no_current_guarantee"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "snapshot_as_current",
+        "storage_as_business_revision"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-promotion-v1",
+          "source_version_id": "v-db0be41f1091acb8",
+          "chunk_id": "chunk-8a58add801feb78c8305",
+          "content_sha256": "5e95a16cd8402c7636f5461d7693d0fd2bbba18bbcc4e911b35f4100c855d452"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-016",
+      "case_sha256": "9ef8ce30469f879264d93ec99f80157e99d38bcc2373afa0ca95513fb838ee0e",
+      "query_sha256": "e3de226f3aa1e5ba6af51625ef40aa7f01a3e464d71650bc90c6f6bf5e096e9c",
+      "original_point_sha256": [
+        "3871df7317fa1dccde0eaa6ea7ef65252fb4127abc64e48ba71ce04ac60e7d41"
+      ],
+      "risk": "high",
+      "expected_behavior": "clarify",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "request_unique_sku",
+        "current_price_not_product_description"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "guess_sku",
+        "description_as_price"
+      ],
+      "required_support": [],
+      "citation_applicable": false,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-017",
+      "case_sha256": "3e2768eedefe341464fb0d67e28afa5137e4a8c13a465a4309c7a5c2186a2d2c",
+      "query_sha256": "8a8b3f90255bff743dd9b4399adb48b54fcc0e92e9b1aef1845892ef06dc1477",
+      "original_point_sha256": [
+        "3b4255c77afa4ac90544f54494853ea27f5343dcedf892bdef657b960faefc6d"
+      ],
+      "risk": "high",
+      "expected_behavior": "workflow",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "delivery_region_shop_route_cutoff_order",
+        "current_promise_capability_unavailable"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "delivery_guarantee",
+        "invented_tool"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-delivery-v1",
+          "source_version_id": "v-ba18c71bdeb01d91",
+          "chunk_id": "chunk-8b8b7efeca3d2d29d38b",
+          "content_sha256": "e69b163e7a36d7bc9d25898083c4fa934aee90f5e7511163bbe878337c5335ad"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-018",
+      "case_sha256": "8cd15968cff878f949b5c586920f2fd5c0ffedf35b5717cad2b88f3b9e2b2a25",
+      "query_sha256": "10d63ae54d3ba70f785ff475a691ab05a61343c1479d52c4a86e70c19d88bdc9",
+      "original_point_sha256": [
+        "378c479c3f6e04b4ae4848d0e3340165a2ab16b3505a20767ed7b64c3dcda97f"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-inventory-policy-v1",
+          "source_version_id": "v-bd43f01cb9b348b0",
+          "chunk_id": "chunk-e56a63e8a1de7bb8bfde",
+          "content_sha256": "7f98d7194f883adc13382a478e7cd48df32a7fb13aa68d66128e6a6fe7957ea2"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-019",
+      "case_sha256": "8d7bda099f7e2982d3be971b58809760c055d4be7c22b9d04e00b70de987426f",
+      "query_sha256": "4aa43d21759925c84816d7672e47799a976942c873cd0b92252a2fd9aafdf392",
+      "original_point_sha256": [
+        "9dd9025144dd8a23103cb08ee8b9fff6ffe3f1e6e0a7f92818eb356b53470fd9"
+      ],
+      "risk": "high",
+      "expected_behavior": "fact_answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "unique_user_resource",
+        "fresh_authorized_fact",
+        "mock_observation_provenance"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "cached_inventory_as_current"
+      ],
+      "required_support": [],
+      "citation_applicable": false,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "a28d2dafe758bbea8d75f81092b531b421ad147d12eb4c350aa7d0953ea8f4ea"
+    },
+    {
+      "case_id": "syn-020",
+      "case_sha256": "c51d27aa23fda1888e78063702db83778c0daa86e34f7dfaf3af5d0db51c07ba",
+      "query_sha256": "32a4fa76963630633110949c6ec0afdf178bf09bc082094c1388b0932fbbb55e",
+      "original_point_sha256": [
+        "bc09c7f45f8c92aa60f969da78bdfb513057ab8ef08ba75e4a5858e10936850a"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-order-price-v1",
+          "source_version_id": "v-a42dea224be9f1f9",
+          "chunk_id": "chunk-6ff594b2a1dd2a325e53",
+          "content_sha256": "e7aa62f57a6ded2259c73a0cbf665007ba58d96fa892205c8869a931d5946c2f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-021",
+      "case_sha256": "a50ed51724e75fee9b72c32ea17609c672f16b84c87e538fa1fde542536a746f",
+      "query_sha256": "c8790e1a96de955d94c655c043345e3142d5f0e6321ed503940693d4d2170577",
+      "original_point_sha256": [
+        "c4b80c3afd38cb25f303d0e20d184348e78e083e8d19ae80a02dcf68afb08f8f"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-delivery-v1",
+          "source_version_id": "v-ba18c71bdeb01d91",
+          "chunk_id": "chunk-8b8b7efeca3d2d29d38b",
+          "content_sha256": "e69b163e7a36d7bc9d25898083c4fa934aee90f5e7511163bbe878337c5335ad"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-022",
+      "case_sha256": "7612ee6f3d936cd2338dc404b8b4671680528586f5054672c1df0562610e2dbb",
+      "query_sha256": "77c32f23a2b107977b197ea421fd3c9290d5204644dfa29df10925b85ad90fed",
+      "original_point_sha256": [
+        "c747ba673ee0b46c5cd12d27b4d1b58e608802b75b0cc4bd88b0dd8e59a9ed86"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-order-status-v1",
+          "source_version_id": "v-1f12d83cba23194b",
+          "chunk_id": "chunk-f8bfe032613d403547c2",
+          "content_sha256": "4bda8bcea027998c5a5aa0c42b95fe532b007b61be50dcab6ae9beb08a5b3f03"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-023",
+      "case_sha256": "12d1d6cf2ebbf2c59038ec02b2af69f7afe3ec2275c0f66d48f361c47a02610f",
+      "query_sha256": "d3a76e86d7077dafaf7bec3270a95913051a4c099a16e17279d7c15ac12e1117",
+      "original_point_sha256": [
+        "191aa9a3219461e28a29a866106b030bb56f16e8a763fabb49e17268b9b3edbf"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-promotion-v1",
+          "source_version_id": "v-db0be41f1091acb8",
+          "chunk_id": "chunk-8a58add801feb78c8305",
+          "content_sha256": "5e95a16cd8402c7636f5461d7693d0fd2bbba18bbcc4e911b35f4100c855d452"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-024",
+      "case_sha256": "82dc8328bcacdf6e20c43b941564b24e85a53c9a2796223d1831e57d0456dbb9",
+      "query_sha256": "5c94a21aed81702117f359f7ce10e6299de6beca28cf36513575ac96e98a91be",
+      "original_point_sha256": [
+        "cc441b7643b40b5b1b2bbc52a08eb6773d5d66a86d5bcb9ec79e8905bd4f6ff6"
+      ],
+      "risk": "high",
+      "expected_behavior": "workflow",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "reread_historical_inventory",
+        "resource_specific_qualifiers"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "promotion_conditions_as_inventory"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-fact-inventory-earbuds-v1",
+          "source_version_id": "v-5bb240e305efe33f",
+          "chunk_id": "chunk-5f42e3e0bc827e772c9f",
+          "content_sha256": "5fa5fd9c24e58b2d835a96353dc5b9179b729840f85f7688c3f28c262a1d56b4"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-025",
+      "case_sha256": "275e8df554e3a9be08acfe230696487f31c2c1b9c941f72affb8a63b3f46e669",
+      "query_sha256": "1aeb29621585f7408a6db6b86a4b3f77053a7687712e043831bc080bd59554f7",
+      "original_point_sha256": [
+        "4f2114bd002c76a9b0df07a750cdd9239190e72fca618a4e1de21d8f2bedaca3"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "actual_today_publication_and_capture_missing",
+        "approved_source_boundary"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "invented_recall",
+        "invented_date"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-recall-v1",
+          "source_version_id": "v-058f3a901e4d3b80",
+          "chunk_id": "chunk-2b26dd28e22ccbb1734e",
+          "content_sha256": "18efb488c7359efee1a7506b51a5e803f15b434ec1934fb18b0e17ce6d66272b"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-026",
+      "case_sha256": "0a3a9ad24ce23ec338ef7e1e1058e6af2a9cca822075c829d839a8bd1faf7af9",
+      "query_sha256": "effd39c69cb5e720665543757c430740e63b95b5a491da1227d29ab9d2d35872",
+      "original_point_sha256": [
+        "cb0d016ed2a93544eb3e45a7028820177d47984e080277e87e236ef0c27f915b"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "external_revision_date_and_changes_missing",
+        "storage_not_standard_revision"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "invented_standard_change"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-usbc-v1",
+          "source_version_id": "v-ada0638b056b0e70",
+          "chunk_id": "chunk-6e8a3ffebf762f613742",
+          "content_sha256": "a5eb04444b6cdb16c48f71b8a37c6286e6f43f8383640f2c6c01854281de8bc3"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-027",
+      "case_sha256": "4dd4e3cf1ae762dbc00811e172fcaecab58f82bc8feec2af7667c5ce3c077fe4",
+      "query_sha256": "b96869e33970de142a9701471fc98b65eb050eff7408090fdee1f2f12007542c",
+      "original_point_sha256": [
+        "965676680b5e63004114634308b8c0214bece8e3b2af79962f8c9ede11310d4e"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "current_month_report_missing",
+        "no_merchant_product_promise"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "invented_current_trend"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-foldable-v1",
+          "source_version_id": "v-02557d197f022ee6",
+          "chunk_id": "chunk-0c7e2b70ad6688952340",
+          "content_sha256": "7ff76adb3b81dfdfe82d1c7f090b486c5e0121b034846aa75359d7f893888a35"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-028",
+      "case_sha256": "72c8357d1bbfb024581ecfa5bef593eab1bf40ad42b5d99b21f1e40472a48107",
+      "query_sha256": "a0338726cca62f7b3dea81eaedc608e80f6ae401a7831a15b26cbe34cf630c80",
+      "original_point_sha256": [
+        "a838905ce215de0862252b33d9955b5c0e63fa8783ea5ffdbf183c10041f544e"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "ingredient_list_missing",
+        "no_medical_or_personal_advice"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "unsupported_ingredient_example"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-sunscreen-v1",
+          "source_version_id": "v-94a45578749749d0",
+          "chunk_id": "chunk-27beeb7bad12bad8d66e",
+          "content_sha256": "4ea3599b4ead25632f12c8a47b2b5be7fc496d5d9c9768e69506d64eb8c47e0f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-029",
+      "case_sha256": "aa552481f1f53716418cf8593fb822a9c455451ec38037609b97cb7d8c702318",
+      "query_sha256": "e092bb8696d4ea182b5e018e66207334ccc31aaea7010be09cc92ceb794976e0",
+      "original_point_sha256": [
+        "66766f5ab3cc1ff9a707c2f4c26ebcac22f309007b53bf93f27b1ff185f7ebac"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "rule_revision_publication_effective_date_missing",
+        "applicability_boundary"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "unsupported_regulatory_example"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-battery-v1",
+          "source_version_id": "v-b503a730c796082e",
+          "chunk_id": "chunk-be8d3c755c1b51c5562a",
+          "content_sha256": "98c51021942be08d25e77f81f8e4c6f21b05c055a750d5362d83e5dd9e81a61c"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-030",
+      "case_sha256": "734a004dc8301d55c524fc52ece87c51475598b59c5d5ca7c6edb898bbfb3ff1",
+      "query_sha256": "7f3965bc3cd06242b3ad326b3299994997eee34525295b6a1ae59303012f7fbc",
+      "original_point_sha256": [
+        "fcc3c985757cfed2b5d7805bb2143ab6c0117ad835ba57ce44a88f3b29384aec"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-waterproof-v1",
+          "source_version_id": "v-40aa5bdf38d56f19",
+          "chunk_id": "chunk-5e7c6c98a18de3d767a6",
+          "content_sha256": "8b63a9a7f89d21d683791ec43b3d53c38e9610311ba93c0c71e322d6c1599bbc"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-031",
+      "case_sha256": "d2176a3af952b3bffdca75a3ab221588345565447c55753d07848b4392ec40c4",
+      "query_sha256": "d65827daf32e0517b34d5539b6569f2bd2b0d067c2d5b8c15c54668aa7417db3",
+      "original_point_sha256": [
+        "5bd1c40e4d04c4d9574a7907e201c72bababd80f6977ba5a38435dcf6946c4a2"
+      ],
+      "risk": "high",
+      "expected_behavior": "limited_summary",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "resolve_user_standard_reference",
+        "version_and_publication_missing"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "invented_latest_version"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-usbc-v1",
+          "source_version_id": "v-ada0638b056b0e70",
+          "chunk_id": "chunk-6e8a3ffebf762f613742",
+          "content_sha256": "a5eb04444b6cdb16c48f71b8a37c6286e6f43f8383640f2c6c01854281de8bc3"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "58123b330c81c650ebb6e2cdf0d6952e6265099e494062b0ef11bad31cc8163a"
+    },
+    {
+      "case_id": "syn-032",
+      "case_sha256": "8c783c265087fbf1ded6bea5190f4badcfb3d23b2f6ab639145b58c9ad72b72b",
+      "query_sha256": "aec624dceb0942a7fdcf5f0fbd93b1f0fe86944edb66ff4d8b4b3f7938d2e906",
+      "original_point_sha256": [
+        "ca0f9d9d47dc22db37b751b8151153fde41f7e1cac10ccc6f22c8be5a3967058"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-competitor-v1",
+          "source_version_id": "v-3eff263280446b91",
+          "chunk_id": "chunk-a7898b369596283e447d",
+          "content_sha256": "a4aebe93ad3eb8efb56ad3d3c559f34bf9e87fe8578f1ca9df5cf2c16104546c"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-033",
+      "case_sha256": "37b00e78ca53c531b6ab45304cb3eb56f61cd49ac8ba76ec6ef1fda8fd381863",
+      "query_sha256": "811c795684ad382ef5af1bf6236b2a96bb4f7561e91fca74d32327cfcf4241d0",
+      "original_point_sha256": [
+        "206ff0e3e28afa74a042a834d3dda9f72517ccecbe55743c2128617545b4125e"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-source-quality-v1",
+          "source_version_id": "v-0bc2e3499664969a",
+          "chunk_id": "chunk-df26363e0f1c2ef6cd8e",
+          "content_sha256": "99d325318e34321c8704c554d3f7cfa89556e8073d33eda602be5fb47854dc36"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-034",
+      "case_sha256": "de4b77d6030d195fb4d4deee496862e599bde4a709f4c2784166af31235d532b",
+      "query_sha256": "c747a7b5544ae014676f7ad3dd181c9e5d07dd21844ab9c72cbee417ddf2bbed",
+      "original_point_sha256": [
+        "2a23010b45297ce80bfe928166692e9ee10adffd9a4f20a5b228192ad679711d"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-review-v1",
+          "source_version_id": "v-e9c00995432679ba",
+          "chunk_id": "chunk-0792c7c26ff2705f2743",
+          "content_sha256": "049ab717aac1b25e38997c074db4f56fd919ddb2de4125789ac2f1dc6672c08f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-035",
+      "case_sha256": "cd0fdaae8533ec310619f4ffdef8e3fd112b6cb0c0a34de5fe41bb24dcad0afe",
+      "query_sha256": "db8c63822ba5837c276f9102d21356088ae6282f8d2d8319fe7b1b6669e1a8ac",
+      "original_point_sha256": [
+        "01013cbae566ccf82f32a1c7e5594aafe4ec878c8dccd9b308885aba574b5f89"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-source-quality-v1",
+          "source_version_id": "v-0bc2e3499664969a",
+          "chunk_id": "chunk-df26363e0f1c2ef6cd8e",
+          "content_sha256": "99d325318e34321c8704c554d3f7cfa89556e8073d33eda602be5fb47854dc36"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-036",
+      "case_sha256": "647ca0a26cbf3ae88efc1e4fc279a2e4f3186b985d11304c21b77112c9bcd644",
+      "query_sha256": "8deadb9efe2b3bea5076da5d1b96c26648fed4d19dbbe7b6c4a9639546c3fd40",
+      "original_point_sha256": [
+        "413f85b298bb418d71e213a8d6e78aa28b3ca7fe96400ed14fd85943a6738da6"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-waterproof-v1",
+          "source_version_id": "v-40aa5bdf38d56f19",
+          "chunk_id": "chunk-5e7c6c98a18de3d767a6",
+          "content_sha256": "8b63a9a7f89d21d683791ec43b3d53c38e9610311ba93c0c71e322d6c1599bbc"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-037",
+      "case_sha256": "c60e6f322d70994e6e42fb4d5a5577914534cc023cf4124c5bbb41e0f1226e51",
+      "query_sha256": "86acbfbf807931d0c0b508a87902b173d6eb9f31abc44baff09b8601756c1344",
+      "original_point_sha256": [
+        "22334202d4664f9ca856c92d0772f1698c5521d7a75e16f3378d840b8796346c"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "workflow",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "at_most_one_supplementation_policy",
+        "source_grade_and_research_boundary"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence",
+        "claim_search_not_executed"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-packaging-v1",
+          "source_version_id": "v-0c474fcc86585036",
+          "chunk_id": "chunk-f9cfb285cd0540f64172",
+          "content_sha256": "ea13d3dff5539509f8f57250be89c610ae7f030d052d60dd90b7232daa7654f2"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-038",
+      "case_sha256": "55852389614eecf47495c5af87ffb8bd08f857d8b07612724e23bdd0adbf151e",
+      "query_sha256": "76a9b2afc85872582cfb7b7b0f17851265b060857a2dc7e770dd85ceb52cf48c",
+      "original_point_sha256": [
+        "cbb7b639b2e176914b8b47057921c393370f286f1e63743ac4ca432cf9435909"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-source-quality-v1",
+          "source_version_id": "v-0bc2e3499664969a",
+          "chunk_id": "chunk-df26363e0f1c2ef6cd8e",
+          "content_sha256": "99d325318e34321c8704c554d3f7cfa89556e8073d33eda602be5fb47854dc36"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-039",
+      "case_sha256": "aac03fea48c41dc8c20b7d9e4385f3c207f196ab8a02eb3aeaadc324e6884cf7",
+      "query_sha256": "09908554da40d405919d1678e6065ae0d9d37e05346148c821b2b8a756631ad9",
+      "original_point_sha256": [
+        "c83b7f9ea17aeeba3cd9b9d0055113cced6af535845075916dfa861ca74fbecd"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-materials-v1",
+          "source_version_id": "v-06fe1e0fb0af06fe",
+          "chunk_id": "chunk-bc141e3381db1f533cc4",
+          "content_sha256": "113e9f0dfa40f55712eaa68a9e7c63ba6a18fb7cc657356b220616d5e85c014c"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-040",
+      "case_sha256": "4b832e038d11b7f410878eb3759f6f81b6910e0b7dd1e673dc177217ee740bb4",
+      "query_sha256": "0f74ad0e97aa80de78dfbb461b7aecb92a97e9644c746a7adebbaefbc5c74fe9",
+      "original_point_sha256": [
+        "da7d3cb5fd300c9550d71e7d98c88b50be3dd685f2a7d0441509a47ad759d6b7"
+      ],
+      "risk": "ordinary",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-clarify-v1",
+          "source_version_id": "v-7b0ecc10c4f0faa3",
+          "chunk_id": "chunk-d22c7500bafb04e0b566",
+          "content_sha256": "b6b9a0175daf042b97366db252064d93deaee4448cd6d1c1c1812e5eeca556e6"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-041",
+      "case_sha256": "7a00b42bab39092e913cecdcd397ad1aae58f413a41781bd157a16a9dc9be829",
+      "query_sha256": "587c5af26c06ff37156d0e1691abcdd61daf9689ed08081ad2b1079950adf091",
+      "original_point_sha256": [
+        "f1499e51af984fed5e8d61a29382597dae2c507bcdeaf4f1cc5067c69e350f87"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-refuse-v1",
+          "source_version_id": "v-52e508a2511d8ee1",
+          "chunk_id": "chunk-363318600daaba24bc6e",
+          "content_sha256": "1133178b44377b1b0751efd9eab6f22b62d137b85a80d6847c63727ac084b3fa"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-042",
+      "case_sha256": "9de3892014ba9e5e7d4bb2f4ee83fd25a8676239c617f1afcd1221a2b3ac3018",
+      "query_sha256": "7ffa002384771231ca6431f3c337495eaa47aa3ef4cd4859353dbb12ca0c4db7",
+      "original_point_sha256": [
+        "60112f82efd15cfb44f50597eafc1c8cae54fc6deec1374084a1fab5b77ef3b0"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-extraction-v1",
+          "source_version_id": "v-a4dc01803a3112c7",
+          "chunk_id": "chunk-faaeaf9cc7859e5e7f72",
+          "content_sha256": "0d4ee187a39e8626eafa067bee39c3382e49e027d2e9c5236216b6a0e32f9364"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-043",
+      "case_sha256": "5a9284b3379e0ae2dd0e45864800f7af065a65829440a9aa09826b5a3a2adad1",
+      "query_sha256": "48dec738ebdf4ce0da74797168cc349feb9cd25496aef167993aef86610b1be5",
+      "original_point_sha256": [
+        "ac82a7ff88c673f824a03a7eaa132c93a692498e10955401753fe77b0267ab87"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-conflict-v1",
+          "source_version_id": "v-705498e1cd6f3c2a",
+          "chunk_id": "chunk-8aa0d9cb34623d76e9f9",
+          "content_sha256": "bb9f55b373faf0f69ed402ab3ef4a35bd8743692666e33e15b0be3f5c5eeaf54"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-044",
+      "case_sha256": "4abb6bed013d7b9e0e626fc3a2194c517aa4aaaa1e593e762b19a8c5e9ee4168",
+      "query_sha256": "22b584c2c9e999023fdc2766a7a48cb381de7188c399935a310b06533f814a28",
+      "original_point_sha256": [
+        "258f781f651dc1cb28e88fc5bfe43c3157747016a6162455f3c1ea5c885aca56"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-refuse-v1",
+          "source_version_id": "v-52e508a2511d8ee1",
+          "chunk_id": "chunk-363318600daaba24bc6e",
+          "content_sha256": "1133178b44377b1b0751efd9eab6f22b62d137b85a80d6847c63727ac084b3fa"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-045",
+      "case_sha256": "8598f615d5c8a6049da5e161f5a5a832199da00035c72813660ad99fd19ddb7b",
+      "query_sha256": "a7f14db2e8e0da3d555d1a1dadaadf84c5ba8c158d259f59e80d5c2d914071dc",
+      "original_point_sha256": [
+        "3ba07aaeb12270aef16704b9cb95acf0920b5b6ce755545835b43a2aa8a66107"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-review-v1",
+          "source_version_id": "v-e9c00995432679ba",
+          "chunk_id": "chunk-0792c7c26ff2705f2743",
+          "content_sha256": "049ab717aac1b25e38997c074db4f56fd919ddb2de4125789ac2f1dc6672c08f"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-046",
+      "case_sha256": "52fffa4130c9d7b2d9ba59329dd2b15f7b82fa610b678babd27baca6e51ae8db",
+      "query_sha256": "6a638c4fd80f5b5c726417f4d0df48f3b6e656a15771c8c7940de82a0583f196",
+      "original_point_sha256": [
+        "f00e8a0bef6476ce4a150eb4b7c084f6e5fbce586e96c7d101154daa0d6bd895"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-clarify-v1",
+          "source_version_id": "v-7b0ecc10c4f0faa3",
+          "chunk_id": "chunk-d22c7500bafb04e0b566",
+          "content_sha256": "b6b9a0175daf042b97366db252064d93deaee4448cd6d1c1c1812e5eeca556e6"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-047",
+      "case_sha256": "5d9a164311d64e29eeba14167743064a5e41d01493888d8793bb144e52120549",
+      "query_sha256": "fe82d47439906f9adcb8d8a494ed25f9285603b6876e6192b1596d5d178e048c",
+      "original_point_sha256": [
+        "67761984e7a6591e9b2a0ef5e69d3f066900a2ced3f5e6f70f8e073e994a1a26"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-source-quality-v1",
+          "source_version_id": "v-0bc2e3499664969a",
+          "chunk_id": "chunk-df26363e0f1c2ef6cd8e",
+          "content_sha256": "99d325318e34321c8704c554d3f7cfa89556e8073d33eda602be5fb47854dc36"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-048",
+      "case_sha256": "ce3965307dd5c7f8adfadccb62c64c1053e4a9de3112e0d6b0f1d7ccd4cb899c",
+      "query_sha256": "2a7caead84fdb7d022f9ddc0c3e095f13cb08161cbf0c522d5085318b84aa21f",
+      "original_point_sha256": [
+        "82b6746077a52b35fd7933fe492a7822df0d4be679f7013b406ffafd8f195bc5"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-web-extraction-v1",
+          "source_version_id": "v-a4dc01803a3112c7",
+          "chunk_id": "chunk-faaeaf9cc7859e5e7f72",
+          "content_sha256": "0d4ee187a39e8626eafa067bee39c3382e49e027d2e9c5236216b6a0e32f9364"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-051",
+      "case_sha256": "4a2e0da99f6798904e516db57b61004abe7830ddd7c3eb33498274e32b80deb9",
+      "query_sha256": "45fdb4952d6980ac95a2311bbcea10e1da4204f7b4f260ac8b8bdfd1b64b4742",
+      "original_point_sha256": [
+        "fc1dbe482d1eab8f6bdf7b1f8c94608d974b25af1e26250d8844d77a20e975eb"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-human-v1",
+          "source_version_id": "v-878da61ff05f1d8c",
+          "chunk_id": "chunk-7af3e1f7355adad58d3e",
+          "content_sha256": "969d7436b8c55b4ca8c4ebb26920eb823d2454535601bf424d520d6c8b137739"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-052",
+      "case_sha256": "b13d87612abd5e8b7e3b712d3cf1be76c4b2057cd7e1a75b11db269e56f4e843",
+      "query_sha256": "84aaaab6c8c176964547302c22748b5e123ba63d0e601849a06e07d3547745f9",
+      "original_point_sha256": [
+        "11b9b7dfb4c5b3d8c3a1782f78edabf750526ece02e8fff2e332a371e7f73999"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-policy-conflict-v1",
+          "source_version_id": "v-c97d146d1cab6189",
+          "chunk_id": "chunk-2801ccf0b4eea2a560b2",
+          "content_sha256": "eb7d7955f201d9c9d0468ca61f5345c324da025f872c44b92fc8ded38f566b40"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-053",
+      "case_sha256": "0f24e56f2c5002f786265087b73908f1923f6ffa264e3d61fd3f7568bc2a6c43",
+      "query_sha256": "262783e7de8d2d5c38da07d4e5949e6506a2f2347f96a8c5c4d8bce5d0def594",
+      "original_point_sha256": [
+        "21682942126cc6d3d3202b314ba7571c07449a88db6d531870bb9c4bf9f4e040"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-safety-refuse-v1",
+          "source_version_id": "v-2328e8801c194365",
+          "chunk_id": "chunk-67e88f9d750d06b55ed5",
+          "content_sha256": "5649dd7f58a514086966071270cf2096251175d681059837987e44763a097f7e"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-054",
+      "case_sha256": "380b84038fb4accbad8ddc01c35dfd3d91a9f1933ee689c4aa26eceaa7be33b6",
+      "query_sha256": "810a087a1ab5a286b11e53a8b289d34160272200c6a6a1a5f8b5b32c2387c3d6",
+      "original_point_sha256": [
+        "fa9254a2c6431ec2dedd1b1910e06b6441ae3103e1aa67add9c24c7f082a3d8a"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-clarify-v1",
+          "source_version_id": "v-7b0ecc10c4f0faa3",
+          "chunk_id": "chunk-d22c7500bafb04e0b566",
+          "content_sha256": "b6b9a0175daf042b97366db252064d93deaee4448cd6d1c1c1812e5eeca556e6"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "case_id": "syn-058",
+      "case_sha256": "a58f837592f949bfcf5adc40f4116d8fccf99e6dade6b3e51bb8ff70d8a23ee0",
+      "query_sha256": "51c5948102f165b8deacb34deda3145c356dcb0d37dae56a31393e168f1097ef",
+      "original_point_sha256": [
+        "80e02f2240454b500973b6b0a8b5b8570ec939e27f33e575cf2198c952a75e68"
+      ],
+      "risk": "high",
+      "expected_behavior": "answer",
+      "requirements": [
+        "preserve_qualifiers",
+        "source_specific_claims",
+        "valid_copy_eligibility",
+        "frozen_point_within_delivered_source"
+      ],
+      "forbidden_assertions": [
+        "unsupported_fact",
+        "unauthorized_evidence"
+      ],
+      "required_support": [
+        {
+          "document_id": "aligned-routing-human-v1",
+          "source_version_id": "v-878da61ff05f1d8c",
+          "chunk_id": "chunk-7af3e1f7355adad58d3e",
+          "content_sha256": "969d7436b8c55b4ca8c4ebb26920eb823d2454535601bf424d520d6c8b137739"
+        }
+      ],
+      "citation_applicable": true,
+      "temporal_rule": "historical_as_of_with_current_facts_separate",
+      "scenario_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    }
+  ]
+}

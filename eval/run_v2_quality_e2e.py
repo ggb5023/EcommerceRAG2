@@ -21,8 +21,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "eval"))
@@ -74,13 +76,14 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
     sys.path.insert(0, str(ROOT / "scripts"))
     sys.path.insert(0, str(ROOT / "python"))
+    from v2_services import load_values
+
     from app.graph.workflow import (
         CONTROL_SCHEMA,
         GENERATION_INSTRUCTION,
         GENERATION_SCHEMA,
     )
     from app.providers.config import ensure_secure_config_file, load_provider_config
-    from v2_services import load_values
 
     values = load_values(path)
     if values.get("RAG_PROFILE") != "v2_langchain_bailian" or base_url != "http://" + values.get("HTTP_ADDR", ""):
@@ -101,6 +104,7 @@ def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
             "provider_schema_sha256": digest(json.dumps([CONTROL_SCHEMA, GENERATION_SCHEMA], sort_keys=True)),
             "runtime_config_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "budget_identity_sha256": digest(values["V2_ONLINE_BUDGET_ID"]),
+            "business_date": values.get("SYNTHETIC_BUSINESS_DATE") or datetime.now(UTC).date().isoformat(),
             "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
             "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}, Path(values["V2_ONLINE_BUDGET_LEDGER"])
 
@@ -175,20 +179,21 @@ def _document_ids(result: Mapping[str, Any]) -> list[str]:
 
 def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
              capture_dir: Path | None = None, prerequisite_queries: list[str] | None = None,
-             conversation_id: str | None = None) -> dict[str, Any]:
+             conversation_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+    run_id = run_id or uuid4().hex
     case_id = str(case.get("case_id", ""))
     if not case_id:
         raise E2EFailure("case_id_missing")
     if conversation_id is None:
         body = {"title": "quality-eval"}
-        conversation = http.call("POST", "/v1/conversations", body, key=f"quality-conversation-{case_id}")
+        conversation = http.call("POST", "/v1/conversations", body, key=f"quality-conversation-{run_id}-{case_id}")
         conversation_id = conversation.get("id")
     if not conversation_id:
         raise E2EFailure("conversation_id_missing")
     prerequisites = []
     for index, query in enumerate(prerequisite_queries or []):
         prior = run_case(http, {"case_id": f"{case_id}-context-{index + 1}", "query": query},
-                         timeout_s=timeout_s, capture_dir=capture_dir, conversation_id=conversation_id)
+                         timeout_s=timeout_s, capture_dir=capture_dir, conversation_id=conversation_id, run_id=run_id)
         prerequisites.append(prior)
         if not case_passed(prior) or prior["status"] != "DONE":
             raise E2EFailure("scenario_prerequisite_failed")
@@ -196,13 +201,13 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
         "POST",
         f"/v1/conversations/{conversation_id}/turns",
         {"query": str(case.get("query", ""))},
-        key=f"quality-turn-{case_id}",
+        key=f"quality-turn-{run_id}-{case_id}",
     )
     request_id = turn.get("request_id")
     if not request_id:
         raise E2EFailure("request_id_missing")
     repeated = http.call("POST", f"/v1/conversations/{conversation_id}/turns",
-                         {"query": str(case.get("query", ""))}, key=f"quality-turn-{case_id}")
+                         {"query": str(case.get("query", ""))}, key=f"quality-turn-{run_id}-{case_id}")
     idempotent = repeated.get("request_id") == request_id
     deadline = time.monotonic() + timeout_s
     result: Mapping[str, Any] = {}
@@ -300,11 +305,14 @@ def main() -> int:
     parser.add_argument("--case-id", action="append", default=[], help="targeted regression; full gate still requires 53 cases")
     parser.add_argument("--scenarios", type=Path, default=DEFAULT_SCENARIOS,
                         help="versioned conversation prerequisites, separate from frozen cases")
+    parser.add_argument("--temporal-mode", choices=["historical", "current"], default="historical")
     args = parser.parse_args()
     if args.report.exists():
         print(json.dumps({"status": "FAIL", "issues": ["output_exists"], "online_requests_made": False}))
         return 2
     try:
+        from evidence_boundary import DEFAULT_CONTRACT, validate_contract
+        boundary = validate_contract(scenarios_path=args.scenarios)
         lifecycle = json.loads(args.lifecycle_report.read_text(encoding="utf-8"))
         if (lifecycle.get("status") != "PASS" or lifecycle.get("real_service_acceptance") is not False
                 or lifecycle.get("report_version") != "v2-live-lifecycle-v1"
@@ -334,7 +342,10 @@ def main() -> int:
         if args.runtime_env is None:
             raise E2EFailure("protected_runtime_identity_required")
         identity, ledger = runtime_identity(args.runtime_env, args.base_url)
+        if args.temporal_mode == "historical" and identity["business_date"] != boundary["historical_business_date"]:
+            raise E2EFailure("historical_runtime_date_mismatch")
         budget_before = budget_snapshot(ledger)
+        run_id = uuid4().hex
         http = HTTP(args.base_url)
         session = http.call("GET", "/v1/session")
         if not isinstance(session, Mapping):
@@ -351,7 +362,7 @@ def main() -> int:
             started = time.monotonic()
             try:
                 row = run_case(http, case, timeout_s=args.timeout_s, capture_dir=args.capture_dir,
-                               prerequisite_queries=scenarios.get(case["case_id"], []))
+                               prerequisite_queries=scenarios.get(case["case_id"], []), run_id=run_id)
             except E2EFailure as error:
                 row = {"case_id": case["case_id"], "status": "FAILED", "failure_code": str(error),
                        "terminal_persisted": False, "successful_terminal": False}
@@ -369,6 +380,9 @@ def main() -> int:
             "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
             "scenarios_sha256": hashlib.sha256(args.scenarios.read_bytes()).hexdigest(),
             "excluded_case_ids": sorted(excluded_ids),
+            "boundary_contract_sha256": hashlib.sha256(DEFAULT_CONTRACT.read_bytes()).hexdigest(),
+            "temporal_mode": args.temporal_mode,
+            "run_identity_sha256": digest(run_id),
             "safety_report_sha256": hashlib.sha256(args.safety_report.read_bytes()).hexdigest(),
             "real_service_acceptance": False,
             "model_quality_claim": False,
@@ -380,7 +394,7 @@ def main() -> int:
         write_report(args.report, payload)
         print(json.dumps({"status": payload["status"], "case_count": len(results), "real_service_acceptance": False}))
         return 0 if passed else 4
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, E2EFailure) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, E2EFailure) as error:
         print(json.dumps({"status": "FAIL", "issues": [str(error)], "online_requests_made": False}))
         return 3
 
