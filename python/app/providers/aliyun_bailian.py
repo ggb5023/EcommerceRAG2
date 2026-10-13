@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import re
 import urllib.error
@@ -37,6 +38,7 @@ from .contracts import (
 ALLOWED_FINISH_REASONS = frozenset(
     {"stop", "length", "tool_calls", "content_filter", "end_turn", "eos", "completed"}
 )
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -313,51 +315,68 @@ def _content(payload: Mapping[str, Any], slot: str) -> tuple[str, str]:
     return content, finish
 
 
-def _schema_matches(value: object, schema: Mapping[str, Any]) -> bool:
+def _schema_matches(value: object, schema: Mapping[str, Any], *,
+                    violations: list[str] | None = None, path: str = "root") -> bool:
     """Validate the small JSON-schema subset used at the provider boundary."""
 
-    if 'enum' in schema and value not in schema['enum']:
+    def reject(rule: str) -> bool:
+        if violations is not None:
+            violations.append(path + ":" + rule)
         return False
+
+    if 'enum' in schema and value not in schema['enum']:
+        return reject("enum")
     expected_type = schema.get("type")
     if expected_type == "object":
         if not isinstance(value, Mapping):
-            return False
+            return reject("type")
         required = schema.get("required", [])
         if not isinstance(required, list) or any(
             not isinstance(key, str) or key not in value for key in required
         ):
-            return False
+            return reject("required")
         properties = schema.get("properties", {})
         if properties and not isinstance(properties, Mapping):
-            return False
+            return reject("properties")
         if schema.get('additionalProperties') is False and set(value) - set(properties):
-            return False
-        return all(
-            isinstance(key, str)
-            and isinstance(rule, Mapping)
-            and _schema_matches(value[key], rule)
-            for key, rule in properties.items()
-            if key in value
-        )
+            return reject("additionalProperties")
+        for index, (key, rule) in enumerate(properties.items()):
+            if key not in value:
+                continue
+            if not isinstance(key, str) or not isinstance(rule, Mapping):
+                return reject("properties")
+            # Numeric schema positions reveal neither response keys/values nor
+            # schema field names; even injected property names stay private.
+            if not _schema_matches(value[key], rule, violations=violations,
+                                   path=f"{path}/property[{index}]"):
+                return False
+        return True
     if expected_type == "array":
         if not isinstance(value, list):
-            return False
-        if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', float('inf')):
-            return False
+            return reject("type")
+        if len(value) < schema.get('minItems', 0):
+            return reject("minItems")
+        if len(value) > schema.get('maxItems', float('inf')):
+            return reject("maxItems")
         if schema.get('uniqueItems') and len({json.dumps(v, sort_keys=True) for v in value}) != len(value):
-            return False
+            return reject("uniqueItems")
         item_schema = schema.get("items")
         return not isinstance(item_schema, Mapping) or all(
-            _schema_matches(item, item_schema) for item in value
+            _schema_matches(item, item_schema, violations=violations,
+                            path=f"{path}/item[{index}]") for index, item in enumerate(value)
         )
     if expected_type == "string":
-        return isinstance(value, str) and schema.get('minLength', 0) <= len(value) <= schema.get('maxLength', float('inf'))
+        if not isinstance(value, str):
+            return reject("type")
+        if len(value) < schema.get('minLength', 0):
+            return reject("minLength")
+        return len(value) <= schema.get('maxLength', float('inf')) or reject("maxLength")
     if expected_type == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
+        return isinstance(value, int) and not isinstance(value, bool) or reject("type")
     if expected_type == "number":
-        return _finite(value)
+        return _finite(value) or reject("type")
     if expected_type == "boolean":
-        return isinstance(value, bool)
+        return isinstance(value, bool) or reject("type")
     return True
 
 
@@ -377,7 +396,12 @@ def _structured(
     actual_schema = None
     if isinstance(schema, Mapping):
         actual_schema = schema.get("schema", schema)
-    if isinstance(actual_schema, Mapping) and not _schema_matches(value, actual_schema):
+    violations: list[str] = []
+    if isinstance(actual_schema, Mapping) and not _schema_matches(value, actual_schema, violations=violations):
+        LOGGER.warning("provider_schema_rejected slot=%s constraint=%s content_sha256=%s",
+                       slot if slot in {"control", "generation"} else "unknown",
+                       violations[0] if violations else "root:invalid",
+                       hashlib.sha256(content.encode()).hexdigest())
         raise ProviderError(
             "schema_error", f"{slot} structured output does not match schema"
         )

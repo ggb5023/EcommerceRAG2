@@ -393,6 +393,22 @@ def test_structured_boundary_enforces_declared_bounds_enums_and_extra_fields():
         assert error.value.code == 'schema_error' and error.value.retryable is False
 
 
+def test_schema_diagnostic_reports_constraint_without_response_or_property_text(caplog):
+    import hashlib
+
+    import pytest
+    from app.providers.aliyun_bailian import _structured
+    from app.providers.contracts import ProviderError
+
+    payload = '{"private-field":"private-response"}'
+    schema = {'type': 'object', 'properties': {'private-field': {'type': 'string', 'maxLength': 2}}}
+    with pytest.raises(ProviderError):
+        _structured(payload, 'control', schema)
+    assert 'root/property[0]:maxLength' in caplog.text
+    assert hashlib.sha256(payload.encode()).hexdigest() in caplog.text
+    assert 'private-field' not in caplog.text and 'private-response' not in caplog.text
+
+
 def test_free_only_allocation_is_nonretryable_quota_not_bad_credentials():
     import pytest
     from app.providers.aliyun_bailian import HTTPResponse, _json

@@ -663,6 +663,9 @@ JSON/schema or usage fail before the shared ledger records success. Failed chat 
 keeps the request fingerprint, HTTP status, valid usage and full reservation;
 response bodies remain outside the ledger. Historical attempts are not
 rewritten. This diagnostic contract is not semantic approval or a retry policy.
+Schema failures log only the slot, failed constraint, numeric schema position and
+response hash. Property names and model text stay out of logs; a successful later
+diagnostic cannot establish the cause of an uncaptured historical failure.
 
 ## Independent V2 evidence-boundary acceptance
 
