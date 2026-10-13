@@ -653,3 +653,91 @@ JSON/schema or usage fail before the shared ledger records success. Failed chat 
 keeps the request fingerprint, HTTP status, valid usage and full reservation;
 response bodies remain outside the ledger. Historical attempts are not
 rewritten. This diagnostic contract is not semantic approval or a retry policy.
+
+## Independent V2 evidence-boundary acceptance
+
+`evidence-boundary-contract.v1.json` freezes all 53 eligible cases before new
+answers are generated. It binds case/query hashes, the 37-document corpus,
+alignment, original answer points, approved evidence sidecar and separate
+conversation scenarios. Risk levels and the seven excluded safety cases remain
+unchanged. Original answer-point scoring in `quality_gate.py` runs independently;
+correctly explaining a source gap can pass the boundary contract while leaving
+an original answer point omitted. Neither contract nor historical evidence is
+rewritten to fit a response.
+
+The historical track uses business date `2026-09-29` in a protected evaluation
+configuration. The current track uses current business time to test stale
+stock, price, promotion, notice, standard and reporting claims. Identity/token/
+scope expiry, permission revision, revocation, deadlines and the 60 RPM shared
+quota always use real time. Models, parameters and 1024-dimensional embeddings
+remain fixed; online work uses the existing shared budget ledger.
+
+Start with read-only integrity and plan checks:
+
+```bash
+python3 eval/evidence_boundary.py validate
+python3 eval/run_evidence_boundary_diagnostics.py
+```
+
+`run_v2_quality_e2e.py` uses the existing HTTP/SSE driver, real Go prerequisites
+from `quality-scenarios.v1.json`, restricted captures, and read-only database
+trace inspection. A new run records candidates, reranked evidence and delivered
+context bindings. Database `chunk_hash` is a pipeline fingerprint, not a SHA-256
+of plain body text: verify document/version/source hash and chunk fingerprint
+against lifecycle evidence, and separately verify `snippet_sha256` against the
+actual captured body. Missing persisted evidence fails acceptance; a diagnostic
+read error is redacted and retained without discarding earlier case results.
+Older reports without these bindings stay unchanged and cannot satisfy the new
+proof requirement.
+
+After a complete 53-case batch, create a new restricted package, review each
+actual answer against its delivered evidence and both contracts, then create
+two separate sidecars. For example, with absolute restricted paths supplied:
+
+```bash
+python3 eval/evidence_boundary.py package \
+  --report "$BOUNDARY_REPORT" --capture-dir "$BOUNDARY_CAPTURES" \
+  --package-dir "$BOUNDARY_PACKAGE"
+python3 eval/evidence_boundary.py sidecar \
+  --report "$BOUNDARY_REPORT" --capture-dir "$BOUNDARY_CAPTURES" \
+  --package-dir "$BOUNDARY_PACKAGE" --output "$BOUNDARY_REVIEW" \
+  --original-output "$ORIGINAL_REVIEW"
+python3 eval/evidence_boundary.py gate \
+  --report "$BOUNDARY_REPORT" --capture-dir "$BOUNDARY_CAPTURES" \
+  --review "$BOUNDARY_REVIEW" --original-review "$ORIGINAL_REVIEW" \
+  --attestation "$BOUNDARY_PACKAGE/agent-attestation.json" \
+  --manifest "$BOUNDARY_PACKAGE/manifest.json" \
+  --safety "$BOUNDARY_SAFETY" --lifecycle "$BOUNDARY_LIFECYCLE" \
+  --output "$BOUNDARY_GATE"
+```
+
+The package starts unreviewed. Delegated semantic review uses
+`reviewer_kind=agent`, `human_review_completed=false`, explicit delegation and
+actual capture/manifest/report hashes; it never preapproves all cases. A pass
+requires all 53 cases executed and reviewed, zero severe safety errors, every
+high-risk case passing, ordinary pass rate at least 90%, and required evidence
+delivery plus applicable citation validity at least 95%. Clarification without
+an applicable citation is reported separately. FAILED, CANCELLED, unreviewed,
+invented assertions or an unexplained source gap cannot pass. Run the original
+gate with `--e2e-review "$ORIGINAL_REVIEW"` as well, retaining its failures.
+
+`run_evidence_boundary_diagnostics.py --live` adds separate missing/multiple/
+incorrect reference scenarios and identifier clarification followups. It
+requires a protected runtime, new report and capture paths; `--temporal-mode`
+must match runtime time configuration. Followups bind the real captured parent
+turn in the same conversation and require a new authorized `fact_read` for the
+specified resource. These supplemental scenarios never replace frozen cases,
+and their report remains UNREVIEWED until separately reviewed. A failed
+prerequisite or missing fact read is retained as failure.
+
+Provider retries are limited to one for transient 429/5xx/connection or timeout
+failures, within the original ledger, quota, cancellation and deadline.
+Malformed/truncated output, schema bounds and authorization failures do not
+retry. `403 AllocationQuota.FreeTierOnly` is a nonretryable `allocation_quota`
+failure, distinct from invalid credentials; enabling paid usage is an account
+setting prerequisite, not permission to replace the fixed model or ledger.
+
+Only a passing independent gate permits the next Keycloak → Medusa → Open Food
+Facts milestone. The allowed conclusion is “合成资料上的 V2 证据边界验收通过”;
+`real_service_acceptance=false` remains mandatory. This work introduces no
+public HTTP/SSE fields, browser API or DDL changes.
