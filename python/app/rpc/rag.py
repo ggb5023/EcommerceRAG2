@@ -71,7 +71,7 @@ def _abort_v2_error(context: Any, error: Exception) -> None:
     if isinstance(error, RuntimeError) and str(error) == 'request cancelled':
         context.abort(_grpc_cancel_code(context), 'request cancelled')
     if isinstance(error, ProviderError):
-        code = {'cancelled': _grpc_cancel_code(context), 'timeout': grpc.StatusCode.DEADLINE_EXCEEDED, 'rate_limited': grpc.StatusCode.RESOURCE_EXHAUSTED, 'authentication': grpc.StatusCode.UNAUTHENTICATED, 'invalid_input': grpc.StatusCode.INVALID_ARGUMENT, 'schema_error': grpc.StatusCode.FAILED_PRECONDITION}.get(error.code, grpc.StatusCode.UNAVAILABLE if error.retryable else grpc.StatusCode.INTERNAL)
+        code = {'cancelled': _grpc_cancel_code(context), 'timeout': grpc.StatusCode.DEADLINE_EXCEEDED, 'rate_limited': grpc.StatusCode.RESOURCE_EXHAUSTED, 'allocation_quota': grpc.StatusCode.RESOURCE_EXHAUSTED, 'authentication': grpc.StatusCode.UNAUTHENTICATED, 'invalid_input': grpc.StatusCode.INVALID_ARGUMENT, 'schema_error': grpc.StatusCode.FAILED_PRECONDITION}.get(error.code, grpc.StatusCode.UNAVAILABLE if error.retryable else grpc.StatusCode.INTERNAL)
         context.abort(code, error.code)
     context.abort(grpc.StatusCode.INTERNAL, 'v2 provider execution failed')
 

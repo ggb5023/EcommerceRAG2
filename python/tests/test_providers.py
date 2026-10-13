@@ -374,3 +374,35 @@ class MockProviderTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_structured_boundary_enforces_declared_bounds_enums_and_extra_fields():
+    import pytest
+    from app.providers.aliyun_bailian import _structured
+    from app.providers.contracts import ProviderError
+    schema = {'type': 'object', 'additionalProperties': False, 'required': ['answer', 'ids'],
+              'properties': {'answer': {'type': 'string', 'minLength': 1, 'maxLength': 4},
+                             'ids': {'type': 'array', 'maxItems': 2, 'uniqueItems': True,
+                                     'items': {'type': 'string', 'enum': ['a', 'b']}}}}
+    assert _structured('{"answer":"ok","ids":["a"]}', 'generation', schema)['answer'] == 'ok'
+    for payload in ['{"answer":"too long","ids":[]}', '{"answer":"","ids":[]}',
+                    '{"answer":"ok","ids":["outside"]}', '{"answer":"ok","ids":["a","a"]}',
+                    '{"answer":"ok","ids":["a","b","a"]}', '{"answer":"ok","ids":[],"extra":1}']:
+        with pytest.raises(ProviderError) as error:
+            _structured(payload, 'generation', schema)
+        assert error.value.code == 'schema_error' and error.value.retryable is False
+
+
+def test_free_only_allocation_is_nonretryable_quota_not_bad_credentials():
+    import pytest
+    from app.providers.aliyun_bailian import HTTPResponse, _json
+    from app.providers.contracts import ProviderError
+    for payload in [b'{"code":"AllocationQuota.FreeTierOnly","message":"restricted"}',
+                    b'{"error":{"code":"AllocationQuota.FreeTierOnly","message":"restricted"}}']:
+        with pytest.raises(ProviderError) as error:
+            _json(HTTPResponse(403, {}, payload), 'generation')
+        assert error.value.code == 'allocation_quota'
+        assert error.value.retryable is False and error.value.status == 403
+    with pytest.raises(ProviderError) as error:
+        _json(HTTPResponse(403, {}, b'{"code":"InvalidApiKey"}'), 'generation')
+    assert error.value.code == 'authentication'

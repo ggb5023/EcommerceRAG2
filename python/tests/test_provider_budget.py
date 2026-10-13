@@ -204,6 +204,22 @@ def test_http_failure_keeps_request_fingerprint_without_body(monkeypatch, ledger
     assert b"sensitive response" not in ledger.path.read_bytes()
 
 
+def test_free_only_quota_is_recorded_once_without_retry_or_response_body(monkeypatch, ledger):
+    ledger.extend_authorized_cap('1', authorization='test-explicit')
+    environment(monkeypatch, ledger)
+    monkeypatch.setenv('V2_ONLINE_BUDGET_CNY', '1')
+    transport = Transport(HTTPResponse(403, {'X-Request-ID': 'quota-request'},
+        b'{"error":{"code":"AllocationQuota.FreeTierOnly","message":"private account detail"}}'))
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(AlibabaBailianProvider(config(), transport).generate([{'role': 'user', 'content': 'controlled'}]))
+    assert error.value.code == 'allocation_quota' and not error.value.retryable
+    assert transport.calls == 1
+    with sqlite3.connect(ledger.path) as conn:
+        rows = conn.execute('SELECT state,error_code,http_status,reserved_micro FROM attempt').fetchall()
+    assert len(rows) == 1 and rows[0][:3] == ('error', 'allocation_quota', 403)
+    assert rows[0][3] > 0 and b'private account detail' not in ledger.path.read_bytes()
+
+
 @pytest.mark.parametrize("slot", ["control", "generation"])
 @pytest.mark.parametrize("content,finish,usage,error_code", [
     ('{"answer":"private-output"}', "length", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),

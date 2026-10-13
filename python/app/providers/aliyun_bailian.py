@@ -180,6 +180,17 @@ def _request_id(response: HTTPResponse, payload: Mapping[str, Any]) -> str:
 
 
 def _json(response: HTTPResponse, slot: str) -> Mapping[str, Any]:
+    if response.status == 403:
+        try:
+            failure = json.loads(response.body)
+        except (ValueError, UnicodeDecodeError):
+            failure = {}
+        code = failure.get('code') if isinstance(failure, Mapping) else None
+        if code is None and isinstance(failure, Mapping) and isinstance(failure.get('error'), Mapping):
+            code = failure['error'].get('code')
+        if code == 'AllocationQuota.FreeTierOnly':
+            raise ProviderError('allocation_quota', 'provider free-only allocation is exhausted',
+                                slot=slot, status=403, retryable=False)
     if response.status == 429:
         raise ProviderError(
             "rate_limited",
@@ -305,6 +316,8 @@ def _content(payload: Mapping[str, Any], slot: str) -> tuple[str, str]:
 def _schema_matches(value: object, schema: Mapping[str, Any]) -> bool:
     """Validate the small JSON-schema subset used at the provider boundary."""
 
+    if 'enum' in schema and value not in schema['enum']:
+        return False
     expected_type = schema.get("type")
     if expected_type == "object":
         if not isinstance(value, Mapping):
@@ -317,6 +330,8 @@ def _schema_matches(value: object, schema: Mapping[str, Any]) -> bool:
         properties = schema.get("properties", {})
         if properties and not isinstance(properties, Mapping):
             return False
+        if schema.get('additionalProperties') is False and set(value) - set(properties):
+            return False
         return all(
             isinstance(key, str)
             and isinstance(rule, Mapping)
@@ -327,12 +342,16 @@ def _schema_matches(value: object, schema: Mapping[str, Any]) -> bool:
     if expected_type == "array":
         if not isinstance(value, list):
             return False
+        if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', float('inf')):
+            return False
+        if schema.get('uniqueItems') and len({json.dumps(v, sort_keys=True) for v in value}) != len(value):
+            return False
         item_schema = schema.get("items")
         return not isinstance(item_schema, Mapping) or all(
             _schema_matches(item, item_schema) for item in value
         )
     if expected_type == "string":
-        return isinstance(value, str)
+        return isinstance(value, str) and schema.get('minLength', 0) <= len(value) <= schema.get('maxLength', float('inf'))
     if expected_type == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
     if expected_type == "number":
