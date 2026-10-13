@@ -550,12 +550,18 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     needs_plan = bool(CLARIFICATION_WORKFLOW.search(state["query"]))
     citation_schema = dict(GENERATION_SCHEMA['properties']['citation_ids'],
                            maxItems=len(evidence),
-                           items={'type': 'string', 'enum': [item['id'] for item in evidence]})
+                           items={'type': 'string'})
+    if evidence:
+        citation_schema['items']['enum'] = [item['id'] for item in evidence]
     if evidence and not facts:
         citation_schema['minItems'] = 1
     schema = dict(GENERATION_SCHEMA,
                   properties=dict(GENERATION_SCHEMA['properties'], citation_ids=citation_schema))
-    instruction = GENERATION_INSTRUCTION + "answer不超过260字，通常180至220字。"
+    instruction = GENERATION_INSTRUCTION + (
+        "answer不超过260字，没有最低字数要求。已回答的问题不补与问题无关的缺口、"
+        "理由或操作建议；只写必要事实与限制。来源没有原因时直接说未说明原因，"
+        "不要把规格区别改写成设计目的。"
+    )
     if facts:
         instruction = (
             "用中文返回紧凑JSON：answer与citation_ids。只根据本轮Go已授权查询的Facts回答，"
@@ -598,6 +604,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         capability_instruction += "没有当前促销工具，快照不代表实时资格。"
     if re.search(r"公开|新闻|报道|标准|补检|外部|搜索", state['query']):
         capability_instruction += "外部搜索工具未连接，只能说明资料中已有内容和缺口。"
+    if re.search(r"召回|recall", state['query'], re.IGNORECASE):
+        capability_instruction += "实际召回缺口须请求型号/批次、带日期的公告原文及抓取记录。"
     messages = [{"role": "system", "content": instruction +
                  ("" if needs_plan or facts else capability_instruction)}]
     # Assistant descriptions can list alternatives after the user's explicit

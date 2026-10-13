@@ -152,6 +152,7 @@ def test_real_generation_emits_only_selected_supplied_citations(cited):
             citation_schema = payload['response_schema']['properties']['citation_ids']
             assert citation_schema['minItems'] == 1
             assert citation_schema['items']['enum'] == ['support', 'unrelated']
+            assert 'uniqueItems' not in citation_schema
             return {"structured": {"answer": "Qualified dated answer", "citation_ids": cited}, "provider": {}}
 
     evidence = [{"id": "support", "content": "dated snapshot; current value unconfirmed"},
@@ -233,6 +234,9 @@ def test_generation_can_use_bound_facts_without_document_evidence(is_mock):
             instruction = payload["messages"][0]["content"]
             assert "180至220字" not in instruction
             assert "get_logistics" not in instruction
+            citation_schema = payload['response_schema']['properties']['citation_ids']
+            assert citation_schema['maxItems'] == 0
+            assert 'enum' not in citation_schema['items']
             return {"structured": {"answer": "本地测试记录有7件，不保证下单库存。", "citation_ids": []}}
 
     result = asyncio.run(provider_generate_node({"query": "SKU-1 库存？", "evidence": [],
