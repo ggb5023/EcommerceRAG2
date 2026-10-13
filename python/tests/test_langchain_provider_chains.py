@@ -289,3 +289,26 @@ def test_provider_runtime_factory_keeps_profile_selection_explicit():
         )
         service = load_provider_service(path)
     assert service.provider_chains is not None
+
+
+def test_context_selection_only_narrows_authorized_sources_and_skips_signed_generation():
+    from app.graph.workflow import provider_context_gate_node
+    from langchain_core.runnables import RunnableLambda
+    import pytest
+    import types
+    evidence = [dict(id='source-news', document_id='news', content='News source conflict guidance', rerank_score=.95,
+                     disclosure_class='external_allowed', customer_eligible=True),
+                dict(id='source-order', document_id='order', content='Order refund policy conflict', rerank_score=.8,
+                     disclosure_class='external_allowed', customer_eligible=True)]
+    state = dict(query='News conflict?', evidence=evidence, response_purpose='customer_reply')
+    async def run():
+        async def select(_): return {'structured': {'selected_ids': ['source-news']}}
+        chains = types.SimpleNamespace(control=RunnableLambda(lambda _: None, afunc=select))
+        result = await provider_context_gate_node(state, chains)
+        assert result['evidence'] == evidence[:1]
+        assert (await provider_context_gate_node(dict(state, seed_evidence=evidence), chains))['evidence'] == evidence
+        async def widen(_): return {'structured': {'selected_ids': ['unauthorized']}}
+        chains.control = RunnableLambda(lambda _: None, afunc=widen)
+        with pytest.raises(ValueError, match='outside supplied'):
+            await provider_context_gate_node(state, chains)
+    asyncio.run(run())

@@ -871,6 +871,9 @@ class MockProvider:
             "clarification": "请补充商品或具体问题。" if vague else "",
             "confidence": 0.2 if vague else 0.95,
         }
+        if response_schema and 'selected_ids' in response_schema.get('properties', {}):
+            # Offline echo of supplied IDs only, never a semantic acceptance.
+            structured = {'selected_ids': list(dict.fromkeys(re.findall(r'^\[([^\]\n]+)\]', query, re.MULTILINE)))[:8]}
         return ControlResult(
             structured,
             self.config.control_model,

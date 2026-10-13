@@ -107,14 +107,14 @@ def test_fact_contract_rejects_unknown_tools_and_accepts_authorized_shape():
         raise AssertionError("unknown fact tools must fail closed")
 
 
-def test_context_relevance_narrows_search_but_preserves_signed_generate_snapshot():
+def test_context_keeps_low_score_prerequisites_and_preserves_signed_snapshot():
     from app.graph.workflow import context_gate_node
     rows = [dict(id=str(i), rerank_score=s, disclosure_class='external_allowed', customer_eligible=True)
             for i, s in enumerate([.92, .75, .64, .3])]
     state = dict(response_purpose='customer_reply', evidence=rows)
-    assert [e['id'] for e in context_gate_node(state)['evidence']] == ['0', '1']
+    assert [e['id'] for e in context_gate_node(state)['evidence']] == ['0', '1', '2', '3']
     assert context_gate_node(dict(state, seed_evidence=rows))['evidence'] == rows
     low = [dict(r, rerank_score=r['rerank_score'] / 10) for r in rows]
-    assert [e['id'] for e in context_gate_node(dict(state, evidence=low))['evidence']] == ['0', '1']
+    assert [e['id'] for e in context_gate_node(dict(state, evidence=low))['evidence']] == ['0', '1', '2', '3']
     private = [dict(rows[0], disclosure_class='internal_only'), rows[1]]
     assert context_gate_node(dict(state, evidence=private))['evidence'] == [rows[1]]
