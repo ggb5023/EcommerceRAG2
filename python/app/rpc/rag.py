@@ -10,7 +10,6 @@ import os
 from typing import Any
 
 import grpc
-from rag.v1 import rag_pb2, rag_pb2_grpc
 
 from app.authorization import ScopeError, validate_scope
 from app.graph.runtime import (
@@ -20,6 +19,7 @@ from app.graph.runtime import (
 )
 from app.graph.service import LangGraphRagService
 from app.providers.contracts import ProviderError
+from rag.v1 import rag_pb2, rag_pb2_grpc
 
 
 def _valid_scope(ctx: Any) -> bool:
