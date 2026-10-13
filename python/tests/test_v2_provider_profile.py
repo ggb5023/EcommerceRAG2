@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from app.configuration import require_online_budget
 from app.rpc import rag as rag_service
 
@@ -216,6 +217,52 @@ def test_understand_history_is_untrusted_data_and_flows_through_rpc():
         context=request_context(), query="刚才那件商品现在库存？", history_summary=history), Context())
     assert result.rewritten_query == "SKU-1 当前库存"
     assert list(result.required_fact_tools) == ["get_stock"]
+
+
+def test_control_reference_candidates_exclude_assistant_mentions():
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_understand_node
+
+    prior = [{'role': 'user', 'content': '请说明 USB-C 标准的来源日期限制。'},
+             {'role': 'assistant', 'content': '另一个电池标准可能有关；最新日期未知。'}]
+
+    class Control:
+        async def ainvoke(self, payload):
+            history_message = payload['messages'][1]['content']
+            assert json.loads(history_message.split('\n', 1)[1]) == prior[:1]
+            assert '电池标准' not in history_message
+            assert payload['response_schema']['properties']['intent']['enum'] != ['clarification']
+            return {'structured': {'rewritten_query': 'USB-C标准最新版本及来源日期',
+                'intent': 'knowledge', 'information_source': 'knowledge',
+                'entities': [], 'required_fact_tools': [], 'clarification': '', 'confidence': .9}}
+
+    result = asyncio.run(provider_understand_node({'query': '沿用上一问的标准，哪一条最新？',
+        'history_summary': json.dumps(prior)}, SimpleNamespace(control=Control())))
+    assert result['clarification'] == ''
+
+
+def test_assistant_only_history_cannot_supply_missing_user_reference():
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_understand_node
+
+    class Control:
+        async def ainvoke(self, payload):
+            assert len(payload['messages']) == 2
+            assert payload['response_schema']['properties']['intent']['enum'] == ['clarification']
+            return {'structured': {'rewritten_query': '请确认标准', 'intent': 'clarification',
+                'information_source': 'knowledge', 'entities': [], 'required_fact_tools': [],
+                'clarification': '请说明您指哪个标准？', 'confidence': .9}}
+
+    result = asyncio.run(provider_understand_node({'query': '沿用上一问的标准，哪一条最新？',
+        'history_summary': json.dumps([{'role': 'assistant', 'content': 'USB-C'}])},
+        SimpleNamespace(control=Control())))
+    assert result['intent'] == 'clarification'
 
 
 @pytest.mark.parametrize("is_mock", [True, False])

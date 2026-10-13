@@ -394,6 +394,10 @@ requirements. Re-reading a fact does not prove its underlying observation is fre
 An actual unresolved prior reference with no user history requires a control
 clarification and zero extracted resources/tools before retrieval; workflow
 quotations and explicit resource IDs retain their respective routing.
+Control reference resolution receives prior user messages only. Assistant
+mentions of additional sources cannot undo the user's unique product or
+standard selection. Missing versions or publication dates are evidence gaps
+for the selected resource, rather than unresolved resource identity.
 Document storage versions are provenance, not external standard revisions or
 publication dates. Missing source dates/versions must remain explicit gaps;
 the evaluator never repairs the frozen truth to make them pass.
