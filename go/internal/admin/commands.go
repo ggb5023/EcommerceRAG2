@@ -29,6 +29,11 @@ func (g *Handler) issueCommandScope(ctx context.Context, shop, id, action, hash 
 	}
 	scope.ScopeAudience, scope.CommandId, scope.CommandAction, scope.CommandPayloadSha256 = "ingest", id, action, hash
 	scope.ScopeSignature = hex.EncodeToString(auth.MAC(g.SigningKey, scope))
+	if g.Authority.RegisterScopeIdentity != nil {
+		if err = g.Authority.RegisterScopeIdentity(scope); err != nil {
+			return nil, err
+		}
+	}
 	return scope, nil
 }
 

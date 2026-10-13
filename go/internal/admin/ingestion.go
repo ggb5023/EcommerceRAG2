@@ -39,6 +39,11 @@ func (g *Handler) queuePackage(ctx context.Context, manifest string, files []*ra
 	}
 	scope.ScopeAudience = "ingest"
 	scope.ScopeSignature = hex.EncodeToString(auth.MAC(g.SigningKey, scope))
+	if g.Authority.RegisterScopeIdentity != nil {
+		if err = g.Authority.RegisterScopeIdentity(scope); err != nil {
+			return queuedPackage{}, err
+		}
+	}
 	manifestDigest := sha256.Sum256([]byte(manifest))
 	key := "admin:" + shopID + ":" + hex.EncodeToString(manifestDigest[:])
 	response, err := g.Ingest.Submit(ctx, &ragv1.SubmitRequest{

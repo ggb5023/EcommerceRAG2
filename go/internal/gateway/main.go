@@ -10,6 +10,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
+	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
 	"io"
 	"log"
 	"math"
@@ -75,13 +76,6 @@ func isMockProfile(profile string) bool {
 
 type mockSession = auth.Session
 
-// IdentityAdapter is the boundary between the gateway and identity data.
-// The M1 implementation is deliberately synthetic; a future OIDC adapter can
-// replace it without changing retrieval, evidence, or generation code.
-type IdentityAdapter interface {
-	Resolve(context.Context) (mockSession, error)
-}
-
 type developmentIdentityAdapter struct{ db *pgxpool.Pool }
 
 func (a developmentIdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
@@ -103,18 +97,22 @@ func (a developmentIdentityAdapter) Resolve(ctx context.Context) (mockSession, e
 }
 
 type gateway struct {
-	db         *pgxpool.Pool
-	rag        ragv1.RagServiceClient
-	ingest     ragv1.IngestServiceClient
-	facts      facts.Provider
-	grpcConn   *grpc.ClientConn
-	session    mockSession
-	signingKey []byte
-	profile    string
-	mu         sync.Mutex
-	revisionMu sync.RWMutex
-	ready      atomic.Bool
-	cancels    map[string]context.CancelFunc
+	db              *pgxpool.Pool
+	rag             ragv1.RagServiceClient
+	ingest          ragv1.IngestServiceClient
+	facts           facts.Provider
+	grpcConn        *grpc.ClientConn
+	session         mockSession
+	signingKey      []byte
+	profile         string
+	mu              sync.Mutex
+	revisionMu      sync.RWMutex
+	ready           atomic.Bool
+	cancels         map[string]context.CancelFunc
+	root            *gateway
+	identity        IdentityAdapter
+	identityCheck   func(context.Context) error
+	scopeIdentities *scopeIdentityRegistry
 }
 
 type apiError struct {
@@ -161,10 +159,26 @@ func Main() {
 	if err = db.QueryRow(ctx, `SELECT current_database(),current_user,rolsuper FROM pg_roles WHERE rolname=current_user`).Scan(&database, &role, &superuser); err != nil || superuser || role != "rag_v2_gateway" || !strings.Contains(database, "v2") {
 		log.Fatal("Gateway requires its restricted role and independent V2 database")
 	}
-	identity := developmentIdentityAdapter{db: db}
-	session, err := identity.Resolve(ctx)
-	if err != nil {
-		log.Fatal("development identity unavailable")
+	var session mockSession
+	var adapter IdentityAdapter
+	switch os.Getenv("V2_IDENTITY_PROFILE") {
+	case "", "development":
+		session, err = (developmentIdentityAdapter{db: db}).Resolve(ctx)
+		if err != nil {
+			log.Fatal("development identity unavailable")
+		}
+	case "oidc":
+		config, configErr := identity.LoadConfig(os.Getenv("V2_OIDC_CONFIG_FILE"))
+		if configErr != nil {
+			log.Fatal("protected OIDC configuration unavailable")
+		}
+		provider, providerErr := identity.New(ctx, config)
+		if providerErr != nil {
+			log.Fatal("OIDC discovery unavailable")
+		}
+		adapter = oidcIdentityAdapter{provider: provider, db: db}
+	default:
+		log.Fatal("an explicit supported identity profile is required")
 	}
 	conn, err := grpc.NewClient(ragAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -184,13 +198,17 @@ func Main() {
 		}
 		factsProvider = facts.HTTPProvider{BaseURL: base, Version: version}
 	}
-	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}}
+	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter}
 	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
 	}
-	if err = g.authority().Refresh(ctx); err != nil {
-		log.Fatal("identity scope rejected")
+	if adapter == nil {
+		if err = g.authority().Refresh(ctx); err != nil {
+			log.Fatal("identity scope rejected")
+		}
+	} else {
+		g.scopeIdentities = &scopeIdentityRegistry{}
 	}
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
@@ -229,7 +247,7 @@ func Main() {
 	}
 }
 
-func (g *gateway) Routes() http.Handler {
+func (g *gateway) businessRoutes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", g.health)
 	mux.HandleFunc("POST /internal/authorization/validate", g.validateScopeHTTP)
@@ -243,13 +261,39 @@ func (g *gateway) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
 	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey}).RegisterRoutes(mux)
+	return mux
+}
+
+func (g *gateway) Routes() http.Handler {
+	mux := g.businessRoutes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if g.db != nil && r.URL.Path != "/internal/authorization/validate" && !g.ready.Load() {
 			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
 		}
-		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" && !g.authorizeHTTP(w, r) {
-			return
+		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" {
+			if g.identity != nil {
+				session, check, err := g.identity.Resolve(r)
+				if err != nil {
+					code := http.StatusUnauthorized
+					if status.Code(err) == codes.PermissionDenied {
+						code = http.StatusForbidden
+					} else if status.Code(err) == codes.Unavailable {
+						code = http.StatusServiceUnavailable
+					}
+					writeError(w, code, "identity_rejected", "identity rejected")
+					return
+				}
+				requestGateway := g.scoped(session, check)
+				if !requestGateway.authorizeHTTP(w, r) {
+					return
+				}
+				requestGateway.businessRoutes().ServeHTTP(w, r)
+				return
+			}
+			if !g.authorizeHTTP(w, r) {
+				return
+			}
 		}
 		mux.ServeHTTP(w, r)
 	})
@@ -587,9 +631,10 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	_, _ = g.db.Exec(r.Context(), `UPDATE conversation SET title=CASE WHEN title IS NULL OR title IN ('','新会话') THEN $3 ELSE title END
 		WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, conversationID, first24(query))
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	g.mu.Lock()
-	g.cancels[requestID] = cancel
-	g.mu.Unlock()
+	registry := g.executionRegistryOwner()
+	registry.mu.Lock()
+	registry.cancels[requestID] = cancel
+	registry.mu.Unlock()
 	go func() {
 		var parentID, parentExecution int64
 		if parentTurnID != nil {
@@ -749,9 +794,10 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	g.mu.Lock()
-	g.cancels[requestID] = cancel
-	g.mu.Unlock()
+	registry := g.executionRegistryOwner()
+	registry.mu.Lock()
+	registry.cancels[requestID] = cancel
+	registry.mu.Unlock()
 	go func() {
 		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, turnID, askingExecutionID, executionNo)
 	}()
@@ -789,9 +835,10 @@ func (g *gateway) historySummary(ctx context.Context, conversationID, currentTur
 func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string, parentTurnID, parentExecutionID, executionNo int64) {
 	mockOutput := isMockProfile(g.profile)
 	defer func() {
-		g.mu.Lock()
-		delete(g.cancels, requestID)
-		g.mu.Unlock()
+		registry := g.executionRegistryOwner()
+		registry.mu.Lock()
+		delete(registry.cancels, requestID)
+		registry.mu.Unlock()
 	}()
 	writeEvent := func(kind string, payload any) error {
 		eventCtx, eventCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1326,9 +1373,10 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "database_unavailable", "could not persist cancellation")
 		return
 	}
-	g.mu.Lock()
-	stop := g.cancels[requestID]
-	g.mu.Unlock()
+	registry := g.executionRegistryOwner()
+	registry.mu.Lock()
+	stop := registry.cancels[requestID]
+	registry.mu.Unlock()
 	if stop != nil {
 		stop()
 	}

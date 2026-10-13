@@ -34,13 +34,17 @@ type Session struct {
 	Role               string
 	PermissionRevision string
 	RevokedAt          *time.Time
+	RevisionPinned     bool
 }
 type Resource struct{ Shop, Disclosure string }
 type Authority struct {
-	DB         *pgxpool.Pool
-	Session    *Session
-	SigningKey []byte
-	RevisionMu *sync.RWMutex
+	DB                    *pgxpool.Pool
+	Session               *Session
+	SigningKey            []byte
+	RevisionMu            *sync.RWMutex
+	IdentityCheck         func(context.Context) error
+	RegisterScopeIdentity func(*ragv1.RequestContext) error
+	ValidateScopeIdentity func(context.Context, *ragv1.RequestContext) error
 }
 
 func LoadSigningKey() ([]byte, error) {
@@ -63,8 +67,14 @@ func LoadSigningKey() ([]byte, error) {
 	return key, nil
 }
 
-// Session is immutable; revalidation never changes shared request state.
+// Identity fields are immutable; development policy revisions may refresh.
+// OIDC requests pin the revision from the verified token and fail on changes.
 func (g *Authority) Refresh(ctx context.Context) error {
+	if g.IdentityCheck != nil {
+		if err := g.IdentityCheck(ctx); err != nil {
+			return err
+		}
+	}
 	if g.DB == nil {
 		return nil
 	}
@@ -106,6 +116,10 @@ func (g *Authority) Refresh(ctx context.Context) error {
 	// from a browser token. Refresh policy revision after revalidating the full
 	// identity tuple so source/document ACL changes do not strand the console.
 	g.RevisionMu.Lock()
+	if g.Session.RevisionPinned && g.Session.PermissionRevision != revision {
+		g.RevisionMu.Unlock()
+		return status.Error(codes.PermissionDenied, "permission_changed")
+	}
 	g.Session.PermissionRevision = revision
 	g.RevisionMu.Unlock()
 	return nil
@@ -242,6 +256,11 @@ func (g *Authority) IssueScopeForShopWithTurn(ctx context.Context, requestID, sh
 		TenantDbId: g.Session.TenantID, UserDbId: g.Session.UserID,
 		ConversationId: conversationID, TurnId: turnID, ExecutionId: executionID, ScopeAudience: "ai"}
 	scope.ScopeSignature = hex.EncodeToString(MAC(g.SigningKey, scope))
+	if g.RegisterScopeIdentity != nil {
+		if err = g.RegisterScopeIdentity(scope); err != nil {
+			return nil, err
+		}
+	}
 	if err = g.Refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -254,6 +273,11 @@ func (g *Authority) ValidateScope(ctx context.Context, scope *ragv1.RequestConte
 	if err != nil || len(g.SigningKey) < 32 || !hmac.Equal(signature, MAC(g.SigningKey, scope)) ||
 		scope.ScopeExpiresAt <= now || scope.ScopeExpiresAt > now+70 || !scope.EnforceDocumentScope || scope.RequestId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_scope")
+	}
+	if g.ValidateScopeIdentity != nil {
+		if err = g.ValidateScopeIdentity(ctx, scope); err != nil {
+			return err
+		}
 	}
 	var tenant string
 	err = g.DB.QueryRow(ctx, `SELECT external_id FROM tenant WHERE id=$1`, scope.TenantDbId).Scan(&tenant)

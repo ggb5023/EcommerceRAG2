@@ -92,5 +92,12 @@ func (g *gateway) authorizeExecution(w http.ResponseWriter, r *http.Request, req
 }
 
 func (g *gateway) authority() *auth.Authority {
-	return &auth.Authority{DB: g.db, Session: &g.session, SigningKey: g.signingKey, RevisionMu: &g.revisionMu}
+	a := &auth.Authority{DB: g.db, Session: &g.session, SigningKey: g.signingKey, RevisionMu: &g.revisionMu, IdentityCheck: g.identityCheck}
+	if g.scopeIdentities != nil {
+		a.ValidateScopeIdentity = g.scopeIdentities.validate
+		if g.identityCheck != nil {
+			a.RegisterScopeIdentity = func(scope *ragv1.RequestContext) error { return g.scopeIdentities.bind(scope, g.identityCheck) }
+		}
+	}
+	return a
 }

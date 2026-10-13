@@ -25,7 +25,7 @@ PROVIDER_KEYS = {"V2_PROVIDER_CONFIG", "V2_ONLINE_BUDGET_CNY", "V2_ONLINE_BUDGET
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
-                "V2_FACTS_BASE_URL", "V2_FACTS_VERSION"},
+                "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE"},
     "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
            "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE"} | PROVIDER_KEYS,
     "ingest": {"V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
@@ -89,8 +89,14 @@ def configure(values: dict[str, str]) -> dict[str, str]:
     for key in ("V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN"):
         if not values.get(key):
             values[key] = values.get("V2_AI_DSN", "")
-    required = {"V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_INGEST_DSN",
-                "V2_IDENTITY_TENANT", "V2_IDENTITY_USER"}
+    required = {"V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_INGEST_DSN"}
+    identity_profile = values.setdefault("V2_IDENTITY_PROFILE", "development")
+    if identity_profile == "development":
+        required |= {"V2_IDENTITY_TENANT", "V2_IDENTITY_USER"}
+    elif identity_profile == "oidc":
+        required.add("V2_OIDC_CONFIG_FILE")
+    else:
+        raise StartupError("an explicit supported identity profile is required")
     if any(not values.get(key) for key in required):
         raise StartupError("explicit service databases and development identity are required")
     if values["RAG_PROFILE"] == "v2_langchain_bailian" and not values.get("V2_PROVIDER_CONFIG"):
