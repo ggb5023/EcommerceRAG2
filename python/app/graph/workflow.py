@@ -549,7 +549,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         context += "\nFacts:\n" + fact_context
     needs_plan = bool(CLARIFICATION_WORKFLOW.search(state["query"]))
     citation_schema = dict(GENERATION_SCHEMA['properties']['citation_ids'],
-                           uniqueItems=True, maxItems=len(evidence),
+                           maxItems=len(evidence),
                            items={'type': 'string', 'enum': [item['id'] for item in evidence]})
     if evidence and not facts:
         citation_schema['minItems'] = 1
