@@ -236,3 +236,40 @@ def test_generation_can_use_bound_facts_without_document_evidence(is_mock):
         SimpleNamespace(generation=Generation())))
     assert "7" in result["answer"]
     assert result["citations"] == [] and result["can_copy"] is False
+
+
+@pytest.mark.parametrize("defect", [None, "missing", "empty", "extra", "wrong_type"])
+def test_clarification_workflow_renders_questions_and_rejects_missing_plan(defect):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    plan = {"object_question": "请确认需要比较的对象与问题类型？", "time_question": "需要哪一段时间的信息？",
+            "location_question": "涉及哪个地区？", "source_scope_question": "查询公开来源还是店内业务？"}
+    if defect == "empty":
+        plan["time_question"] = "  "
+    elif defect == "extra":
+        plan["guessed_date"] = "2030-01-01"
+    elif defect == "wrong_type":
+        plan["location_question"] = 3
+
+    class Generation:
+        async def ainvoke(self, payload):
+            assert "clarification_plan" in payload["response_schema"]["required"]
+            value = {"answer": "确认范围后再检索，不预先保证结果。", "citation_ids": ["chunk"]}
+            if defect != "missing":
+                value["clarification_plan"] = plan
+            return {"structured": value}
+
+    state = {"query": "客户没有说明时间范围，应该先澄清什么？", "evidence": [
+        {"id": "chunk", "content": "缺少对象与时间时先确认，不能猜测。"}]}
+    if defect:
+        with pytest.raises(ValueError, match="clarification plan"):
+            asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
+    else:
+        result = asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
+        assert all(question in result["answer"] for question in plan.values())
+        assert result["answer"].endswith("确认范围后再检索，不预先保证结果。")
+        assert [item["id"] for item in result["citations"]] == ["chunk"]
+        assert result["can_copy"] is False
