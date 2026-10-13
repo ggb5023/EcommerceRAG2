@@ -934,7 +934,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", "invalid_routing_response", "")
 		return
 	}
-	routeDocumentedWorkflow(routed, query)
+	routeKnowledgeQuestion(routed, query)
 	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
 	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
 	factResourceID := ""

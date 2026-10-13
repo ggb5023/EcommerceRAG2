@@ -16,15 +16,21 @@ type historyMessage struct {
 }
 
 var workflowSteps = regexp.MustCompile(`(应该|需要|该|如何|怎么).*(查什么|核对什么|确认什么|查询哪些|查哪些|处理|澄清)|(what|which).*(check|verify).*(information|before)|how.*(handle|clarify)`)
+var catalogRecommendation = regexp.MustCompile(`有没有.*适合|recommend.*for`)
+var liveCatalogFact = regexp.MustCompile(`现在|当前|今天|库存|现货|有货|价格|报价|多少钱|current|today|stock|price|available`)
 var productReference = regexp.MustCompile(`刚才|上一轮|之前.*商品|那件|同一.*商品|that product|same product|previous product`)
 var skuToken = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
 
-func routeDocumentedWorkflow(response *ragv1.UnderstandResponse, query string) {
-	if !workflowSteps.MatchString(strings.ToLower(query)) {
+func routeKnowledgeQuestion(response *ragv1.UnderstandResponse, query string) {
+	lower := strings.ToLower(query)
+	workflow := workflowSteps.MatchString(lower)
+	recommendation := catalogRecommendation.MatchString(lower) && !liveCatalogFact.MatchString(lower)
+	if !workflow && !recommendation {
 		return
 	}
 	// A request to describe a procedure does not authorize executing that
-	// procedure, even when a quoted customer utterance mentions live facts.
+	// procedure. Catalog suitability can be retrieved before a user selects a
+	// SKU; explicit stock/price requests still require resource authorization.
 	response.Intent = "knowledge"
 	response.InformationSource = "knowledge"
 	response.RequiredFactTools = nil

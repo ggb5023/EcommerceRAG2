@@ -10,17 +10,46 @@ import (
 func TestWorkflowDescriptionsDoNotExecuteQuotedFactRequests(t *testing.T) {
 	for _, query := range []string{"客户问明天能否送达，应该核对什么？", "如何处理客户问订单状态的问题？"} {
 		response := &ragv1.UnderstandResponse{Intent: "factual", RequiredFactTools: []string{"get_logistics"}}
-		routeDocumentedWorkflow(response, query)
+		routeKnowledgeQuestion(response, query)
 		if response.Intent != "knowledge" || len(response.RequiredFactTools) != 0 || response.RewrittenQuery != query {
 			t.Fatal("workflow description executed a fact request")
 		}
 	}
 	for _, query := range []string{"请查询订单 V2-ORDER-001 的物流", "现在商品 SKU-1 有多少库存？"} {
 		response := &ragv1.UnderstandResponse{Intent: "factual", RequiredFactTools: []string{"get_stock"}}
-		routeDocumentedWorkflow(response, query)
+		routeKnowledgeQuestion(response, query)
 		if response.Intent != "factual" || len(response.RequiredFactTools) != 1 {
 			t.Fatal("direct fact request was rerouted")
 		}
+	}
+}
+
+func TestCatalogRecommendationsReachRetrievalWithoutExecutingStockLookup(t *testing.T) {
+	for _, test := range []struct {
+		query     string
+		knowledge bool
+	}{
+		{"有没有适合户外露营的便携桌？", true},
+		{"Recommend a compact table for camping", true},
+		{"今天有没有适合露营且有货的桌子？", false},
+		{"推荐的桌子 SKU-TABLE-1 当前库存？", false},
+		{"Recommend an available table for camping", false},
+		{"有没有适合露营的桌子，价格是多少？", false},
+		{"这个适合我吗？", false},
+	} {
+		t.Run(test.query, func(t *testing.T) {
+			response := &ragv1.UnderstandResponse{Intent: "clarification", Clarification: "SKU?",
+				RequiredFactTools: []string{"get_stock"}, RewrittenQuery: "stock"}
+			routeKnowledgeQuestion(response, test.query)
+			if test.knowledge {
+				if response.Intent != "knowledge" || response.Clarification != "" ||
+					len(response.RequiredFactTools) != 0 || response.RewrittenQuery != test.query {
+					t.Fatal("catalog recommendation did not reach document retrieval")
+				}
+			} else if response.Intent != "clarification" || len(response.RequiredFactTools) != 1 {
+				t.Fatal("current facts or ambiguous request bypassed clarification")
+			}
+		})
 	}
 }
 
