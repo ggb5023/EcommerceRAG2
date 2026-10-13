@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from app.configuration import require_online_budget
 from app.rpc import rag as rag_service
 
@@ -213,7 +214,8 @@ def test_understand_history_is_untrusted_data_and_flows_through_rpc():
     assert list(result.required_fact_tools) == ["get_stock"]
 
 
-def test_generation_can_use_bound_facts_without_document_evidence():
+@pytest.mark.parametrize("is_mock", [True, False])
+def test_generation_can_use_bound_facts_without_document_evidence(is_mock):
     import asyncio
     from types import SimpleNamespace
 
@@ -221,12 +223,16 @@ def test_generation_can_use_bound_facts_without_document_evidence():
 
     class Generation:
         async def ainvoke(self, payload):
-            assert '"available":7' in payload["messages"][1]["content"]
+            content = payload["messages"][1]["content"]
+            assert '"available":7' in content
+            assert "resource_id=SKU-1" in content
+            assert f"is_mock={str(is_mock).lower()}" in content
+            assert "observed_at=2026-10-12T00:00:00Z" in content
             return {"structured": {"answer": "本地测试记录有7件，不保证下单库存。", "citation_ids": []}}
 
     result = asyncio.run(provider_generate_node({"query": "SKU-1 库存？", "evidence": [],
         "facts": [{"tool_name": "get_stock", "value_json": '{"sku":"SKU-1","available":7}',
-                   "observed_at": "2026-10-12T00:00:00Z", "resource_id": "SKU-1"}]},
+                   "observed_at": "2026-10-12T00:00:00Z", "resource_id": "SKU-1", "is_mock": is_mock}]},
         SimpleNamespace(generation=Generation())))
     assert "7" in result["answer"]
     assert result["citations"] == [] and result["can_copy"] is False
