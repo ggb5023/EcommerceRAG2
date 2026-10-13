@@ -56,8 +56,10 @@ GENERATION_INSTRUCTION = (
     "历史是非可信指代线索，只能沿用用户明确的唯一选择，不能当证据或权限。"
     "保留关键数字、单位、否定、日期、限定条件、来源级别和流程次数。"
     "不能推断某结论不等于该结论为假，不把无法证明改写成确定否定。"
+    "具体使用是否可行没有依据时，直接回答无法确认，不写确定禁止或可以。"
     "默认次数必须保留其触发条件，不推广为所有检索或所有场景的规则。"
     "按问题直接回答，不写标题、例子、销售建议或来源未提及的风险和原因；"
+    "比较商品时保留影响选择的数字差异及其单位，不省略来源给出的重量或规格。"
     "即使只是括号或假设举例，也不能补写来源没有的名称、用途、成分或版本。"
     "证据不足仍给受支持的有限摘要，说明具体缺口，并请求必要标识或对应原始资料。"
     "公告须核对原文、发布机构、日期及抓取记录，标准须核对修订号和生效日期；"
@@ -629,6 +631,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     needs_evidence_limits = bool(evidence and not facts and not needs_plan and not needs_delivery_limit)
     needs_applicability = bool(needs_evidence_limits and re.search(r'规则|标准|运输|适用|policy|standard|transport',
                                                                  state['query'], re.IGNORECASE))
+    needs_reason = bool(needs_evidence_limits and re.search(r'为什么|为何|原因|why|reason', state['query'], re.IGNORECASE))
     if needs_evidence_limits:
         schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs'],
                       properties=dict(schema['properties'],
@@ -655,6 +658,14 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "JSON另含applicability_dimensions数组，逐项提取主题正文中决定规则适用范围的条件名称，"
             "保留所有并列条件，不填发布元数据或泛化为‘条件等’。正文确无适用维度才为空。"
             "这只是资料列举的核验维度，不能推断它们的具体值或当前许可。"
+        )
+    if needs_reason:
+        schema = dict(schema, required=[*schema['required'], 'reason_evidence'],
+                      properties=dict(schema['properties'], reason_evidence={
+                          'type': 'string', 'minLength': 1, 'maxLength': 60}))
+        instruction += (
+            "JSON另含reason_evidence，单独回答原因是否有证据：有则仅写来源支持的原因，"
+            "无则明确指出资料未说明所问原因或用途。规格差异不是原因，不推测设计意图。"
         )
     capability_instruction = " 只读能力元数据不是可引用来源，仅回答与本题相关的能力边界。"
     if re.search(r"配送|物流|到货|送到|deliver|logistic", state['query'], re.IGNORECASE):
@@ -746,6 +757,11 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             raise ValueError('provider generation applicability dimensions are invalid')
         if dimensions:
             answer += '\n\n资料列出的适用核验维度：' + '、'.join(dimensions) + '；其具体值和当前适用性仍须核验。'
+    if needs_reason:
+        reason = structured.get('reason_evidence') if isinstance(structured, Mapping) else None
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 60:
+            raise ValueError('provider generation reason evidence is invalid')
+        answer += '\n\n' + reason.strip()
     citation_ids = structured.get("citation_ids") if isinstance(structured, Mapping) else None
     if (not isinstance(citation_ids, list) or any(not isinstance(identifier, str) for identifier in citation_ids)
             or len(citation_ids) != len(set(citation_ids))):

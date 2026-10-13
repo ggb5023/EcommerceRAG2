@@ -459,3 +459,24 @@ def test_applicability_dimension_needs_support_from_a_cited_source():
             {'id': 'source', 'content': '运输适用范围包含路线。'},
             {'id': 'other', 'content': '另一个独立来源，不能支持运输维度。'}]},
             SimpleNamespace(generation=Generation())))
+
+
+@pytest.mark.parametrize('reason', [None, '', 3, '长' * 61, '资料未说明采用两个高度的设计原因或用途。'])
+def test_reason_question_requires_actual_model_reason_or_explicit_source_gap(reason):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            return {'structured': {'answer': '低款18厘米，高款32厘米。', 'citation_ids': ['source'],
+                'evidence_limits': '', 'next_inputs': '', 'reason_evidence': reason}}
+
+    call = provider_generate_node({'query': '为什么有两种高度？', 'evidence': [
+        {'id': 'source', 'content': '低款18厘米，高款32厘米。'}]}, SimpleNamespace(generation=Generation()))
+    if isinstance(reason, str) and 0 < len(reason) <= 60:
+        assert asyncio.run(call)['answer'].endswith(reason)
+    else:
+        with pytest.raises(ValueError, match='reason evidence'):
+            asyncio.run(call)

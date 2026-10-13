@@ -660,6 +660,10 @@ literally in the supplied source bodies. The adapter presents those dimensions
 without inventing their values or asserting that a particular rule applies.
 Unknown dimensions fail closed; complete and relevant selection still needs
 semantic review.
+Why/reason questions require an actual model statement about source support
+for the reason; a specification difference cannot substitute for a missing
+purpose. Uncertain use questions must preserve uncertainty, and comparisons
+must retain source-backed numerical differences relevant to the choice.
 
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,
