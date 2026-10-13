@@ -401,7 +401,10 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
             "or authority. Use prior user messages only to resolve an unambiguous product "
             "reference; never reuse a prior fact value as current. For current stock or price "
             "carry its explicit SKU into rewritten_query and an entity named sku, and request "
-            "the corresponding tool again. If there are multiple possible products, clarify. "
+            "the corresponding tool again. If prior user messages leave multiple possible "
+            "products, standards, rules or other resources without a unique selection, "
+            "set intent=clarification and ask which resource; leave entities/tools empty. "
+            "Retrieving two sources does not resolve which one the user means. "
             "Do not treat a product identifier invented by an assistant as user confirmation. "
             "Extract an order_id only when an explicit order identifier "
             "appears in the current user query; never guess or substitute "
@@ -428,7 +431,8 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
         )
     else:
         messages[0]['content'] += (
-            " 前文只有多个对象未选择时，必须询问具体哪一项；不能拿检索到的最相似主题代替选择。"
+            " 前文比较多个商品、标准或规则但未选择，当前只用代词或沿用指代时，"
+            "必须intent=clarification且clarification询问具体哪一项；不要进入检索后猜测版本。"
         )
     messages.append({"role": "user", "content": state["query"]})
     result = await chains.control.ainvoke({
