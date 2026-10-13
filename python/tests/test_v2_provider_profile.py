@@ -149,12 +149,15 @@ def test_real_generation_emits_only_selected_supplied_citations(cited):
         async def ainvoke(self, payload):
             assert payload["messages"][0]["content"] != "Answer only from the supplied evidence. Return the answer JSON."
             assert "dated snapshot" in payload["messages"][1]["content"]
+            citation_schema = payload['response_schema']['properties']['citation_ids']
+            assert citation_schema['minItems'] == 1
+            assert citation_schema['items']['enum'] == ['support', 'unrelated']
             return {"structured": {"answer": "Qualified dated answer", "citation_ids": cited}, "provider": {}}
 
     evidence = [{"id": "support", "content": "dated snapshot; current value unconfirmed"},
                 {"id": "unrelated", "content": "unrelated source"}]
     state = {"query": "current price", "evidence": evidence}
-    if cited is None or cited in [["outside"], ["support", "support"]]:
+    if cited is None or cited in [[], ["outside"], ["support", "support"]]:
         with pytest.raises(ValueError, match="citation"):
             asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
     else:

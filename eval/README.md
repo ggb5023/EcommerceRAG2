@@ -383,6 +383,11 @@ same identifier again or mixing in uncited historical snapshot values. Logistics
 status access does not provide a delivery-promise capability, even with an order ID.
 Workflow citations must support the clarification prerequisites as well as any
 search-count policy; a retrieved topic does not identify the user's missing object.
+Workflow context retains the scoped and disclosure-filtered top eight reranked
+chunks together, so a later topical selector cannot discard prerequisite rules.
+Document answers require a nonempty citation list drawn from the supplied IDs;
+facts-only answers remain separate. Missing citations fail rather than being
+filled from evaluation truth. Semantic support is still reviewed independently.
 Facts and clarification workflows use focused generation instructions so unrelated
 capability metadata or the ordinary answer-length target cannot displace their
 requirements. Re-reading a fact does not prove its underlying observation is fresh.
