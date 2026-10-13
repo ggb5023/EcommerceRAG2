@@ -586,6 +586,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "用中文返回紧凑JSON：answer与citation_ids。只根据本轮Go已授权查询的Facts回答，"
             "先给resource_id的本次观测值、observed_at与is_mock限制，通常80至120字，硬上限260字。"
             "is_mock=true必须说明本地测试记录而非生产事实；再次读取不保证底层记录已更新。"
+            "金额字段amount_cents的单位是分；CNY下100分=1元，不能把分的整数直接写成元或CNY金额。"
             "历史库存或价格数值不参与当前事实回答，不要提及、推断其变化或是否售罄。"
             "资源和接口已绑定并执行，不再索要相同标识或建议另一个正式接口。"
             "不能把观测值变成下单或到货保证，不展开用户没有问的配送问题。"
