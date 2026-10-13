@@ -34,6 +34,23 @@ def test_failed_scenarios_are_all_recorded_and_never_preapproved(tmp_path, monke
     assert all(row['status'] == 'FAILED' and row['semantic_review_status'] == 'not_reviewed' for row in rows)
 
 
+def test_live_uses_existing_read_only_session_contract(tmp_path, monkeypatch):
+    calls = []
+    class HTTP:
+        def __init__(self, base):
+            pass
+        def call(self, method, path):
+            calls.append((method, path))
+            return {'shop_id': 'shop-demo'}
+    monkeypatch.setattr(runner, 'HTTP', HTTP)
+    monkeypatch.setattr(runner, 'runtime_identity', lambda *a: ({'business_date': '2026-09-29'}, tmp_path/'ledger'))
+    monkeypatch.setattr(runner, 'budget_snapshot', lambda *a: {'attempt_count': 0, 'last_sequence': 0})
+    monkeypatch.setattr(runner, 'run_diagnostics', lambda *a: [])
+    assert runner.main(['--live', '--report', str(tmp_path/'report.json'),
+        '--runtime-env', str(tmp_path/'runtime.env'), '--capture-dir', str(tmp_path/'captures')]) == 0
+    assert calls == [('GET', '/v1/session')]
+
+
 def test_identifier_followups_use_captured_parent_and_require_fresh_fact_read(tmp_path, monkeypatch):
     calls = []
     checks = dict.fromkeys(('terminal_persisted', 'successful_terminal', 'sse_sequence_monotonic',

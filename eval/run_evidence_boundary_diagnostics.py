@@ -85,7 +85,9 @@ def main(argv=None):
     captures = secure_directory(args.capture_dir)
     before = budget_snapshot(ledger)
     http = HTTP(args.base_url)
-    http.call('POST', '/v1/dev/session', {'shop_id': 'shop-demo'})
+    # Resolve the existing server-owned development identity; this driver
+    # cannot install or widen a session through a parallel mutation endpoint.
+    http.call('GET', '/v1/session')
     rows = run_diagnostics(http, captures, args.runtime_env)
     executed = all(case_passed(row) and row.get('identifier_followup_passed', True) for row in rows)
     payload = {'report_version': 'v2-evidence-boundary-diagnostics-v1',
