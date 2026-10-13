@@ -271,13 +271,21 @@ def evaluate(report_path, capture_dir, review_path, safety_path, lifecycle_path,
             failed.append(item['case_id'])
         if row.get('status') not in {'DONE', 'ASKING'} or not case_passed(row):
             reasons.append('execution_or_replay_failed')
+        if row.get('persisted_evidence_read_failed'):
+            reasons.append('persisted_evidence_unavailable')
         result = cap['result']
         evidence = result.get('evidence', [])
+        bindings = {b['evidence_id']: b for b in row.get('context_bindings', [])}
         for evidence_item in evidence:
             indexed_item = indexed.get(evidence_item.get('id'))
+            binding = bindings.get(evidence_item.get('id'))
             if (indexed_item is None or indexed_item.get('document_id') != evidence_item.get('documentId')
                     or str(indexed_item.get('version_id')) != evidence_item.get('versionId')
-                    or indexed_item.get('chunk_sha256') != digest(evidence_item.get('snippet', ''))):
+                    or binding is None or binding.get('chunk_sha256') != indexed_item.get('chunk_sha256')
+                    or binding.get('document_id') != indexed_item.get('document_id')
+                    or binding.get('version_id') != str(indexed_item.get('version_id'))
+                    or binding.get('source_sha256') != indexed_item.get('source_sha256')
+                    or binding.get('snippet_sha256') != digest(evidence_item.get('snippet', ''))):
                 reasons.append('delivered_evidence_lifecycle_mismatch')
         ids = {e['id'] for e in evidence}
         supports = item.get('support_chunk_ids', [])

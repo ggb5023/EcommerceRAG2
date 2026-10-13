@@ -47,8 +47,13 @@ def fixture(tmp_path):
         for e in cap['result']['evidence']: e['versionId'] = '1'
         put(caps / row['capture_id'], cap); row['capture_sha256'] = m.sha256(caps / row['capture_id'])
         next(r for r in reviews if r['case_id'] == row['case_id'])['capture_sha256'] = row['capture_sha256']
-    indexed = [dict(evidence_id=e['id'], document_id=e['documentId'], version_id='1', chunk_sha256=m.digest(e['snippet']))
+    indexed = [dict(evidence_id=e['id'], document_id=e['documentId'], version_id='1', source_sha256='d'*64,
+                    chunk_sha256=m.digest('chunk-fingerprint:' + e['snippet']))
                for row in rows for e in m.load(caps / row['capture_id'])['result']['evidence']]
+    for row in rows:
+        snippets = {e['id']: e['snippet'] for e in m.load(caps / row['capture_id'])['result']['evidence']}
+        row['context_bindings'] = [dict(i, snippet_sha256=m.digest(snippets[i['evidence_id']]))
+                                   for i in indexed if i['evidence_id'] in snippets]
     lifecycle = put(tmp_path / 'lifecycle.json', {'status': 'PASS', 'indexed_chunks': indexed,
                    'corpus': {'corpus_sha256': contract['bindings']['corpus_sha256']}})
     report = put(tmp_path / 'report.json', {'report_version': 'v2-quality-e2e-v2', 'case_count': 53, 'results': rows,
@@ -207,3 +212,17 @@ def test_sidecar_without_provenance_is_rejected(tmp_path):
     f = fixture(tmp_path)
     with patch.object(m, 'validate_contract', return_value=f[0]), pytest.raises(ValueError, match='provenance_missing'):
         m.evaluate(*f[2:])
+
+
+@pytest.mark.parametrize('field', ['chunk_sha256', 'snippet_sha256', 'source_sha256', 'document_id', 'version_id'])
+def test_chunk_fingerprint_source_and_delivered_body_are_independently_bound(tmp_path, field):
+    f = fixture(tmp_path)
+    report = m.load(f[2])
+    row = next(r for r in report['results'] if r['context_bindings'])
+    row['context_bindings'][0][field] = 'changed'
+    put(f[2], report)
+    review = m.load(f[4]); review['e2e_report_sha256'] = m.sha256(f[2]); put(f[4], review)
+    safety = m.load(f[5]); safety['e2e_report_sha256'] = m.sha256(f[2]); put(f[5], safety)
+    result = run(f)
+    assert result['status'] == 'NOT_PASSED'
+    assert 'delivered_evidence_lifecycle_mismatch' in result['gate_reasons']

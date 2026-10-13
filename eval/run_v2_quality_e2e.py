@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -119,6 +120,41 @@ def read_retrieval_trace(runtime_env: Path, request_id: str) -> list[dict]:
     return [{"stage": stage, "items": items} for stage, items in rows]
 
 
+def read_context_bindings(runtime_env: Path, capture_path: Path) -> list[dict]:
+    """Read-only proof: chunk fingerprint is not the SHA-256 of body text."""
+    import psycopg
+    from v2_services import load_values
+    values = load_values(runtime_env)
+    evidence = json.loads(capture_path.read_text())['result']['evidence']
+    if any(not isinstance(e.get('id'), str) or not re.fullmatch(r'db-chunk-[1-9][0-9]*', e['id']) for e in evidence):
+        raise E2EFailure('context_evidence_identity_invalid')
+    ids = [int(e['id'].removeprefix('db-chunk-')) for e in evidence]
+    if len(set(ids)) != len(ids):
+        raise E2EFailure('context_evidence_identity_invalid')
+    if not ids:
+        return []
+    with psycopg.connect(values['V2_AI_DSN'], connect_timeout=5) as conn:
+        rows = conn.execute("SELECT 'db-chunk-'||c.id,d.logical_key,c.version_id::text,c.chunk_hash,c.content,v.source_hash "
+                            "FROM chunk c JOIN document d ON d.id=c.doc_id AND d.tenant_id=c.tenant_id "
+                            "JOIN document_version v ON v.id=c.version_id AND v.tenant_id=c.tenant_id "
+                            "WHERE c.id=ANY(%s) ORDER BY c.id", (ids,)).fetchall()
+    return [dict(evidence_id=i, document_id=d, version_id=v, chunk_sha256=h,
+                 snippet_sha256=digest(content), source_sha256=source) for i,d,v,h,content,source in rows]
+
+
+def attach_persisted_evidence(row: dict, runtime_env: Path, capture_dir: Path | None) -> None:
+    """Keep failed diagnostics in the batch; never print database exceptions."""
+    if not row.get('request_id'):
+        return
+    try:
+        row['retrieval_stages'] = read_retrieval_trace(runtime_env, row['request_id'])
+        if capture_dir is not None:
+            row['context_bindings'] = read_context_bindings(runtime_env, capture_dir / row['capture_id'])
+        row['persisted_evidence_read_failed'] = False
+    except Exception:  # diagnostics cannot expose connection strings or erase prior results
+        row['persisted_evidence_read_failed'] = True
+
+
 def budget_snapshot(path: Path) -> dict[str, int]:
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
         count, last = conn.execute("SELECT count(*),coalesce(max(rowid),0) FROM attempt").fetchone()
@@ -189,7 +225,8 @@ def _document_ids(result: Mapping[str, Any]) -> list[str]:
 
 def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
              capture_dir: Path | None = None, prerequisite_queries: list[str] | None = None,
-             conversation_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+             conversation_id: str | None = None, run_id: str | None = None,
+             parent_turn_id: str | None = None) -> dict[str, Any]:
     run_id = run_id or uuid4().hex
     case_id = str(case.get("case_id", ""))
     if not case_id:
@@ -207,17 +244,20 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
         prerequisites.append(prior)
         if not case_passed(prior) or prior["status"] != "DONE":
             raise E2EFailure("scenario_prerequisite_failed")
+    body = {"query": str(case.get("query", ""))}
+    if parent_turn_id is not None:
+        body["parent_turn_id"] = parent_turn_id
     turn = http.call(
         "POST",
         f"/v1/conversations/{conversation_id}/turns",
-        {"query": str(case.get("query", ""))},
+        body,
         key=f"quality-turn-{run_id}-{case_id}",
     )
     request_id = turn.get("request_id")
     if not request_id:
         raise E2EFailure("request_id_missing")
     repeated = http.call("POST", f"/v1/conversations/{conversation_id}/turns",
-                         {"query": str(case.get("query", ""))}, key=f"quality-turn-{run_id}-{case_id}")
+                         body, key=f"quality-turn-{run_id}-{case_id}")
     idempotent = repeated.get("request_id") == request_id
     deadline = time.monotonic() + timeout_s
     result: Mapping[str, Any] = {}
@@ -280,7 +320,8 @@ def run_case(http: HTTP, case: Mapping[str, Any], *, timeout_s: float,
 def case_passed(row: Mapping[str, Any]) -> bool:
     checks = ("terminal_persisted", "successful_terminal", "sse_sequence_monotonic",
               "idempotent_turn", "refresh_matches", "sse_replay_matches", "citation_ids_valid")
-    return all(row.get(check) is True for check in checks) and row.get("sse_event_count", 0) > 0
+    return (all(row.get(check) is True for check in checks) and row.get("sse_event_count", 0) > 0
+            and not row.get('persisted_evidence_read_failed', False))
 
 
 def write_report(path: Path, payload: Mapping[str, Any]) -> None:
@@ -376,8 +417,7 @@ def main() -> int:
             except E2EFailure as error:
                 row = {"case_id": case["case_id"], "status": "FAILED", "failure_code": str(error),
                        "terminal_persisted": False, "successful_terminal": False}
-            if row.get("request_id"):
-                row["retrieval_stages"] = read_retrieval_trace(args.runtime_env, row["request_id"])
+            attach_persisted_evidence(row, args.runtime_env, args.capture_dir)
             row["latency_ms"] = round((time.monotonic() - started) * 1000)
             results.append(row)
             print(json.dumps({"case_id": results[-1]["case_id"], "status": results[-1]["status"],

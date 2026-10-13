@@ -100,3 +100,40 @@ def test_scenario_rejects_changed_case_or_query_baseline(tmp_path):
     source.write_text("changed")
     with pytest.raises(runner.E2EFailure, match="baseline_mismatch"):
         runner.load_scenarios(path, source, cases)
+
+
+def test_identifier_followup_and_idempotent_repeat_bind_same_parent():
+    bodies = []
+    class Client:
+        def call(self, method, path, body=None, key=None):
+            if method == 'POST':
+                bodies.append(body)
+                return {'request_id': 'child'}
+            return {'status': 'DONE', 'answer': 'current fact', 'evidence': [], 'citations': []}
+        def events(self, path, last_event_id=0):
+            return [{'id': '1', 'event': 'done', 'data': '{}'}][last_event_id:]
+    runner.run_case(Client(), {'case_id': 'followup', 'query': 'SKU-1 current stock'},
+                    timeout_s=1, conversation_id='conversation', parent_turn_id='parent')
+    assert bodies == [{'query': 'SKU-1 current stock', 'parent_turn_id': 'parent'}] * 2
+
+
+def test_failed_persisted_evidence_read_preserves_execution_and_redacts_error(monkeypatch, tmp_path):
+    def fail(*args):
+        raise RuntimeError('private connection detail')
+    monkeypatch.setattr(runner, 'read_retrieval_trace', fail)
+    row = {'request_id': 'turn', 'status': 'FAILED', 'capture_id': 'turn.json'}
+    runner.attach_persisted_evidence(row, tmp_path / 'runtime.env', tmp_path)
+    assert row['status'] == 'FAILED' and row['persisted_evidence_read_failed'] is True
+    assert 'private connection detail' not in str(row)
+
+
+@pytest.mark.parametrize('ids', [['other'], ['db-chunk-1', 'db-chunk-1']])
+def test_context_binding_rejects_foreign_or_duplicate_ids_before_connection(monkeypatch, tmp_path, ids):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+    import v2_services
+    monkeypatch.setattr(v2_services, 'load_values', lambda path: {})
+    capture = tmp_path / 'capture.json'
+    capture.write_text(json.dumps({'result': {'evidence': [{'id': i} for i in ids]}}))
+    with pytest.raises(runner.E2EFailure, match='identity_invalid'):
+        runner.read_context_bindings(tmp_path / 'runtime.env', capture)
