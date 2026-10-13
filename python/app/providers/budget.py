@@ -126,7 +126,7 @@ class BudgetLedger:
         ]:
             raise _blocked()
 
-    def reserve(self, slot: str, model: str, payload: dict, *, region: str) -> str:
+    def reserve(self, slot: str, model: str, payload: dict, *, region: str, quota_rpm: int | None = None) -> str:
         if region != "cn-beijing" or model not in PRICES:
             raise ProviderError("budget_blocked", "model pricing requires review", slot=slot)
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
@@ -156,12 +156,24 @@ class BudgetLedger:
         identifier = uuid4().hex
         with self._transaction() as conn:
             self._verify(conn)
+            if quota_rpm is not None:
+                count = conn.execute("SELECT count(*) FROM attempt WHERE julianday(created_at) > julianday('now','-60 seconds')").fetchone()[0]
+                if count >= quota_rpm:
+                    raise ProviderError("local_rate_limited", "shared request quota is full", slot=slot)
             spent = conn.execute("SELECT coalesce(sum(reserved_micro),0) FROM attempt").fetchone()[0]
             if spent + cost > self.cap_micro:
                 raise ProviderError("budget_exhausted", "shared online budget is exhausted", slot=slot)
             conn.execute("INSERT INTO attempt(id,slot,model,input_sha256,input_bound,output_bound,reserved_micro) VALUES (?,?,?,?,?,?,?)",
                          (identifier, slot, model, hashlib.sha256(body).hexdigest(), input_bound, output_bound, cost))
         return identifier
+
+    def quota_delay(self, quota_rpm: int) -> float:
+        """Shared wall-clock quota, independent of synthetic business dates."""
+        with self._transaction() as conn:
+            self._verify(conn)
+            count, delay = conn.execute("SELECT count(*), 60-(julianday('now')-min(julianday(created_at)))*86400 "
+                                        "FROM attempt WHERE julianday(created_at)>julianday('now','-60 seconds')").fetchone()
+        return max(.01, float(delay)) if count >= quota_rpm else 0.0
 
     def extend_authorized_cap(self, cap_cny: str, *, authorization: str) -> None:
         """Explicit operator action; retain every request and record the change."""

@@ -298,3 +298,48 @@ def test_input_bounds_block_before_network(monkeypatch, ledger):
     with pytest.raises(ProviderError, match="bounded"):
         asyncio.run(provider.control([{"role": "user", "content": "x" * 70_000}]))
     assert not transport.calls and ledger.summary()["requests"] == 0
+
+
+def test_retry_keeps_both_reservations_and_transient_failure(monkeypatch, ledger):
+    ledger.extend_authorized_cap('1', authorization='test-explicit')
+    environment(monkeypatch, ledger)
+    monkeypatch.setenv('V2_ONLINE_BUDGET_CNY', '1')
+    class RetryTransport:
+        calls = 0
+        async def request(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1: return HTTPResponse(503, {'x-request-id': 'first'}, b'{}')
+            return HTTPResponse(200, {'x-request-id': 'second'}, json.dumps({
+                'choices': [{'message': {'content': '{"ok":true}'}, 'finish_reason': 'stop'}],
+                'usage': {'prompt_tokens': 10, 'completion_tokens': 5}}).encode())
+    transport = RetryTransport()
+    asyncio.run(AlibabaBailianProvider(config(), transport).control([{'role': 'user', 'content': 'controlled'}]))
+    with sqlite3.connect(ledger.path) as conn:
+        rows = conn.execute('SELECT state,error_code,http_status FROM attempt ORDER BY rowid').fetchall()
+    assert rows == [('error', 'upstream_error', 503), ('success', None, 200)]
+    assert transport.calls == 2
+
+
+def test_shared_quota_is_atomic_and_independent_of_business_date(monkeypatch, ledger):
+    monkeypatch.setenv('SYNTHETIC_BUSINESS_DATE', '2026-09-29')
+    ledger.reserve('control', 'qwen3.8-flash', {'max_tokens': 256, 'messages': []}, region='cn-beijing', quota_rpm=1)
+    assert 0 < ledger.quota_delay(1) <= 60
+    with pytest.raises(ProviderError, match='quota'):
+        ledger.reserve('control', 'qwen3.8-flash', {'max_tokens': 256, 'messages': []}, region='cn-beijing', quota_rpm=1)
+    with sqlite3.connect(ledger.path) as conn: assert conn.execute('SELECT count(*) FROM attempt').fetchone()[0] == 1
+
+
+def test_cancellation_after_transient_response_stops_retry(monkeypatch, ledger):
+    from threading import Event
+    environment(monkeypatch, ledger)
+    event = Event()
+    class CancelTransport:
+        calls = 0
+        async def request(self, *args, **kwargs):
+            self.calls += 1
+            event.set()
+            return HTTPResponse(503, {}, b'{}')
+    transport = CancelTransport()
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(AlibabaBailianProvider(config(), transport).control([{'role': 'user', 'content': 'x'}], cancel_event=event))
+    assert error.value.code == 'cancelled' and transport.calls == 1

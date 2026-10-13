@@ -252,13 +252,13 @@ class AlibabaProviderTests(unittest.IsolatedAsyncioTestCase):
             await provider.control([{"role": "user", "content": "x"}])
         self.assertEqual(raised.exception.code, "schema_error")
 
-        provider, _ = self.make_provider([response({}, status=429)])
+        provider, _ = self.make_provider([response({}, status=429), response({}, status=429)])
         with self.assertRaises(ProviderError) as raised:
             await provider.generate([{"role": "user", "content": "x"}])
         self.assertEqual(raised.exception.code, "rate_limited")
         self.assertTrue(raised.exception.retryable)
 
-        provider, _ = self.make_provider([response({}, status=503)])
+        provider, _ = self.make_provider([response({}, status=503), response({}, status=503)])
         with self.assertRaises(ProviderError) as raised:
             await provider.generate([{"role": "user", "content": "x"}])
         self.assertEqual(raised.exception.code, "upstream_error")
@@ -325,7 +325,7 @@ class AlibabaProviderTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.code, "invalid_response")
 
     async def test_timeout_and_cancellation_are_stable(self):
-        provider, _ = self.make_provider([TimeoutError()])
+        provider, _ = self.make_provider([TimeoutError(), TimeoutError()])
         with self.assertRaises(ProviderError) as raised:
             await provider.generate([{"role": "user", "content": "x"}])
         self.assertEqual(raised.exception.code, "timeout")

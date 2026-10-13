@@ -403,7 +403,29 @@ class AlibabaBailianProvider:
     def _url(self, path: str) -> str:
         return self.config.endpoint.rstrip("/") + "/" + path.lstrip("/")
 
-    async def _call(
+    async def _call(self, slot, payload, *, timeout_s, cancel_event):
+        """One bounded retry for transient transport failures; every attempt is charged."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (timeout_s or self.config.timeout_s)
+        for attempt in range(2):
+            if _cancelled(cancel_event):
+                raise ProviderError("cancelled", "provider request cancelled", slot=slot)
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise ProviderError("timeout", "provider deadline expired", slot=slot)
+            try:
+                return await self._call_once(slot, payload, timeout_s=remaining, cancel_event=cancel_event)
+            except ProviderError as error:
+                transient = error.retryable and error.code in {"rate_limited", "upstream_error", "timeout"}
+                if attempt or not transient or deadline - loop.time() <= .25:
+                    raise
+                for _ in range(5):
+                    if _cancelled(cancel_event):
+                        raise ProviderError("cancelled", "provider request cancelled", slot=slot) from error
+                    await asyncio.sleep(.05)
+        raise AssertionError("unreachable bounded retry")
+
+    async def _call_once(
         self,
         slot: str,
         payload: Mapping[str, Any],
@@ -417,8 +439,25 @@ class AlibabaBailianProvider:
             "utf-8"
         )
         reservation = None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (timeout_s or self.config.timeout_s)
         if self.ledger is not None:
-            reservation = self.ledger.reserve(slot, self.config.models[slot], dict(payload), region=self.config.region)
+            while reservation is None:
+                delay = self.ledger.quota_delay(self.config.quota_rpm)
+                if _cancelled(cancel_event):
+                    raise ProviderError("cancelled", "provider request cancelled", slot=slot)
+                if deadline - loop.time() <= delay:
+                    raise ProviderError("timeout", "provider deadline cannot accommodate shared quota", slot=slot)
+                if delay:
+                    await asyncio.sleep(min(delay, .25))
+                    continue
+                try:
+                    reservation = self.ledger.reserve(slot, self.config.models[slot], dict(payload),
+                                                      region=self.config.region, quota_rpm=self.config.quota_rpm)
+                except ProviderError as error:
+                    if error.code != "local_rate_limited":
+                        raise
+
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -434,7 +473,7 @@ class AlibabaBailianProvider:
                 self._url(self._path(slot)),
                 headers=headers,
                 body=body,
-                timeout_s=timeout_s or self.config.timeout_s,
+                timeout_s=max(.001, deadline - loop.time()),
                 cancel_event=cancel_event,
             )
         except ProviderError as error:

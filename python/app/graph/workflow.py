@@ -20,14 +20,14 @@ CONTROL_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["rewritten_query", "intent", "information_source", "required_fact_tools", "entities", "clarification", "confidence"],
     "properties": {
-        "rewritten_query": {"type": "string"},
+        "rewritten_query": {"type": "string", "maxLength": 100},
         "intent": {"type": "string", "enum": ["knowledge", "factual", "clarification"]},
         "information_source": {"type": "string", "enum": ["knowledge", "realtime_business"]},
         "required_fact_tools": {"type": "array",
                                 "items": {"type": "string", "enum": sorted(ALLOWED_FACT_TOOLS)}},
-        "clarification": {"type": "string"},
+        "clarification": {"type": "string", "maxLength": 80},
         "confidence": {"type": "number"},
-        "entities": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "confidence": {"type": "number"}}, "required": ["name", "value", "confidence"]}},
+        "entities": {"type": "array", "maxItems": 2, "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"}, "confidence": {"type": "number"}}, "required": ["name", "value", "confidence"]}},
     },
 }
 GENERATION_SCHEMA: dict[str, Any] = {
@@ -393,7 +393,9 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
     history = str(state.get("history_summary", "")).strip()
     messages = [
         {"role": "system", "content": (
-            "Classify the request and return only the requested JSON fields. "
+            "Classify the request and return compact JSON with only the seven requested fields, "
+            "within 256 output tokens. Keep rewritten_query and clarification concise; "
+            "use empty entities/tools unless required. No explanations or reason field. "
             "Use intent knowledge, factual or clarification; information_source knowledge "
             "or realtime_business. The only read-only tools are get_stock, get_price, "
             "get_order_status, get_logistics and compare_products. Never invent another tool. "
