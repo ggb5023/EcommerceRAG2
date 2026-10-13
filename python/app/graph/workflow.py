@@ -295,7 +295,15 @@ def context_gate_node(state: GraphState) -> dict:
     allowed: Iterable[Evidence] = state.get("evidence", [])
     if purpose == "customer_reply":
         allowed = (item for item in allowed if item["disclosure_class"] == "external_allowed" and item["customer_eligible"])
-    return {"evidence": list(allowed), "is_mock": bool(state.get("is_mock", True))}
+    selected = list(allowed)
+    # Remove weak tail matches before Go persists the context. Relative scores
+    # preserve low absolute-score matches without a corpus-specific cutoff.
+    # Never reselect Go's already authorized Generate evidence snapshot.
+    if state.get("seed_evidence") is None and selected and all("rerank_score" in item for item in selected):
+        best = max(float(item["rerank_score"]) for item in selected)
+        if best > 0:
+            selected = [item for item in selected if float(item["rerank_score"]) >= .7 * best]
+    return {"evidence": selected[:8], "is_mock": bool(state.get("is_mock", True))}
 
 
 def generate_node(state: GraphState) -> dict:
@@ -483,6 +491,7 @@ async def provider_rerank_node(state: GraphState, chains: ProviderChainSet) -> d
         ranked.append(item)
     return {
         "evidence": ranked,
+        "reranked": ranked,
         "provider_trace": {
             "retrieval": state.get("provider_trace", {}),
             "rerank": result.get("provider", {}),

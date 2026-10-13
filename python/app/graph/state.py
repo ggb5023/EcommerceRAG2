@@ -54,6 +54,7 @@ class GraphState(TypedDict, total=False):
     candidates: list[Evidence]
     fused: list[Evidence]
     evidence: list[Evidence]
+    reranked: list[Evidence]
     answer: str
     citations: list[Evidence]
     degraded_stages: list[str]

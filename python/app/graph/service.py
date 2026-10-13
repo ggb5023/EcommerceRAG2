@@ -85,7 +85,7 @@ class LangGraphRagService:
         if phase == "search" and scope.get("request_id") and recorder is not None:
             if cancel_event is not None and cancel_event.is_set():
                 raise RuntimeError("request cancelled")
-            await recorder(scope, result.get("candidates", []), result.get("evidence", []))
+            await recorder(scope, result.get("candidates", []), result.get("reranked", result.get("evidence", [])))
         result["scope"] = scope
         if "trace" in result:
             result["trace"]["nodes"] = list(phase_nodes(phase))
