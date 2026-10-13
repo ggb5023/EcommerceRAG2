@@ -1080,6 +1080,12 @@ class MockProvider:
             # occur in the answer. This never runs for a real Provider.
             source_context = text.partition("\nFacts:\n")[0]
             structured["citation_ids"] = list(dict.fromkeys(re.findall(r"^\[([^\]\n]+)\]", source_context, re.MULTILINE)))
+        if response_schema:
+            # The offline echo exercises transport/rendering only. Empty
+            # qualifications do not attest to source or semantic correctness.
+            for key in ('evidence_limits', 'next_inputs'):
+                if key in response_schema.get('properties', {}):
+                    structured[key] = ''
         return GenerationResult(
             text,
             structured,

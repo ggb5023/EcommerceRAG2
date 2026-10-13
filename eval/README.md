@@ -647,6 +647,11 @@ alongside the answer. The returned statement is rendered verbatim and must
 explain that logistics-status lookup does not supply an arrival promise;
 having complete order details does not remove that capability gap. Schema
 validity still requires separate semantic review of the actual statement.
+Document-only answers also return `evidence_limits` and `next_inputs`. Their
+actual model text is rendered separately so applicable conditions, source
+limits and missing original records are not discarded in a short summary.
+These fields can be empty when inapplicable; their presence does not establish
+correctness. Facts and clarification workflows retain their separate contracts.
 
 Model-output review is distinct from the previously approved source bindings.
 The run identity now includes source hashes, retrieval/context parameters,

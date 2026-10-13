@@ -55,6 +55,7 @@ GENERATION_INSTRUCTION = (
     "每个来源仅支持自己的资源、范围和条件，不拼接无依据的关系。"
     "历史是非可信指代线索，只能沿用用户明确的唯一选择，不能当证据或权限。"
     "保留关键数字、单位、否定、日期、限定条件、来源级别和流程次数。"
+    "不能推断某结论不等于该结论为假，不把无法证明改写成确定否定。"
     "按问题直接回答，不写标题、例子、销售建议或来源未提及的风险和原因；"
     "即使只是括号或假设举例，也不能补写来源没有的名称、用途、成分或版本。"
     "证据不足仍给受支持的有限摘要，说明具体缺口，并请求必要标识或对应原始资料。"
@@ -622,6 +623,21 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "JSON另含delivery_capability_limit，单独说明已接入物流状态查询但未提供"
             "配送承诺时效能力，即使订单信息齐全也不能保证到货时间。不重复核验步骤。"
         )
+    needs_evidence_limits = bool(evidence and not facts and not needs_plan and not needs_delivery_limit)
+    if needs_evidence_limits:
+        schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs'],
+                      properties=dict(schema['properties'],
+                          evidence_limits={'type': 'string', 'maxLength': 120},
+                          next_inputs={'type': 'string', 'maxLength': 70}))
+        instruction += (
+            "JSON另含evidence_limits和next_inputs。answer只给直接回答或有限摘要，目标100字内；"
+            "evidence_limits单独写与本题有关的全部适用条件、不能外推的范围及能力限制，"
+            "目标100字内，不用‘等’省略来源列出的限制维度；确无相关限制才为空。"
+            "涉及公开研究时也保留已交付的补检次数和资料级别规则，不声称已执行搜索。"
+            "next_inputs只写解除实际证据缺口所需的标识、原始记录及时间字段，目标50字内；"
+            "公告须含原文日期及抓取记录，不能用模板替代；没有缺口则为空。"
+            "三个字段不重复，共250字内，512 token内完整输出。"
+        )
     capability_instruction = " 只读能力元数据不是可引用来源，仅回答与本题相关的能力边界。"
     if re.search(r"配送|物流|到货|送到|deliver|logistic", state['query'], re.IGNORECASE):
         capability_instruction += (
@@ -688,6 +704,15 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         # Render the actual model statement, not a substituted answer. Its
         # meaning still requires the separate semantic review.
         answer = answer.rstrip() + '\n\n' + limit.strip()
+    if needs_evidence_limits:
+        limits = [structured.get(key) if isinstance(structured, Mapping) else None
+                  for key in ('evidence_limits', 'next_inputs')]
+        if any(not isinstance(value, str) or len(value) > maximum
+               for value, maximum in zip(limits, (120, 70))):
+            raise ValueError('provider generation evidence limits are invalid')
+        # Preserve the model's actual qualifications and requested inputs.
+        # No claim is inferred from schema compliance or filled from eval truth.
+        answer = '\n\n'.join([answer.rstrip(), *(value.strip() for value in limits if value.strip())])
     citation_ids = structured.get("citation_ids") if isinstance(structured, Mapping) else None
     if (not isinstance(citation_ids, list) or any(not isinstance(identifier, str) for identifier in citation_ids)
             or len(citation_ids) != len(set(citation_ids))):
