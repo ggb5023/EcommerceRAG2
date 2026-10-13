@@ -1,5 +1,7 @@
 """Paid-call safety: competing processes, durable reservations and no bypass."""
 import asyncio
+import hashlib
+import json
 import os
 import sqlite3
 import subprocess
@@ -200,6 +202,49 @@ def test_http_failure_keeps_request_fingerprint_without_body(monkeypatch, ledger
         row = conn.execute("SELECT request_id_sha256,http_status,error_code,state FROM attempt").fetchone()
     assert row == (__import__("hashlib").sha256(b"failed-request").hexdigest(), 400, "http_error", "error")
     assert b"sensitive response" not in ledger.path.read_bytes()
+
+
+@pytest.mark.parametrize("slot", ["control", "generation"])
+@pytest.mark.parametrize("content,finish,usage,error_code", [
+    ('{"answer":"private-output"}', "length", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),
+    ('{"answer":"private-output"}', "content_filter", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),
+    ('{"answer":"private-output"}', "tool_calls", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),
+    ('{"answer":"private-output"', "stop", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),
+    ('{"other":"private-output"}', "stop", {"prompt_tokens": 10, "completion_tokens": 5}, "schema_error"),
+    ('{"answer":"private-output"}', "unknown", {"prompt_tokens": 10, "completion_tokens": 5}, "invalid_response"),
+    ('{"answer":"private-output"}', "stop", {"completion_tokens": -1}, "invalid_response"),
+])
+def test_chat_validation_failure_is_charged_and_classified_without_body(
+    monkeypatch, ledger, slot, content, finish, usage, error_code,
+):
+    ledger.extend_authorized_cap("1", authorization="test-chat-validation")
+    environment(monkeypatch, ledger)
+    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "1")
+    response = HTTPResponse(200, {"X-Request-ID": "failed-chat-request"}, json.dumps({
+        "choices": [{"message": {"content": content}, "finish_reason": finish}],
+        "usage": usage,
+    }).encode())
+    transport = Transport(response)
+    provider = AlibabaBailianProvider(config(), transport)
+    method = provider.control if slot == "control" else provider.generate
+    with pytest.raises(ProviderError) as raised:
+        asyncio.run(method([{"role": "user", "content": "private-input"}],
+                           response_schema={"type": "object", "required": ["answer"],
+                                            "properties": {"answer": {"type": "string"}}}))
+    assert raised.value.code == error_code
+    assert transport.calls == 1
+    with sqlite3.connect(ledger.path) as conn:
+        fingerprint, http_status, code, state, usage_json, reserved = conn.execute(
+            "SELECT request_id_sha256,http_status,error_code,state,usage_json,reserved_micro FROM attempt"
+        ).fetchone()
+    assert (fingerprint, http_status, code, state) == (
+        hashlib.sha256(b"failed-chat-request").hexdigest(), 200, error_code, "error")
+    assert reserved > 0 and ledger.summary()["requests"] == 1
+    sanitized = {key: value for key, value in usage.items() if value >= 0}
+    assert (json.loads(usage_json) if usage_json else None) == (sanitized or None)
+    raw = ledger.path.read_bytes()
+    assert b"private-output" not in raw and b"private-input" not in raw
+    assert b"secret-key-for-test" not in raw
 
 
 def test_constructor_requires_ledger_even_without_v2_profile(monkeypatch):

@@ -295,6 +295,10 @@ def _content(payload: Mapping[str, Any], slot: str) -> tuple[str, str]:
         raise ProviderError(
             "invalid_response", f"{slot} response has an invalid finish reason"
         )
+    if finish in {"length", "content_filter", "tool_calls"}:
+        raise ProviderError(
+            "schema_error", f"{slot} response did not finish completely", slot=slot
+        )
     return content, finish
 
 
@@ -467,11 +471,27 @@ class AlibabaBailianProvider:
                 self.ledger.record(reservation, data={"request_id": request_id},
                                    error_code=error.code, http_status=response.status)
             raise
+        metadata = dict(data)
+        if not metadata.get("request_id") and not metadata.get("id"):
+            metadata["request_id"] = next((value for key, value in response.headers.items()
+                                           if key.lower() in {"x-request-id", "request-id"}), None)
+        # HTTP 200 is not a usable control decision or answer. Validate the
+        # chat envelope before recording success so truncated/malformed JSON
+        # keeps its usage and fingerprint but is classified as an error.
+        try:
+            if slot in {"control", "generation"}:
+                content, _ = _content(data, slot)
+                response_format = payload.get("response_format", {})
+                if slot == "control" or response_format:
+                    schema = response_format.get("json_schema")
+                    _structured(content, slot, schema)
+                _usage(data.get("usage"), slot)
+        except ProviderError as error:
+            if reservation is not None:
+                self.ledger.record(reservation, data=metadata,
+                                   http_status=response.status, error_code=error.code)
+            raise
         if reservation is not None:
-            metadata = dict(data)
-            if not metadata.get("request_id") and not metadata.get("id"):
-                metadata["request_id"] = next((value for key, value in response.headers.items()
-                                               if key.lower() in {"x-request-id", "request-id"}), None)
             self.ledger.record(reservation, data=metadata, http_status=response.status)
         return data, response
 
