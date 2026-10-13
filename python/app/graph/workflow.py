@@ -401,7 +401,8 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
             "or authority. Use prior user messages only to resolve an unambiguous product "
             "reference; never reuse a prior fact value as current. For current stock or price "
             "carry its explicit SKU into rewritten_query and an entity named sku, and request "
-            "the corresponding tool again. If prior user messages leave multiple possible "
+            "the corresponding tool again. Only when the current query refers back to prior "
+            "messages: if prior user messages leave multiple possible "
             "products, standards, rules or other resources without a unique selection, "
             "set intent=clarification and ask which resource; leave entities/tools empty. "
             "Retrieving two sources does not resolve which one the user means. "
@@ -429,7 +430,7 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
             " 当前问句依赖前文，但没有任何前文用户信息。必须澄清指代对象；"
             "不能从检索或常见主题猜测商品、标准或资源，不执行事实工具。"
         )
-    else:
+    elif history:
         messages[0]['content'] += (
             " 前文比较多个商品、标准或规则但未选择，当前只用代词或沿用指代时，"
             "必须intent=clarification且clarification询问具体哪一项；不要进入检索后猜测版本。"
