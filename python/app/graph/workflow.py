@@ -674,6 +674,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
         instruction += (
             "JSON另含delivery_capability_limit，单独说明已接入物流状态查询但未提供"
             "配送承诺时效能力，即使订单信息齐全也不能保证到货时间。不重复核验步骤。"
+            "该字段目标40字内，硬上限80字；只写能力限制，不重复answer或追加核验建议。"
         )
     needs_evidence_limits = bool(not customer_chat and evidence and not facts and not needs_plan and not needs_delivery_limit)
     needs_applicability = bool(needs_evidence_limits and re.search(r'规则|标准|运输|policy|standard|transport',
