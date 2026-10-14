@@ -1145,14 +1145,18 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			break
 		}
 	}
-	for i, item := range evidence {
+	if validateEvidenceRanks(evidence) != nil {
+		finish("FAILED", "invalid_evidence_labels", "")
+		return
+	}
+	for _, item := range evidence {
 		if !ensureScopeAuthorized() {
 			return
 		}
 		if _, err = g.db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,execution_id,evidence_id) DO NOTHING`,
 			g.session.TenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
-			item.Content, item.DisclosureClass, item.CustomerEligible, i+1, item.ShopId); err != nil {
+			item.Content, item.DisclosureClass, item.CustomerEligible, item.Rank, item.ShopId); err != nil {
 			finish("FAILED", "persistence_failed", "")
 			return
 		}
@@ -1221,8 +1225,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				return
 			}
 			if value.Citation.DisclosureClass == "external_allowed" && value.Citation.CustomerEligible {
-				_, _ = g.db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
+				_, err = g.db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
 					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.TenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
+				if err != nil {
+					finish("FAILED", "persistence_failed", "")
+					return
+				}
 			}
 		case *ragv1.GenerateResponse_IsMock:
 			sawProfileMarker = true
