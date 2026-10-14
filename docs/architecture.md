@@ -40,7 +40,7 @@ Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库�
 
 Proto/gRPC 是唯一跨语言业务契约。字段、状态、错误、取消或 deadline 变化先更新 `proto/rag/v1/rag.proto`，再通过 `bash scripts/generate-proto.sh` 同步 Go/Python 生成代码。兼容检查使用 `scripts/check-proto.sh`；不得手改生成文件或另建平行业务 HTTP/JSON 接口。
 
-现有实现存在一个传输差异：`python/app/authorization.py` 使用受限内部 HTTP 向 Go `/internal/authorization/validate` 发送序列化 Proto scope，仅取得授权校验结果。该回验没有独立的业务字段模型，但传输尚未统一为 gRPC；不能将“仅 gRPC 传输”描述为已全面实现，也不能据此新增业务 HTTP 契约。此摘要如实记录差异，不改变该运行接口。
+自部署使用 `AuthorizationService.ValidateScope` 回验 Go 签发的 Proto scope，跨容器 RPC 使用 mTLS。`python/app/authorization.py` 的内部 HTTP 回验仅保留给显式本机 loopback 开发配置；自部署不能通过放开内部 HTTP 接口替代认证和证书配置。
 
 ## 持久化与单写者
 
