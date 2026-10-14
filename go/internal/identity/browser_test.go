@@ -287,3 +287,40 @@ func TestBrowserExpiryOutageAndMissingIdentity(t *testing.T) {
 		t.Fatal("absolute lifetime extended")
 	}
 }
+
+func TestDatabaseAuthorityBindsLoginAndRejectsPermissionChange(t *testing.T) {
+	f := newBrowserFixture(t)
+	revision := "database-revision-a"
+	f.b.provider.config.AuthorizationSource = "database"
+	f.b.BindAuthority = func(_ context.Context, p Principal) (Principal, error) {
+		p.Claims.Role = "operator"
+		p.Claims.Shops = []string{"shop-test"}
+		p.Claims.Revision = revision
+		return p, nil
+	}
+	f.b.validate = func(_ context.Context, p Principal) error {
+		if p.Claims.Revision != revision {
+			return ErrRevoked
+		}
+		return nil
+	}
+	cookie := f.authenticated(t)
+	req := httptest.NewRequest("GET", "/v1/session", nil)
+	req.AddCookie(cookie)
+	p, err := f.b.Resolve(req)
+	if err != nil || p.Claims.Revision != revision || !p.DatabaseAuthorization {
+		t.Fatal("database authority not pinned")
+	}
+	revision = "database-revision-b"
+	if _, err = f.b.Resolve(req); !errors.Is(err, ErrRevoked) {
+		t.Fatal("permission changed without invalidating browser session")
+	}
+	// A fresh login captures the new current database permission.
+	cookie = f.authenticated(t)
+	req = httptest.NewRequest("GET", "/v1/session", nil)
+	req.AddCookie(cookie)
+	p, err = f.b.Resolve(req)
+	if err != nil || p.Claims.Revision != revision {
+		t.Fatal("new login cannot recover new permissions")
+	}
+}

@@ -133,6 +133,9 @@ func queueTx(ctx context.Context, tx pgx.Tx, c conversation, reason string) erro
 }
 func handoffText(reason string) string {
 	prefix := "这个问题需要人工客服处理。"
+	if strings.HasPrefix(reason, "provider_failed_") {
+		reason = "provider_failed"
+	}
 	switch reason {
 	case "knowledge_missing":
 		prefix = "当前店铺知识没有足够依据回答。"
@@ -333,7 +336,7 @@ func (s *Service) Reap(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = s.requeue(ctx, `state='HUMAN' AND (lease_until<=now() OR NOT EXISTS(SELECT 1 FROM app_user u WHERE u.tenant_id=customer_conversation.tenant_id AND u.id=owner_user_id AND u.revoked_at IS NULL AND u.role IN ('owner','admin','operator') AND customer_conversation.shop_id=ANY(u.shop_ids)))`, nil, "agent_unavailable")
+			_ = s.requeue(ctx, `(state='AI' AND active_execution IS NOT NULL AND EXISTS(SELECT 1 FROM customer_execution e WHERE e.id=active_execution AND e.created_at<now()-interval '90 seconds')) OR state='HUMAN' AND (lease_until<=now() OR NOT EXISTS(SELECT 1 FROM app_user u WHERE u.tenant_id=customer_conversation.tenant_id AND u.id=owner_user_id AND u.revoked_at IS NULL AND u.role IN ('owner','admin','operator') AND customer_conversation.shop_id=ANY(u.shop_ids)))`, nil, "agent_unavailable")
 		}
 	}
 }

@@ -51,6 +51,7 @@ type browserSession struct {
 // Browser stores credentials only in the owning Go process. It is deliberately
 // not a distributed or persistent session store.
 type Browser struct {
+	BindAuthority                func(context.Context, Principal) (Principal, error)
 	provider                     *Provider
 	config                       BrowserConfig
 	validate                     func(context.Context, Principal) error
@@ -171,7 +172,7 @@ func (b *Browser) destination(app, path string) (string, error) {
 	if err != nil || u.IsAbs() || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || strings.ContainsAny(path, "\\\r\n") {
 		return "", ErrInvalid
 	}
-	if app == "customer" && (path == "/chat" || (strings.HasPrefix(path, "/chat/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/chat/")))) {
+	if app == "customer" && (path == "/support" || (strings.HasPrefix(path, "/support/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/support/"))) || path == "/chat" || (strings.HasPrefix(path, "/chat/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/chat/")))) {
 		return b.config.CustomerOrigin + path, nil
 	}
 	if app == "admin" && slices.Contains([]string{"/admin/overview", "/admin/access/accounts", "/admin/access/requests", "/admin/access/audit", "/admin/merchant/shops", "/admin/merchant/sources", "/admin/merchant/ingestion", "/admin/merchant/reviews"}, path) {
@@ -319,6 +320,9 @@ func (b *Browser) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal, err := b.provider.Resolve(r.Context(), tokens.Access)
+	if err == nil && b.BindAuthority != nil {
+		principal, err = b.BindAuthority(r.Context(), principal)
+	}
 	if err == nil {
 		err = b.idToken(r.Context(), tokens, transaction.nonce, principal.Binding.Subject)
 	}
@@ -396,6 +400,9 @@ func (b *Browser) Resolve(r *http.Request) (Principal, error) {
 			return result, err
 		}
 		principal, err := b.provider.Resolve(r.Context(), tokens.Access)
+		if err == nil && b.BindAuthority != nil {
+			principal, err = b.BindAuthority(r.Context(), principal)
+		}
 		if err == nil && !sameAuthority(s.principal, principal) {
 			err = ErrRevoked
 		}

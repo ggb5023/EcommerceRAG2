@@ -139,7 +139,11 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func Main() {
-	if os.Getenv("APP_ENV") != "development" && os.Getenv("APP_ENV") != "test" {
+	if os.Getenv("APP_ENV") == "selfhost" {
+		if os.Getenv("V2_IDENTITY_PROFILE") != "oidc_browser" || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
+			log.Fatal("selfhost requires browser identity, mTLS, customer origin and real Provider; facts are disabled")
+		}
+	} else if os.Getenv("APP_ENV") != "development" && os.Getenv("APP_ENV") != "test" {
 		log.Fatal("an identity adapter is required; development/test adapter is explicit")
 	}
 	profile := os.Getenv("RAG_PROFILE")
@@ -196,6 +200,18 @@ func Main() {
 			if err != nil {
 				log.Fatal("browser identity configuration unavailable")
 			}
+			if config.AuthorizationSource == "database" {
+				browser.BindAuthority = func(ctx context.Context, p identity.Principal) (identity.Principal, error) {
+					session, _, err := oidcAdapter.resolvePrincipal(ctx, p)
+					if err != nil {
+						return p, identity.ErrRevoked
+					}
+					p.Claims.Role = session.Role
+					p.Claims.Shops = slices.Clone(session.AllowedShops)
+					p.Claims.Revision = session.PermissionRevision
+					return p, nil
+				}
+			}
 			adapter = browserIdentityAdapter{browser: browser, adapter: oidcAdapter}
 		}
 	default:
@@ -245,7 +261,23 @@ func Main() {
 	}
 	defer owner.Close(context.Background())
 	if origin := os.Getenv("V2_CUSTOMER_ORIGIN"); origin != "" {
-		g.customer, err = customer.New(db, g.rag, g.signingKey, profile, customer.Config{Origin: origin, AllowLoopbackHTTP: os.Getenv("V2_CUSTOMER_LOOPBACK_HTTP") == "1"})
+		config := customer.Config{Origin: origin, AllowLoopbackHTTP: os.Getenv("V2_CUSTOMER_LOOPBACK_HTTP") == "1"}
+		for key, target := range map[string]*int{"V2_CUSTOMER_VISITOR_RPM": &config.VisitorRPM, "V2_CUSTOMER_IP_RPM": &config.IPRPM} {
+			if raw := os.Getenv(key); raw != "" {
+				value, e := strconv.Atoi(raw)
+				if e != nil || value < 1 {
+					log.Fatal("invalid customer rate limit")
+				}
+				*target = value
+			}
+		}
+		if host := os.Getenv("V2_CUSTOMER_PROXY_HOST"); host != "" {
+			config.TrustedProxyIPs, err = net.LookupIP(host)
+			if err != nil {
+				log.Fatal("trusted customer proxy unavailable")
+			}
+		}
+		g.customer, err = customer.New(db, g.rag, g.signingKey, profile, config)
 		if err != nil || g.customer.Recover(ctx) != nil {
 			log.Fatal("customer channel initialization failed")
 		}

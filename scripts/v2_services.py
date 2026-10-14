@@ -19,13 +19,13 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 SYSTEM_KEYS = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"}
-COMMON_KEYS = {"APP_ENV", "RAG_PROFILE", "PYTHONPATH", "PYTHONUNBUFFERED"}
+COMMON_KEYS = {"APP_ENV", "RAG_PROFILE", "PYTHONPATH", "PYTHONUNBUFFERED", "V2_RPC_TLS", "V2_RPC_CA_FILE", "V2_RPC_CERT_FILE", "V2_RPC_KEY_FILE", "V2_AUTHORITY_GRPC_ADDR"}
 STORAGE_KEYS = {"INGEST_STORAGE_PROFILE", "INGEST_ARTIFACT_ROOT"}
 PROVIDER_KEYS = {"V2_PROVIDER_CONFIG", "V2_ONLINE_BUDGET_CNY", "V2_ONLINE_BUDGET_LEDGER", "V2_ONLINE_BUDGET_ID"}
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
-                "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE"},
+                "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE"},
     "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
            "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE"} | PROVIDER_KEYS,
     "ingest": {"V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
@@ -149,7 +149,13 @@ def ready(name: str, values: dict[str, str]) -> bool:
             from grpc_health.v1 import health_pb2, health_pb2_grpc
             target = values["V2_GRPC_ADDR" if name == "ai" else "V2_INGEST_GRPC_ADDR"]
             service = "rag.v1.RagService" if name == "ai" else "rag.v1.IngestService"
-            with grpc.insecure_channel(target) as channel:
+            if values.get("V2_RPC_TLS") == "mtls":
+                creds = grpc.ssl_channel_credentials(Path(values["V2_RPC_CA_FILE"]).read_bytes(),
+                    Path(values["V2_RPC_KEY_FILE"]).read_bytes(), Path(values["V2_RPC_CERT_FILE"]).read_bytes())
+                rpc_channel = grpc.secure_channel(target, creds)
+            else:
+                rpc_channel = grpc.insecure_channel(target)
+            with rpc_channel as channel:
                 result = health_pb2_grpc.HealthStub(channel).Check(
                     health_pb2.HealthCheckRequest(service=service), timeout=0.5)
                 return result.status == health_pb2.HealthCheckResponse.SERVING

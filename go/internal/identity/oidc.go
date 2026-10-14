@@ -32,11 +32,12 @@ type Binding struct {
 }
 
 type Config struct {
-	Issuer     string         `json:"issuer"`
-	ClientID   string         `json:"client_id"`
-	SecretFile string         `json:"secret_file"`
-	Bindings   []Binding      `json:"bindings"`
-	Browser    *BrowserConfig `json:"browser,omitempty"`
+	AuthorizationSource string         `json:"authorization_source,omitempty"`
+	Issuer              string         `json:"issuer"`
+	ClientID            string         `json:"client_id"`
+	SecretFile          string         `json:"secret_file"`
+	Bindings            []Binding      `json:"bindings"`
+	Browser             *BrowserConfig `json:"browser,omitempty"`
 }
 
 func protectedFile(path string) ([]byte, error) {
@@ -82,10 +83,11 @@ type Claims struct {
 }
 
 type Principal struct {
-	Binding Binding
-	Claims  Claims
-	Expires time.Time
-	Check   func(context.Context) error
+	DatabaseAuthorization bool
+	Binding               Binding
+	Claims                Claims
+	Expires               time.Time
+	Check                 func(context.Context) error
 }
 
 type Provider struct {
@@ -105,6 +107,9 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 	}
 	local := net.ParseIP(u.Hostname())
 	if u.Scheme != "https" && !(u.Scheme == "http" && local != nil && local.IsLoopback()) {
+		return nil, ErrInvalid
+	}
+	if config.AuthorizationSource != "" && config.AuthorizationSource != "token" && config.AuthorizationSource != "database" {
 		return nil, ErrInvalid
 	}
 	if config.ClientID == "" || len(config.Bindings) == 0 {
@@ -155,14 +160,17 @@ func (p *Provider) Resolve(ctx context.Context, bearer string) (Principal, error
 		return principal, ErrInvalid
 	}
 	var claims Claims
-	if token.Claims(&claims) != nil || token.Subject == "" || claims.Type != "Bearer" || claims.Party != p.config.ClientID || claims.Revoked == nil || claims.NotBefore > time.Now().Unix() || claims.Revision == "" || claims.Role == "" || len(claims.Shops) == 0 {
+	if token.Claims(&claims) != nil || token.Subject == "" || claims.Type != "Bearer" || claims.Party != p.config.ClientID || claims.NotBefore > time.Now().Unix() {
 		return principal, ErrInvalid
 	}
-	if *claims.Revoked {
+	if claims.Revoked != nil && *claims.Revoked {
 		return principal, ErrRevoked
 	}
 	binding, found := p.bindings[token.Subject]
-	if !found || claims.Tenant != binding.Tenant || claims.User != binding.User {
+	if !found {
+		return principal, ErrInvalid
+	}
+	if p.config.AuthorizationSource != "database" && (claims.Tenant != binding.Tenant || claims.User != binding.User || claims.Revoked == nil || claims.Revision == "" || claims.Role == "" || len(claims.Shops) == 0) {
 		return principal, ErrInvalid
 	}
 	seen, shopFound := make(map[string]bool), false
@@ -173,8 +181,13 @@ func (p *Provider) Resolve(ctx context.Context, bearer string) (Principal, error
 		seen[shop] = true
 		shopFound = shopFound || shop == binding.Shop
 	}
-	if !shopFound {
+	if p.config.AuthorizationSource != "database" && !shopFound {
 		return principal, ErrInvalid
+	}
+	if p.config.AuthorizationSource == "database" {
+		claims.Role = ""
+		claims.Shops = nil
+		claims.Revision = ""
 	}
 	check := func(ctx context.Context) error {
 		if !time.Now().Before(token.Expiry) {
@@ -185,7 +198,7 @@ func (p *Provider) Resolve(ctx context.Context, bearer string) (Principal, error
 	if err = check(ctx); err != nil {
 		return principal, err
 	}
-	return Principal{Binding: binding, Claims: claims, Expires: token.Expiry, Check: check}, nil
+	return Principal{DatabaseAuthorization: p.config.AuthorizationSource == "database", Binding: binding, Claims: claims, Expires: token.Expiry, Check: check}, nil
 }
 
 func (p *Provider) active(ctx context.Context, token string) error {

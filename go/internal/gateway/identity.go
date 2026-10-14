@@ -69,8 +69,11 @@ func (a oidcIdentityAdapter) resolvePrincipal(ctx context.Context, principal ide
 	if session.RevokedAt != nil {
 		return session, nil, status.Error(codes.PermissionDenied, "identity_revoked")
 	}
-	if session.Role != principal.Claims.Role || session.PermissionRevision != principal.Claims.Revision || !slices.Equal(actual, claimed) {
+	if !(principal.DatabaseAuthorization && principal.Claims.Revision == "") && (session.Role != principal.Claims.Role || session.PermissionRevision != principal.Claims.Revision || !slices.Equal(actual, claimed)) {
 		return session, nil, status.Error(codes.PermissionDenied, "permission_changed")
+	}
+	if !slices.Contains(session.AllowedShops, principal.Binding.Shop) {
+		return session, nil, status.Error(codes.PermissionDenied, "shop_forbidden")
 	}
 	session.Shop, session.RevisionPinned = principal.Binding.Shop, true
 	check := func(ctx context.Context) error {

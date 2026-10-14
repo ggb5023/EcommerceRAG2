@@ -28,6 +28,7 @@ import (
 const CookieName = "ecr_customer"
 
 type Config struct {
+	TrustedProxyIPs   []net.IP
 	Origin            string
 	AllowLoopbackHTTP bool
 	VisitorRPM, IPRPM int
@@ -155,6 +156,22 @@ func (s *Service) allow(bucket string, max int) bool {
 	s.limits[bucket] = v
 	return v.count <= max
 }
+func (s *Service) remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return "invalid"
+	}
+	remote := net.ParseIP(host)
+	for _, trusted := range s.Config.TrustedProxyIPs {
+		if trusted.Equal(remote) {
+			if ip := net.ParseIP(r.Header.Get("X-Real-IP")); ip != nil {
+				return ip.String()
+			}
+			return "invalid"
+		}
+	}
+	return host
+}
 func (s *Service) originOK(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get("Origin") != s.Config.Origin {
 		failure(w, 403, "origin_rejected")
@@ -237,7 +254,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 	if !body(w, r, &input) {
 		return
 	}
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	ip := s.remoteIP(r)
 	if !s.allow("bootstrap:"+Hash(ip), 10) {
 		failure(w, 429, "session_rate_limited")
 		return
@@ -372,7 +389,7 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "invalid_text")
 		return
 	}
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	ip := s.remoteIP(r)
 	if !s.allow("visitor:"+v.Customer, s.Config.VisitorRPM) || !s.allow("ip:"+Hash(ip), s.Config.IPRPM) {
 		failure(w, 429, "message_rate_limited")
 		return
