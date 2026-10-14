@@ -825,3 +825,45 @@ Browser drivers `customer-service.browser.mjs`, `customer-control.browser.mjs` a
 Staff generation binds supplementary qualification claims through `limit_citation_ids`; only actually delivered source IDs can support these statements. Customer replies use their separate decision schema. A transient Provider failure permits exactly one retry within the original deadline, with each attempt recorded in the shared ledger; schema, truncation, authorization and TLS failures are not retried. The first attempt reserves half of the remaining deadline for this recovery.
 
 The safety HTTP driver revalidates every current migration checksum against the repository and requires the frozen lifecycle migration identity to remain an unchanged prefix. New append-only migrations are recorded in the new safety report; the original lifecycle report is never rewritten.
+
+
+## Read-only customer execution diagnosis
+
+Run `python/.venv/bin/python eval/diagnose_customer_execution.py
+--runtime-config /protected/diagnostic.env --tenant TENANT_ID --shop SHOP_ID
+--conversation CONVERSATION_ID --execution EXECUTION_ID
+--output-dir /protected/new-diagnosis` as one shell command. The owned regular
+0600 config supplies `V2_GATEWAY_DSN` and `V2_AI_DSN` for the same database,
+using the existing restricted gateway and AI roles. Both connections use
+repeatable-read, read-only transactions and bounded statements. They do not
+share a database snapshot; diagnose terminal executions for a stable result.
+No retrieval, model call, current ACL substitution or business write occurs.
+
+The new owned 0700 output directory must be outside Git. JSON and Markdown
+contain IDs, ranks, scores, timestamps and hashes only. Generation-input trace
+records the final constructed request before Provider invocation, including
+when invocation fails; it is not a receipt. Final citations cannot reconstruct
+the full generation context. Old/missing/duplicate stage records remain
+UNKNOWN. Candidate/re-rank/context loss and final citation membership are
+observations, never automatic semantic judgments. Uncited context can be
+legitimately unused. Historical authorization remains UNKNOWN without its
+own historical evidence; present permission state is not a substitute.
+
+Optional `--contract`, `--evidence-sidecar`, `--capture` and `--review` accept
+owned regular 0600 JSON files. Each is an execution-specific envelope with
+`identity` containing string `tenant_id`, `shop_id`, `conversation_id`, and
+`execution_id`. The contract envelope binds the frozen evaluation contract;
+the sidecar's `required_evidence` lists actual `id`, `document_id`, `version_id`
+and positive `rank`, as bound by that contract. These are not generated from
+the observed answer. Free text remains in the protected files.
+
+The capture envelope must contain `answer_sha256` matching the persisted
+execution answer and `final_citations` matching the persisted citation
+metadata. To display an existing agent semantic verdict, the review envelope
+must bind `answer_sha256`, the report's `trace_sha256`, and exact file hashes
+`contract_sha256`, `evidence_sidecar_sha256`, `capture_sha256`; it also requires
+`reviewer_kind=agent`, `human_review_completed=false`, and
+`verdict=PASS|FAIL|UNKNOWN`. Missing or mismatched bindings fail closed.
+Without such a review, semantic status is UNKNOWN regardless of ID coverage.
+The tool does not modify frozen answer-point scoring or
+`real_service_acceptance=false`.

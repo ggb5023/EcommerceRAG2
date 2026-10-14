@@ -7,6 +7,7 @@ business state or accepts tenant/shop identifiers from the query text.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -337,4 +338,25 @@ class PostgresRetriever:
                     else:
                         conn.execute("INSERT INTO retrieval_trace(tenant_id,request_id,stage,candidates_json) "
                                      "VALUES(%s,%s,%s,%s::jsonb)", (tenant, request_id, stage, json.dumps(rows)))
+        await asyncio.to_thread(write)
+
+    async def arecord_generation_input(self, scope: Mapping[str, Any], evidence: Sequence[Mapping],
+                                       *, context_sha256: str, request_sha256: str) -> None:
+        """Constructed generation input only, never a provider receipt or text."""
+        tenant = str(scope.get("tenant_db_id", ""))
+        execution = str(scope.get("execution_id", ""))
+        if (scope.get("subject_type") != "customer" or not tenant.isdigit() or not execution
+                or scope.get("request_id") != execution):
+            raise ValueError("customer generation trace identity is inconsistent")
+        rows = [{"id": item["id"], "document_id": item["document_id"], "version_id": item["version_id"],
+                 "rank": item.get("rank", index),
+                 "content_sha256": hashlib.sha256(item["content"].encode()).hexdigest(),
+                 "context_sha256": context_sha256, "request_sha256": request_sha256}
+                for index, item in enumerate(evidence, 1)]
+
+        def write():
+            with self._connect(self._conn_string) as conn:
+                conn.execute("INSERT INTO customer_retrieval_trace(tenant_id,execution_id,stage,candidates_json) "
+                             "VALUES(%s,%s,'v2_generation_input',%s::jsonb)",
+                             (tenant, execution, json.dumps(rows)))
         await asyncio.to_thread(write)

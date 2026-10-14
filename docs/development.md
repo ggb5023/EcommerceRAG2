@@ -14,6 +14,10 @@ Proto/gRPC 是跨语言契约；生产式容器传输使用 mTLS，授权回验�
 
 测试入口：`bash scripts/check.sh`；数据库、跨进程、真实模型、浏览器和语义复核另行执行。新客户闭环契约见 [评测契约](../eval/customer-service-contract.v1.json)。冻结 53 条与 7 条安全案例、原答案点门禁及证据边界门禁分别保留，不能用新的客服闭环结论覆盖原缺口。
 
+审核接口 `GET /admin/v1/merchant/reviews/{id}` 的 `content` 兼容保留原字段，新增 `chunk_id`、`heading_path`、`content_type`、`split_reason`、白名单 `source_position`、解析元素 `char_start/char_end`、`parse_hints` 和表格结构。完整预览只授予审核权限，客户来源接口不扩大。店铺查询新增 `customer_chat_url` 和 `customer_published_knowledge_available`，地址来自已验证的 `V2_CUSTOMER_ORIGIN`，不使用请求 Host；可见知识提示复用客户 ACL 检查，实际问答仍执行完整的时效、披露和发布检查。
+
+客户 AI trace 的 `v2_generation_input` 阶段由 Python 在调用生成前写入，仅含实际输入证据 ID、document/version、原 rank、正文 SHA-256 和上下文/请求指纹。它证明构造的请求，不证明 Provider 接收成功。checksum 迁移 0028 只扩展阶段约束，Go 继续没有 trace 读取权限。`eval/diagnose_customer_execution.py` 经两个受限连接、显式只读事务关联现有执行，不检索、不调用模型、不写业务数据；用法及可选绑定材料见 [评测说明](../eval/README.md#read-only-customer-execution-diagnosis)。
+
 证据编号沿用 `Evidence.rank`，过滤后允许间隔，不按数组位置重新编号。员工生成的主回答引用与补充限制引用 `limit_citation_ids` 均须绑定实际交付的证据；客户生成使用独立决策结构，不把内部补充说明直接推送访客。
 
 Provider 的可重试 429、5xx 与连接超时最多再尝试一次。第一次调用只使用剩余 deadline 的一半，第二次使用实际余量，两次均计入同一账本并受取消和限流约束；不延长请求总 deadline。非法结构、截断、授权和 TLS 配置失败不自动重试。

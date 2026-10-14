@@ -1,6 +1,7 @@
 """LangGraph state machine for the v2 deterministic AI-plane slice."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -778,12 +779,26 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             '缺少唯一问题指代时用CLARIFY/missing_context；知识不足、来源冲突或需要实时订单库存等工具时用HANDOFF及对应原因。'
             '不要把相关片段当成充分证据，不要以自信程度替代证据。ANSWER每项事实必须有实际支持的引用。'
             '不支持当前价格、库存、订单查询、配送承诺或执行业务操作。不要编造答案或承诺客服响应时间。')
-    result = await chains.generation.ainvoke({
+    request = {
         "messages": messages,
         "response_schema": schema,
         "timeout_s": state.get("provider_timeout_s"),
         "cancel_event": cancel_event,
-    })
+    }
+    recorder = getattr(getattr(chains, "retriever", None), "arecord_generation_input", None)
+    if state.get("scope", {}).get("subject_type") == "customer" and recorder is not None:
+        # Record the final constructed input before invocation, including on
+        # provider failure. This does not prove the provider received it.
+        fingerprint = hashlib.sha256(json.dumps(
+            {"messages": messages, "response_schema": schema}, ensure_ascii=False,
+            sort_keys=True, separators=(",", ":"),
+        ).encode()).hexdigest()
+        await recorder(state["scope"], evidence,
+                       context_sha256=hashlib.sha256(context.encode()).hexdigest(),
+                       request_sha256=fingerprint)
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("request cancelled")
+    result = await chains.generation.ainvoke(request)
     if not isinstance(result, Mapping):
         raise TypeError("provider generation output is invalid")
     structured = result.get("structured")
