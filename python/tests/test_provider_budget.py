@@ -359,3 +359,17 @@ def test_cancellation_after_transient_response_stops_retry(monkeypatch, ledger):
     with pytest.raises(ProviderError) as error:
         asyncio.run(AlibabaBailianProvider(config(), transport).control([{'role': 'user', 'content': 'x'}], cancel_event=event))
     assert error.value.code == 'cancelled' and transport.calls == 1
+
+
+def test_invalid_provider_certificate_is_not_retryable(monkeypatch):
+    import ssl
+    import urllib.error
+    import urllib.request
+    def reject(*args, **kwargs):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError('untrusted issuer'))
+    monkeypatch.setattr(urllib.request, 'urlopen', reject)
+    with pytest.raises(ProviderError) as error:
+        asyncio.run(UrllibTransport().request('POST', 'https://provider.test',
+            headers={}, body=b'{}', timeout_s=1))
+    assert error.value.code == 'tls_verification'
+    assert error.value.retryable is False

@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import re
+import ssl
 import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
@@ -115,6 +116,10 @@ class UrllibTransport:
                     error.code, dict(error.headers.items()), error.read()
                 )
             except (urllib.error.URLError, TimeoutError, OSError) as error:
+                cause = error.reason if isinstance(error, urllib.error.URLError) else error
+                if isinstance(cause, ssl.SSLCertVerificationError):
+                    raise ProviderError('tls_verification', 'provider certificate verification failed',
+                                        retryable=False) from error
                 raise ProviderError(
                     "timeout",
                     "provider request timed out or was unreachable",
