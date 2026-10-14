@@ -680,10 +680,11 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
                                                                  state['query'], re.IGNORECASE))
     needs_reason = bool(needs_evidence_limits and re.search(r'为什么|为何|原因|why|reason', state['query'], re.IGNORECASE))
     if needs_evidence_limits:
-        schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs'],
+        schema = dict(schema, required=[*schema['required'], 'evidence_limits', 'next_inputs', 'limit_citation_ids'],
                       properties=dict(schema['properties'],
                           evidence_limits={'type': 'string', 'maxLength': 200},
-                          next_inputs={'type': 'string', 'maxLength': 70}))
+                          next_inputs={'type': 'string', 'maxLength': 70},
+                          limit_citation_ids=dict(citation_schema, minItems=0)))
         instruction += (
             "JSON另含evidence_limits和next_inputs。answer只给直接回答或有限摘要，目标100字内；"
             "evidence_limits照录本题相关正文的适用维度、否定和流程规则，保留完整条件句；"
@@ -695,6 +696,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "next_inputs只写解除实际证据缺口所需的标识、原始记录及时间字段，目标50字内；"
             "公告须含原文日期及抓取记录，不能用模板替代；没有缺口则为空。"
             "三个字段不重复，共250字内，512 token内完整输出。"
+            "limit_citation_ids列出实际支持evidence_limits各项断言的全部正文ID，"
+            "与主answer的citation_ids分别绑定；限制非空时不能漏填，不加入与本题无关的规则。"
         )
     if needs_applicability:
         schema = dict(schema, required=[*schema['required'], 'applicability_dimensions'],
@@ -832,6 +835,15 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             or len(citation_ids) != len(set(citation_ids))):
         raise ValueError("provider generation citation IDs are invalid")
     supplied = {item["id"]: item for item in evidence}
+    if needs_evidence_limits:
+        if not citation_ids:
+            raise ValueError("provider generation evidence answer has no citation")
+        limit_ids = structured.get('limit_citation_ids')
+        if (not isinstance(limit_ids, list) or any(not isinstance(i, str) for i in limit_ids)
+                or len(limit_ids) != len(set(limit_ids)) or any(i not in supplied for i in limit_ids)
+                or (limits[0].strip() and not limit_ids)):
+            raise ValueError('provider generation evidence limits lack cited support')
+        citation_ids = list(dict.fromkeys([*citation_ids, *limit_ids]))
     if any(identifier not in supplied for identifier in citation_ids):
         raise ValueError("provider generation citation is outside supplied evidence")
     behavior = structured.get('behavior') if customer_chat else 'ANSWER'

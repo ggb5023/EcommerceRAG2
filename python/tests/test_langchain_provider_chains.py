@@ -275,6 +275,31 @@ def test_provider_generate_preserves_go_seed_evidence_order_and_fields():
     asyncio.run(run())
 
 
+def test_generated_qualification_citations_are_merged_and_unsupplied_ids_rejected():
+    import types
+
+    import pytest
+    from langchain_core.runnables import RunnableLambda
+
+    from app.graph.workflow import provider_generate_node
+
+    evidence = [dict(id=name, document_id=name, version_id=name, content=text)
+        for name, text in [('main', '标称容量480ml。'), ('limit', '容量不代表实际饮用量。')]]
+    structured = {'answer': '标称容量480ml。', 'citation_ids': ['main'],
+        'evidence_limits': '容量不代表实际饮用量。', 'next_inputs': '', 'limit_citation_ids': ['limit']}
+
+    async def generate(_):
+        return {'structured': structured}
+
+    chains = types.SimpleNamespace(generation=RunnableLambda(lambda _: None, afunc=generate))
+    result = asyncio.run(provider_generate_node({'query': '容量是多少？', 'evidence': evidence}, chains))
+    assert [e['id'] for e in result['citations']] == ['main', 'limit']
+    for ids in ([], ['unknown'], ['limit', 'limit']):
+        structured['limit_citation_ids'] = ids
+        with pytest.raises(ValueError, match='limits lack cited support'):
+            asyncio.run(provider_generate_node({'query': '容量是多少？', 'evidence': evidence}, chains))
+
+
 def test_provider_graph_propagates_deadline_and_cancellation_boundary():
     class RecordingProvider(MockProvider):
         def __init__(self, config):

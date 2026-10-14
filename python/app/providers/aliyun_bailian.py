@@ -1093,6 +1093,8 @@ class MockProvider:
                     structured[key] = ''
             if 'applicability_dimensions' in response_schema.get('properties', {}):
                 structured['applicability_dimensions'] = []
+            if 'limit_citation_ids' in response_schema.get('properties', {}):
+                structured['limit_citation_ids'] = []
         return GenerationResult(
             text,
             structured,
