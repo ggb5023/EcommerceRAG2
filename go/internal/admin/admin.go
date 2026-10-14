@@ -999,7 +999,11 @@ func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
 		'shop_id',s.shop_id,'source_hash',v.source_hash,'status',v.status,'disclosure_class',v.Disclosure_class,
 		'external_allowed',v.external_allowed,'review_status',v.review_status,'reviewed_hash',v.reviewed_hash,
 		'fencing_epoch',v.fencing_epoch,'chunk_count',v.chunk_count,'quality',v.quality_json,
-		'content',COALESCE((SELECT jsonb_agg(jsonb_build_object('chunk_index',c.chunk_index,'content',c.content) ORDER BY c.chunk_index)
+		'content',COALESCE((SELECT jsonb_agg(jsonb_build_object('chunk_index',c.chunk_index,'content',c.content,
+			'chunk_id','db-chunk-'||c.id::text,'heading_path',c.heading_path,'content_type',c.content_type,
+			'split_reason',c.split_reason,'source_position',c.meta_json->'source_position',
+			'char_start',c.char_start,'char_end',c.char_end,'warning',c.meta_json->'warning',
+			'table_body',c.meta_json->'table_body','table_caption',c.meta_json->'table_caption') ORDER BY c.chunk_index)
 			FROM chunk c WHERE c.tenant_id=v.tenant_id AND c.version_id=v.id),'[]'::jsonb),'path',sf.relative_path,'media_type',sf.media_type)
 		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
@@ -1014,6 +1018,12 @@ func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "database_unavailable", "review material is unavailable")
 		return
 	}
+	content, err := projectReviewContent(data["content"])
+	if err != nil {
+		httpapi.WriteError(w, 503, "review_content_unavailable", "review material is unavailable")
+		return
+	}
+	data["content"] = content
 	if err = g.Authority.Refresh(r.Context()); err != nil {
 		httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return

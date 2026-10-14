@@ -102,9 +102,13 @@ class MarkdownParser:
             nonlocal buffer, start_line
             body = "\n".join(buffer).strip()
             if body:
+                # Strip blank boundary lines from the reported source range
+                # just as they are stripped from the normalized element.
+                first = next(i for i, line in enumerate(buffer) if line.strip())
+                last = max(i for i, line in enumerate(buffer) if line.strip())
                 elements.append(_common(
                     document_id, version_id, metadata, title, body,
-                    {"line_start": start_line, "line_end": end_line},
+                    {"line_start": start_line + first, "line_end": min(end_line, start_line + last)},
                     heading=tuple(item[1] for item in stack), element_type=element_type,
                     **kwargs,
                 ))

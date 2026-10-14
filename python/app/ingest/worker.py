@@ -159,7 +159,9 @@ def parse_persisted_package(
                     "content_type": chunk.content_type,
                     "split_reason": chunk.split_reason,
                     "chunk_hash": chunk.chunk_hash,
-                    "metadata": dict(chunk.metadata),
+                    # New versions retain parser-native locations. Offsets are
+                    # relative to the normalized parsed element, not file bytes.
+                    "metadata": {**chunk.metadata, "source_position": dict(position)},
                 }
             )
         parsed_documents.append({
