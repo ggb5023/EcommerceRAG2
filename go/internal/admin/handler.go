@@ -15,4 +15,6 @@ type Handler struct {
 	AIConnection *grpc.ClientConn
 	Profile      string
 	SigningKey   []byte
+	// Set only from the initialized customer service's validated configuration.
+	CustomerOrigin string
 }

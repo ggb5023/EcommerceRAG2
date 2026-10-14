@@ -705,7 +705,27 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 			httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
 			return
 		}
-		items = append(items, map[string]any{"shop_id": id, "name": name, "status": state, "public_slug": slug, "welcome_message": welcome, "customer_chat_enabled": enabled})
+		items = append(items, map[string]any{"shop_id": id, "name": name, "status": state, "public_slug": slug, "welcome_message": welcome, "customer_chat_enabled": enabled,
+			"customer_chat_url": customerChatURL(g.CustomerOrigin, slug, enabled && state == "active")})
+	}
+	if rows.Err() != nil {
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
+		return
+	}
+	// Reuse customer authorization; a published internal or ACL-blocked document
+	// must never be advertised as available for a customer trial.
+	rows.Close()
+	for _, item := range items {
+		documents, err := auth.CustomerDocuments(r.Context(), g.DB, g.Session.TenantID, item["shop_id"].(string))
+		if err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load customer knowledge availability")
+			return
+		}
+		item["customer_published_knowledge_available"] = len(documents) > 0
+	}
+	if err := g.Authority.Refresh(r.Context()); err != nil {
+		httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
+		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }

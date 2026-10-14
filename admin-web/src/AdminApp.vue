@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import KnowledgeImport from './KnowledgeImport.vue'
 import ShopSettings from './ShopSettings.vue'
+import KnowledgePreview from './KnowledgePreview.vue'
+import CustomerTrial from './CustomerTrial.vue'
+import type {PreviewChunk} from './knowledge-preview'
 import { ApiError, get, post, request, type AdminSession } from './api'
 import { adminPageFromPath, adminPathForPage, type AdminPage } from './routes'
 import { browserAuth, checkBrowserAuth, login, logout } from './auth'
 
 type Row = Record<string, any>
 type ItemResponse = { items: Row[] }
-type Detail = Row & { content?: { chunk_index: number; content: string }[] }
+type Detail = Row & { content?: PreviewChunk[] }
 
 const route = useRoute()
 const router = useRouter()
 const session = ref<AdminSession | null>(null)
 const data = ref<Row[]>([])
 const detail = ref<Detail | null>(null)
+const trialShops = ref<Row[]>([])
+let contentEpoch=0
+let permissionPoll:ReturnType<typeof setInterval>
 const jobDetail = ref<Row | null>(null)
 const loading = ref(true)
 const unavailable = ref(false)
@@ -90,6 +96,8 @@ function endpointForPage() {
 }
 
 function clearRestrictedContent(clearSession = true) {
+  contentEpoch++
+  trialShops.value = []
   data.value = []
   detail.value = null
   jobDetail.value = null
@@ -119,6 +127,7 @@ function handleFailure(caught: unknown, fallback: string) {
 }
 
 async function loadPage() {
+  contentEpoch++
   loading.value = true
   unavailable.value = false
   error.value = ''
@@ -133,6 +142,7 @@ async function loadPage() {
     data.value = page.value === 'overview'
       ? [response as Row]
       : 'items' in response && Array.isArray(response.items) ? response.items : []
+    if (['sources','reviews'].includes(page.value)) trialShops.value=(await get<ItemResponse>('/admin/v1/merchant/shops')).items
     if (page.value === 'shops') {
       const allowed = data.value.map(item => String(item.shop_id))
       if (!selectedShop.value || !allowed.includes(selectedShop.value)) selectedShop.value = session.value.shop_id || allowed[0] || ''
@@ -146,7 +156,13 @@ async function loadPage() {
 }
 
 watch(() => [route.fullPath, selectedShop.value, statusFilter.value], () => { if (session.value || !loading.value) void loadPage() })
-onMounted(() => { void loadPage() })
+onMounted(() => { void loadPage(); permissionPoll=setInterval(()=>void refreshPermission(),15000) })
+onUnmounted(()=>clearInterval(permissionPoll))
+async function refreshPermission(){
+ if(!session.value||!detail.value)return
+ try{const current=await get<AdminSession>('/admin/v1/session');if(current.permission_revision!==session.value.permission_revision||!current.admin_roles.includes('knowledge_reviewer')){clearRestrictedContent();await loadPage()}}
+ catch(caught){handleFailure(caught,'审核权限无法确认，已清除预览。')}
+}
 
 function go(target: AdminPage) { void router.push(adminPathForPage(target)) }
 function shopName(id: string) { return data.value.find(item => item.shop_id === id)?.name ?? id }
@@ -233,7 +249,8 @@ function submitDialogAction() {
 async function loadReviewDetail(row: Row) {
   error.value = ''
   detail.value = null
-  try { detail.value = await get<Detail>(`/admin/v1/merchant/reviews/${row.version_id}${shopQuery.value}`) }
+  const epoch=++contentEpoch
+  try { const result=await get<Detail>(`/admin/v1/merchant/reviews/${row.version_id}${shopQuery.value}`); if(epoch===contentEpoch&&canReview.value)detail.value=result }
   catch (caught) { handleFailure(caught, '审核资料不可用。') }
 }
 
@@ -413,11 +430,12 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
           <tr v-for="row in data" :key="row.id"><td>{{ formatTime(row.created_at) }}</td><td>{{ row.actor_user_id }}</td><td>{{ row.action }}</td><td>{{ row.resource_type }} · {{ row.resource_id }}</td><td><span>{{ row.resource_version ?? '—' }}</span><small class="hash">{{ row.content_hash ?? '' }}</small></td><td>{{ row.reason ?? '—' }}<small><span class="status" :class="`tone-${statusTone(row.result)}`">{{ row.result }}</span></small></td></tr>
           <tr v-if="data.length === 0"><td colspan="6" class="empty">暂无审计记录。</td></tr></tbody></table></div></section>
 
-        <section v-else-if="page === 'shops'" class="content-area"><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span><ShopSettings v-if="canManage && session" :shop="row" :revision="session.permission_revision" @saved="loadPage"/></article></div></section>
+        <section v-else-if="page === 'shops'" class="content-area"><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span><CustomerTrial :shop="row"/><ShopSettings v-if="canManage && session" :shop="row" :revision="session.permission_revision" @saved="loadPage"/></article></div></section>
 
         <section v-else-if="page === 'sources'" class="content-area">
           <div class="section-head"><div><h2>已登记资料来源</h2><p>只显示来源元数据，不在此页面展开资料正文。</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>来源</th><th>店铺</th><th>类型</th><th>资料数</th><th>最近导入</th></tr></thead><tbody><tr v-for="row in data" :key="row.source_id"><td><strong>{{ row.source_id }}</strong><small>{{ row.uri ?? 'manifest package' }}</small></td><td>{{ row.shop_id }}</td><td>{{ row.type }}</td><td>{{ row.documents }}</td><td>{{ formatTime(row.latest_import) }}</td></tr><tr v-if="data.length === 0"><td colspan="5" class="empty">尚无管理台导入的资料来源。</td></tr></tbody></table></div>
+          <div v-for="shop in trialShops" :key="shop.shop_id"><strong>{{shop.name}}</strong><CustomerTrial :shop="shop"/></div>
           <KnowledgeImport v-if="canManage" :shops="session?.allowed_shop_ids ?? []" @imported="notice='资料已提交；请重新登录后查看摄取任务并审核发布。'"/>
           <form v-if="canManage" class="import-form" @submit.prevent="importPackage"><div class="section-head"><div><h2>导入 YAML 资料包</h2><p>文件只进入当前授权店铺；新版本保持待审核，不会直接发布。</p></div><span class="env-mark">{{ session?.is_mock ? '合成环境' : '受限环境' }}</span></div>
             <div class="form-grid"><label>目标店铺<select v-model="selectedShop" required><option v-for="shop in session?.allowed_shop_ids ?? []" :key="shop" :value="shop">{{ shop }}</option></select></label><label>manifest.yaml<input type="file" accept=".yaml,.yml" required @change="onManifestChange"></label><label class="wide">资料文件<input type="file" multiple required @change="onFilesChange"><small>manifest 中的相对路径必须与文件名对应；单个文件上限由服务端执行。</small></label><label class="wide">YAML manifest<textarea v-model="manifestText" rows="10" spellcheck="false" required /></label></div>
@@ -453,7 +471,8 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
         <section v-else-if="page === 'reviews'" class="content-area review-layout">
           <div class="review-list"><div class="section-head"><div><h2>资料版本</h2><p>审核基于版本哈希和权限版本。</p></div></div><div v-for="row in data" :key="row.version_id" class="version-row" :class="{ selected: detail?.version_id === row.version_id }" role="button" tabindex="0" @click="loadReviewDetail(row)" @keydown.enter="loadReviewDetail(row)"><div class="version-title"><strong>{{ row.title }}</strong><span class="status" :class="`tone-${statusTone(row.status)}`">{{ statusLabel(row.status) }}</span></div><small>{{ row.document_id }} · {{ row.shop_id }} · {{ statusLabel(row.review_status) }}</small><small class="hash">{{ row.source_hash }}</small><div class="version-meta"><span>{{ row.chunk_count ?? 0 }} chunks</span><span>fence {{ row.fencing_epoch }}</span><span>{{ row.disclosure_class }}</span></div></div><p v-if="data.length === 0" class="empty">当前范围没有资料版本。</p></div>
           <div class="review-detail"><template v-if="detail"><div class="detail-head"><div><p class="eyebrow">VERSION {{ detail.version_id }}</p><h2>{{ detail.title }}</h2></div><span class="status" :class="`tone-${statusTone(detail.review_status)}`">{{ statusLabel(detail.review_status) }}</span></div><dl class="detail-grid"><div><dt>租户</dt><dd>{{ session.tenant_id }}</dd></div><div><dt>店铺</dt><dd>{{ detail.shop_id }}</dd></div><div><dt>文档</dt><dd>{{ detail.document_id }}</dd></div><div><dt>状态</dt><dd>{{ statusLabel(detail.status) }}</dd></div><div><dt>披露分类</dt><dd>{{ detail.disclosure_class }}</dd></div><div><dt>Fencing epoch</dt><dd>{{ detail.fencing_epoch }}</dd></div><div class="wide"><dt>Source hash</dt><dd class="hash">{{ detail.source_hash }}</dd></div><div class="wide"><dt>Reviewed hash</dt><dd class="hash">{{ detail.reviewed_hash ?? '尚未审核' }}</dd></div></dl>
-              <div class="content-preview"><div class="preview-head"><strong>审核内容</strong><span>{{ detail.disclosure_class === 'internal_only' ? '内部资料 · 仅授权审核员' : detail.disclosure_class === 'unclassified' ? '未分类 · 不进入检索' : '授权审核范围' }}</span></div><article v-for="chunk in detail.content ?? []" :key="chunk.chunk_index"><small>CHUNK {{ chunk.chunk_index + 1 }}</small><p>{{ chunk.content }}</p></article><p v-if="!detail.content?.length" class="empty">无可展示的内容片段。</p></div>
+              <KnowledgePreview :key="detail.version_id" :chunks="detail.content??[]"/>
+              <CustomerTrial v-for="shop in trialShops.filter(s=>s.shop_id===detail?.shop_id)" :key="shop.shop_id" :shop="shop"/>
               <div class="high-risk-actions"><button v-if="canReview && detail.status === 'ready' && detail.review_status === 'pending'" class="primary" @click="openDecision(detail, 'approved', 'review')">记录审核结论</button><button v-if="canReview && detail.status === 'ready' && detail.review_status === 'approved'" class="primary" @click="openVersion(detail, 'publish')">发布此版本</button><button v-if="canReview && detail.status === 'superseded' && detail.review_status === 'approved'" class="secondary" @click="openVersion(detail, 'rollback')">回退到此版本</button><button v-if="canReview && detail.status !== 'revoked'" class="danger-button" @click="openVersion(detail, 'revoke')">撤销版本</button></div>
               <div class="reviewer-line">审核账号：{{ detail.reviewed_by ?? '待审核' }} · 审计结果由服务端返回</div>
             </template><div v-else class="detail-placeholder"><span class="placeholder-mark">▤</span><strong>选择一个版本查看审核信息</strong><small>只有当前审核授权范围内的版本会出现在列表中。</small></div></div>
