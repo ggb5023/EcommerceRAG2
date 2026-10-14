@@ -1,3 +1,5 @@
+import { csrfHeaders } from './auth'
+
 export type AdminSession = {
   tenant_id: string
   user_id: string
@@ -35,6 +37,7 @@ const messages: Record<number, string> = {
 }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (init.method && init.method !== 'GET') init = { ...init, headers: { ...csrfHeaders(), ...Object.fromEntries(new Headers(init.headers)) } }
   const response = await fetch(path, { credentials: 'same-origin', ...init })
   if (!response.ok) {
     let detail = ''

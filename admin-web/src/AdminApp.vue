@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, get, post, type AdminSession } from './api'
 import { adminPageFromPath, adminPathForPage, type AdminPage } from './routes'
+import { browserAuth, checkBrowserAuth, login, logout } from './auth'
 
 type Row = Record<string, any>
 type ItemResponse = { items: Row[] }
@@ -17,6 +18,7 @@ const jobDetail = ref<Row | null>(null)
 const loading = ref(true)
 const unavailable = ref(false)
 const error = ref('')
+const identityStatus = ref(0)
 const actionBusy = ref(false)
 const notice = ref('')
 const selectedShop = ref('')
@@ -101,7 +103,8 @@ function clearRestrictedContent(clearSession = true) {
 }
 
 function handleFailure(caught: unknown, fallback: string) {
-  const apiError = caught instanceof ApiError ? caught : new ApiError(0, fallback)
+  const apiError = caught instanceof ApiError ? caught : new ApiError((caught as { status?: number })?.status ?? 0, caught instanceof Error ? caught.message : fallback)
+  identityStatus.value = apiError.status
   error.value = apiError.message
   notice.value = ''
   if (apiError.status === 401 || apiError.status === 403) {
@@ -120,6 +123,9 @@ async function loadPage() {
   notice.value = ''
   detail.value = null
   try {
+    await checkBrowserAuth()
+    if (browserAuth.enabled && !browserAuth.authenticated) { clearRestrictedContent(); identityStatus.value = 401; return }
+    identityStatus.value = 0
     if (!session.value) session.value = await get<AdminSession>('/admin/v1/session')
     const response = await get<ItemResponse | Row>(endpointForPage())
     data.value = page.value === 'overview'
@@ -158,6 +164,10 @@ function statusTone(value?: string) {
 }
 
 async function refresh() { await loadPage() }
+async function signout() {
+  clearRestrictedContent(); identityStatus.value = 401; notice.value = ''; error.value = ''; unavailable.value = false
+  try { await logout() } catch (caught) { error.value = caught instanceof Error ? caught.message : '注销未确认。' }
+}
 function openDecision(row: Row, decision = 'approved', kind: 'request' | 'review' = 'request') {
   dialogTarget.value = row
   reviewDecision.value = decision
@@ -352,6 +362,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
             <select v-model="selectedShop" aria-label="筛选店铺"><option value="">全部授权店铺</option><option v-for="shop in session?.allowed_shop_ids ?? []" :key="shop" :value="shop">{{ shop }}</option></select>
           </label>
           <span v-if="session" class="identity">{{ session.user_id }} <small>{{ session.admin_roles?.map(roleLabel).join(' · ') || '无管理授权' }}</small></span>
+          <button v-if="session && browserAuth.enabled" class="secondary" type="button" @click="signout">退出登录</button>
           <button class="icon-action" type="button" title="刷新" aria-label="刷新数据" @click="refresh">↻</button>
         </div>
       </header>
@@ -360,7 +371,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
       <div v-if="notice" class="notice" role="status">{{ notice }}</div>
       <section v-if="loading" class="state-panel" role="status"><strong>正在读取授权范围内的数据</strong><span>状态以服务端响应为准。</span></section>
       <section v-else-if="unavailable" class="state-panel unavailable"><strong>管理服务暂不可用</strong><span>没有使用缓存内容替代服务端状态。</span><button class="primary" @click="refresh">重试</button></section>
-      <section v-else-if="!session" class="state-panel unavailable"><strong>没有可用的管理会话</strong><span>请使用已配置的身份服务建立会话。</span></section>
+      <section v-else-if="!session" class="state-panel unavailable"><strong>{{ identityStatus === 403 ? '当前账号无访问权限' : '请登录管理台' }}</strong><span>{{ identityStatus === 403 ? '权限已变化或被撤销，请联系管理员。' : '登录后读取服务端授权范围。' }}</span><button v-if="browserAuth.enabled && identityStatus === 401" class="primary" @click="login('admin')">登录</button></section>
       <section v-else-if="navigation.length === 0" class="state-panel unavailable"><strong>当前账号没有管理权限</strong><span>页面访问范围由 Go 服务端授权决定。</span></section>
       <template v-else-if="!loading">
         <section v-if="page === 'not-found'" class="state-panel unavailable"><strong>管理页面不存在</strong><span>请从当前账号可访问的工作空间进入。</span><button class="secondary" type="button" @click="go('overview')">运行状态</button></section>

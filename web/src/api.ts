@@ -1,3 +1,5 @@
+import { csrfHeaders } from './auth'
+
 export interface Session {
   tenantId: string
   userId: string
@@ -74,7 +76,8 @@ const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(init?.method && init.method !== 'GET' ? csrfHeaders() : {}), ...(init?.headers ?? {}) },
   })
   if (!response.ok) {
     const detail = await response.json().catch(() => null)
@@ -155,7 +158,7 @@ export const api = {
           const headers: Record<string, string> = { Accept: 'text/event-stream' }
           if (lastSeq > 0) headers['Last-Event-ID'] = String(lastSeq)
           const response = await fetch(`${base}/v1/turns/${encodeURIComponent(turnId)}/events`, {
-            headers, signal: controller.signal,
+            headers, signal: controller.signal, credentials: 'same-origin',
           })
           if (response.status === 401 || response.status === 403 || response.status === 404) {
             const detail = await response.json().catch(() => null)

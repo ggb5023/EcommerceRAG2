@@ -23,6 +23,7 @@ export function useWorkspace(client = api) {
   const submitting = ref(false)
   const unavailable = ref(false)
   const error = ref('')
+  const identityErrorStatus = ref(0)
   const busy = computed(() => submitting.value || isTurnActive(turnStatus.value))
   // This workspace only supports mock profiles. Copy approval needs a separate
   // server contract; no historical reply flag may enable it here.
@@ -45,6 +46,7 @@ export function useWorkspace(client = api) {
   function failure(value: unknown, fallback: string) {
     const status = (value as ApiError)?.status
     if (status === 401 || status === 403) {
+      identityErrorStatus.value = status
       begin(); session.value = null; conversations.value = []; unavailable.value = true
       loading.value = false; error.value = '当前账号没有访问权限，请重新连接或联系管理员'; return
     }
@@ -147,6 +149,7 @@ export function useWorkspace(client = api) {
     } catch (value) { if (current(token, id)) failure(value, '取消失败') }
   }
   async function loadWorkspace(preferredId?: string) {
+    identityErrorStatus.value = 0
     const token = begin(); loading.value = true; unavailable.value = false; error.value = ''
     try {
       const identity = await client.session(); if (!current(token)) return; session.value = identity
@@ -160,5 +163,5 @@ export function useWorkspace(client = api) {
     } catch (value) { if (current(token)) failure(value, '工作台加载失败') }
     finally { if (current(token)) loading.value = false }
   }
-  return { session, conversations, activeConversation, selectedTurn, selectedRequestId, evidence, citations, customerReply, draft, input, turnStatus, clarification, parentTurnId, connectionState, loading, unavailable, error, busy, canCopy, loadWorkspace, newConversation, selectConversation, selectRequest, send, stop, clearTurnState }
+  return { session, conversations, activeConversation, selectedTurn, selectedRequestId, evidence, citations, customerReply, draft, input, turnStatus, clarification, parentTurnId, connectionState, loading, unavailable, error, identityErrorStatus, busy, canCopy, loadWorkspace, newConversation, selectConversation, selectRequest, send, stop, clearTurnState }
 }
