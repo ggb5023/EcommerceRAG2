@@ -64,6 +64,7 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/v1/access/audit", g.adminAudit)
 	mux.HandleFunc("POST /admin/v1/access/grants/{id}/revoke", g.adminRevokeGrant)
 	mux.HandleFunc("GET /admin/v1/merchant/shops", g.adminShops)
+	mux.HandleFunc("POST /admin/v1/merchant/shops/{id}/settings", g.adminShopSettings)
 	mux.HandleFunc("GET /admin/v1/merchant/sources", g.adminSources)
 	mux.HandleFunc("POST /admin/v1/merchant/sources/import", g.adminImportPackage)
 	mux.HandleFunc("GET /admin/v1/merchant/ingestion", g.adminJobs)
@@ -689,21 +690,22 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT id,name,status FROM shop WHERE tenant_id=$1 AND id=ANY($2::text[]) ORDER BY id`,
+	rows, err := g.DB.Query(r.Context(), `SELECT id,name,status,COALESCE(public_slug,''),welcome_message,customer_chat_enabled FROM shop WHERE tenant_id=$1 AND id=ANY($2::text[]) ORDER BY id`,
 		g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
 		return
 	}
 	defer rows.Close()
-	items := make([]map[string]string, 0)
+	items := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, name, state string
-		if rows.Scan(&id, &name, &state) != nil {
+		var id, name, state, slug, welcome string
+		var enabled bool
+		if rows.Scan(&id, &name, &state, &slug, &welcome, &enabled) != nil {
 			httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
 			return
 		}
-		items = append(items, map[string]string{"shop_id": id, "name": name, "status": state})
+		items = append(items, map[string]any{"shop_id": id, "name": name, "status": state, "public_slug": slug, "welcome_message": welcome, "customer_chat_enabled": enabled})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -807,10 +809,9 @@ func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "ingestion_queue_failed", "package could not be queued")
 		return
 	}
-	if err = g.Authority.Refresh(r.Context()); err != nil {
-		httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
-		return
-	}
+	// The authorized Submit transaction creates the source and advances the
+	// resource permission revision itself. Return its receipt instead of calling
+	// that successful write a 403. Subsequent operations need a fresh session.
 	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(queued.JobID, 10),
 		"manifest_sha256": queued.ManifestSHA256, "package_sha256": queued.PackageSHA256,
 		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": httpapi.IsMockProfile(g.Profile)})

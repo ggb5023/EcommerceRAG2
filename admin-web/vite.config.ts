@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.')
   return {
     plugins: [vue()],
+    base: mode === 'production' ? '/admin/' : '/',
     server: {
       proxy: {
         '/v1/auth': env.VITE_ADMIN_API_PROXY_TARGET ?? 'http://127.0.0.1:8080',

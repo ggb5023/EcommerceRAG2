@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError, get, post, type AdminSession } from './api'
+import KnowledgeImport from './KnowledgeImport.vue'
+import ShopSettings from './ShopSettings.vue'
+import { ApiError, get, post, request, type AdminSession } from './api'
 import { adminPageFromPath, adminPathForPage, type AdminPage } from './routes'
 import { browserAuth, checkBrowserAuth, login, logout } from './auth'
 
@@ -318,9 +320,7 @@ async function importPackage() {
   }
   actionBusy.value = true
   try {
-    const response = await fetch('/admin/v1/merchant/sources/import', { method: 'POST', credentials: 'same-origin', body: form })
-    if (!response.ok) throw new ApiError(response.status, `资料导入失败，HTTP ${response.status}。`)
-    const result = await response.json() as Row
+    const result = await request<Row>('/admin/v1/merchant/sources/import', { method: 'POST', body: form })
     notice.value = `摄取任务已排队：${result.item_count} 个资料项，状态 ${statusLabel(result.status)}。`
     manifestText.value = ''; manifestFile.value = null; selectedFiles.value = []
     await loadPage()
@@ -413,11 +413,12 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
           <tr v-for="row in data" :key="row.id"><td>{{ formatTime(row.created_at) }}</td><td>{{ row.actor_user_id }}</td><td>{{ row.action }}</td><td>{{ row.resource_type }} · {{ row.resource_id }}</td><td><span>{{ row.resource_version ?? '—' }}</span><small class="hash">{{ row.content_hash ?? '' }}</small></td><td>{{ row.reason ?? '—' }}<small><span class="status" :class="`tone-${statusTone(row.result)}`">{{ row.result }}</span></small></td></tr>
           <tr v-if="data.length === 0"><td colspan="6" class="empty">暂无审计记录。</td></tr></tbody></table></div></section>
 
-        <section v-else-if="page === 'shops'" class="content-area"><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span></article></div></section>
+        <section v-else-if="page === 'shops'" class="content-area"><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span><ShopSettings v-if="canManage && session" :shop="row" :revision="session.permission_revision" @saved="loadPage"/></article></div></section>
 
         <section v-else-if="page === 'sources'" class="content-area">
           <div class="section-head"><div><h2>已登记资料来源</h2><p>只显示来源元数据，不在此页面展开资料正文。</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>来源</th><th>店铺</th><th>类型</th><th>资料数</th><th>最近导入</th></tr></thead><tbody><tr v-for="row in data" :key="row.source_id"><td><strong>{{ row.source_id }}</strong><small>{{ row.uri ?? 'manifest package' }}</small></td><td>{{ row.shop_id }}</td><td>{{ row.type }}</td><td>{{ row.documents }}</td><td>{{ formatTime(row.latest_import) }}</td></tr><tr v-if="data.length === 0"><td colspan="5" class="empty">尚无管理台导入的资料来源。</td></tr></tbody></table></div>
+          <KnowledgeImport v-if="canManage" :shops="session?.allowed_shop_ids ?? []" @imported="notice='资料已提交；请重新登录后查看摄取任务并审核发布。'"/>
           <form v-if="canManage" class="import-form" @submit.prevent="importPackage"><div class="section-head"><div><h2>导入 YAML 资料包</h2><p>文件只进入当前授权店铺；新版本保持待审核，不会直接发布。</p></div><span class="env-mark">{{ session?.is_mock ? '合成环境' : '受限环境' }}</span></div>
             <div class="form-grid"><label>目标店铺<select v-model="selectedShop" required><option v-for="shop in session?.allowed_shop_ids ?? []" :key="shop" :value="shop">{{ shop }}</option></select></label><label>manifest.yaml<input type="file" accept=".yaml,.yml" required @change="onManifestChange"></label><label class="wide">资料文件<input type="file" multiple required @change="onFilesChange"><small>manifest 中的相对路径必须与文件名对应；单个文件上限由服务端执行。</small></label><label class="wide">YAML manifest<textarea v-model="manifestText" rows="10" spellcheck="false" required /></label></div>
             <div class="form-footer"><span>{{ selectedFiles.length }} 个文件已选择</span><button class="primary" :disabled="actionBusy || !manifestText || selectedFiles.length === 0">校验并排队</button></div>
