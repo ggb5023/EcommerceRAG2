@@ -66,6 +66,8 @@ class BaselineCheckerTests(unittest.TestCase):
         (self.root / "FACTS.md").write_text(FACTS, encoding="utf-8")
         (self.root / "docs").mkdir()
         (self.root / "docs/architecture.md").write_text(ARCHITECTURE, encoding="utf-8")
+        for name in ("install", "knowledge", "support", "backup", "development"):
+            (self.root / f"docs/{name}.md").write_text("[Project](../README.md)\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -115,6 +117,13 @@ class BaselineCheckerTests(unittest.TestCase):
     def test_private_topics_are_not_required(self) -> None:
         self.assertFalse((self.root / ".local").exists())
         self.assertEqual(self.run_checker().returncode, 0)
+
+    def test_public_usage_document_is_required_with_a_real_root_link(self) -> None:
+        path = self.root / "docs/install.md"
+        path.unlink()
+        self.assertNotEqual(self.run_checker().returncode, 0)
+        path.write_text("Mention ../README.md without a link.\n", encoding="utf-8")
+        self.assertIn("docs/install.md: missing README link", self.run_checker().stderr)
 
     def test_archive_is_not_a_baseline_input(self) -> None:
         archive = self.root / ".local/dev-docs/archive"

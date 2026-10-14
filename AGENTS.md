@@ -39,7 +39,7 @@
 - Python 只能使用 Go 签发的 scope，必须回验并在检索、上下文、生成和引用处过滤；不得扩大权限、自行签发 scope 或发布 Go 业务终态。
 - Python 单写 V2 摄取 `job/item/version/chunk` 及其发布状态；Go 负责提交、控制命令、审批和审计，不能直接更新摄取表。
 - 一张业务表只有一个写入方；表级所有权由迁移和受限服务角色落实。禁止通过 SQL 直写最终结果绕过真实业务流程。
-- Proto/gRPC 是 Go 与 Python 的唯一跨语言契约。字段、状态、错误、取消或 deadline 变化先修改 `proto/rag/v1/rag.proto`，再用 `bash scripts/generate-proto.sh` 同步生成代码；不新增平行的业务 HTTP/JSON 契约。现有授权回验传输差异见 `docs/architecture.md`。
+- Proto/gRPC 是 Go 与 Python 的唯一跨语言契约。字段、状态、错误、取消或 deadline 变化先修改 `proto/rag/v1/rag.proto`，再用 `bash scripts/generate-proto.sh` 同步生成代码；不新增平行的业务 HTTP/JSON 契约。自部署授权回验使用 mTLS Proto/gRPC；开发 loopback HTTP 兼容边界见 `docs/architecture.md`。
 - 已应用迁移不可修改；数据库结构变化必须新增 checksum 迁移，并在独立库、非超级用户且无 `BYPASSRLS` 条件下验证。应用进程不执行 DDL。
 
 ## 数据来源与准入
@@ -90,3 +90,10 @@
 提交记录：
 下一步：
 ```
+
+## 商家知识客服规则
+
+- 产品面向商家自部署；默认单商家单店铺，保留隔离。Medusa、公开商品双轨与实时订单/库存工具不属于首版默认依赖。
+- 访客身份与员工分离；客户接口只发获准的最终回答与来源片段，不发原始模型增量或内部工具内容。ANSWER、CLARIFY、HANDOFF 是 Python 建议，发布权属于 Go。
+- 客户会话控制与 RAG 执行状态分开；客服领取必须原子化，AI 与人工发送都检查 state/epoch/有效领取。人工回复不自动进入知识库。来源撤回及权限收紧也过滤旧结果和 SSE 回放。
+- 除公开架构外，仅放行指定安装、知识、客服、备份和开发文档；其余 docs 和整个 .local 仍私有。安装包不包含开发密钥、账号、账本、资料或输出。

@@ -1,0 +1,17 @@
+# 二次开发边界
+
+[项目入口](../README.md) · [工程规则](../AGENTS.md) · [架构](architecture.md)
+
+面向商家的开源电商客服 RAG 系统，首版单商家单店铺。平台连接器由商家或集成方实现；Medusa、公开商品双轨、实时订单/库存、API Key 和独立检索 API 暂缓。既有开发 facts fake 只服务冻结合成回归，不是安装者的默认业务输入。
+
+Go 是所有业务 HTTP/SSE 入口，持有身份、实时授权、访客会话、人工领取、消息发布和审计。Python 处理知识摄取、检索、重排和生成。Python 的 ANSWER/CLARIFY/HANDOFF 是建议，Go 按授权、版本、披露和完整性决定发布。不得把 `can_copy` 全局改为 true。模型原始文本不直接推送客户。
+
+Proto/gRPC 是跨语言契约；生产式容器传输使用 mTLS，授权回验使用 `AuthorizationService.ValidateScope`，不开放内部 HTTP 回验接口。空 TLS 配置只保留明确的本机开发兼容路径。权限和业务终态不交给 Python。摄取 job/item/version/chunk 由 Python 单写，客户消息/控制权/事件由 Go 单写。新增结构使用 checksum 迁移，不改历史迁移。
+
+自部署身份 profile 在固定 subject→tenant/user/shop 映射后由 Go 数据库提供角色、店铺范围、权限版本和撤权状态。Keycloak 只提供协议身份；浏览器会话固定登录时权限，版本变化使旧会话失效，重新登录读取当前权限。旧 bearer profile 的 token claims 检查继续独立支持。
+
+客户接口命名空间 `/v1/customer/`，员工队列 `/v1/support/`，员工辅助 `/v1/conversations` 和管理 `/admin/v1/` 分开。客户操作使用 conversation ID、message ID、execution ID，写入校验 Origin、CSRF 和 Idempotency-Key；员工控制另携带 epoch。Cookie 只保存不透明凭据，数据库保存摘要。
+
+测试入口：`bash scripts/check.sh`；数据库、跨进程、真实模型、浏览器和语义复核另行执行。新客户闭环契约见 [评测契约](../eval/customer-service-contract.v1.json)。冻结 53 条与 7 条安全案例、原答案点门禁及证据边界门禁分别保留，不能用新的客服闭环结论覆盖原缺口。
+
+自有代码 [MIT](../LICENSE)，第三方许可保留 [声明](../THIRD_PARTY_NOTICES.txt)。公开文档仅放行指定 docs 文件，`.local/` 和原始资料/输出不进入 Git。运行进度见 [HANDOFF](../HANDOFF.md)，不把组件测试当作生产验收。

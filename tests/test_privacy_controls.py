@@ -75,6 +75,12 @@ class PrivacyControls(unittest.TestCase):
                 # ignores the private path or a force-add would bypass that rule.
                 self.assertTrue(privacy.blocked_path(name))
 
+    def test_curated_usage_docs_are_allowed_but_private_topics_remain_blocked(self):
+        for name in ("install","knowledge","support","backup","development"):
+            self.assertFalse(privacy.blocked_path(f"docs/{name}.md"))
+        self.assertTrue(privacy.blocked_path("docs/customer-report.md"))
+        self.assertTrue(privacy.blocked_path(".local/dev-docs/docs/install.md"))
+
     def test_public_architecture_still_scanned_for_private_content(self):
         path = self.repo / 'docs/architecture.md'
         path.parent.mkdir()

@@ -30,7 +30,7 @@
 
 `eval/public-data-sources.manifest.json` 管理公开数据集、开源服务目标和未解决的来源缺口，并记录类别、语言/司法辖区、许可与隐私状态、用途范围和获取状态。候选来源只有在原始条款、许可证范围、revision、字段/隐私审查和仓外存储均落实后才能准入；未满足时保持未下载。原始公开数据不进入 Git.
 
-当前 Go 可显式选择固定开发身份或本地 Keycloak OIDC bearer profile；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。未实现浏览器登录或生产会话。Medusa 2.21.2 是未来本地 REST 集成目标；记录的 MIT 许可仅覆盖非 Enterprise 内容，Enterprise 内容排除。Medusa 本地服务或测试账号都不代表真实商家 API。
+当前 Go 可显式选择固定开发身份或本地 Keycloak OIDC bearer profile；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。自部署员工浏览器登录使用 confidential code/PKCE 与 Go Cookie，见下节。生产身份未验收。Medusa 与公开商品双轨暂缓，既有版本许可审计保留；本地服务或测试账号不代表真实商家 API。
 
 Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库、DbCL 单项内容和 CC BY-SA 商品图片，首批候选排除图片并待字段审查。UCI Online Retail II 页面标注 CC BY 4.0、API 许可字段为空，解决差异并完成隐私审查前不下载或准入。中文官方 FAQ/政策和中文社区问答尚有来源缺口；英文社区问答单独评测并保留语言与许可归属，不能作为商家政策或客服答案真值。公开数据派生的 Medusa 库存/订单是本地测试记录，删除客户标识并绑定来源版本、输入 hash 和转换版本。
 
@@ -74,3 +74,15 @@ Proto/gRPC 是唯一跨语言业务契约。字段、状态、错误、取消或
 | 工具链与运行 | `toolchains.lock.json` 及受限运行/Provider 配置；具体版本与参数以当前清单、锁文件和配置为准 |
 
 格式、测试、静态检查与完整工程检查入口由 AGENTS 定义，启动和隔离验证方法由 README 维护。私有专题、运行证据、窗口归档与历史快照留在 `.local/`；公开文档仅提取稳定且不敏感的结论。
+
+## 商家知识客服边界
+
+首版单商家单店铺，保留租户/店铺隔离；平台连接器由集成方实现，Medusa、公开商品双轨和实时业务工具暂缓。商家上传、预览、审核、发布资料，匿名客户只消费当前获准外部知识。
+
+Go 单写访客凭据摘要、会话、消息、执行、控制 epoch 与持久 SSE。访客 Cookie 闲置 24 小时、绝对 7 天，可跨刷新和 Go 重启恢复；员工会话仍为进程内 30 分钟。Python 的 ANSWER/CLARIFY/HANDOFF 是建议，Go 重验权限、版本、披露和引用再发布最终消息。最多澄清一次，超出能力、资料不足或失败进入人工队列。
+
+服务状态 AI/WAITING_HUMAN/HUMAN/CLOSED 与执行终态分离。客服原子领取 120 秒并每 30 秒续期；控制变化递增 epoch，迟到 AI 和过期客服不能发布。人工回复不伪造引用或自动入库。读取与 SSE 回放再次核验来源，撤回后旧正文/片段停止展示。
+
+自部署员工通过固定 OIDC subject 映射，由 Go 数据库提供并固定当前授权；刷新不能升级旧权限。内部容器使用 mTLS Proto/gRPC，含 AuthorizationService.ValidateScope。开发 loopback HTTP 回验仅为既有本机兼容入口，自部署不得放开它。应用不执行 DDL。客户检索轨迹由 AI 单写独立 customer_retrieval_trace，关联客户 execution；原员工 retrieval_trace 保持原义。
+
+公开操作入口见 [安装](install.md)、[知识导入](knowledge.md)、[客服操作](support.md)、[恢复](backup.md)和[开发边界](development.md)。

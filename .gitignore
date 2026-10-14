@@ -12,6 +12,11 @@
 !data/synthetic/**/*.md
 /docs/**
 !/docs/architecture.md
+!/docs/install.md
+!/docs/knowledge.md
+!/docs/support.md
+!/docs/backup.md
+!/docs/development.md
 .private/
 *.bundle
 *.patch

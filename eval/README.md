@@ -813,3 +813,11 @@ Open-source service rows may become `local_integration_passed` only with a
 pinned version, artifact/license hashes, reviewed synthetic accounts, and a
 passing non-production report hash. This service state is independent of
 dataset download/admission and cannot authorize public or production data.
+
+## Merchant customer-service evaluation
+
+The merchant milestone defers Medusa/OFF/live facts; the historical candidate audits above remain independent. Frozen staff cases, answer points and evidence-boundary scores are unchanged. `customer-service-contract.v1.json` and `customer-service-cases.v1.json` freeze the separate customer decision contract and 15 queries/source hashes before generation.
+
+`run_customer_service.py` uses Go HTTPS, an opaque guest Cookie, CSRF/idempotency and persisted SSE decisions; it records a partial NOT_PASSED report after each capture. Restricted captures and free-form semantic review remain outside Git. `customer_service_quality.py` binds agent reviews to the exact contract/capture hashes, checks high-risk behavior, evidence/citations and ordinary thresholds, and refuses missing reviews, provider failures or changed outputs. Clarification without citations is reported separately from applicable answer citations. Passing transport checks never preapproves semantics.
+
+Browser drivers `customer-service.browser.mjs`, `customer-control.browser.mjs` and `customer-source.browser.mjs` use actual Keycloak, Go and ingestion. They exercise customer answers/sources, human claim/reply, lease/restart controls and source revoke/rollback/replay. Results only prove their recorded scopes; self-signed TLS is an explicit local test, and all reports retain real_service_acceptance=false, reviewer_kind=agent and human_review_completed=false where semantic review applies.

@@ -1,0 +1,22 @@
+EcommerceRAG's MIT license applies to original project code, not third-party
+software, model services, uploaded documents or external data.
+
+Go is BSD-3-Clause. Python is distributed under the PSF license. Node.js has
+an MIT license and bundled third-party notices. Vue and Vite are MIT;
+TypeScript is Apache-2.0. LangChain and LangGraph are MIT. gRPC and Protocol
+Buffers retain their upstream notices. PostgreSQL and pgvector use the
+PostgreSQL License. Keycloak uses Apache-2.0 and retains third-party
+notices in their distributions. Redis 7.4 is source-available under the
+Redis Source Available License v2 or SSPL v1, not the project's MIT license.
+Redis is not required by the current single-instance customer message path.
+Operators must independently assess redistributing or offering each dependency
+as a service. Model providers have separate service terms and billing.
+
+Exact application dependencies are recorded in go/go.mod, go/go.sum,
+python/uv.lock and the two frontend package-lock.json files. Container
+software versions and immutable infrastructure image references are in
+Dockerfiles, docker/selfhost/compose.yml and docker/db/images.lock.json.
+Do not remove upstream LICENSE, COPYING, NOTICE or copyright files from
+redistributed dependencies or images. The build retains the base image and
+Python distribution notices; frontend distribution includes dependency notice
+files collected during the image build. New dependencies need license review.

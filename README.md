@@ -1,12 +1,14 @@
 # EcommerceRAG
 
-E-commerce RAG development foundation using Go, Python, Vue, PostgreSQL and Redis.
+面向商家的开源电商客服 RAG 系统。单商家自部署、导入店铺知识，客户获得有来源的回答；知识不足时进入真实客服队列。
+
+商家入口：[安装](docs/install.md) · [知识导入](docs/knowledge.md) · [客服操作](docs/support.md) · [备份恢复](docs/backup.md) · [二次开发](docs/development.md)。客户入口 `/shop/my-shop`，员工工作台 `/support`，管理台 `/admin/overview`。自有代码采用 [MIT](LICENSE)，依赖保留[各自许可](THIRD_PARTY_NOTICES.txt)。
 
 This repository contains code, schemas, reusable deployment tools and versioned collaboration documents: [AGENTS.md](AGENTS.md) defines repository rules, [FACTS.md](FACTS.md) records stable facts, and [HANDOFF.md](HANDOFF.md) tracks current work. [docs/architecture.md](docs/architecture.md) is the public, stable architecture summary. Private topics, runtime evidence and per-window archives remain under `.local/dev-docs/`; environment configuration stays private under `.local/` or outside the repository. Private documents are not required for the public documentation checks.
 
-Public data candidates and source gaps are tracked in `eval/public-data-sources.manifest.json`; each source must pass license, privacy, provenance and use-scope review before acquisition. Keycloak has a local synthetic-account OIDC adapter; its pinned distribution and development container entry are in `docker/identity/`. Medusa remains the next local service target. These integrations are not production identity or merchant services. Public-source data, local service integration and locally derived test transactions remain distinct from production merchant data; `real_service_acceptance` stays `false`.
+Public data candidates and source gaps are tracked in `eval/public-data-sources.manifest.json`; each source must pass license, privacy, provenance and use-scope review before acquisition. Keycloak has a local synthetic-account OIDC adapter; its pinned distribution and development container entry are in `docker/identity/`. Medusa, public-product imports and live order/inventory tools are deferred beyond the first knowledge-support milestone. These integrations are not production identity or merchant services. Public-source data, local service integration and locally derived test transactions remain distinct from production merchant data; `real_service_acceptance` stays `false`.
 
-Run `bash scripts/install-git-hooks.sh` after cloning, then `bash scripts/check.sh` in a configured development environment. The local hooks allow curated public documents, including the exact `docs/architecture.md` path, and approved synthetic fixture documents; all other `docs/` content and `.local/` remain excluded. Hooks scan allowed files for private environment values and common credential patterns; each contributor must enable them. Commit one completed function or documentation unit at a time, staging only its files or hunks. By convention, `origin` is the Gitee primary repository and `github` is the GitHub mirror; verify actual remotes with `git remote -v`. Remote writes require explicit authorization.
+Run `bash scripts/install-git-hooks.sh` after cloning, then `bash scripts/check.sh` in a configured development environment. The local hooks allow curated public documents, including architecture/install/knowledge/support/backup/development, and approved synthetic fixture documents; all other `docs/` content and `.local/` remain excluded. Hooks scan allowed files for private environment values and common credential patterns; each contributor must enable them. Commit one completed function or documentation unit at a time, staging only its files or hunks. By convention, `origin` is the Gitee primary repository and `github` is the GitHub mirror; verify actual remotes with `git remote -v`. Remote writes require explicit authorization.
 
 Deployment requires a protected `/etc/ecommerce-rag/infra.env`, based on `scripts/infra.env.example`. Missing or invalid settings stop deployment. Supply real credentials separately outside this repository.
 
@@ -36,5 +38,7 @@ The Go gateway can explicitly select `V2_IDENTITY_PROFILE=oidc` with an owned
 `go/internal/identity/config.example.json`. Keep the confidential client secret
 and account credentials outside Git. This profile verifies bearer tokens and
 live revocation and matches existing Go database permissions; it has no fixed
-identity fallback. The existing HTTP/SSE business routes are preserved. Browser
-login and production sessions are a separate, unimplemented scope.
+identity fallback. The existing HTTP/SSE business routes are preserved.
+The selfhost installation adds employee browser login via a confidential Keycloak
+code/PKCE client, an opaque HttpOnly session and CSRF-protected Go writes.
+Production identity acceptance remains separate; see the installation guide.

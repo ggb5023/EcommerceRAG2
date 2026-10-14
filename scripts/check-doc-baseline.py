@@ -33,6 +33,12 @@ def check(repo_root: Path) -> list[str]:
             errors.append(f"{name}: cannot read required document ({exc.strerror})")
             return ""
 
+    for name in ("install", "knowledge", "support", "backup", "development"):
+        text = read(f"docs/{name}.md")
+        links = set(re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", text))
+        if "../README.md" not in links:
+            errors.append(f"docs/{name}.md: missing README link")
+
     agents = read("AGENTS.md")
     handoff = read("HANDOFF.md")
     facts = read("FACTS.md")
