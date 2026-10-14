@@ -15,7 +15,8 @@
 - 独立 Compose 浏览器 r3、控制权 r1、来源 r1 PASS：两客服竞争唯一领取、人工回复实际送达、访客与领取刷新、过期 epoch、SSE 回放、撤销和回退、Go 重启恢复通过。全新安装浏览器 `/var/lib/ecommerce-rag/merchant-fresh-20261014/acceptance/browser-r1/browser-report.json` PASS；隔离备份恢复和原访客 Cookie/消息、Keycloak 员工重新登录证明在 `/var/lib/ecommerce-rag/customer-restored-20261014-r2/restore-evidence.json` 与 `browser-r1/report.json`，不自动清零或复制开发预算。
 - 最终检查：`bash scripts/check.sh` PASS，Python 415 passed/27 skipped、Go test/vet、Proto lint/build/breaking、前端 22+10 测试与构建、facts fake 故障矩阵通过；eval 304 passed。显式隔离库 Python 摄取/检索 33 passed、Go 客户生命周期 race 与管理权限/命令对账通过，覆盖默认跳过之外的真实 DB 证据。文档、隐私、差异检查通过；日志 `customer-milestone-final-check-20261014.log`、`customer-milestone-final-python-db-20261014.log`、`customer-milestone-final-db-20261014.log`、`customer-milestone-final-admin-db-r2-20261014.log` 留仓外。
 - 真实百炼沿用原四槽位、1024 维、共享账本及 60 RPM；不限额度付费授权有效，仍记录费用和每次尝试。Provider 可重试故障最多一次，共用原 deadline，首轮保留后续时间；非法结构、截断、授权和 TLS 失败不重试。配送能力限制字段保持原 80 字硬上限，旧失败结果不覆盖。
-- V1 识别库备份、隔离恢复、只读及连接隔离验证 PASS，七天期从实际封存时开始，保留至 2026-10-21；报告 `/var/lib/ecommerce-rag/real-docs/reports/v1-seal-stage-r2-20261014.json`。该库业务表数为 0，证据只覆盖核验的实例/库，不证明其他历史库数据已保存。V1 代码和未提交改动仍只读保留，不自动删除。
+- 用户于 2026-10-14 明确授权删除确认不用的旧数据库，覆盖此前七天保留安排。已复核旧 V1 库 `rag` 无业务表、无连接、封存备份 hash 正确，并新增受限备份、再次隔离恢复验证后删除 `rag` 及两个已核实相同内容的临时恢复库。旧库专属备份 timer 已 disable/stop；未重启数据库实例、未强制断开连接、未修改共享角色。原封存报告和备份保留，最新退役报告 `/var/lib/ecommerce-rag/legacy-retirement-20261014/retirement-report.json` 为 PASS；不证明其他历史实例或库的数据已保存。V1 代码及未提交改动仍只读保留。
+- 退役后远端全部保留评测库的数据/扩展/对象权限指纹及数据库设置前后相同，共享角色不变。V2 配置引用的库与历史评测库保留，不据零连接直接删除。独立客户 Compose 的旧访客 Cookie、已有会话回读、店铺与健康接口均 200，四进程 readiness 通过；报告 `legacy-retirement-20261014/active-service-verification.json`。运行中客户/身份库全表行 hash 有变化，该诊断保留但不作为逐行未变证明；本轮未调用模型，未重复完整质量或浏览器回归。
 - 自有 MIT LICENSE、第三方声明及公开安装/知识/客服/备份/开发文档已提交。主要提交：67acd79 引用修复、97c22b1 客户 Proto、be32e69 客户与人工后端、bbad1bc 三界面、b11ef51 Compose/恢复、5ed59e8 公开文档、17c1bd1 限制引用、6fc8911 Provider 重试、bcafd37 长度契约、1c07daf 部署契约说明。过程在 `.local/dev-docs/archive/20261014-商家知识客服闭环实施.md`。
 
 ## 下一步任务
@@ -29,4 +30,4 @@
 - 生产 OIDC、生产商家 API、真实商家资料质量、正式 CA、公网镜像完整拉取/默认 Docker 构建、容量/灾备/多实例均未验收。本地验收采用文档所述锁定工具链构建与已核验本机导入镜像；官方 registry manifest 与本地镜像摘要分开记录，不能互称验证。
 - Compose 当前八服务运行，关键服务 healthy，仅 loopback Web 18443 暴露。构建证据 `/var/lib/ecommerce-rag/selfhost-build-r5-20261014/build-evidence.json` 绑定实现提交 1c07daf；本轮后续只有交接文档变化。启动/检查：`docker compose --env-file /var/lib/ecommerce-rag/customer-milestone-20261014/compose.env -f docker/selfhost/compose.yml -f /var/lib/ecommerce-rag/customer-milestone-20261014/imported-ops.yml up -d`；检查改末尾为 `ps`，停机为 `stop`，不删除 volumes。测试域名必须配置信任和解析；入口 `/admin/overview`、`/shop/my-shop`、`/support`、`/chat`。
 - 旧 `v2-test-20261013-checks` 库停在迁移 0025，新增店铺字段管理检查因此失败；原报告保留，在具备 0026/0027 的独立客户库复测已通过。原答案点 NOT_PASSED 和 LangGraph pending-deprecation warning 保留。默认检查的数据库跳过须与显式 DB、跨进程及浏览器证据分开记录，不能升级为生产通过。
-- V1 保留期到期不自动删除，删除仍需独立确认。`/opt/ecommerce-rag-ops` 是职责约定，本机无该目录。Medusa 审计阻断及 OFF/UCI/Amazon/社区来源缺口保留，当前不阻塞知识客服首版，也不授权下载或部署。
+- V1 库已按本轮明确授权退役，代码、受限备份与历史报告保留。旧受限配置和历史运维验证脚本仍可能指向已删除的 `rag`，不得再作为活动入口或重新启用旧库专属 backup timer；需要历史恢复时另建隔离库。DB 主机的 `/opt/ecommerce-rag-ops` 经现有内网 SSH 可访问，本机无该目录；公网 SSH/PG 此次仍超时。Medusa 审计阻断及 OFF/UCI/Amazon/社区来源缺口保留，当前不阻塞知识客服首版，也不授权下载或部署。
