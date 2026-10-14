@@ -18,7 +18,12 @@ def verify_database(dsn: str, expected_role: str) -> None:
         if superuser or role != expected_role:
             raise ValueError("database service role does not match its ownership")
         recorded = dict(conn.execute("SELECT version,checksum_sha256 FROM schema_migration").fetchall())
-    files = sorted((Path(__file__).resolve().parents[2] / "sql/migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    directory = Path(os.environ.get('V2_MIGRATION_DIR', str(Path(__file__).resolve().parents[2] / 'sql/migrations')))
+    if not directory.is_absolute() or not directory.is_dir():
+        raise ValueError('database migration directory is unavailable')
+    files = sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    if not files:
+        raise ValueError('database migration files are missing')
     expected = {p.name[:4]: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     if recorded != expected:
         raise ValueError("database migration checksums do not match this build")
