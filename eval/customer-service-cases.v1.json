@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "contract_id": "merchant-customer-service-v1",
+  "source_files": {
+    "data/synthetic/customer-service-v1/care.md": "a548eb0ac7aef64a468f9de6480300b8cc75adb8e0cd9acd5ead727a9c143cc6",
+    "data/synthetic/customer-service-v1/faq.md": "3e48ebb08cab7804b633cb8043925f415447d78642b5b6465cae6cc750bfc3f2",
+    "data/synthetic/customer-service-v1/materials.csv": "ce8bb302fe80af5715c1a90de50a6e6fcb7f182fa02b2179594e2e06bfe74cf4",
+    "data/synthetic/customer-service-v1/returns.md": "6a8edc3f8fa559a5c651dcc92baccd357b8448bdeccf2ef312be3e266f9e779f"
+  },
+  "cases": [
+    {
+      "case_id": "care-1",
+      "query": "岚叶杯的容量是多少？",
+      "query_sha256": "2649bb77aebb27996b1847ae39dd30377b5a5539ca4d4f276caa09f72b64a9f3",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/care.md",
+      "required_support": [
+        "450毫升"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "care-2",
+      "query": "岚叶杯是什么材质？",
+      "query_sha256": "aaaf954b1609c6d6f9027d6b0619e876d25a374517219a69278acc82134bcf40",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/care.md",
+      "required_support": [
+        "304不锈钢"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "care-3",
+      "query": "岚叶杯怎样清洗？",
+      "query_sha256": "4d4f55993159c3ed54e095822192404cae736edeb830aa3121262001aa0895f0",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/care.md",
+      "required_support": [
+        "柔软海绵",
+        "中性清洁剂",
+        "冲洗",
+        "晾干"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "care-4",
+      "query": "杯盖能放洗碗机吗？",
+      "query_sha256": "c88219d7fd916ab624b288ddaf65bbac2efd7e1b6acb0c2f2f06a85fc209bde2",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/care.md",
+      "required_support": [
+        "手洗",
+        "不宜使用洗碗机"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "care-5",
+      "query": "岚叶杯能放微波炉吗？",
+      "query_sha256": "d772a3bfc0ae8682ed42572a67d22f92ac8078de123636868422a52d16b291f5",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/care.md",
+      "required_support": [
+        "不要放入微波炉"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "return-1",
+      "query": "退货需要满足哪些条件？",
+      "query_sha256": "e805fbced5fdcdf603a15544fe3b1011ce39fa5cca4b42666a9a872bf8b6cf1e",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/returns.md",
+      "required_support": [
+        "签收后七天内",
+        "未使用",
+        "包装及配件完整",
+        "人为损坏不在范围",
+        "联系人工客服登记"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "return-2",
+      "query": "质量问题退货的运费谁承担？",
+      "query_sha256": "dacdeeea3a2c31616d2edef1817e1177f68e8547e09f69ab0520312daadef45e",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/returns.md",
+      "required_support": [
+        "店铺承担退回运费"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "return-3",
+      "query": "个人喜好退货的运费谁承担？",
+      "query_sha256": "a6acbd96d45c628e2f25a8f911aa92030a3b7b84250fa3c0bacc0b377e9b66eb",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/returns.md",
+      "required_support": [
+        "客户承担退回运费"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "csv-1",
+      "query": "云朵杯容量与材质是什么？",
+      "query_sha256": "f0dc36d8f406cd209e7aa3f7d3a77cab2c0a98d0171321c935f0a0a10fa160b9",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/materials.csv",
+      "required_support": [
+        "320毫升",
+        "陶瓷"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "faq-1",
+      "query": "岚叶礼盒带贺卡吗？能代写吗？",
+      "query_sha256": "bdac40369f8997d3024701989c319333689d52fb4832a1d866718b8f400854bc",
+      "expected_behavior": "ANSWER",
+      "source_file": "data/synthetic/customer-service-v1/faq.md",
+      "required_support": [
+        "一张空白贺卡",
+        "不提供代写"
+      ],
+      "high_risk": false
+    },
+    {
+      "case_id": "missing",
+      "query": "岚叶杯是否有防伪芯片？",
+      "query_sha256": "e9d939c52bfc510924d482201a8f0d6c2aa1081f5f3a4bda8aaa70977a352f8f",
+      "expected_behavior": "HANDOFF",
+      "source_file": null,
+      "required_support": [
+        "说明知识缺口",
+        "人工队列"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "inventory",
+      "query": "岚叶杯现在库存还有多少？",
+      "query_sha256": "1ba5f245ba0b70525f4048159db82d5695ed828118582334f32e0a27c769edad",
+      "expected_behavior": "HANDOFF",
+      "source_file": null,
+      "required_support": [
+        "当前库存超出能力",
+        "人工队列"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "delivery",
+      "query": "能保证明天到货吗？",
+      "query_sha256": "59f91da8967b64b7aa52b4bbabc7f1ba6e3ff43862a035c59001eed46e189f00",
+      "expected_behavior": "HANDOFF",
+      "source_file": null,
+      "required_support": [
+        "不作到货承诺",
+        "人工队列"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "request-human",
+      "query": "请帮我转人工客服",
+      "query_sha256": "9ea1e7cd1fd005d3be708e647ce3bf9885998816fc4a790695bbf9e878548ebf",
+      "expected_behavior": "HANDOFF",
+      "source_file": null,
+      "required_support": [
+        "人工队列"
+      ],
+      "high_risk": true
+    },
+    {
+      "case_id": "clarify",
+      "query": "这个是多少容量？",
+      "query_sha256": "a0d4ef68c13fd7234ba88c3bce7e3907763b58bc12bd47086b980bf4b814771e",
+      "expected_behavior": "CLARIFY",
+      "source_file": null,
+      "required_support": [
+        "询问具体商品",
+        "最多一次澄清"
+      ],
+      "high_risk": true
+    }
+  ],
+  "clarification_followup": {
+    "query": "就是那个，没别的信息。",
+    "expected_behavior": "HANDOFF"
+  },
+  "reviewer_kind": "agent",
+  "human_review_completed": false,
+  "real_service_acceptance": false,
+  "docx_transform": {
+    "version": "customer-wordprocessingml-v1",
+    "source_file": "data/synthetic/customer-service-v1/returns.md",
+    "uploaded_sha256": "2f805db921f7ccdf757950e19899990135ca7b21ebbca408409f2c4fb6e401ca"
+  }
+}
