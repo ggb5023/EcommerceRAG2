@@ -2,6 +2,7 @@
 
 ## 当前进度
 
+- 2026-10-14 完成主流 RAG 官方工程调研，建议优先做检索阶段诊断、解析审核/原文定位，再评测父子段落、过滤后召回、增量缓存和来源同步。详细资料在私有 `.local/dev-docs/research/20261014-mainstream-rag.md`；本轮仅调研，未改变实现、模型配置或验收结果。
 - 活动树 `/opt/ecommerce-rag-v2`、`refactor/v2-rebuild`；按文件本地提交，不推送/合并。用户已确认control和generation免费额度限制解除，沿用原四模型、1024维、原共享账本及60RPM；百炼付费不限额度授权有效。代理复核是 `reviewer_kind=agent`、`human_review_completed=false`。
 - 冻结60案例、37文档、答案点/alignment/evidence与边界契约保持不变。契约hash `33d3a9b2f8006a6134f4698ccd3d70a10a4c5d61119bd16b7a6ac0895376eb6e`。原历史和失败报告均保留。
 - 合成V2证据边界阶段现PASS：历史r40完整53/53，高风险42/42、普通11/11、必需证据与适用引用49/49，4个无引用澄清单列；本次current r45十二例、r46八补充场景实际执行和逐案代理复核均PASS。r47对23个DONE/ASKING及1个CANCELLED实际四进程重启，HTTP/SSE hash不变、连续序列/回放正确、恢复Provider增量0。阶段汇总 `/var/lib/ecommerce-rag/real-docs/reports/v2-boundary-stage-acceptance-r48-20261014.json`；只批准合成资料证据边界，不是生产外部服务。
