@@ -18,6 +18,10 @@ class Scope(TypedDict, total=False):
     conversation_id: str
     turn_id: str
     expires_at: int
+    subject_type: str
+    customer_id: str
+    customer_session_id: str
+    conversation_epoch: int
 
 
 class Evidence(TypedDict):
@@ -60,6 +64,7 @@ class GraphState(TypedDict, total=False):
     degraded_stages: list[str]
     is_mock: bool
     can_copy: bool
+    reply_decision: dict[str, Any]
     trace: dict[str, Any]
     provider_trace: dict[str, Any]
     business_date: str

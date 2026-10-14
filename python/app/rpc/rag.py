@@ -26,7 +26,10 @@ def _valid_scope(ctx: Any) -> bool:
     shops = set(ctx.allowed_shop_ids)
     if not ctx.request_id or not ctx.tenant_id or (not ctx.user_id) or (not ctx.permission_revision) or (not ctx.enforce_document_scope):
         return False
-    if not shops or ctx.role not in {'owner', 'admin', 'operator', 'viewer'}:
+    if not shops or ctx.role not in {'owner', 'admin', 'operator', 'viewer', 'customer'}:
+        return False
+    if ctx.role == 'customer' and (ctx.subject_type != 'customer' or not ctx.customer_id
+            or not ctx.customer_session_id or not ctx.conversation_epoch or len(shops) != 1 or ctx.all_shops):
         return False
     if ctx.shop_id and ctx.shop_id not in shops:
         return False
@@ -111,7 +114,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     @staticmethod
     def _v2_scope(scope) -> dict[str, Any]:
-        return {'request_id': scope.request_id, 'tenant_id': scope.tenant_id, 'tenant_db_id': str(scope.tenant_db_id), 'user_id': scope.user_id, 'allowed_shop_ids': list(scope.allowed_shop_ids), 'allowed_document_ids': list(scope.allowed_document_ids), 'shop_id': scope.shop_id, 'role': scope.role, 'permission_revision': scope.permission_revision, 'conversation_id': scope.conversation_id, 'turn_id': scope.turn_id, 'execution_id': scope.execution_id}
+        return {'request_id': scope.request_id, 'tenant_id': scope.tenant_id, 'tenant_db_id': str(scope.tenant_db_id), 'user_id': scope.user_id, 'allowed_shop_ids': list(scope.allowed_shop_ids), 'allowed_document_ids': list(scope.allowed_document_ids), 'shop_id': scope.shop_id, 'role': scope.role, 'permission_revision': scope.permission_revision, 'conversation_id': scope.conversation_id, 'turn_id': scope.turn_id, 'execution_id': scope.execution_id, 'subject_type': scope.subject_type, 'customer_id': scope.customer_id, 'customer_session_id': scope.customer_session_id, 'conversation_epoch': scope.conversation_epoch}
 
     def _v2_evidence(self, item: dict[str, Any]) -> rag_pb2.Evidence:
         return rag_pb2.Evidence(id=item['id'], content=item['content'], source_type=item['source_type'], source_ref=item['source_ref'], document_id=item['document_id'], version_id=item['version_id'], rank=int(item.get('rank', 0)), raw_score=float(item.get('raw_score', 0.0)), shop_id=item['shop_id'], disclosure_class=item['disclosure_class'], customer_eligible=bool(item['customer_eligible']), tenant_id=item['tenant_id'])
@@ -202,6 +205,15 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             sequence += 1
             yield rag_pb2.GenerateResponse(sequence=sequence, citation=self._v2_evidence(item))
         usage_json = json.dumps({'is_mock': self._v2_is_mock(), 'graph': 'langgraph', 'provider': result.get('trace', {}).get('provider', {})}, separators=(',', ':'))
+        if request.response_purpose == 'customer_chat':
+            recommendation = result.get('reply_decision', {})
+            behavior = {'ANSWER': rag_pb2.REPLY_BEHAVIOR_ANSWER, 'CLARIFY': rag_pb2.REPLY_BEHAVIOR_CLARIFY,
+                        'HANDOFF': rag_pb2.REPLY_BEHAVIOR_HANDOFF}.get(recommendation.get('behavior'), rag_pb2.REPLY_BEHAVIOR_HANDOFF)
+            sequence += 1
+            self._authorize(request.context, context)
+            yield rag_pb2.GenerateResponse(sequence=sequence, decision=rag_pb2.ReplyDecision(
+                behavior=behavior, reason_code=recommendation.get('reason_code', 'knowledge_missing'),
+                evidence_ids=recommendation.get('evidence_ids', [])))
         for event in ({'usage_json': usage_json}, {'is_mock': self._v2_is_mock()}, {'can_copy': bool(result.get('can_copy', False))}, {'done': True}):
             _ensure_grpc_active(context)
             self._authorize(request.context, context)

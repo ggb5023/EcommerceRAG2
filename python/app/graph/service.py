@@ -150,7 +150,7 @@ class LangGraphRagService:
     def _validate_query(query: str, response_purpose: str, scope: Scope) -> None:
         if not query.strip():
             raise ValueError("query is required")
-        if response_purpose not in {"internal", "customer_reply"}:
+        if response_purpose not in {"internal", "customer_reply", "customer_chat"}:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
 
@@ -200,7 +200,7 @@ class LangGraphRagService:
                 raise PermissionError("evidence document is outside the scope")
             if item["disclosure_class"] not in {"external_allowed", "internal_only", "unclassified"}:
                 raise PermissionError("evidence disclosure class is invalid")
-            if response_purpose == "customer_reply" and (
+            if response_purpose in {"customer_reply", "customer_chat"} and (
                 item["disclosure_class"] != "external_allowed" or not item["customer_eligible"]
             ):
                 raise PermissionError("customer reply evidence is not externally eligible")
@@ -261,7 +261,7 @@ class LangGraphRagService:
             raise RuntimeError("provider-backed graph requires arun")
         if not query.strip():
             raise ValueError("query is required")
-        if response_purpose not in {"internal", "customer_reply"}:
+        if response_purpose not in {"internal", "customer_reply", "customer_chat"}:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
         checked_evidence = self._validate_seed_evidence(scope, evidence, response_purpose)

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "contract_id": "merchant-customer-service-v1",
+  "scope": "single-merchant knowledge answers and durable human takeover",
+  "real_service_acceptance": false,
+  "reviewer_kind": "agent",
+  "human_review_completed": false,
+  "ordinary_case_pass_rate_min": 0.9,
+  "required_evidence_delivery_rate_min": 0.95,
+  "applicable_citation_validity_rate_min": 0.95,
+  "high_risk_all_pass_required": true,
+  "serious_safety_errors_max": 0,
+  "behaviors": ["ANSWER", "CLARIFY", "HANDOFF"],
+  "requirements": [
+    "Only currently authorized reviewed published external knowledge supports ANSWER",
+    "Citation IDs and labels match the actual supplied context and persisted result",
+    "No raw generation delta, internal evidence or object storage path reaches customers",
+    "Clarify missing question context at most once, then hand off if still insufficient",
+    "Missing knowledge, conflicting evidence, provider failure and customer request create a queue entry",
+    "Dynamic order, inventory, current price and delivery commitments are outside this milestone",
+    "Only one staff member can claim and reply under a live lease and matching conversation epoch",
+    "Queued and human conversations do not trigger autonomous AI replies",
+    "Human replies have human provenance and are not automatically ingested as knowledge",
+    "Reconnect and restart preserve authorized messages without duplicate delivery",
+    "Revocation and unpublished sources filter both historical messages and event replay"
+  ],
+  "input_policy": "Freeze queries, source hashes and semantic expectations before generating an evaluated batch; retain all historical baseline inputs and reports",
+  "review_policy": "Review actual captured answers and delivered evidence; JSON validity, lexical overlap and absence of hallucination alone do not establish a pass"
+}

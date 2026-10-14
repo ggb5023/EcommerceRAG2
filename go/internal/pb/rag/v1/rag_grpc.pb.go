@@ -320,6 +320,108 @@ var RagService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	AuthorizationService_ValidateScope_FullMethodName = "/rag.v1.AuthorizationService/ValidateScope"
+)
+
+// AuthorizationServiceClient is the client API for AuthorizationService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AuthorizationServiceClient interface {
+	ValidateScope(ctx context.Context, in *ValidateScopeRequest, opts ...grpc.CallOption) (*ValidateScopeResponse, error)
+}
+
+type authorizationServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAuthorizationServiceClient(cc grpc.ClientConnInterface) AuthorizationServiceClient {
+	return &authorizationServiceClient{cc}
+}
+
+func (c *authorizationServiceClient) ValidateScope(ctx context.Context, in *ValidateScopeRequest, opts ...grpc.CallOption) (*ValidateScopeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ValidateScopeResponse)
+	err := c.cc.Invoke(ctx, AuthorizationService_ValidateScope_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AuthorizationServiceServer is the server API for AuthorizationService service.
+// All implementations must embed UnimplementedAuthorizationServiceServer
+// for forward compatibility.
+type AuthorizationServiceServer interface {
+	ValidateScope(context.Context, *ValidateScopeRequest) (*ValidateScopeResponse, error)
+	mustEmbedUnimplementedAuthorizationServiceServer()
+}
+
+// UnimplementedAuthorizationServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAuthorizationServiceServer struct{}
+
+func (UnimplementedAuthorizationServiceServer) ValidateScope(context.Context, *ValidateScopeRequest) (*ValidateScopeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateScope not implemented")
+}
+func (UnimplementedAuthorizationServiceServer) mustEmbedUnimplementedAuthorizationServiceServer() {}
+func (UnimplementedAuthorizationServiceServer) testEmbeddedByValue()                              {}
+
+// UnsafeAuthorizationServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AuthorizationServiceServer will
+// result in compilation errors.
+type UnsafeAuthorizationServiceServer interface {
+	mustEmbedUnimplementedAuthorizationServiceServer()
+}
+
+func RegisterAuthorizationServiceServer(s grpc.ServiceRegistrar, srv AuthorizationServiceServer) {
+	// If the following call pancis, it indicates UnimplementedAuthorizationServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AuthorizationService_ServiceDesc, srv)
+}
+
+func _AuthorizationService_ValidateScope_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateScopeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthorizationServiceServer).ValidateScope(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthorizationService_ValidateScope_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthorizationServiceServer).ValidateScope(ctx, req.(*ValidateScopeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AuthorizationService_ServiceDesc is the grpc.ServiceDesc for AuthorizationService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AuthorizationService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "rag.v1.AuthorizationService",
+	HandlerType: (*AuthorizationServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ValidateScope",
+			Handler:    _AuthorizationService_ValidateScope_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "rag/v1/rag.proto",
+}
+
+const (
 	IngestService_Submit_FullMethodName               = "/rag.v1.IngestService/Submit"
 	IngestService_GetStatus_FullMethodName            = "/rag.v1.IngestService/GetStatus"
 	IngestService_Cancel_FullMethodName               = "/rag.v1.IngestService/Cancel"

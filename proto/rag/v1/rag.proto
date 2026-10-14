@@ -29,6 +29,12 @@ message RequestContext {
   string command_id = 19;
   string command_action = 20;
   string command_payload_sha256 = 21;
+  // Empty denotes the legacy staff principal. Customer scopes never grant
+  // ingestion or staff access; IDs are server-side identifiers, not cookies.
+  string subject_type = 22;
+  string customer_id = 23;
+  string customer_session_id = 24;
+  uint64 conversation_epoch = 25;
 }
 message Evidence {
   string id = 1;
@@ -119,8 +125,30 @@ message GenerateResponse {
     string error_code = 6;
     bool is_mock = 7;
     bool can_copy = 8;
+    ReplyDecision decision = 9;
   }
 }
+
+enum ReplyBehavior {
+  REPLY_BEHAVIOR_UNSPECIFIED = 0;
+  REPLY_BEHAVIOR_ANSWER = 1;
+  REPLY_BEHAVIOR_CLARIFY = 2;
+  REPLY_BEHAVIOR_HANDOFF = 3;
+}
+
+// An AI recommendation, never permission to publish. Go revalidates scope,
+// evidence, execution completion and conversation control before delivery.
+message ReplyDecision {
+  ReplyBehavior behavior = 1;
+  string reason_code = 2;
+  repeated string evidence_ids = 3;
+}
+
+service AuthorizationService {
+  rpc ValidateScope(ValidateScopeRequest) returns (ValidateScopeResponse);
+}
+message ValidateScopeRequest { RequestContext context = 1; }
+message ValidateScopeResponse { bool allowed = 1; }
 
 message SaveCheckpointRequest {
   RequestContext context = 1;

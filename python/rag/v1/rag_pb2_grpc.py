@@ -293,6 +293,78 @@ class RagService:
             _registered_method=True)
 
 
+class AuthorizationServiceStub:
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.ValidateScope = channel.unary_unary(
+                '/rag.v1.AuthorizationService/ValidateScope',
+                request_serializer=rag_dot_v1_dot_rag__pb2.ValidateScopeRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.ValidateScopeResponse.FromString,
+                _registered_method=True)
+
+
+class AuthorizationServiceServicer:
+    """Missing associated documentation comment in .proto file."""
+
+    def ValidateScope(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_AuthorizationServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'ValidateScope': grpc.unary_unary_rpc_method_handler(
+                    servicer.ValidateScope,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.ValidateScopeRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.ValidateScopeResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'rag.v1.AuthorizationService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('rag.v1.AuthorizationService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class AuthorizationService:
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def ValidateScope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rag.v1.AuthorizationService/ValidateScope',
+            rag_dot_v1_dot_rag__pb2.ValidateScopeRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.ValidateScopeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
 class IngestServiceStub:
     """Missing associated documentation comment in .proto file."""
 

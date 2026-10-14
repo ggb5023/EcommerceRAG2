@@ -80,8 +80,14 @@ def validate_scope(scope: Scope) -> None:
     required = ("tenant_id", "user_id", "permission_revision")
     if any(not str(scope.get(key, "")).strip() for key in required):
         raise PermissionError("scope is missing required identity fields")
-    if scope.get("role") not in {"owner", "admin", "operator", "viewer"}:
+    if scope.get("role") not in {"owner", "admin", "operator", "viewer", "customer"}:
         raise PermissionError("scope role is invalid")
+    if scope.get("role") == "customer" and (
+        scope.get("subject_type") != "customer" or not scope.get("customer_id")
+        or not scope.get("customer_session_id") or not scope.get("conversation_epoch")
+        or len(scope.get("allowed_shop_ids", [])) != 1
+    ):
+        raise PermissionError("customer scope is invalid")
     shops = set(scope.get("allowed_shop_ids") or [])
     documents = set(scope.get("allowed_document_ids") or [])
     if not shops or not documents:
@@ -271,7 +277,7 @@ def rerank_node(state: GraphState) -> dict:
 def context_gate_node(state: GraphState) -> dict:
     purpose = state.get("response_purpose", "internal")
     allowed: Iterable[Evidence] = state.get("evidence", [])
-    if purpose == "customer_reply":
+    if purpose in {"customer_reply", "customer_chat"}:
         allowed = (item for item in allowed if item["disclosure_class"] == "external_allowed" and item["customer_eligible"])
     selected = list(allowed)
     # Similarity is a ranking signal, not proof of applicability. A useful
@@ -557,6 +563,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "answer": clarification,
             "can_copy": False,
             "citations": evidence,
+            "reply_decision": {"behavior": "CLARIFY", "reason_code": "missing_context", "evidence_ids": []},
             "trace": {"nodes": ["understand", "retrieve", "fuse_rrf", "rerank", "context_gate", "generate"]},
         }
     facts = state.get("facts", [])
@@ -565,6 +572,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
             "answer": "当前资料没有足够依据回答，请补充问题或转人工客服。",
             "can_copy": False,
             "citations": [],
+            "reply_decision": {"behavior": "HANDOFF", "reason_code": "knowledge_missing", "evidence_ids": []},
             "trace": {"nodes": ["understand", "retrieve", "fuse_rrf", "rerank", "context_gate", "generate"]},
         }
     context = "\n".join(
@@ -720,6 +728,18 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
                      "若当前问题指前文唯一选择，按该选择直接回答；多个候选不能猜。"
                      "仅写来源支持的内容和必要缺口/澄清，不写营销建议或催促操作。\n"
                      f"Evidence:\n{context}" + fact_reminder + citation_reminder + limits_reminder})
+    customer_chat = state.get("response_purpose") == "customer_chat"
+    if customer_chat:
+        schema = dict(schema, required=[*schema['required'], 'behavior', 'reason_code'],
+            properties=dict(schema['properties'],
+                behavior={'type': 'string', 'enum': ['ANSWER', 'CLARIFY', 'HANDOFF']},
+                reason_code={'type': 'string', 'enum': ['grounded', 'missing_context', 'knowledge_missing', 'conflicting_evidence', 'unsupported_request']}))
+        schema['properties']['citation_ids'] = dict(schema['properties']['citation_ids'], minItems=0)
+        messages[0]['content'] += (
+            '\n这是客户知识客服场景。额外返回behavior与reason_code。充分资料支持回答时用ANSWER/grounded；'
+            '缺少唯一问题指代时用CLARIFY/missing_context；知识不足、来源冲突或需要实时订单库存等工具时用HANDOFF及对应原因。'
+            '不要把相关片段当成充分证据，不要以自信程度替代证据。ANSWER每项事实必须有实际支持的引用。'
+            '不支持当前价格、库存、订单查询、配送承诺或执行业务操作。不要编造答案或承诺客服响应时间。')
     result = await chains.generation.ainvoke({
         "messages": messages,
         "response_schema": schema,
@@ -780,7 +800,15 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     supplied = {item["id"]: item for item in evidence}
     if any(identifier not in supplied for identifier in citation_ids):
         raise ValueError("provider generation citation is outside supplied evidence")
-    if evidence and not facts and not citation_ids:
+    behavior = structured.get('behavior') if customer_chat else 'ANSWER'
+    reason_code = structured.get('reason_code') if customer_chat else 'grounded'
+    if customer_chat and (behavior not in {'ANSWER', 'CLARIFY', 'HANDOFF'}
+            or reason_code not in {'grounded', 'missing_context', 'knowledge_missing', 'conflicting_evidence', 'unsupported_request'}
+            or (behavior == 'ANSWER' and reason_code != 'grounded')
+            or (behavior == 'CLARIFY' and reason_code != 'missing_context')
+            or (behavior == 'HANDOFF' and reason_code in {'grounded', 'missing_context'})):
+        raise ValueError('provider reply decision is invalid')
+    if evidence and not facts and not citation_ids and behavior == 'ANSWER':
         raise ValueError("provider generation evidence answer has no citation")
     if needs_applicability and any(not any(value in supplied[i]['content'] for i in citation_ids)
                                    for value in dimensions):
@@ -790,11 +818,12 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     # standard revision. This also survives a model omitting the identifier.
     versions = list(dict.fromkeys(str(supplied[i].get("version_id", "")) for i in citation_ids))
     versions = [version for version in versions if version]
-    if versions:
+    if versions and not customer_chat:
         answer = answer.rstrip() + "\n\n引用资料存储版本：" + "、".join(versions) + "（不代表外部标准版本或发布日期）。"
     return {
         "answer": answer,
         "can_copy": False,
+        "reply_decision": {"behavior": behavior, "reason_code": reason_code, "evidence_ids": citation_ids},
         "citations": [supplied[identifier] for identifier in citation_ids],
         "trace": {
             "nodes": ["understand", "retrieve", "fuse_rrf", "rerank", "context_gate", "generate"],
