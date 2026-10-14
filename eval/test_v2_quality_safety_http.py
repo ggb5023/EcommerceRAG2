@@ -56,6 +56,36 @@ def test_partition_preserves_all_frozen_cases():
         runner.partition(cases[:-1] + [cases[0]], audit)
 
 
+@pytest.mark.parametrize("defect", [None, "changed_history", "missing_history", "bad_append", "missing_file", "duplicate"])
+def test_append_only_schema_revalidation_preserves_historical_evidence(tmp_path, defect):
+    import hashlib
+
+    historical = []
+    for version in ("0001", "0002"):
+        body = f"migration {version}".encode()
+        (tmp_path / f"{version}_test.sql").write_bytes(body)
+        historical.append({"version": version, "checksum_sha256": hashlib.sha256(body).hexdigest()})
+    current = [*historical]
+    if defect == "changed_history":
+        current[0] = dict(current[0], checksum_sha256="wrong")
+    elif defect == "missing_history":
+        current = []
+    elif defect == "bad_append":
+        current[-1] = dict(current[-1], checksum_sha256="wrong")
+        historical = historical[:1]
+    elif defect == "missing_file":
+        (tmp_path / "0002_test.sql").unlink()
+    elif defect == "duplicate":
+        current.append(current[-1])
+    if defect:
+        with pytest.raises(runner.E2EFailure, match="migration_identity_changed"):
+            runner.validate_migrations(current, historical, tmp_path)
+    else:
+        before = json.dumps(historical)
+        assert runner.validate_migrations(current, historical[:1], tmp_path) == current[1:]
+        assert json.dumps(historical) == before
+
+
 @pytest.mark.parametrize("defect", [None, "failed_batch", "missing_case", "duplicate_case", "wrong_hash", "missing_persisted_result"])
 def test_safety_can_be_measured_for_a_complete_failed_batch_without_upgrading_it(defect):
     cases = [{"case_id": i} for i in runner.SCENARIOS] + [{"case_id": f"eligible-{i}"} for i in range(53)]

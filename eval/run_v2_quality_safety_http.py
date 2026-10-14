@@ -65,6 +65,25 @@ def validate_e2e_identity(e2e, cases, cases_hash, lifecycle_hash):
         raise E2EFailure("e2e_identity_invalid")
 
 
+def validate_migrations(current, historical, directory=ROOT / "sql/migrations"):
+    """Revalidate append-only migrations without rewriting the lifecycle report.
+
+    Every historic row must remain identical, and every currently applied row
+    must match a repository migration. Additional migrations are recorded by
+    this safety run; they never become retrospective lifecycle evidence.
+    """
+    if not historical or current[:len(historical)] != historical:
+        raise E2EFailure("migration_identity_changed")
+    versions = [row["version"] for row in current]
+    if len(set(versions)) != len(versions) or versions != sorted(versions):
+        raise E2EFailure("migration_identity_changed")
+    for row in current:
+        files = list(directory.glob(row["version"] + "_*.sql"))
+        if len(files) != 1 or sha256(files[0]) != row["checksum_sha256"]:
+            raise E2EFailure("migration_identity_changed")
+    return current[len(historical):]
+
+
 def attempts(path):
     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
         return int(conn.execute("SELECT count(*) FROM attempt").fetchone()[0])
@@ -261,14 +280,15 @@ def main():
                 raise E2EFailure("authority_fixture_already_running")
             migrations = [dict(zip(("version", "checksum_sha256"), row)) for row in conn.execute(
                 "SELECT version,checksum_sha256 FROM schema_migration ORDER BY version")]
-            if migrations != lifecycle["database"]["migrations"]:
-                raise E2EFailure("migration_identity_changed")
+            appended = validate_migrations(migrations, lifecycle["database"]["migrations"])
             tenant = conn.execute("SELECT id FROM tenant WHERE external_id=%s", (values["V2_IDENTITY_TENANT"],)).fetchone()[0]
             forbidden = {row[0] for row in conn.execute("SELECT d.logical_key FROM document d JOIN chunk c "
                 "ON c.doc_id=d.id AND c.tenant_id=d.tenant_id WHERE d.tenant_id=%s AND "
                 "(d.meta_json->>'disclosure_class' IS DISTINCT FROM 'external_allowed' OR d.active_version_id IS NULL "
                 "OR c.effective_from>current_date OR c.effective_to<current_date)", (tenant,))}
             report.update(database_identity_sha256=digest(json.dumps({"name": db, "role": role, "migrations": migrations}, sort_keys=True)),
+                          appended_migrations_revalidated=appended,
+                          lifecycle_migration_snapshot_sha256=digest(json.dumps(lifecycle["database"]["migrations"], sort_keys=True)),
                           runtime_identity_sha256=sha256(args.runtime_env), ledger_identity_sha256=digest(values["V2_ONLINE_BUDGET_ID"]),
                           restricted_document_ids=sorted(forbidden), provider_attempt_before=attempts(ledger),
                           authority_fixture_writes="app_user and temporary tenant ACL only; monotonic revisions", replay_checks=[])

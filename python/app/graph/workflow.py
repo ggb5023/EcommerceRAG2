@@ -440,6 +440,25 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
                          and not re.search(r"\b[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+\b", state['query'])
                          and not CLARIFICATION_WORKFLOW.search(state['query']))
     schema = CONTROL_SCHEMA
+    # A missing product category must not hide the independent lack of dated
+    # public records. Retrieval/generation can explain both gaps using scoped
+    # sources; a bare control clarification cannot establish freshness.
+    public_freshness_question = (
+        not user_history and not missing_reference
+        and bool(re.search(r"今天|本月|最近|最新|today|latest|recent", state['query'], re.IGNORECASE))
+        and bool(re.search(r"公开|新闻|报道|召回|标准|public|news|recall|standard", state['query'], re.IGNORECASE))
+        and not CLARIFICATION_WORKFLOW.search(state['query'])
+    )
+    if public_freshness_question:
+        schema = dict(CONTROL_SCHEMA, properties=dict(CONTROL_SCHEMA['properties'],
+            intent={'type': 'string', 'enum': ['knowledge']},
+            information_source={'type': 'string', 'enum': ['knowledge']},
+            required_fact_tools={'type': 'array', 'maxItems': 0, 'items': {'type': 'string'}}))
+        messages[0]['content'] += (
+            " 当前问题请求有时效要求的公开资料，应进入knowledge检索，保留完整时效要求。"
+            "不得仅因类别或型号不明确就提前只问标识；后续按获准证据同时说明发布日期、"
+            "抓取记录及当前资料缺口，再请求必要的类别、型号或批次。不假装已经外部搜索。"
+        )
     if missing_reference:
         schema = dict(CONTROL_SCHEMA, properties=dict(CONTROL_SCHEMA['properties'],
             intent={'type': 'string', 'enum': ['clarification']},

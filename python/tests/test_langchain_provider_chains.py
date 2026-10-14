@@ -94,6 +94,34 @@ def test_mock_provider_control_preserves_vague_query_clarification_contract():
     asyncio.run(run())
 
 
+def test_public_freshness_requests_retrieve_limits_but_prior_ambiguity_still_clarifies():
+    import json
+    import types
+
+    from langchain_core.runnables import RunnableLambda
+
+    from app.graph.workflow import provider_understand_node
+
+    requests = []
+
+    async def control(value):
+        requests.append(value)
+        return {'structured': {'rewritten_query': '原查询', 'intent': 'knowledge',
+            'information_source': 'knowledge', 'required_fact_tools': [],
+            'clarification': '', 'confidence': .8, 'entities': []}}
+
+    chains = types.SimpleNamespace(control=RunnableLambda(lambda _: None, afunc=control))
+    asyncio.run(provider_understand_node({'query': '今天公开新闻里这类家电有什么召回消息？'}, chains))
+    fields = requests[-1]['response_schema']['properties']
+    assert fields['intent']['enum'] == ['knowledge']
+    assert fields['required_fact_tools']['maxItems'] == 0
+    assert '抓取记录' in requests[-1]['messages'][0]['content']
+    # A real unresolved reference remains a separate clarification requirement.
+    asyncio.run(provider_understand_node({'query': '沿用上一问的标准，哪条是最新？',
+        'history_summary': json.dumps([{'role': 'user', 'content': '比较USB-C和USB-A标准'}])}, chains))
+    assert requests[-1]['response_schema']['properties']['intent']['enum'] != ['knowledge']
+
+
 def test_workflow_context_preserves_reranked_prerequisites_without_widening_disclosure():
     import types
 
