@@ -462,7 +462,12 @@ class AlibabaBailianProvider:
             if remaining <= 0:
                 raise ProviderError("timeout", "provider deadline expired", slot=slot)
             try:
-                return await self._call_once(slot, payload, timeout_s=remaining, cancel_event=cancel_event)
+                # The first connection may stall until its socket timeout.
+                # Giving it the whole deadline made the documented one retry
+                # unreachable. Reserve part of the same deadline for recovery;
+                # the second attempt gets only what actually remains.
+                attempt_timeout = remaining if attempt else remaining / 2
+                return await self._call_once(slot, payload, timeout_s=attempt_timeout, cancel_event=cancel_event)
             except ProviderError as error:
                 transient = error.retryable and error.code in {"rate_limited", "upstream_error", "timeout"}
                 if attempt or not transient or deadline - loop.time() <= .25:

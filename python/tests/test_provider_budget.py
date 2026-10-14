@@ -345,6 +345,38 @@ def test_shared_quota_is_atomic_and_independent_of_business_date(monkeypatch, le
     with sqlite3.connect(ledger.path) as conn: assert conn.execute('SELECT count(*) FROM attempt').fetchone()[0] == 1
 
 
+def test_stalled_first_attempt_leaves_time_for_one_accounted_retry(monkeypatch, ledger):
+    ledger.extend_authorized_cap('1', authorization='test-explicit')
+    environment(monkeypatch, ledger)
+    monkeypatch.setenv('V2_ONLINE_BUDGET_CNY', '1')
+
+    class SlowFirstTransport:
+        windows = []
+
+        async def request(self, *args, **kwargs):
+            self.windows.append(kwargs['timeout_s'])
+            if len(self.windows) == 1:
+                await asyncio.sleep(kwargs['timeout_s'])
+                raise ProviderError('timeout', 'simulated stalled connection', retryable=True)
+            return HTTPResponse(200, {'x-request-id': 'recovered'}, json.dumps({
+                'choices': [{'message': {'content': '{"ok":true}'}, 'finish_reason': 'stop'}]}).encode())
+
+    transport = SlowFirstTransport()
+
+    async def run():
+        start = asyncio.get_running_loop().time()
+        await AlibabaBailianProvider(config(), transport).control(
+            [{'role': 'user', 'content': 'bounded recovery'}], timeout_s=1.6)
+        assert asyncio.get_running_loop().time() - start < 1.6
+
+    asyncio.run(run())
+    assert len(transport.windows) == 2 and 0 < transport.windows[0] <= .8
+    assert 0 < transport.windows[1] < .8
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute('SELECT state,error_code FROM attempt ORDER BY rowid').fetchall() == [
+            ('error', 'timeout'), ('response', None)]
+
+
 def test_cancellation_after_transient_response_stops_retry(monkeypatch, ledger):
     from threading import Event
     environment(monkeypatch, ledger)
