@@ -68,8 +68,12 @@
       "original_source_terms_status": "verified",
       "status": "target_not_integrated",
       "revision": "2.21.2",
-      "language": ["en"],
-      "jurisdiction": ["local_development"],
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "local_development"
+      ],
       "license_status": "verified_mit_non_enterprise_content_only",
       "privacy_status": "reviewed_synthetic_test_accounts_only",
       "download_status": "not_applicable",
@@ -78,9 +82,59 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "no_dataset_acquisition; test-account credentials remain in protected runtime configuration",
-      "allowed_use": ["local_merchant_rest_api_integration_with_test_accounts", "public_catalog_fixture_mapping"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "enterprise_only_content"],
-      "notes": "The selected 2.21.2 package is mixed-licensed. Its authoritative Enterprise list includes framework policies and transformed copies; default startup calls policiesLoader. The MIT non-Enterprise declaration alone does not establish that this runtime excludes those materials. Deployment remains blocked by runtime-scope review; a separate 2.18.0 MIT distribution candidate has been audited but is not selected or deployed. This is not a real merchant API or production data source.",
+      "allowed_use": [
+        "local_merchant_rest_api_integration_with_test_accounts",
+        "public_catalog_fixture_mapping"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "enterprise_only_content"
+      ],
+      "notes": "Historical license audit retained. Medusa 2.21.2 is not selected or deployed: its authoritative Enterprise list includes framework policies and transformed copies, and default startup calls policiesLoader. User selected 2.18.0 for the next local REST target; the earlier mixed-license audit does not authorize 2.21.2 deployment.",
+      "real_service_acceptance": false
+    },
+    {
+      "source_id": "medusa-2.18.0-rest-local-target",
+      "record_type": "open_source_service",
+      "category": "merchant_api_service",
+      "provider": "Medusa",
+      "dataset": "Selected Medusa 2.18.0 local REST target; synthetic accounts and records only",
+      "canonical_url": "https://github.com/medusajs/medusa",
+      "dataset_card_url": "https://docs.medusajs.com/",
+      "original_source_terms_url": "https://github.com/medusajs/medusa/blob/v2.18.0/LICENSE",
+      "original_source_terms_status": "verified",
+      "status": "target_not_integrated",
+      "revision": "2.18.0",
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "local_development"
+      ],
+      "license_status": "verified_mit_selected_distribution",
+      "privacy_status": "reviewed_synthetic_test_accounts_only",
+      "download_status": "not_applicable",
+      "download_date": null,
+      "expected_filename": null,
+      "actual_filename": null,
+      "sha256": null,
+      "restricted_storage_location": "no_dataset_acquisition; test-account credentials remain in protected runtime configuration",
+      "allowed_use": [
+        "local_merchant_rest_api_integration_with_test_accounts",
+        "public_catalog_fixture_mapping"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance"
+      ],
+      "notes": "Selected by the current plan. The fixed distribution and source MIT notice are verified; retain source LICENSE because the npm package omits it. Actual dependency closure is locked and license-audited. Initial security audit is NOT_PASSED; unresolved advisories require remediation and compatibility review before deployment. No Medusa database, migration, accounts or runtime have been created.",
       "real_service_acceptance": false
     },
     {
@@ -95,8 +149,12 @@
       "original_source_terms_status": "verified",
       "status": "candidate",
       "revision": null,
-      "language": ["multiple"],
-      "jurisdiction": ["global"],
+      "language": [
+        "multiple"
+      ],
+      "jurisdiction": [
+        "global"
+      ],
       "license_status": "verified_scope_excludes_images",
       "privacy_status": "pending_field_and_privacy_review",
       "download_status": "not_downloaded",
@@ -105,8 +163,19 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "outside_git_restricted_directory_or_oss_prefix",
-      "allowed_use": ["food_product_catalog_retrieval", "product_field_mapping", "taxonomy_experiments"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "product_image_use_without_separate_license_review"],
+      "allowed_use": [
+        "food_product_catalog_retrieval",
+        "product_field_mapping",
+        "taxonomy_experiments"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "product_image_use_without_separate_license_review"
+      ],
       "notes": "The official terms identify ODbL for the database, DbCL for individual contents, and CC BY-SA for product images. Review attribution/share-alike obligations and selected fields before admission; this candidate does not include images.",
       "real_service_acceptance": false
     },
@@ -122,8 +191,12 @@
       "original_source_terms_status": "pending_direct_verification",
       "status": "pending_license_and_privacy_review",
       "revision": null,
-      "language": ["en"],
-      "jurisdiction": ["United_Kingdom"],
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "United_Kingdom"
+      ],
       "license_status": "conflicting_public_metadata",
       "privacy_status": "pending_privacy_and_field_review",
       "download_status": "not_downloaded",
@@ -132,8 +205,18 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "outside_git_restricted_directory_or_oss_prefix",
-      "allowed_use": ["historical_transaction_data_research", "derived_local_test_records_after_privacy_review"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "retaining_customer_identifiers"],
+      "allowed_use": [
+        "historical_transaction_data_research",
+        "derived_local_test_records_after_privacy_review"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "retaining_customer_identifiers"
+      ],
       "notes": "The dataset page displays CC BY 4.0 while UCI API license metadata is blank. Do not download or admit until this discrepancy, exact fields, and privacy handling are resolved. Derived local inventory/order records must remove customer identifiers and bind source revision, input SHA-256, and transformation version.",
       "real_service_acceptance": false
     },
@@ -149,8 +232,12 @@
       "original_source_terms_status": "pending_direct_verification",
       "status": "pending_license_review",
       "revision": null,
-      "language": ["en"],
-      "jurisdiction": ["United_States"],
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "United_States"
+      ],
       "license_status": "pending_direct_verification",
       "privacy_status": "pending_field_and_privacy_review",
       "download_status": "not_downloaded",
@@ -159,8 +246,20 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "outside_git_restricted_directory_or_oss_prefix",
-      "allowed_use": ["product_retrieval", "product_ranking", "recall_at_k", "mrr", "ndcg"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance"],
+      "allowed_use": [
+        "product_retrieval",
+        "product_ranking",
+        "recall_at_k",
+        "mrr",
+        "ndcg"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance"
+      ],
       "notes": "Candidate only. Verify the selected subset/revision and the original source license before acquisition.",
       "real_service_acceptance": false
     },
@@ -176,8 +275,12 @@
       "original_source_terms_status": "pending_dataset_card_and_original_source_verification",
       "status": "pending_license_and_privacy_review",
       "revision": null,
-      "language": ["en"],
-      "jurisdiction": ["United_States"],
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "United_States"
+      ],
       "license_status": "pending_dataset_card_and_original_source_verification",
       "privacy_status": "pending_privacy_and_field_review",
       "download_status": "not_downloaded",
@@ -186,8 +289,20 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "outside_git_restricted_directory_or_oss_prefix",
-      "allowed_use": ["product_metadata_mapping", "review_text_parsing", "deduplication", "field_coverage", "independent_text_retrieval_experiments"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance"],
+      "allowed_use": [
+        "product_metadata_mapping",
+        "review_text_parsing",
+        "deduplication",
+        "field_coverage",
+        "independent_text_retrieval_experiments"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance"
+      ],
       "notes": "Hugging Face is a distribution channel, not a license grant. The dataset card and original source terms must be reviewed; user-generated text requires privacy/field review.",
       "real_service_acceptance": false
     },
@@ -203,8 +318,12 @@
       "original_source_terms_status": "pending_license_and_attribution_review",
       "status": "pending_license_review",
       "revision": null,
-      "language": ["en"],
-      "jurisdiction": ["multiple"],
+      "language": [
+        "en"
+      ],
+      "jurisdiction": [
+        "multiple"
+      ],
       "license_status": "pending_license_and_attribution_review",
       "privacy_status": "pending_field_and_privacy_review",
       "download_status": "not_downloaded",
@@ -213,8 +332,17 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "outside_git_restricted_directory_or_oss_prefix",
-      "allowed_use": ["independent_english_community_qa_retrieval_evaluation"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "discarding_original_language_or_license_attribution"],
+      "allowed_use": [
+        "independent_english_community_qa_retrieval_evaluation"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "discarding_original_language_or_license_attribution"
+      ],
       "notes": "Candidate for a separate English-language community QA track only. Preserve original text, language, source identity, revision, and required attribution. Never use as merchant policy or customer-service answer truth.",
       "real_service_acceptance": false
     },
@@ -230,8 +358,12 @@
       "original_source_terms_status": "not_applicable",
       "status": "source_gap",
       "revision": null,
-      "language": ["zh-CN"],
-      "jurisdiction": ["China"],
+      "language": [
+        "zh-CN"
+      ],
+      "jurisdiction": [
+        "China"
+      ],
       "license_status": "no_source_selected",
       "privacy_status": "not_reviewed",
       "download_status": "not_applicable",
@@ -240,8 +372,17 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "not_applicable_until_source_selection",
-      "allowed_use": ["source_discovery_only"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "treating_public_text_as_merchant_policy"],
+      "allowed_use": [
+        "source_discovery_only"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "treating_public_text_as_merchant_policy"
+      ],
       "notes": "Prioritize Chinese official FAQs, regulations, and public explanations. Each selected source needs source-specific license review, jurisdiction, effective date, and version. Record the gap rather than filling it with an unlicensed source.",
       "real_service_acceptance": false
     },
@@ -257,8 +398,12 @@
       "original_source_terms_status": "not_applicable",
       "status": "source_gap",
       "revision": null,
-      "language": ["zh-CN"],
-      "jurisdiction": ["unspecified"],
+      "language": [
+        "zh-CN"
+      ],
+      "jurisdiction": [
+        "unspecified"
+      ],
       "license_status": "no_source_selected",
       "privacy_status": "not_reviewed",
       "download_status": "not_applicable",
@@ -267,8 +412,17 @@
       "actual_filename": null,
       "sha256": null,
       "restricted_storage_location": "not_applicable_until_source_selection",
-      "allowed_use": ["source_discovery_only"],
-      "forbidden_use": ["merchant_policy_truth", "current_price_inventory_order_truth", "tenant_shop_permission_truth", "customer_reply_correctness_truth", "real_service_acceptance", "treating_community_text_as_merchant_policy"],
+      "allowed_use": [
+        "source_discovery_only"
+      ],
+      "forbidden_use": [
+        "merchant_policy_truth",
+        "current_price_inventory_order_truth",
+        "tenant_shop_permission_truth",
+        "customer_reply_correctness_truth",
+        "real_service_acceptance",
+        "treating_community_text_as_merchant_policy"
+      ],
       "notes": "No Chinese community corpus is selected. Any future corpus requires clear license and privacy review and remains separate from merchant policy and customer reply truth.",
       "real_service_acceptance": false
     }

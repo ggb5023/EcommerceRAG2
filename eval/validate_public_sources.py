@@ -88,6 +88,7 @@ LICENSE_STATUSES = {
     "no_source_selected",
     "verified_scope_excludes_images",
     "verified_mit_non_enterprise_content_only",
+    "verified_mit_selected_distribution",
     "verified_apache_2_0_selected_distribution",
 }
 PRIVACY_STATUSES = {
