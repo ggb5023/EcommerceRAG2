@@ -10,6 +10,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -79,10 +80,14 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	}()
 	p := proposal{}
 	reason := "provider_failed"
+	stage := "control"
 	var scope *ragv1.RequestContext
 	defer func() {
 		finishCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
+		if reason == "provider_failed" {
+			reason = "provider_failed_" + stage
+		}
 		_ = s.finish(finishCtx, execution, conversationID, scope, p, reason)
 	}()
 	select {
@@ -109,10 +114,14 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	validate := func() error { return (&auth.Authority{DB: s.DB, SigningKey: s.SigningKey}).ValidateScope(ctx, scope) }
 	history := s.history(ctx, conversationID)
 	understood, err := s.Rag.Understand(ctx, &ragv1.UnderstandRequest{Context: scope, Query: query, HistorySummary: history})
-	if err != nil || understood == nil || validate() != nil {
+	if err != nil {
+		stage = "control_" + status.Code(err).String()
 		return
 	}
-	if len(understood.RequiredFactTools) > 0 {
+	if understood == nil || validate() != nil {
+		return
+	}
+	if len(understood.RequiredFactTools) > 0 || understood.InformationSource == "realtime_business" {
 		reason = "unsupported_request"
 		return
 	}
@@ -125,8 +134,10 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	if rewritten == "" {
 		rewritten = query
 	}
+	stage = "search"
 	search, err := s.Rag.Search(ctx, &ragv1.SearchRequest{Context: scope, Query: rewritten, ResponsePurpose: "customer_chat"})
 	if err != nil {
+		stage = "search_" + status.Code(err).String()
 		return
 	}
 	evidence := []*ragv1.Evidence{}
@@ -136,12 +147,14 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	for {
 		part, err := search.Recv()
 		if err != nil {
+			stage = "search_" + status.Code(err).String()
 			return
 		}
 		if validate() != nil || part.IsMock || part.ErrorCode != "" {
 			return
 		}
 		for _, item := range part.Evidence {
+			stage = "evidence_validation"
 			allowed, err := auth.CustomerEvidenceAllowed(ctx, s.DB, scope.TenantDbId, scope.ShopId, item)
 			if err != nil || !allowed || ids[item.Id] || ranks[item.Rank] || item.Rank <= 0 || len(evidence) >= 8 {
 				return
@@ -159,6 +172,7 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 		reason = "knowledge_missing"
 		return
 	}
+	stage = "generation"
 	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: scope, Query: query, Evidence: evidence, ResponsePurpose: "customer_chat", HistorySummary: history})
 	if err != nil {
 		return

@@ -3,7 +3,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from app.graph.workflow import provider_generate_node, validate_scope
+from app.graph.workflow import provider_generate_node, provider_understand_node, validate_scope
 from app.rpc.rag import _valid_scope
 from rag.v1 import rag_pb2
 
@@ -44,3 +44,32 @@ def test_customer_retrieval_purpose_is_external_only():
     assert PostgresRetriever._scope_params(scope, 'customer_chat')[-1] == 'customer'
     clause, _ = PostgresRetriever._disclosure_clause('customer_chat', 'owner')
     assert "external_allowed" in clause
+
+
+def test_guest_control_declares_unavailable_live_capabilities():
+    class Control:
+        async def ainvoke(self, request):
+            self.request = request
+            return {'structured': {'rewritten_query': 'Will it arrive tomorrow?', 'intent': 'factual',
+                'information_source': 'realtime_business', 'required_fact_tools': [],
+                'entities': [], 'clarification': '', 'confidence': .9}}
+    control = Control()
+    result = asyncio.run(provider_understand_node({'query': 'Will it arrive tomorrow?',
+        'scope': {'subject_type': 'customer'}}, SimpleNamespace(control=control)))
+    assert result['information_source'] == 'realtime_business'
+    assert 'has no live business tools' in control.request['messages'][0]['content']
+
+
+def test_customer_generation_has_no_staff_capability_or_internal_limit_rendering():
+    class Generation:
+        async def ainvoke(self, request):
+            self.request = request
+            return {'structured': {'answer': 'Use a soft sponge.', 'citation_ids': ['chunk'],
+                                   'behavior': 'ANSWER', 'reason_code': 'grounded'}}
+    generation = Generation()
+    evidence = {'id': 'chunk', 'content': 'Use a soft sponge.', 'document_id': 'doc', 'version_id': '1'}
+    result = asyncio.run(provider_generate_node({'query': 'How to clean?', 'evidence': [evidence],
+        'response_purpose': 'customer_chat'}, SimpleNamespace(generation=generation)))
+    assert result['answer'] == 'Use a soft sponge.'
+    assert 'evidence_limits' not in generation.request['response_schema']['required']
+    assert '不输出document_id' in generation.request['messages'][0]['content']
