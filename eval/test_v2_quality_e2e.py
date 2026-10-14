@@ -102,6 +102,34 @@ def test_scenario_rejects_changed_case_or_query_baseline(tmp_path):
         runner.load_scenarios(path, source, cases)
 
 
+@pytest.mark.parametrize('defect', [None, 'absent', 'wrong_version', 'wrong_owner', 'not_fake'])
+def test_preflight_requires_the_frozen_versioned_fake_before_paid_calls(monkeypatch, tmp_path, defect):
+    import sys
+    from io import BytesIO
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+    import v2_services
+    values = {'V2_FACTS_BASE_URL': 'http://127.0.0.1:18090', 'V2_FACTS_VERSION': 'selected-fixture',
+              'V2_IDENTITY_TENANT': 'tenant', 'V2_IDENTITY_USER': 'user', 'V2_IDENTITY_SHOP': 'shop'}
+    monkeypatch.setattr(v2_services, 'load_values', lambda _: values)
+    payload = {'version': 'wrong' if defect == 'wrong_version' else 'selected-fixture',
+               'tenant_id': 'tenant', 'shop_id': 'other' if defect == 'wrong_owner' else 'shop',
+               'is_mock': defect != 'not_fake', 'resource_id': 'V2-CUP-480', 'tool_name': 'get_stock',
+               'value_json': {'sku': 'V2-CUP-480'}}
+    class Response(BytesIO):
+        status = 200
+    class Opener:
+        def open(self, request, timeout):
+            if defect == 'absent':
+                raise OSError('sensitive transport detail')
+            return Response(json.dumps(payload).encode())
+    monkeypatch.setattr(runner.urllib.request, 'build_opener', lambda *args: Opener())
+    if defect:
+        with pytest.raises(runner.E2EFailure, match='^synthetic_facts_not_ready_or_mismatched$'):
+            runner.verify_synthetic_facts_ready(tmp_path / 'runtime.env')
+    else:
+        runner.verify_synthetic_facts_ready(tmp_path / 'runtime.env')
+
+
 def test_identifier_followup_and_idempotent_repeat_bind_same_parent():
     bodies = []
     class Client:

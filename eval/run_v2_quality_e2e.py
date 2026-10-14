@@ -77,14 +77,13 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
     sys.path.insert(0, str(ROOT / "scripts"))
     sys.path.insert(0, str(ROOT / "python"))
-    from v2_services import load_values
-
     from app.graph.workflow import (
         CONTROL_SCHEMA,
         GENERATION_INSTRUCTION,
         GENERATION_SCHEMA,
     )
     from app.providers.config import ensure_secure_config_file, load_provider_config
+    from v2_services import load_values
 
     values = load_values(path)
     if values.get("RAG_PROFILE") != "v2_langchain_bailian" or base_url != "http://" + values.get("HTTP_ADDR", ""):
@@ -108,6 +107,47 @@ def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
             "business_date": values.get("SYNTHETIC_BUSINESS_DATE") or datetime.now(UTC).date().isoformat(),
             "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
             "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}, Path(values["V2_ONLINE_BUDGET_LEDGER"])
+
+
+def verify_synthetic_facts_ready(runtime_env: Path) -> None:
+    """Fail before paid calls if the frozen track's explicit fake is absent.
+
+    Health alone cannot prove that the endpoint has the selected version and
+    synthetic ownership. Probe one read-only fixture resource without passing
+    its response to generation or using it as evaluation truth.
+    """
+    from v2_services import load_values
+    values = load_values(runtime_env)
+    base = values.get('V2_FACTS_BASE_URL', '').rstrip('/')
+    parsed = urllib.parse.urlsplit(base)
+    if (values.get('V2_IDENTITY_PROFILE', 'development') != 'development'
+            or parsed.scheme != 'http' or parsed.hostname != '127.0.0.1'
+            or parsed.path or parsed.query or parsed.fragment or parsed.username is not None
+            or parsed.password is not None
+            or not values.get('V2_FACTS_VERSION')):
+        raise E2EFailure('synthetic_facts_configuration_invalid')
+    request = urllib.request.Request(base + '/v1/facts/get_stock', headers={
+        'X-Facts-Version': values['V2_FACTS_VERSION'],
+        'X-Tenant-ID': values.get('V2_IDENTITY_TENANT', ''),
+        'X-User-ID': values.get('V2_IDENTITY_USER', ''),
+        'X-Shop-ID': values.get('V2_IDENTITY_SHOP', ''),
+        'X-Fact-Resource-ID': 'V2-CUP-480',
+    })
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=3) as response:
+            raw = response.read(65537)
+            if response.status != 200 or len(raw) > 65536:
+                raise ValueError()
+            result = json.loads(raw)
+        if (result.get('version') != values['V2_FACTS_VERSION'] or result.get('is_mock') is not True
+                or result.get('tenant_id') != values.get('V2_IDENTITY_TENANT')
+                or result.get('shop_id') != values.get('V2_IDENTITY_SHOP')
+                or result.get('resource_id') != 'V2-CUP-480' or result.get('tool_name') != 'get_stock'
+                or result.get('value_json', {}).get('sku') != 'V2-CUP-480'):
+            raise ValueError()
+    except Exception:  # noqa: BLE001 - transport diagnostics can include private configuration
+        raise E2EFailure('synthetic_facts_not_ready_or_mismatched') from None
 
 
 def read_retrieval_trace(runtime_env: Path, request_id: str) -> list[dict]:
@@ -138,8 +178,8 @@ def read_context_bindings(runtime_env: Path, capture_path: Path) -> list[dict]:
                             "FROM chunk c JOIN document d ON d.id=c.doc_id AND d.tenant_id=c.tenant_id "
                             "JOIN document_version v ON v.id=c.version_id AND v.tenant_id=c.tenant_id "
                             "WHERE c.id=ANY(%s) ORDER BY c.id", (ids,)).fetchall()
-    return [dict(evidence_id=i, document_id=d, version_id=v, chunk_sha256=h,
-                 snippet_sha256=digest(content), source_sha256=source) for i,d,v,h,content,source in rows]
+    return [{'evidence_id': i, 'document_id': d, 'version_id': v, 'chunk_sha256': h,
+             'snippet_sha256': digest(content), 'source_sha256': source} for i,d,v,h,content,source in rows]
 
 
 def attach_persisted_evidence(row: dict, runtime_env: Path, capture_dir: Path | None) -> None:
@@ -151,7 +191,7 @@ def attach_persisted_evidence(row: dict, runtime_env: Path, capture_dir: Path | 
         if capture_dir is not None:
             row['context_bindings'] = read_context_bindings(runtime_env, capture_dir / row['capture_id'])
         row['persisted_evidence_read_failed'] = False
-    except Exception:  # diagnostics cannot expose connection strings or erase prior results
+    except Exception:  # noqa: BLE001 - diagnostics cannot expose DSNs or erase prior results
         row['persisted_evidence_read_failed'] = True
 
 
@@ -425,6 +465,7 @@ def main() -> int:
         if args.runtime_env is None:
             raise E2EFailure("protected_runtime_identity_required")
         identity, ledger = runtime_identity(args.runtime_env, args.base_url)
+        verify_synthetic_facts_ready(args.runtime_env)
         if args.temporal_mode == "historical" and identity["business_date"] != boundary["historical_business_date"]:
             raise E2EFailure("historical_runtime_date_mismatch")
         budget_before = budget_snapshot(ledger)
