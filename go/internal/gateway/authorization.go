@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 )
 
@@ -32,6 +33,10 @@ func authorizationHTTPStatus(err error) int {
 // Registered resources inherit shop scope unless an ACL gate narrows it.
 // Every present tenant/source/document gate must grant this principal.
 func (g *gateway) validateScopeHTTP(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("V2_RPC_TLS") == "mtls" {
+		http.NotFound(w, r)
+		return
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil || !net.ParseIP(host).IsLoopback() {
 		writeError(w, 403, "forbidden", "internal endpoint")

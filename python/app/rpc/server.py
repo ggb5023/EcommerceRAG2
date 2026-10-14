@@ -13,6 +13,7 @@ from grpc_reflection.v1alpha import reflection
 from app.configuration import verify_ai_configuration
 from app.graph.runtime import load_checkpoint_store
 from app.rpc.rag import RagService
+from app.rpc.transport import enabled, server_credentials
 from rag.v1 import rag_pb2_grpc
 
 
@@ -81,8 +82,13 @@ def build_server():
 
 
 def serve(server, address):
-    validate_bind_address(address)
-    if not server.add_insecure_port(address):
+    if enabled():
+        _split_address(address)
+        port = server.add_secure_port(address, server_credentials())
+    else:
+        validate_bind_address(address)
+        port = server.add_insecure_port(address)
+    if not port:
         raise RuntimeError("cannot bind internal RPC address")
     server.start()
     signal.signal(signal.SIGTERM, lambda *_: server.stop(5))

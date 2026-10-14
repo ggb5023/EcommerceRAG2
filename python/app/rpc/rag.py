@@ -167,6 +167,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def Search(self, request, context):
         self._authorize(request.context, context)
+        if request.context.subject_type == 'customer' and request.response_purpose != 'customer_chat':
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, 'customer purpose required')
         query = request.query.strip()
         if not query:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, 'query is required')
@@ -185,6 +187,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def Generate(self, request, context):
         self._authorize(request.context, context)
+        if request.context.subject_type == 'customer' and request.response_purpose != 'customer_chat':
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, 'customer purpose required')
         try:
             _ensure_grpc_active(context)
             evidence = [self._v2_input_evidence(item) for item in request.evidence]

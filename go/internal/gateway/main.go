@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
+	"github.com/ggb5023/EcommerceRAG/go/internal/transport"
 	"io"
 	"log"
 	"math"
@@ -30,7 +32,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -114,6 +115,7 @@ type gateway struct {
 	identityCheck   func(context.Context) error
 	scopeIdentities *scopeIdentityRegistry
 	browser         *identity.Browser
+	customer        *customer.Service
 }
 
 type apiError struct {
@@ -199,12 +201,16 @@ func Main() {
 	default:
 		log.Fatal("an explicit supported identity profile is required")
 	}
-	conn, err := grpc.NewClient(ragAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	rpcCredentials, err := transport.ClientCredentials()
+	if err != nil {
+		log.Fatal("internal RPC credentials unavailable")
+	}
+	conn, err := grpc.NewClient(ragAddr, grpc.WithTransportCredentials(rpcCredentials))
 	if err != nil {
 		log.Fatal("AI RPC configuration failed")
 	}
 	defer conn.Close()
-	ingestConn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ingestConn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(rpcCredentials))
 	if err != nil {
 		log.Fatal("ingest RPC configuration failed")
 	}
@@ -238,6 +244,20 @@ func Main() {
 		log.Fatal("Gateway execution ownership unavailable")
 	}
 	defer owner.Close(context.Background())
+	if origin := os.Getenv("V2_CUSTOMER_ORIGIN"); origin != "" {
+		g.customer, err = customer.New(db, g.rag, g.signingKey, profile, customer.Config{Origin: origin, AllowLoopbackHTTP: os.Getenv("V2_CUSTOMER_LOOPBACK_HTTP") == "1"})
+		if err != nil || g.customer.Recover(ctx) != nil {
+			log.Fatal("customer channel initialization failed")
+		}
+		go g.customer.Reap(context.Background())
+	}
+	authorityRPC, err := g.startAuthorizationRPC()
+	if err != nil {
+		log.Fatal("authority RPC initialization failed")
+	}
+	if authorityRPC != nil {
+		defer authorityRPC.Stop()
+	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -279,6 +299,14 @@ func (g *gateway) businessRoutes() http.Handler {
 	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
 	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
+	if g.customer != nil {
+		mux.HandleFunc("/v1/support/", func(w http.ResponseWriter, r *http.Request) {
+			if !g.requireWriteRole(w) {
+				return
+			}
+			g.customer.StaffRoutes(customer.Staff{Tenant: g.session.TenantID, User: g.session.UserID, Shops: g.session.AllowedShops, Role: g.session.Role, SessionHash: customer.StaffSessionHash(r), Check: g.authority().Refresh}).ServeHTTP(w, r)
+		})
+	}
 	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey}).RegisterRoutes(mux)
 	return mux
 }
@@ -292,6 +320,9 @@ func (g *gateway) Routes() http.Handler {
 		}
 		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
 			if g.browser != nil {
+				if r.Method == "POST" && r.URL.Path == "/v1/auth/logout" && g.customer != nil && g.browser.ValidateWrite(r) == nil {
+					_ = g.customer.ReleaseSession(r.Context(), customer.StaffSessionHash(r))
+				}
 				g.browser.Handle(w, r)
 				return
 			}
@@ -301,6 +332,14 @@ func (g *gateway) Routes() http.Handler {
 				return
 			}
 			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v1/customer/") {
+			if g.customer == nil {
+				http.NotFound(w, r)
+				return
+			}
+			g.customer.Routes().ServeHTTP(w, r)
 			return
 		}
 		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" {

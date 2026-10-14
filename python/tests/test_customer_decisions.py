@@ -34,3 +34,13 @@ def test_missing_context_recommends_clarification_without_publishing():
         'response_purpose': 'customer_chat'}, SimpleNamespace()))
     assert result['reply_decision']['behavior'] == 'CLARIFY'
     assert not result['can_copy']
+
+
+def test_customer_retrieval_purpose_is_external_only():
+    from app.retrieval.postgres import PostgresRetriever
+    scope = {'tenant_id': 'merchant', 'tenant_db_id': '1',
+             'allowed_shop_ids': ['shop'], 'allowed_document_ids': ['doc'],
+             'shop_id': 'shop', 'role': 'customer'}
+    assert PostgresRetriever._scope_params(scope, 'customer_chat')[-1] == 'customer'
+    clause, _ = PostgresRetriever._disclosure_clause('customer_chat', 'owner')
+    assert "external_allowed" in clause

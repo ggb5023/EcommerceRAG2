@@ -164,13 +164,13 @@ class PostgresRetriever:
             raise PermissionError("persistent retrieval tenant database id is invalid")
         if selected_shop and selected_shop not in set(shops):
             raise PermissionError("selected shop is outside the scope")
-        if response_purpose not in {"internal", "customer_reply"}:
+        if response_purpose not in {"internal", "customer_reply", "customer_chat"}:
             raise ValueError("response purpose is invalid")
         return tenant, tenant_db_id, shops, documents, selected_shop, role
 
     @staticmethod
     def _disclosure_clause(response_purpose: str, role: str) -> tuple[str, list[Any]]:
-        if response_purpose == "customer_reply" or role not in {"owner", "admin"}:
+        if response_purpose in {"customer_reply", "customer_chat"} or role not in {"owner", "admin"}:
             return "AND v.disclosure_class = 'external_allowed' AND v.external_allowed ", []
         return "", []
 

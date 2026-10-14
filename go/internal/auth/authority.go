@@ -274,6 +274,12 @@ func (g *Authority) ValidateScope(ctx context.Context, scope *ragv1.RequestConte
 		scope.ScopeExpiresAt <= now || scope.ScopeExpiresAt > now+70 || !scope.EnforceDocumentScope || scope.RequestId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_scope")
 	}
+	if scope.SubjectType == "customer" {
+		return ValidateCustomerScope(ctx, g.DB, scope)
+	}
+	if scope.SubjectType != "" && scope.SubjectType != "staff" {
+		return status.Error(codes.PermissionDenied, "invalid_subject_type")
+	}
 	if g.ValidateScopeIdentity != nil {
 		if err = g.ValidateScopeIdentity(ctx, scope); err != nil {
 			return err

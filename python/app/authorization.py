@@ -7,8 +7,17 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from functools import lru_cache
 
 import grpc
+
+from app.rpc.transport import channel, enabled
+from rag.v1 import rag_pb2, rag_pb2_grpc
+
+
+@lru_cache(maxsize=8)
+def _authority(address):
+    return rag_pb2_grpc.AuthorizationServiceStub(channel(address))
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -17,6 +26,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def validate_scope(scope) -> None:
+    address = os.environ.get('V2_AUTHORITY_GRPC_ADDR', '')
+    if address:
+        if not enabled():
+            raise ScopeError(grpc.StatusCode.UNAVAILABLE)
+        try:
+            result = _authority(address).ValidateScope(rag_pb2.ValidateScopeRequest(context=scope), timeout=2)
+            if not result.allowed:
+                raise ScopeError(grpc.StatusCode.PERMISSION_DENIED)
+            return
+        except grpc.RpcError as error:
+            raise ScopeError(grpc.StatusCode.PERMISSION_DENIED if error.code() in {
+                grpc.StatusCode.PERMISSION_DENIED, grpc.StatusCode.UNAUTHENTICATED}
+                else grpc.StatusCode.UNAVAILABLE) from None
+    if enabled():
+        raise ScopeError(grpc.StatusCode.UNAVAILABLE)
     base = os.environ.get("AUTHORITY_HTTP_BASE", "http://127.0.0.1:8080")
     parsed = urllib.parse.urlsplit(base)
     try:
