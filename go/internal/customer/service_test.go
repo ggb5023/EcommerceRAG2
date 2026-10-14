@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +42,40 @@ func TestCustomerOriginAndDeliveryFailClosed(t *testing.T) {
 	p.Decision = nil
 	if ValidateProposal(p) == nil {
 		t.Fatal("published without decision")
+	}
+}
+
+func TestCustomerOriginProxyAndSubmissionLimits(t *testing.T) {
+	s, err := New(nil, nil, nil, "", Config{Origin: "https://shop.example", TrustedProxyIPs: []net.IP{net.ParseIP("127.0.0.1")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, origin := range []string{"", "https://other.example", "https://shop.example.evil", "https://shop.example/"} {
+		r := httptest.NewRequest("POST", "/v1/customer/session", nil)
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		s.Routes().ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Fatal("cross-origin write reached session creation")
+		}
+	}
+	r := httptest.NewRequest("POST", "/", nil)
+	r.RemoteAddr = "198.51.100.10:1234"
+	r.Header.Set("X-Real-IP", "192.0.2.1")
+	if s.remoteIP(r) != "198.51.100.10" {
+		t.Fatal("untrusted peer spoofed IP rate bucket")
+	}
+	r.RemoteAddr = "127.0.0.1:1234"
+	if s.remoteIP(r) != "192.0.2.1" {
+		t.Fatal("trusted edge IP was not retained")
+	}
+	for i := 0; i < 5; i++ {
+		if !s.allow("visitor-a", s.Config.VisitorRPM) {
+			t.Fatal("default visitor budget rejected early")
+		}
+	}
+	if s.allow("visitor-a", s.Config.VisitorRPM) || !s.allow("visitor-b", s.Config.VisitorRPM) {
+		t.Fatal("visitor limit did not isolate subjects")
 	}
 }
 
@@ -158,10 +193,25 @@ func TestDatabaseCustomerHumanLifecycle(t *testing.T) {
 	if request(api, "GET", pathConv, nil, other.Result().Cookies()[0], "", "").Code != 404 {
 		t.Fatal("cross visitor conversation leak")
 	}
+	if _, err = migration.Exec(ctx, `INSERT INTO shop(tenant_id,id,name,public_slug,customer_chat_enabled) VALUES($1,'shop-other','Other synthetic shop',$2,true)`, tenant, slug+"-other"); err != nil {
+		t.Fatal("second shop fixture failed")
+	}
+	shopSession := request(api, "POST", "/v1/customer/session", map[string]string{"shop_slug": slug + "-other"}, nil, "", "")
+	decode(shopSession, 201)
+	for _, suffix := range []string{"", "/events", "/citations/unknown"} {
+		if request(api, "GET", pathConv+suffix, nil, shopSession.Result().Cookies()[0], "", "").Code != 404 {
+			t.Fatal("cross-shop customer access reached messages or replay")
+		}
+	}
 	staffA := Staff{Tenant: tenant, User: agentA, Shops: []string{"shop-test"}, Role: "operator", SessionHash: "session-a"}
 	staffB := staffA
 	staffB.User = agentB
 	staffB.SessionHash = "session-b"
+	unauthorized := staffA
+	unauthorized.Shops = []string{"shop-other"}
+	if request(s.StaffRoutes(unauthorized), "POST", "/v1/support/conversations/"+conv+"/claim", map[string]any{"epoch": c.Epoch}, nil, "", "cross-shop").Code != 404 {
+		t.Fatal("staff crossed shop boundary to claim")
+	}
 	var wg sync.WaitGroup
 	codes := make(chan int, 2)
 	results := make(chan struct {
