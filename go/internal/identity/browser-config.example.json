@@ -1,0 +1,12 @@
+{
+  "issuer": "http://127.0.0.1:18095/realms/ecr-v2-test",
+  "client_id": "ecr-v2-browser",
+  "secret_file": "/path/to/owned-0600-browser-secret",
+  "bindings": [{"subject":"synthetic-subject","tenant":"synthetic-tenant","user":"synthetic-user","shop":"synthetic-shop"}],
+  "browser": {
+    "customer_origin": "http://127.0.0.1:5173",
+    "admin_origin": "http://127.0.0.1:5174",
+    "callback_url": "http://127.0.0.1:5173/v1/auth/callback",
+    "allow_loopback_http": true
+  }
+}

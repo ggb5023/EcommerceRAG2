@@ -47,10 +47,15 @@ func (a oidcIdentityAdapter) Resolve(r *http.Request) (mockSession, func(context
 	if err != nil {
 		return session, nil, identityFailure(err)
 	}
+	return a.resolvePrincipal(r.Context(), principal)
+}
+
+func (a oidcIdentityAdapter) resolvePrincipal(ctx context.Context, principal identity.Principal) (mockSession, func(context.Context) error, error) {
+	var session mockSession
 	if a.db == nil {
 		return session, nil, status.Error(codes.Unavailable, "authorization_unavailable")
 	}
-	err = a.db.QueryRow(r.Context(), `SELECT t.id,u.id,t.external_id,u.external_id,u.Role,COALESCE(u.shop_ids,ARRAY[]::text[]),u.permission_revision,u.revoked_at
+	err := a.db.QueryRow(ctx, `SELECT t.id,u.id,t.external_id,u.external_id,u.Role,COALESCE(u.shop_ids,ARRAY[]::text[]),u.permission_revision,u.revoked_at
 	 FROM tenant t JOIN app_user u ON u.tenant_id=t.id WHERE t.external_id=$1 AND u.external_id=$2 AND t.status='active'`, principal.Binding.Tenant, principal.Binding.User).Scan(&session.TenantID, &session.UserID, &session.Tenant, &session.User, &session.Role, &session.AllowedShops, &session.PermissionRevision, &session.RevokedAt)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -75,6 +80,19 @@ func (a oidcIdentityAdapter) Resolve(r *http.Request) (mockSession, func(context
 		return nil
 	}
 	return session, check, nil
+}
+
+type browserIdentityAdapter struct {
+	browser *identity.Browser
+	adapter oidcIdentityAdapter
+}
+
+func (a browserIdentityAdapter) Resolve(r *http.Request) (mockSession, func(context.Context) error, error) {
+	principal, err := a.browser.Resolve(r)
+	if err != nil {
+		return mockSession{}, nil, identityFailure(err)
+	}
+	return a.adapter.resolvePrincipal(r.Context(), principal)
 }
 
 type scopeIdentityEntry struct {

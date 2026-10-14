@@ -53,17 +53,18 @@ def test_real_children_receive_only_their_service_credentials(tmp_path):
             assert "V2_PROVIDER_CONFIG" not in received
 
 
-def test_oidc_config_is_gateway_only_and_has_no_development_fallback(tmp_path):
+@pytest.mark.parametrize("identity_profile", ["oidc", "oidc_browser"])
+def test_oidc_config_is_gateway_only_and_has_no_development_fallback(tmp_path, identity_profile):
     base = values(tmp_path)
     base.pop("V2_IDENTITY_TENANT")
     base.pop("V2_IDENTITY_USER")
-    configured = services.configure(base | {"V2_IDENTITY_PROFILE": "oidc",
+    configured = services.configure(base | {"V2_IDENTITY_PROFILE": identity_profile,
                                             "V2_OIDC_CONFIG_FILE": "/protected/oidc.json"})
     for name in services.SERVICE_KEYS:
         environment = services.service_environment(name, configured)
         assert ("V2_OIDC_CONFIG_FILE" in environment) == (name == "gateway")
     with pytest.raises(services.StartupError):
-        services.configure(base | {"V2_IDENTITY_PROFILE": "oidc"})
+        services.configure(base | {"V2_IDENTITY_PROFILE": identity_profile})
     with pytest.raises(services.StartupError):
         services.configure(base | {"V2_IDENTITY_PROFILE": "unknown"})
 

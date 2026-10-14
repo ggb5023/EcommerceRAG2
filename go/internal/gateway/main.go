@@ -113,6 +113,7 @@ type gateway struct {
 	identity        IdentityAdapter
 	identityCheck   func(context.Context) error
 	scopeIdentities *scopeIdentityRegistry
+	browser         *identity.Browser
 }
 
 type apiError struct {
@@ -161,13 +162,14 @@ func Main() {
 	}
 	var session mockSession
 	var adapter IdentityAdapter
+	var browser *identity.Browser
 	switch os.Getenv("V2_IDENTITY_PROFILE") {
 	case "", "development":
 		session, err = (developmentIdentityAdapter{db: db}).Resolve(ctx)
 		if err != nil {
 			log.Fatal("development identity unavailable")
 		}
-	case "oidc":
+	case "oidc", "oidc_browser":
 		config, configErr := identity.LoadConfig(os.Getenv("V2_OIDC_CONFIG_FILE"))
 		if configErr != nil {
 			log.Fatal("protected OIDC configuration unavailable")
@@ -176,7 +178,24 @@ func Main() {
 		if providerErr != nil {
 			log.Fatal("OIDC discovery unavailable")
 		}
-		adapter = oidcIdentityAdapter{provider: provider, db: db}
+		oidcAdapter := oidcIdentityAdapter{provider: provider, db: db}
+		adapter = oidcAdapter
+		if os.Getenv("V2_IDENTITY_PROFILE") == "oidc_browser" {
+			browser, err = identity.NewBrowser(provider, func(ctx context.Context, principal identity.Principal) error {
+				_, _, failure := oidcAdapter.resolvePrincipal(ctx, principal)
+				if failure == nil {
+					return nil
+				}
+				if status.Code(failure) == codes.Unavailable {
+					return identity.ErrUnavailable
+				}
+				return identity.ErrRevoked
+			})
+			if err != nil {
+				log.Fatal("browser identity configuration unavailable")
+			}
+			adapter = browserIdentityAdapter{browser: browser, adapter: oidcAdapter}
+		}
 	default:
 		log.Fatal("an explicit supported identity profile is required")
 	}
@@ -198,7 +217,7 @@ func Main() {
 		}
 		factsProvider = facts.HTTPProvider{BaseURL: base, Version: version}
 	}
-	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter}
+	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter, browser: browser}
 	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
@@ -271,7 +290,30 @@ func (g *gateway) Routes() http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
+			if g.browser != nil {
+				g.browser.Handle(w, r)
+				return
+			}
+			if r.Method == "GET" && r.URL.Path == "/v1/auth/session" {
+				w.Header().Set("Cache-Control", "no-store")
+				writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "authenticated": g.identity == nil})
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" {
+			if g.browser != nil {
+				if err := g.browser.ValidateWrite(r); err != nil {
+					code := http.StatusForbidden
+					if errors.Is(err, identity.ErrInvalid) {
+						code = http.StatusUnauthorized
+					}
+					writeError(w, code, "browser_request_rejected", "browser request rejected")
+					return
+				}
+			}
 			if g.identity != nil {
 				session, check, err := g.identity.Resolve(r)
 				if err != nil {

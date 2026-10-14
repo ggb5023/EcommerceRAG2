@@ -32,10 +32,11 @@ type Binding struct {
 }
 
 type Config struct {
-	Issuer     string    `json:"issuer"`
-	ClientID   string    `json:"client_id"`
-	SecretFile string    `json:"secret_file"`
-	Bindings   []Binding `json:"bindings"`
+	Issuer     string         `json:"issuer"`
+	ClientID   string         `json:"client_id"`
+	SecretFile string         `json:"secret_file"`
+	Bindings   []Binding      `json:"bindings"`
+	Browser    *BrowserConfig `json:"browser,omitempty"`
 }
 
 func protectedFile(path string) ([]byte, error) {
@@ -94,6 +95,7 @@ type Provider struct {
 	secret        string
 	introspection string
 	bindings      map[string]Binding
+	discovery     *oidc.Provider
 }
 
 func New(ctx context.Context, config Config) (*Provider, error) {
@@ -140,7 +142,7 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 			return nil, ErrInvalid
 		}
 	}
-	return &Provider{verifier: provider.Verifier(&oidc.Config{ClientID: config.ClientID, SupportedSigningAlgs: []string{"RS256"}}), client: client, config: config, secret: strings.TrimSpace(string(secret)), introspection: discovery.Introspection, bindings: bindings}, nil
+	return &Provider{verifier: provider.Verifier(&oidc.Config{ClientID: config.ClientID, SupportedSigningAlgs: []string{"RS256"}}), client: client, config: config, secret: strings.TrimSpace(string(secret)), introspection: discovery.Introspection, bindings: bindings, discovery: provider}, nil
 }
 
 func (p *Provider) Resolve(ctx context.Context, bearer string) (Principal, error) {
