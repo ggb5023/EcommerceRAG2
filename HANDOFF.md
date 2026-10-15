@@ -20,11 +20,15 @@
 - 自有 MIT LICENSE、第三方声明及公开安装/知识/客服/备份/开发文档已提交。主要提交：67acd79 引用修复、97c22b1 客户 Proto、be32e69 客户与人工后端、bbad1bc 三界面、b11ef51 Compose/恢复、5ed59e8 公开文档、17c1bd1 限制引用、6fc8911 Provider 重试、bcafd37 长度契约、1c07daf 部署契约说明。过程在 `.local/dev-docs/archive/20261014-商家知识客服闭环实施.md`。
 - 轻量商家 RAG 调研已重新公开搜索并核验 26 份官方页面/源码/许可证，报告 `.local/dev-docs/research/20261014-lightweight-merchant-rag.md` 与同名 sources JSON 保留来源 hash、摘录及失败请求。建议复用现有页面与 eval，先源码安装、解析预览/来源定位和小型失败诊断，再据测量决定相邻块、ANN 过滤及摄取缓存；暂缓完整工作台、OCR/爬虫/图检索和平台集成。此前 mainstream-rag 报告保留，本次只调研与文档更新，未改业务、访问数据库或调用模型。
 
+- 知识质量工具已实现并本地提交：解析预览保留新版本 Markdown/CSV/DOCX 来源位置和白名单结构元数据，管理台支持块类型筛选、分页、表格展开和撤权清空；店铺查询提供客户试问入口，试问沿用正常访客会话、模型费用和人工队列。生成前的客户证据输入写入 `v2_generation_input` trace，checksum 迁移 `0028_customer_generation_input_trace.sql` 已在独立非超级用户库验证；`eval/diagnose_customer_execution.py` 只读输出阶段元数据和 hash，不宣称 Provider 已收到请求或语义通过。浏览器 fixture 报告 `/var/lib/ecommerce-rag/knowledge-tools-20261014-r5/report.json` 为 PASS。
+- 53 条入口批跑仍为 53/53 终态，独立证据边界和七安全结果保持原报告结论；代理复核仍有 `syn-019`、`syn-031` 两条失败。Go 已增加受限历史指代修复：仅从此前用户消息读取唯一 `SKU-*` 或标准标识，助手候选和多候选继续拒绝；对应单测和 Go 全量测试通过。生命周期 Provider 计数修复已提交 `874eb1d`。定向真实 Provider 复测尚未运行，旧隔离运行配置的数据库连接已失效，因此不把单测升级为入口质量通过；原答案点门禁仍 `NOT_PASSED`，`real_service_acceptance=false`。
+
 ## 下一步任务
 
 1. 源码部署先补最小配置、严格 selfhost 启动与公开安装/备份说明，在新独立环境验证商家导入、客户问答和人工回复；不新增 Docker 或基础设施安装平台。已有运行服务保持，容器验收不转记为源码通过。得到实际店铺资料授权后，再冻结真实商家试用范围。
 2. 参照 `.local/dev-docs/research/20261014-lightweight-merchant-rag.md`，优先补现有解析审核预览与来源字段，沿客户真实权限路径试问，并复用 eval 做只读阶段诊断。按实际失败归因决定相邻块/段落恢复、过滤后召回或增量缓存；客服反馈先走现有 FAQ 新版本审核与独立回归，不先建设通用工作台或来源 Connector。
-3. 保留原答案点缺口，后续功能回归同时运行原门禁、新证据边界和客户闭环契约；新答案逐例代理复核，不沿用旧答案批准。
+3. 在可用的全新独立数据库和真实 Provider 运行配置上，定向复测 `syn-019`、`syn-031`，再重跑完整 53 条及七安全回归；保留 r1 历史 capture 和 sidecar，不覆盖历史证据。
+4. 保留原答案点缺口，后续功能回归同时运行原门禁、新证据边界和客户闭环契约；新答案逐例代理复核，不沿用旧答案批准。质量工具通过后再进入源码部署配置化与 systemd 交付，当前不新增 Docker。
 
 ## 遗留问题
 
