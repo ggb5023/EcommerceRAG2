@@ -9,17 +9,27 @@ import sys
 from pathlib import Path
 
 
+LINK = re.compile(r"\[[^\]\n]+\]\(([^)\s]+)\)")
 REQUIRED_AGENT_SECTIONS = (
-    "文档职责",
-    "关键文件索引",
-    "开发注意事项",
-    "Git 提交规范",
-    "用户回复模板",
+    "开始前必读",
+    "防跑偏",
+    "架构红线",
+    "检查",
+    "Git",
+    "文档维护",
 )
-HANDOFF_SECTIONS = ("当前进度", "下一步任务", "遗留问题")
-REQUIRED_FACTS_SECTIONS = ("架构结论", "工作区职责", "证据边界", "文档职责")
-ARCHITECTURE_PATH = "docs/architecture.md"
-ARCHITECTURE_LINKS = ("../AGENTS.md", "../FACTS.md", "../README.md")
+REQUIRED_ROADMAP_SECTIONS = ("阶段", "当前任务")
+MERCHANT_DOCS = ("install", "knowledge", "support", "backup")
+# Each entry document must link to the documents a new reader needs next.
+REQUIRED_LINKS = {
+    "README.md": ("docs/product.md", "docs/architecture.md", "ROADMAP.md", "docs/development.md", "AGENTS.md"),
+    "AGENTS.md": ("docs/product.md", "ROADMAP.md", "docs/architecture.md"),
+    "ROADMAP.md": ("README.md", "docs/product.md", "docs/architecture.md"),
+    "docs/product.md": ("../README.md", "architecture.md", "../ROADMAP.md"),
+    "docs/architecture.md": ("../README.md", "product.md", "../ROADMAP.md"),
+    "docs/development.md": ("../README.md", "architecture.md", "../AGENTS.md"),
+}
+RETIRED_DOCUMENTS = ("FACTS.md", "HANDOFF.md")
 
 
 def check(repo_root: Path) -> list[str]:
@@ -33,43 +43,42 @@ def check(repo_root: Path) -> list[str]:
             errors.append(f"{name}: cannot read required document ({exc.strerror})")
             return ""
 
-    for name in ("install", "knowledge", "support", "backup", "development"):
-        text = read(f"docs/{name}.md")
-        links = set(re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", text))
-        if "../README.md" not in links:
+    texts = {name: read(name) for name in REQUIRED_LINKS}
+    for name, destinations in REQUIRED_LINKS.items():
+        links = set(LINK.findall(texts[name]))
+        for destination in destinations:
+            if destination not in links:
+                errors.append(f"{name}: missing relative link {destination}")
+
+    for name in MERCHANT_DOCS:
+        if "../README.md" not in set(LINK.findall(read(f"docs/{name}.md"))):
             errors.append(f"docs/{name}.md: missing README link")
 
-    agents = read("AGENTS.md")
-    handoff = read("HANDOFF.md")
-    facts = read("FACTS.md")
-    architecture = read(ARCHITECTURE_PATH)
-
-    architecture_links = set(re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", architecture))
-    for destination in ARCHITECTURE_LINKS:
-        if destination not in architecture_links:
-            errors.append(f"{ARCHITECTURE_PATH}: missing relative link {destination}")
-
     for heading in REQUIRED_AGENT_SECTIONS:
-        if f"## {heading}" not in agents:
+        if f"## {heading}" not in texts["AGENTS.md"]:
             errors.append(f"AGENTS.md: missing section {heading}")
+    for heading in REQUIRED_ROADMAP_SECTIONS:
+        if f"## {heading}" not in texts["ROADMAP.md"]:
+            errors.append(f"ROADMAP.md: missing section {heading}")
 
-    actual_handoff_sections = tuple(
-        match.group(1).strip()
-        for match in re.finditer(r"^##\s+(.+?)\s*$", handoff, re.MULTILINE)
-    )
-    if actual_handoff_sections != HANDOFF_SECTIONS:
-        errors.append("HANDOFF.md: use only 当前进度, 下一步任务 and 遗留问题 sections")
+    decisions = sorted((repo_root / "docs/decisions").glob("[0-9][0-9][0-9][0-9]-*.md"))
+    if not decisions:
+        errors.append("docs/decisions/: at least one numbered decision record is required")
 
-    for heading in REQUIRED_FACTS_SECTIONS:
-        if f"## {heading}" not in facts:
-            errors.append(f"FACTS.md: missing section {heading}")
-
-    if ".local/dev-docs/archive/" not in agents:
-        errors.append("AGENTS.md: must define the private conversation archive location")
-    if "日常开发不读 archive" not in agents:
-        errors.append("AGENTS.md: must keep archives out of routine reading")
-    if "每个新窗口在 `.local/dev-docs/archive/` 新建" not in agents:
-        errors.append("AGENTS.md: must require one archive entry per new window")
+    for retired in RETIRED_DOCUMENTS:
+        if (repo_root / retired).exists():
+            errors.append(f"{retired}: retired document must not be restored")
+    for path in [repo_root / "README.md", repo_root / "AGENTS.md", repo_root / "ROADMAP.md",
+                 *sorted((repo_root / "docs").rglob("*.md"))]:
+        if not path.is_file():
+            continue
+        name = path.relative_to(repo_root).as_posix()
+        if name == "docs/decisions/0003-documentation-system.md":
+            continue  # The decision record explains why they were retired.
+        text = path.read_text(encoding="utf-8")
+        for retired in RETIRED_DOCUMENTS:
+            if retired in text:
+                errors.append(f"{name}: references retired {retired}")
 
     return errors
 
@@ -84,7 +93,7 @@ def main() -> int:
         for message in errors:
             print(f"FAIL documentation entry: {message}", file=sys.stderr)
         return 1
-    print(f"PASS documentation entry: AGENTS.md, HANDOFF.md, FACTS.md and {ARCHITECTURE_PATH}")
+    print("PASS documentation entry: README, AGENTS, ROADMAP, product, architecture, development and decisions")
     return 0
 
 

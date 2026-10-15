@@ -4,7 +4,7 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 failures = []
-for path in [root / "README.md", *sorted((root / "docs").glob("*.md"))]:
+for path in [root / "README.md", root / "AGENTS.md", root / "ROADMAP.md", *sorted((root / "docs").rglob("*.md"))]:
     for dest in re.findall(r"\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
         if "://" in dest or dest.startswith("#"):
             continue
@@ -19,5 +19,5 @@ for failure in failures:
     print(failure)
 if failures:
     raise SystemExit(1)
-print("PASS public README/architecture links and 18-table schema")
+print("PASS public document links and 18-table schema")
 print("PASS optional local development-document links" if (root / 'docs/README.md').exists() else "SKIP private development documents (not distributed)")
