@@ -1095,6 +1095,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		return
 	}
 	routeKnowledgeQuestion(routed, query)
+	resolveHistoryReference(routed, query, history)
 	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
 	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
 	factResourceID := ""

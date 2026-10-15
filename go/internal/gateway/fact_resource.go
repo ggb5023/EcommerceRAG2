@@ -20,9 +20,109 @@ var catalogRecommendation = regexp.MustCompile(`有没有.*适合|recommend.*for
 var liveCatalogFact = regexp.MustCompile(`现在|当前|今天|库存|现货|有货|价格|报价|多少钱|current|today|stock|price|available`)
 var productReference = regexp.MustCompile(`刚才|上一轮|之前.*商品|那件|同一.*商品|that product|same product|previous product`)
 var skuToken = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
+var skuIdentifierToken = regexp.MustCompile(`(?i)\bSKU[-_][A-Za-z0-9][A-Za-z0-9_-]*\b`)
+var productContext = regexp.MustCompile(`(?i)商品|产品|SKU|耳机|杯子|商品款|product|item`)
+var standardReference = regexp.MustCompile(`沿用.{0,8}(上一问|上一轮).{0,8}标准|沿用上一问的标准|沿用上一轮的标准|刚才.{0,8}标准`)
+var standardToken = regexp.MustCompile(`(?i)(USB[- ]C|USB[- ]?[0-9]+(?:\.[0-9]+)*|IEEE[- ]?[0-9]+(?:\.[0-9]+)*|ISO[- ]?[0-9]+(?:[-:.][0-9]+)*|IEC[- ]?[0-9]+(?:[-:.][0-9]+)*)`)
 var promotionQuestion = regexp.MustCompile(`促销|满减|活动.*名额|promotion`)
 var supportedLiveFact = regexp.MustCompile(`库存|现货|有货|价格|报价|多少钱|订单|物流|stock|price|order|logistics`)
 var noticeScopeQuestion = regexp.MustCompile(`影响所有店铺|覆盖所有店铺|是否所有店铺|公告.*适用范围|all shops.*affected|scope of.*notice`)
+
+// selectedHistoryResource only trusts the nearest prior user message that names
+// a resource. Assistant suggestions are never a selection or authorization.
+func selectedHistoryResource(history string, pattern *regexp.Regexp) (string, bool) {
+	var messages []historyMessage
+	if json.Unmarshal([]byte(history), &messages) != nil {
+		return "", false
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		matches := pattern.FindAllString(messages[i].Content, -1)
+		if len(matches) == 0 {
+			if pattern == skuIdentifierToken && productContext.MatchString(messages[i].Content) {
+				return "", false
+			}
+			continue
+		}
+		unique := make(map[string]struct{}, len(matches))
+		for _, match := range matches {
+			unique[match] = struct{}{}
+		}
+		if len(unique) != 1 {
+			return "", false
+		}
+		for value := range unique {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+// resolveHistoryReference repairs only an explicit, unique reference to the
+// immediately available user history. It never treats history as current facts.
+func resolveHistoryReference(response *ragv1.UnderstandResponse, query, history string) {
+	if response == nil {
+		return
+	}
+	lower := strings.ToLower(query)
+	if productReference.MatchString(lower) && liveCatalogFact.MatchString(lower) {
+		if sku, ok := selectedHistoryResource(history, skuIdentifierToken); ok {
+			response.Intent = "factual"
+			response.InformationSource = "realtime_business"
+			response.RequiredFactTools = nil
+			if regexp.MustCompile(`库存|现货|有货|stock|available`).MatchString(lower) {
+				response.RequiredFactTools = append(response.RequiredFactTools, "get_stock")
+			}
+			if regexp.MustCompile(`价格|报价|多少钱|price`).MatchString(lower) {
+				response.RequiredFactTools = append(response.RequiredFactTools, "get_price")
+			}
+			response.Entities = []*ragv1.EntitySlot{{Name: "sku", Value: sku, Confidence: 1}}
+			response.Clarification = ""
+			response.RewrittenQuery = query
+		}
+		return
+	}
+	if !standardReference.MatchString(query) || standardToken.MatchString(query) {
+		return
+	}
+	var messages []historyMessage
+	if json.Unmarshal([]byte(history), &messages) != nil {
+		return
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" || !strings.Contains(messages[i].Content, "标准") {
+			continue
+		}
+		standard, ok := selectedHistoryResourceForMessage(messages[i].Content, standardToken)
+		if !ok {
+			return
+		}
+		response.Intent = "knowledge"
+		response.InformationSource = "knowledge"
+		response.RequiredFactTools = nil
+		response.Entities = nil
+		response.Clarification = ""
+		response.RewrittenQuery = standard + " 标准最新版本及发布日期；" + query
+		return
+	}
+}
+
+func selectedHistoryResourceForMessage(content string, pattern *regexp.Regexp) (string, bool) {
+	matches := pattern.FindAllString(content, -1)
+	unique := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		unique[match] = struct{}{}
+	}
+	if len(unique) != 1 {
+		return "", false
+	}
+	for value := range unique {
+		return value, true
+	}
+	return "", false
+}
 
 func routeKnowledgeQuestion(response *ragv1.UnderstandResponse, query string) {
 	lower := strings.ToLower(query)
@@ -76,27 +176,8 @@ func routedProductResource(response *ragv1.UnderstandResponse, query, history st
 	if !productReference.MatchString(strings.ToLower(query)) || len(skuToken.FindAllString(query, -1)) > 0 {
 		return "", false
 	}
-	var messages []historyMessage
-	if json.Unmarshal([]byte(history), &messages) != nil {
-		return "", false
-	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != "user" {
-			continue
-		}
-		tokens := skuToken.FindAllString(messages[i].Content, -1)
-		if len(tokens) == 0 {
-			continue
-		}
-		// Duplicates are not alternative products. Distinct candidates are
-		// ambiguous; an assistant's choice cannot resolve that ambiguity.
-		unique := map[string]bool{}
-		for _, token := range tokens {
-			unique[token] = true
-		}
-		return id, len(unique) == 1 && unique[id]
-	}
-	return "", false
+	selected, ok := selectedHistoryResource(history, skuIdentifierToken)
+	return id, ok && selected == id
 }
 
 // Drop whole older messages rather than truncating an identifier or selecting

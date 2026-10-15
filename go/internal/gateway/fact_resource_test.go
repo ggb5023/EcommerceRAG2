@@ -130,3 +130,67 @@ func TestHistoryBoundsDropWholeMessagesAndNeverSplitAmbiguousReferences(t *testi
 		t.Fatal("oversized reference must be omitted, not truncated")
 	}
 }
+
+func TestHistoricalUniqueSKUOverridesControlClarificationAndRereadsFacts(t *testing.T) {
+	history, _ := json.Marshal([]historyMessage{
+		{Role: "user", Content: "请介绍蓝牙耳机 SKU-EAR-200 的库存历史快照及其适用限制。"},
+		{Role: "assistant", Content: "这款耳机可能有货；另一个选择是 SKU-EAR-201。"},
+	})
+	response := &ragv1.UnderstandResponse{Intent: "clarification", InformationSource: "knowledge",
+		Clarification: "请提供SKU编号", RewrittenQuery: "询问库存"}
+	query := "刚才那件商品现在还有货吗？"
+	resolveHistoryReference(response, query, string(history))
+	if response.Intent != "factual" || response.InformationSource != "realtime_business" ||
+		response.Clarification != "" || len(response.RequiredFactTools) != 1 || response.RequiredFactTools[0] != "get_stock" ||
+		len(response.Entities) != 1 || response.Entities[0].GetValue() != "SKU-EAR-200" {
+		t.Fatalf("unique user-selected SKU was not restored: %+v", response)
+	}
+	if id, ok := routedProductResource(response, query, string(history)); !ok || id != "SKU-EAR-200" {
+		t.Fatalf("restored SKU did not pass resource check: %q %v", id, ok)
+	}
+}
+
+func TestHistoricalSKUResolutionIgnoresAssistantAndRejectsMultipleUserChoices(t *testing.T) {
+	for _, test := range []struct {
+		name, user, assistant string
+	}{
+		{name: "assistant_only", assistant: "SKU-EAR-200 有货"},
+		{name: "multiple_user_candidates", user: "请比较 SKU-EAR-200 和 SKU-EAR-201"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			history, _ := json.Marshal([]historyMessage{{Role: "user", Content: test.user}, {Role: "assistant", Content: test.assistant}})
+			response := &ragv1.UnderstandResponse{Intent: "clarification", Clarification: "请提供SKU编号"}
+			resolveHistoryReference(response, "刚才那件商品现在还有货吗？", string(history))
+			if response.Intent != "clarification" || len(response.Entities) != 0 {
+				t.Fatalf("ambiguous or assistant-only identity was accepted: %+v", response)
+			}
+		})
+	}
+}
+
+func TestHistoricalUniqueStandardContinuesToEvidenceSearch(t *testing.T) {
+	history, _ := json.Marshal([]historyMessage{{Role: "user", Content: "请说明 USB-C 标准资料中的版本与发布日期限制。"},
+		{Role: "assistant", Content: "也可以比较 USB 3.2。"}})
+	response := &ragv1.UnderstandResponse{Intent: "clarification", InformationSource: "knowledge",
+		Clarification: "您指哪项标准？", RequiredFactTools: []string{"get_stock"}}
+	query := "沿用上一问的标准，哪一条是最新版本？"
+	resolveHistoryReference(response, query, string(history))
+	if response.Intent != "knowledge" || response.Clarification != "" || len(response.RequiredFactTools) != 0 ||
+		!strings.Contains(response.RewrittenQuery, "USB-C") || !strings.Contains(response.RewrittenQuery, "最新版本") {
+		t.Fatalf("unique user-selected standard did not continue into retrieval: %+v", response)
+	}
+}
+
+func TestHistoricalStandardMustBeUniqueInNearestUserQuestion(t *testing.T) {
+	for _, user := range []string{
+		"請比较 USB-C 和 USB 3.2 标准的发布日期。",
+		"请说明某项标准的发布日期。",
+	} {
+		history, _ := json.Marshal([]historyMessage{{Role: "user", Content: user}})
+		response := &ragv1.UnderstandResponse{Intent: "clarification", Clarification: "您指哪项标准？"}
+		resolveHistoryReference(response, "沿用上一问的标准，哪一条是最新版本？", string(history))
+		if response.Intent != "clarification" || response.Clarification == "" {
+			t.Fatalf("ambiguous or unnamed standard was resolved: %+v", response)
+		}
+	}
+}
