@@ -2,7 +2,7 @@
 
 [项目入口](../README.md) · [导入知识](knowledge.md) · [客服操作](support.md) · [备份恢复](backup.md)
 
-此部署运行一个商家、一家店铺。客户匿名咨询；员工使用本地 Keycloak 登录。订单、实时价格、库存与配送承诺不在首版能力内。开发验收与生产验收分开；当前不能宣称生产就绪。
+此部署运行一个商家、一家店铺。客户匿名咨询；员工使用本地 Keycloak 登录。订单、实时价格、库存与配送承诺不在首版能力内。项目仍在开发阶段，尚未经过生产环境验证。
 
 ## 准备
 
@@ -35,7 +35,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 
 默认仅绑定本机 Web 端口。需要对外开放时，在初始化时显式设置 `--bind 0.0.0.0`，同时配置主机防火墙和有效证书。数据库、Redis 和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；容器内同一域名由 Compose edge 别名解析。
 
-本工程开发验收使用已有共享账本时，另外传入 `--budget-dir`、`--budget-file`、`--budget-id` 和对应 `--budget-cny`，复用原账本，不复制、不重建。账本目录及文件所有者必须与运行 AI/worker 的 UID 一致；不能通过放宽权限绕过检查。
+已有预算账本时，传入 `--budget-dir`、`--budget-file`、`--budget-id` 和对应的 `--budget-cny` 复用它，不要复制或重建。账本目录和文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
 
 安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后在 Keycloak 修改密码。默认管理员 `admin`、客服 `support`。Keycloak 的 bootstrap 管理员属于独立运维身份，其配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。
 

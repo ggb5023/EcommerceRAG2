@@ -78,8 +78,12 @@ class PrivacyControls(unittest.TestCase):
                 self.assertTrue(privacy.blocked_path(name))
 
     def test_curated_usage_docs_are_allowed_but_private_topics_remain_blocked(self):
-        for name in ("install","knowledge","support","backup","development"):
+        for name in ("product","install","knowledge","support","backup","development"):
             self.assertFalse(privacy.blocked_path(f"docs/{name}.md"))
+        self.assertFalse(privacy.blocked_path("docs/decisions/0001-product-positioning.md"))
+        self.assertTrue(privacy.blocked_path("docs/decisions/notes.md"))
+        self.assertTrue(privacy.blocked_path("docs/decisions/0001-x/private.md"))
+        self.assertTrue(privacy.blocked_path("HANDOFF.md"))
         self.assertTrue(privacy.blocked_path("docs/customer-report.md"))
         self.assertTrue(privacy.blocked_path(".local/dev-docs/docs/install.md"))
 
@@ -95,9 +99,9 @@ class PrivacyControls(unittest.TestCase):
         self.assertNotIn(secret.encode(), result.stdout + result.stderr)
 
     def test_curated_root_docs_allowed_but_archive_blocked(self):
-        for name in ('AGENTS.md', 'HANDOFF.md', 'FACTS.md'):
+        for name in ('AGENTS.md', 'ROADMAP.md'):
             (self.repo / name).write_text('Curated project guidance\n')
-        self.git('add', 'AGENTS.md', 'HANDOFF.md', 'FACTS.md')
+        self.git('add', 'AGENTS.md', 'ROADMAP.md')
         self.assertEqual(self.guard().returncode, 0)
 
         archive = self.repo / 'archive'

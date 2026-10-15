@@ -1,92 +1,97 @@
-# 稳定架构摘要
+# 架构
 
-本文件公开说明 V2 的稳定职责与约束。必须遵守的工程规则见 [AGENTS.md](../AGENTS.md)，已确认的稳定事实见 [FACTS.md](../FACTS.md)，启动、迁移和验证入口见 [README.md](../README.md)。实现字段以 Proto、迁移和源码为准；本文不记录窗口进度、环境地址、预算账本或验收报告。
+[项目入口](../README.md) · [产品定位](product.md) · [路线图](../ROADMAP.md) · [开发指南](development.md)
 
-## 服务与入口
+本文描述**目标架构**和必须保留的设计约束，并列出当前实现与目标的差距。字段和表结构以 `proto/`、`sql/migrations/` 和源码为准，本文不重复。
 
-| 层 | 职责与边界 |
-|---|---|
-| 客服 `web/`、管理 `admin-web/` | Vue/TypeScript 前端通过 Go HTTP/SSE 提交会话、资料和控制操作；认证可跳转受配置约束的 Keycloak 登录页；不直接访问 Python 或数据库 |
-| Go 控制面 | 唯一外部业务入口，负责身份、授权、租户/店铺范围、事实 API、审批、命令对账、业务执行终态、SSE 和审计 |
-| Python AI 面 | LangChain/LangGraph 执行理解、检索、Embedding、Rerank、上下文门控、生成、解析和资料摄取；只消费 Go 签发的 scope |
-| FastAPI | Python 内部健康、就绪和受保护开发接口，不承载浏览器业务流量或业务执行终态 |
-| Proto/gRPC | Go 与 Python 的业务 RPC 契约和调用边界；字段源为 `proto/rag/v1/rag.proto` |
-| PostgreSQL/pgvector、pg_trgm | 持久化业务状态、版本、chunk、向量、事件和 checkpoint；受限服务角色落实表级写入所有权 |
-| Redis | 提供缓存与协调能力；缓存或锁不能替代数据库中的授权、租约、fencing 和持久化终态 |
+## 目标运行时
 
-活动服务入口是 `go/cmd/gateway`、`app.rpc.server`、`app.rpc.ingest_server` 和 `app.ingest.worker_main`。资料摄取 RPC 与 worker 独立于 AI RPC；Go 通过命令提交和对账驱动摄取，不运行资料 writer。开发工作树、旧工程参考与数据库运维职责见 FACTS；具体运行参数由受限配置提供。
+```text
+浏览器  /shop（顾客）  /support（客服）  /admin（商家）
+   │ HTTPS：HTTP + SSE
+┌──▼─────────────────────────────┐
+│ Go gateway（唯一对外入口）       │
+│  认证与会话 · 授权与店铺范围     │
+│  顾客会话 · 人工队列 · SSE       │
+│  管理 API · 审计 · 静态前端      │
+└──┬─────────────────────────────┘
+   │ gRPC（proto/rag/v1/rag.proto）
+┌──▼─────────────────────────────┐
+│ Python ai（单进程）              │
+│  RAG 工作流（LangGraph）         │
+│  检索 · 重排 · 生成 · 引用校验    │
+│  摄取 worker 循环：解析/切片/向量 │
+└──┬─────────────────────────────┘
+┌──▼──────────────────────────────────────┐
+│ PostgreSQL 16 + pgvector + pg_trgm       │
+│ 业务表 · 向量 · 摄取任务 · SSE 事件 · checkpoint │
+└─────────────────────────────────────────┘
+可选：Keycloak（OIDC）· Redis（缓存）    外部：百炼模型 API 或离线 mock
+```
 
-## 身份与适配边界
+默认部署是 3 个服务：`gateway`、`ai`、`postgres`。Keycloak 和 Redis 只在显式启用时运行。
 
-- **身份**：Go 的 `IdentityAdapter` 将可信身份映射为 tenant、user、角色、店铺范围、权限版本和撤权状态。固定开发身份或本地 OIDC mock 与正式 OIDC 使用同一职责边界；客户端参数和资料 manifest 不能赋予权限。
-- **授权**：Go 签发绑定请求及执行身份的 scope，并校验撤权、权限版本、有效期和资源归属。Python 必须回验，在检索、相邻 chunk、重排、生成上下文和引用前按该范围过滤，不得扩大权限。
-- **事实 API**：商品、库存、订单和物流等事实由 Go 的 `facts.Provider` 和平台适配器调用只读服务，保留版本、观察时间、mock 标记及租户/店铺/订单归属校验。事实不可用时失败关闭，不以资料快照替代当前事实。
-- **资料摄取**：受控源文件经过提交、解析、切片、Embedding、质量门控、审核、发布和查询。源 hash、处理版本、document/version/chunk 绑定及披露资格用于追溯；撤销与回退经控制命令执行。
-- **模型 Provider**：Python 通过显式 profile 适配 control、document/query Embedding、Rerank、generation。模型、维度、参数、错误、usage、deadline 和取消语义由 Provider 契约及配置确定；不混用不兼容向量，也不自动切换未经评测的模型。真实模型调用使用已授权环境和共享预算账本；离线 Provider 用于默认回归与故障注入。
+## 组件职责
 
-开发身份、商家 fake 和受控资料不构成真实身份或真实商家接入；真实模型调用也不能证明生产业务验收。证据分层与限制见 FACTS。
+| 组件 | 负责 | 不负责 |
+| --- | --- | --- |
+| `frontend/`（单一 Vue 工程） | 顾客页、客服工作台、商家管理台，按路由分区 | 直接访问 Python 或数据库 |
+| Go gateway | 身份（内置本地账号，OIDC 可选）、授权、店铺范围、顾客与员工会话、人工队列与领取、消息发布、SSE、管理 API、审计 | 检索、生成、资料解析 |
+| Python ai | 问题理解、检索、重排、上下文门控、生成、引用校验；资料解析、切片、Embedding、发布执行 | 签发权限、决定最终发布、对外 HTTP |
+| PostgreSQL | 全部持久状态，包括摄取任务队列（`SKIP LOCKED`）和租约 | — |
+| 模型 Provider | 百炼（生成、Embedding、Rerank）和离线 mock，共用一个接口 | 自动切换未评测的模型 |
 
-## 数据来源与服务目标
+## 核心流程
 
-`eval/public-data-sources.manifest.json` 管理公开数据集、开源服务目标和未解决的来源缺口，并记录类别、语言/司法辖区、许可与隐私状态、用途范围和获取状态。候选来源只有在原始条款、许可证范围、revision、字段/隐私审查和仓外存储均落实后才能准入；未满足时保持未下载。原始公开数据不进入 Git.
+**资料**：商家上传 → Go 记录提交意图 → Python worker 解析、切片、Embedding → 商家预览并审核 → 发布 → 可撤回、回滚。只有已发布、在有效期内、允许对外的版本才能参与回答。
 
-Go 显式选择固定开发身份、Keycloak OIDC bearer 或 `oidc_browser` profile，互不隐式回退；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。
+**问答**：顾客或客服提问 → Go 校验身份并签发 scope → Python 在 scope 内检索并生成 ANSWER、CLARIFY 或 HANDOFF 建议 → Go 重新校验权限、版本和引用后发布 → SSE 推送。最多追问一次，之后仍不足就转人工。
 
-浏览器 profile 使用专用 confidential client、授权码与 PKCE S256，Go 校验 state/nonce 和固定身份。令牌仅存于 Go；前端使用随机、HttpOnly、host-only Cookie，写请求校验准确 Origin 与会话 CSRF token。最多 4096 个进程内会话，绝对寿命 30 分钟，登录事务 5 分钟；刷新串行执行且不能升级旧权限。退出先撤销本地会话和 scope，再注销上游；Go 重启丢弃会话并保留持久化业务结果。HTTP 只在显式 numeric loopback 开发配置中允许；HTTPS Cookie 使用 Secure。该设计仅支持当前独立开发实例，不代表生产会话或身份验收。
+**人工**：会话状态是 `AI → WAITING_HUMAN → HUMAN → AI / CLOSED`。客服原子领取，租约 120 秒，每 30 秒续期；控制权变化时 epoch 递增，迟到的 AI 结果和过期客服的回复都会被拒绝。
 
-Medusa 2.18.0 是历史本地 REST 候选，本里程碑暂缓集成；后续恢复此轨须重新核验许可、安全和兼容性。此前 2.21.2 的非 Enterprise MIT 范围审计单独保留，不能证明默认运行路径已获准。未验收的目标不能写成已接入事实；本地服务和测试账号都不代表真实商家 API。
+## 契约
 
-Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库、DbCL 单项内容和 CC BY-SA 商品图片，首批候选排除图片并待字段审查。UCI Online Retail II 页面标注 CC BY 4.0、API 许可字段为空，解决差异并完成隐私审查前不下载或准入。中文官方 FAQ/政策和中文社区问答尚有来源缺口；英文社区问答单独评测并保留语言与许可归属，不能作为商家政策或客服答案真值。公开数据派生的 Medusa 库存/订单是本地测试记录，删除客户标识并绑定来源版本、输入 hash 和转换版本。
+- 浏览器到 Go：HTTP/SSE。顾客 `/v1/customer/`，客服 `/v1/support/`，管理 `/admin/v1/`。写请求校验 Origin、CSRF 和 Idempotency-Key。P1 补 OpenAPI 描述。
+- Go 到 Python：只用 `proto/rag/v1/rag.proto`。改动顺序是先改 proto，再运行 `bash scripts/generate-proto.sh`，最后用 `buf breaking` 检查兼容。不新增平行的 HTTP/JSON 业务接口。容器之间走 mTLS。
+- 数据库：只通过 `sql/migrations/` 的 checksum 迁移演进。
 
-以上均是数据来源或服务集成的开发证据，不构成生产商家数据或验收；`real_service_acceptance` 保持 `false`。冻结的 60 条案例、37 份合成文档、答案点和 evidence sidecar 继续独立，不由公开数据补写或改写。
+## 必须保留的设计约束
 
-## 跨语言契约
+这些约束来自现有实现，已被测试和验收证明有价值，重构时不能丢。保留理由见 [决策 0004](decisions/0004-retained-invariants.md)。
 
-Proto/gRPC 是唯一跨语言业务契约。字段、状态、错误、取消或 deadline 变化先更新 `proto/rag/v1/rag.proto`，再通过 `bash scripts/generate-proto.sh` 同步 Go/Python 生成代码。兼容检查使用 `scripts/check-proto.sh`；不得手改生成文件或另建平行业务 HTTP/JSON 接口。
+1. **Go 是唯一对外入口**。浏览器流量只到 Go；Python 的 FastAPI 只提供内部健康检查。
+2. **权限只由 Go 决定**。Python 只使用 Go 签发的 scope，并在检索、上下文和引用时再过滤一遍，不能扩权。
+3. **一张表只有一个写入方**，由受限数据库角色落实。Go 写会话、消息、执行、审计和控制命令；Python 写摄取的 job、version、chunk、发布状态以及 AI trace。双方不直接写对方的表。
+4. **迁移不可修改**。结构变化只能新增 checksum 迁移；应用进程不执行 DDL；在非超级用户、无 `BYPASSRLS` 的库上验证。
+5. **幂等**：同一幂等键绑定同一请求摘要，输入不同就拒绝。
+6. **租约和 fencing**：摄取任务带 owner、租约和递增 epoch，被接管后旧 worker 无法写入。
+7. **引用可追溯**：每条引用绑定 document/version/chunk；撤回或回滚后，旧答案和 SSE 回放都要重新核验。
+8. **AI 只给建议**：最终消息由 Go 发布，不直接推送模型的原始输出。
+9. **失败关闭**：证据不足、资料冲突或服务失败时转人工，不让模型硬答。
+10. **预算账本**：所有付费模型调用共用一个 SQLite 账本，调用前先预留费用；可重试错误最多重试一次，共用原 deadline。
+11. **冻结评测集**：60 条案例、37 份合成文档和答案点不为适配新功能而修改。
 
-自部署使用 `AuthorizationService.ValidateScope` 回验 Go 签发的 Proto scope，跨容器 RPC 使用 mTLS。`python/app/authorization.py` 的内部 HTTP 回验仅保留给显式本机 loopback 开发配置；自部署不能通过放开内部 HTTP 接口替代认证和证书配置。
+## 当前实现与目标的差距
 
-## 持久化与单写者
+| 方面 | 当前 | 目标 | 阶段 |
+| --- | --- | --- | --- |
+| Python 进程 | 3 个：`app.rpc.server`、`app.rpc.ingest_server`、`app.ingest.worker_main` | 1 个 `ai` 进程 | P1 |
+| 前端 | `web/` 和 `admin-web/` 两个工程 | 单一 `frontend/` | P1 |
+| 身份 | Keycloak 必选 | Go 内置本地账号，OIDC 可选 | P1 |
+| 部署 | Compose 有 9 个服务（含 bootstrap、edge、redis） | 3 个默认服务 | P1 |
+| 迁移 | 测试 fixture 混在 0005、0017、0019、0021 等正式迁移中 | 正式迁移链只含结构；fixture 单独加载 | P1 |
+| 脚本 | `scripts/` 下 75 个，含一次性验收脚本 | dev、ops 分类，10 个左右 | P1 |
+| 资料 | DOCX、Markdown、CSV、FAQ；无商品表结构，无时效 | 商品表结构化、生效和失效时间 | P2 |
+| 工作台 | 人工队列加员工 AI 辅助 | 建议回复、一键复制、知识缺口 | P2 |
 
-| 写入方 | 拥有的数据 |
-|---|---|
-| Go Gateway | 会话、turn、execution、证据快照、引用、`customer_reply`、SSE、授权及审计、控制命令意图和对账 |
-| Python AI | ASKING/LangGraph checkpoint、检索 trace |
-| Python 摄取 | source、document、job/item/version/chunk、发布状态、摄取命令回执及生命周期事件 |
+## 技术栈
 
-一张业务表只有一个写入方。Go 业务执行终态与 Python 摄取状态属于不同生命周期；Python 不写 Go 的最终答案、对外 SSE 或业务审计。Go 管理审批产生控制命令，Python 摄取执行并保存回执，Go 按回执对账，双方不直接写对方所属表。具体表和角色权限以 `sql/migrations/` 为准；禁止 SQL 直写最终结果绕过真实流程。
-
-数据库结构变化新增 checksum 迁移，不修改已应用的历史迁移。迁移在独立库、非超级用户且无 `BYPASSRLS` 条件下验证；基础设施管理者预先创建数据库、角色和扩展，业务应用不执行 DDL。
-
-## 执行与恢复约束
-
-- **权限与可见性**：检索仅使用当前授权、可见且发布的版本；过期、撤销或越权证据不能进入生成或成为可复制的顾客回复依据。引用必须绑定正确的 document/version/chunk。
-- **幂等与对账**：同一幂等键绑定同一请求摘要；不同输入冲突。控制命令和摄取回执持久化，未知提交通过既有命令对账，不能把超时当作未执行后盲目重做。
-- **租约与 fencing**：摄取 job/item 以 owner、租约和单调 fencing epoch 限制写入；接管后旧 worker 不能落库或发布，Redis 锁不能替代数据库条件更新。
-- **取消与失败关闭**：显式取消传播至 Go、gRPC、Python 和 Provider，取消后不得发布资料；deadline 和错误分类端到端保留。SSE 断线与显式取消分开处理，重连通过持久化事件回放。
-- **终态与恢复**：Go 持久化业务结果及连续 SSE 序号，支持 Last-Event-ID 回放。独立开发库采用单 Gateway 锁；重启将被中断的执行收敛为失败或取消，保留已完成及 ASKING 结果，不自动重发付费模型请求。这不是生产多实例恢复方案。
-
-## 技术栈与版本来源
-
-| 范围 | 技术及权威配置 |
-|---|---|
-| Go | HTTP/SSE、gRPC、pgx；`go/go.mod`、`go/go.sum` |
-| Python | LangChain/LangGraph、FastAPI、gRPC、psycopg；`python/pyproject.toml`、`python/uv.lock` |
-| 前端 | Vue、TypeScript、Vite；`web/package.json`、`admin-web/package.json` 及各自 `package-lock.json` |
-| Proto | `proto/rag/v1/rag.proto`、`buf.yaml`、`buf.gen.yaml`；仓库生成与兼容检查脚本 |
-| 数据库及协调 | PostgreSQL、pgvector、pg_trgm、Redis；`sql/migrations/`、`docker/db/docker-compose.yml`、`docker/db/images.lock.json` |
-| 工具链与运行 | `toolchains.lock.json` 及受限运行/Provider 配置；具体版本与参数以当前清单、锁文件和配置为准 |
-
-格式、测试、静态检查与完整工程检查入口由 AGENTS 定义，启动和隔离验证方法由 README 维护。私有专题、运行证据、窗口归档与历史快照留在 `.local/`；公开文档仅提取稳定且不敏感的结论。
-
-## 商家知识客服边界
-
-首版单商家单店铺，保留租户/店铺隔离；平台连接器由集成方实现，Medusa、公开商品双轨和实时业务工具暂缓。商家上传、预览、审核、发布资料，匿名客户只消费当前获准外部知识。
-
-Go 单写访客凭据摘要、会话、消息、执行、控制 epoch 与持久 SSE。访客 Cookie 闲置 24 小时、绝对 7 天，可跨刷新和 Go 重启恢复；员工会话仍为进程内 30 分钟。Python 的 ANSWER/CLARIFY/HANDOFF 是建议，Go 重验权限、版本、披露和引用再发布最终消息。最多澄清一次，超出能力、资料不足或失败进入人工队列。
-
-服务状态 AI/WAITING_HUMAN/HUMAN/CLOSED 与执行终态分离。客服原子领取 120 秒并每 30 秒续期；控制变化递增 epoch，迟到 AI 和过期客服不能发布。人工回复不伪造引用或自动入库。读取与 SSE 回放再次核验来源，撤回后旧正文/片段停止展示。
-
-自部署员工通过固定 OIDC subject 映射，由 Go 数据库提供并固定当前授权；刷新不能升级旧权限。内部容器使用 mTLS Proto/gRPC，含 AuthorizationService.ValidateScope。开发 loopback HTTP 回验仅为既有本机兼容入口，自部署不得放开它。应用不执行 DDL。客户检索轨迹由 AI 单写独立 customer_retrieval_trace，关联客户 execution；原员工 retrieval_trace 保持原义。
-
-公开操作入口见 [安装](install.md)、[知识导入](knowledge.md)、[客服操作](support.md)、[恢复](backup.md)和[开发边界](development.md)。
+| 范围 | 技术 | 版本来源 |
+| --- | --- | --- |
+| Go | HTTP/SSE、gRPC、pgx、go-oidc | `go/go.mod` |
+| Python | LangChain、LangGraph、FastAPI（内部）、gRPC、psycopg | `python/pyproject.toml`、`python/uv.lock` |
+| 前端 | Vue 3、TypeScript、Vite、vue-router | `package.json` 和锁文件 |
+| 契约 | Protobuf、buf | `buf.yaml`、`buf.gen.yaml` |
+| 存储 | PostgreSQL 16、pgvector、pg_trgm；Redis 可选 | `docker/db/` |
+| 模型 | 阿里云百炼（qwen 生成、1024 维 Embedding、Rerank） | `python/app/providers/` |
+| 工具链 | Go、Node、uv | `toolchains.lock.json` |

@@ -1,61 +1,50 @@
 # EcommerceRAG
 
-面向商家的开源电商客服 RAG 系统。单商家自部署、导入店铺知识，客户获得有来源的回答；知识不足时进入真实客服队列。
+开源、可自部署的电商客服知识引擎。导入店铺资料，得到一个**回答有出处、不乱承诺、答不了就转人工**的客服助手。
 
-商家入口：[安装](docs/install.md) · [知识导入](docs/knowledge.md) · [客服操作](docs/support.md) · [备份恢复](docs/backup.md) · [二次开发](docs/development.md)。客户入口 `/shop/my-shop`，员工工作台 `/support`，管理台 `/admin/overview`。自有代码采用 [MIT](LICENSE)，依赖保留[各自许可](THIRD_PARTY_NOTICES.txt)。
+面向淘宝、抖店、拼多多等平台上的中小商家。它不是电商平台，也不需要平台开放接口：客服在工作台拿到建议回复，复制回平台发送即可。
 
-This repository contains code, schemas, reusable deployment tools and versioned collaboration documents: [AGENTS.md](AGENTS.md) defines repository rules, [FACTS.md](FACTS.md) records stable facts, and [HANDOFF.md](HANDOFF.md) tracks current work. [docs/architecture.md](docs/architecture.md) is the public, stable architecture summary. Private topics, runtime evidence and per-window archives remain under `.local/dev-docs/`; environment configuration stays private under `.local/` or outside the repository. Private documents are not required for the public documentation checks.
+## 解决什么问题
 
-Public data candidates and source gaps are tracked in `eval/public-data-sources.manifest.json`; each source must pass license, privacy, provenance and use-scope review before acquisition. Keycloak has a local synthetic-account OIDC adapter; its pinned distribution and development container entry are in `docker/identity/`. Medusa, public-product imports and live order/inventory tools are deferred beyond the first knowledge-support milestone. These integrations are not production identity or merchant services. Public-source data, local service integration and locally derived test transactions remain distinct from production merchant data; `real_service_acceptance` stays `false`.
+- 发货、退换、尺码、活动这类重复问题，占了客服大部分时间；
+- 答错包邮、退款或活动价，会引起售后纠纷和差评；
+- 资料散在后台、文档和群里，新客服上手慢；
+- 大促期间咨询量成倍增加。
 
-Run `bash scripts/install-git-hooks.sh` after cloning, then `bash scripts/check.sh` in a configured development environment. The local hooks allow curated public documents, including architecture/install/knowledge/support/backup/development, and approved synthetic fixture documents; all other `docs/` content and `.local/` remain excluded. Hooks scan allowed files for private environment values and common credential patterns; each contributor must enable them. Commit one completed function or documentation unit at a time, staging only its files or hunks. By convention, `origin` is the Gitee primary repository and `github` is the GitHub mirror; verify actual remotes with `git remote -v`. Remote writes require explicit authorization.
+## 核心能力
 
-Deployment requires a protected `/etc/ecommerce-rag/infra.env`, based on `scripts/infra.env.example`. Missing or invalid settings stop deployment. Supply real credentials separately outside this repository.
+- **资料管理**：上传政策文档、FAQ、CSV，可预览、审核、发布、撤回、回滚，只有已发布的内容参与回答。
+- **带出处的回答**：每条结论绑定来源片段；资料撤回后，旧回答随之失效。
+- **不确定就收手**：最多追问一次，仍然不足就转人工，不编造。
+- **客服工作台**：人工队列、原子领取、人工回复；AI 辅助只给建议，不替客服发送。
+- **可度量**：内置电商评测集，统计回答质量和模型费用。
 
-For local V2 development, migrate an explicitly configured independent database with `python/.venv/bin/python scripts/v2-migrate.py --env /path/to/protected-migration.env`, then run `bash scripts/v2-local-services.sh --env /path/to/protected-runtime.env`. The migration file accepts only `V2_` keys; keep migration and runtime configuration separate. The owned regular runtime file must have mode `0600`; provide each service's restricted database connection, development tenant/user, and an explicit artifact-storage profile. The launcher uses separate environments for Gateway, AI RPC, ingestion RPC and worker, waits for their health/heartbeat checks, and stops the owned stack on a failed process or readiness timeout. Its default model profile is offline `v2_langchain_mock`; online integration requires explicit `v2_langchain_bailian`, a protected Provider configuration, and an authorized budget. It does not create databases or restart shared infrastructure.
+正在开发中的能力（商品表结构化、活动时效、一键复制、知识缺口）见 [路线图](ROADMAP.md)。
 
-Run the two Vite frontends separately against the HTTP address from the V2 runtime configuration. For example, set `VITE_API_PROXY_TARGET=http://127.0.0.1:<HTTP_ADDR_PORT>` for `web/` and `VITE_ADMIN_API_PROXY_TARGET=http://127.0.0.1:<HTTP_ADDR_PORT>` for `admin-web/`; do not rely on their legacy default ports when validating the V2 stack.
+## 快速开始
 
-Business migrations require a non-superuser without `BYPASSRLS`. An infrastructure administrator first creates the independent database, service roles, and `vector`/`pg_trgm` extensions; application processes never apply DDL.
+需要 Linux、Docker Engine 和 Compose v2，以及一个阿里云百炼账号。完整步骤见 [安装](docs/install.md)。
 
-The active runtime is `go/cmd/gateway`, `app.rpc.server`, `app.rpc.ingest_server`, and `app.ingest.worker_main`. Legacy Python RPC entrypoints and synthetic HTTP runners have been retired. HTTP `/v1`, Proto `rag.v1`, and historical SQL migrations retain their names. Go submits and controls ingestion; the independent Python worker owns ingestion writes.
+部署后的入口：
 
-With the offline V2 stack and both Vite frontends running, execute `cd web && node tests/v2-lifecycle.browser.mjs` for upload, review, publish, cited answers, rollback, and revocation. `node tests/workspace.browser.mjs` checks customer sessions/SSE, and `V2_AUTHORITY_FIXTURE_ENV=/path/to/protected-test.env node tests/v2-authority.browser.mjs` checks actual revocation and permission changes in the isolated database. The authority harness requires a dedicated `ecr_v2_test_` database and its restricted migration credentials for authority fixtures.
+| 地址 | 用途 |
+| --- | --- |
+| `/admin/overview` | 商家：店铺设置、资料导入与审核 |
+| `/support` | 客服：人工队列与回复 |
+| `/shop/my-shop` | 顾客咨询页 |
 
-To verify four-process crash recovery, stop the development stack first and run `cd web && V2_RESTART_RUNTIME_ENV=/path/to/protected-runtime.env node tests/v2-restart.browser.mjs`. Its configured ports must be free; the two Vite frontends must proxy to that stack's HTTP port. This offline harness owns its processes, interrupts an active execution, verifies browser recovery and SSE replay, preserves DONE/ASKING results, then shuts down the stack. Each browser run creates a private metadata report in a unique directory under `.local/`. An interrupted execution becomes FAILED with `gateway_restarted`; the launcher does not automatically repeat paid requests.
+## 文档
 
-For isolated ingestion/retrieval integration tests, run `V2_INTEGRATION_ENV=/path/to/protected-test.env python/.venv/bin/pytest -q python/tests/test_v2_ingest_database.py python/tests/test_postgres_retriever.py`. Use a dedicated migrated database without another worker. The ingestion suite exercises real worker termination, natural lease expiry, fencing, publication commands, and artifact recovery with an offline Provider; it does not substitute for live Provider acceptance.
+| 读者 | 文档 |
+| --- | --- |
+| 商家 | [安装](docs/install.md) · [导入知识](docs/knowledge.md) · [客服操作](docs/support.md) · [备份恢复](docs/backup.md) |
+| 开发者 | [产品定位](docs/product.md) · [架构](docs/architecture.md) · [路线图](ROADMAP.md) · [开发指南](docs/development.md) · [决策记录](docs/decisions/) |
+| AI 助手 | [AGENTS.md](AGENTS.md) |
 
-From `go/`, run `V2_INTEGRATION_ENV=/path/to/protected-test.env go test ./internal/admin ./internal/ingestclient -run TestDatabase -v` for administrative grants, audit protection, and command reconciliation. `ECR_V2_GO_PYTHON=1 go test ./internal/gateway -run TestGoCallsDedicatedPythonV2GRPC -v` checks the generated client against a real temporary Python RPC process.
+## 技术栈
 
-Every paid Provider caller (AI, worker, smoke, evaluation) must share `V2_ONLINE_BUDGET_CNY`, `V2_ONLINE_BUDGET_ID`, and an absolute `V2_ONLINE_BUDGET_LEDGER` path. Initialize the authorized window once with `python/.venv/bin/python scripts/provider-budget.py initialize --ledger /path/to/private/budget.sqlite --window-id <authorized-window> --cap-cny <authorized-cap>` in an owned `0700` directory. Use `status` with the same arguments to inspect it. The `0600` SQLite ledger reserves a conservative cost before each attempt, serializes concurrent reservations, and keeps reservations after failures, missing usage, cancellation, and restarts. Runtime refuses missing/corrupt ledgers, changed caps, or unsupported pricing. Preserve this ledger across restarts and acceptance runs; creating another window requires a separate authorization. Reviewed Beijing pricing is in `python/app/providers/budget.py`; update it when models or prices change.
+Go（HTTP/SSE、gRPC）、Python（LangChain、LangGraph）、Vue 3、PostgreSQL + pgvector、阿里云百炼。详见 [架构](docs/architecture.md)。
 
-An explicitly authorized higher development cap can use `scripts/provider-budget.py extend --ledger /path/to/private/budget.sqlite --window-id <same-window> --cap-cny <current-cap> --new-cap-cny <authorized-cap> --authorization <metadata-id>`. Stop online callers first and synchronize their protected cap configurations afterward. Extension records old/new caps in the same ledger, retains all attempts and reservations, and blocks callers still configured with the old cap. Runtime cannot extend itself; extension cannot recover corrupted or pricing-frozen ledgers. Do not create another ledger to bypass a spent window.
+## 许可
 
-
-The Go gateway can explicitly select `V2_IDENTITY_PROFILE=oidc` with an owned
-0600 `V2_OIDC_CONFIG_FILE`; its shape is shown in
-`go/internal/identity/config.example.json`. Keep the confidential client secret
-and account credentials outside Git. This profile verifies bearer tokens and
-live revocation and matches existing Go database permissions; it has no fixed
-identity fallback. The existing HTTP/SSE business routes are preserved.
-
-For browser login, use the explicit `oidc_browser` identity profile and an owned
-0600 configuration shaped like `go/internal/identity/browser-config.example.json`.
-Its separate confidential Keycloak client uses authorization code and PKCE S256,
-with password grant disabled. Tokens remain in Go; both frontends use a host-only
-HttpOnly cookie and CSRF-protected writes. Proxy `/v1/auth` and business requests
-to the same Gateway. Forward the configured frontend ports and local Keycloak
-port through SSH; only authentication redirects visit Keycloak. Return origins
-and callback URLs come from configuration. Sessions expire after 30 minutes and
-are discarded on Gateway restart; persisted business results are retained.
-`scripts/provision-keycloak-browser.py` defaults to PLAN and requires explicit
-protected inputs for its local synthetic-realm `--live` mode. Browser acceptance
-is separate from bearer protocol and production evidence.
-
-`python3 scripts/seal-v1-database.py` remains a historical, explicit legacy
-backup/restore and read-only sealing tool. The identified unused V1 database
-was subsequently retired under separate authorization after another isolated
-restore verification. Do not reuse its old configuration as an active database
-entrypoint. Old code and backup evidence are retained; no expiry automatically
-deletes any database. See [HANDOFF.md](HANDOFF.md) for the current boundary.
+自有代码采用 [MIT](LICENSE)，依赖保留各自的许可，见 [第三方声明](THIRD_PARTY_NOTICES.txt)。

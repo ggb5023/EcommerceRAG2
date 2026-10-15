@@ -3,8 +3,7 @@
 *.md
 !/README.md
 !/AGENTS.md
-!/HANDOFF.md
-!/FACTS.md
+!/ROADMAP.md
 !eval/
 !eval/README.md
 !data/
@@ -12,6 +11,9 @@
 !data/synthetic/**/*.md
 /docs/**
 !/docs/architecture.md
+!/docs/product.md
+!/docs/decisions/
+!/docs/decisions/[0-9][0-9][0-9][0-9]-*.md
 !/docs/install.md
 !/docs/knowledge.md
 !/docs/support.md

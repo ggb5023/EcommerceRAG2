@@ -16,7 +16,12 @@ SECRET_SCANNER = Scanner()
 PUBLIC_NAME = 'EcommerceRAG Maintainers'
 PUBLIC_EMAIL = 'maintainers@example.invalid'
 PUBLIC_ARCHITECTURE_PATH = 'docs/architecture.md'
-PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'docs/install.md', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md'}
+PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'docs/product.md', 'docs/install.md', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md'}
+PUBLIC_DECISION = re.compile(r'docs/decisions/[0-9]{4}-[a-z0-9-]+\.md')
+
+
+def public_document(name):
+    return name in PUBLIC_DOCUMENT_PATHS or PUBLIC_DECISION.fullmatch(name) is not None
 PROJECT_RECORDS_MANIFEST = 'project-records/manifest.json'
 PATTERNS = (
     rb'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',
@@ -51,12 +56,12 @@ def blocked_path(name, allow_project_record=False):
         if allow_project_record:
             return True
     private_dirs = {'docs', 'archive', 'backups', '.private', '.local', '.codex', '.workbuddy-ai', '.ssh', '.venv', 'node_modules'}
-    if name not in PUBLIC_DOCUMENT_PATHS and any(part.lower() in private_dirs for part in path.parts):
+    if not public_document(name) and any(part.lower() in private_dirs for part in path.parts):
         return True
     public_markdown = (
         name == 'README.md'
-        or name in {'AGENTS.md', 'HANDOFF.md', 'FACTS.md'}
-        or name in PUBLIC_DOCUMENT_PATHS
+        or name in {'AGENTS.md', 'ROADMAP.md'}
+        or public_document(name)
         or name == 'eval/README.md'
         or (name.startswith('data/synthetic/') and path.suffix.lower() in {'.md', '.markdown'})
         or name == 'data/web/README.md'
