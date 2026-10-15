@@ -1,6 +1,8 @@
 """Regression tests for private content, outgoing history and fail-closed setup."""
 from contextlib import contextmanager
+import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -104,6 +106,54 @@ class PrivacyControls(unittest.TestCase):
         self.git('add', '-f', 'archive/conversation.md')
         self.assertEqual(self.guard().returncode, 1)
 
+    def test_project_records_are_manifest_declarated(self):
+        records = self.repo / 'project-records'
+        records.mkdir()
+        report = records / 'report.json'
+        report.write_text('{"status":"PASS"}\n')
+        manifest = {
+            'manifest_version': 'project-records-v1',
+            'files': [{
+                'path': 'project-records/report.json',
+                'classification': 'acceptance_metadata',
+                'source_sha256': hashlib.sha256(report.read_bytes()).hexdigest(),
+                'export_sha256': hashlib.sha256(report.read_bytes()).hexdigest(),
+                'size': report.stat().st_size,
+                'redaction_status': 'metadata_only_redacted',
+                'redistribution_status': 'internal_project_record',
+            }],
+        }
+        (records / 'manifest.json').write_text(json.dumps(manifest))
+        self.git('add', 'project-records')
+        self.assertEqual(self.guard().returncode, 0)
+        (records / 'unlisted.json').write_text('{}\n')
+        self.git('add', 'project-records/unlisted.json')
+        self.assertEqual(self.guard().returncode, 1)
+
+    def test_project_records_hash_path_and_content_are_enforced(self):
+        records = self.repo / 'project-records'
+        records.mkdir()
+        report = records / 'report.json'
+        report.write_bytes(b'{}')
+        item = dict(path='project-records/report.json', size=2, source_kind='generated',
+                    source_sha256=None, export_sha256=hashlib.sha256(b'{}').hexdigest(),
+                    redistribution_status='internal_project_record')
+        manifest = dict(manifest_version='project-records-v1', files=[item])
+        target = records / 'manifest.json'
+        target.write_text(json.dumps(manifest))
+        self.git('add', 'project-records')
+        self.assertEqual(self.guard().returncode, 0)
+        item['export_sha256'] = '0'*64
+        target.write_text(json.dumps(manifest))
+        self.git('add', 'project-records/manifest.json')
+        self.assertEqual(self.guard().returncode, 1)
+        item['path'] = 'project-records/../outside'
+        target.write_text(json.dumps(manifest))
+        self.git('add', 'project-records/manifest.json')
+        self.assertEqual(self.guard().returncode, 1)
+        self.assertTrue(privacy.blocked_path('project-records/private.key', allow_project_record=True))
+        self.assertTrue(privacy.private_content(b'\x00'+('sk-'+'x'*32).encode()))
+
     def test_values_not_printed(self):
         samples = ['sk-'+'x'*32, 'tvly-'+'x'*32, '.'.join(['10', '27', '5', '19']), 'C'+':/Users/example/project']
         for value in samples:
@@ -142,6 +192,7 @@ class PrivacyControls(unittest.TestCase):
         shutil.copytree(ROOT / '.githooks', self.repo / '.githooks')
         (self.repo / 'scripts').mkdir()
         shutil.copy2(ROOT / 'scripts/privacy_guard.py', self.repo / 'scripts/privacy_guard.py')
+        shutil.copy2(ROOT / 'scripts/publication_scan.py', self.repo / 'scripts/publication_scan.py')
         for hook in (self.repo / '.githooks').iterdir():
             hook.chmod(0o755)
         self.git('config', 'core.hooksPath', '.githooks')

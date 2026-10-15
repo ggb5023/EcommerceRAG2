@@ -1,15 +1,23 @@
 """Check tracked content and reachable history without printing matched values."""
 import argparse
+import hashlib
 import ipaddress
+import json
 from pathlib import PurePosixPath
 import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from publication_scan import Scanner, load_known, safe_path
+
+SECRET_SCANNER = Scanner()
+
 PUBLIC_NAME = 'EcommerceRAG Maintainers'
 PUBLIC_EMAIL = 'maintainers@example.invalid'
 PUBLIC_ARCHITECTURE_PATH = 'docs/architecture.md'
-PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'docs/install.md', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md'}
+PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'docs/install.md', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md'}
+PROJECT_RECORDS_MANIFEST = 'project-records/manifest.json'
 PATTERNS = (
     rb'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',
     rb'LTAI[A-Za-z0-9]{16,}',
@@ -25,10 +33,23 @@ def git(*args, data=None):
     return subprocess.check_output(['git', *args], input=data, stderr=subprocess.PIPE)
 
 
-def blocked_path(name):
+def blocked_path(name, allow_project_record=False):
     path = PurePosixPath(name)
     lower = name.lower()
     base = path.name.lower()
+    if not safe_path(name):
+        return True
+    if lower.startswith('project-records/'):
+        if any(p.lower() in {'.local', '.ssh', '.git', '.codex', '.private', '.venv', 'node_modules', 'backups'} for p in path.parts):
+            return True
+        if base.startswith(('.env', 'id_rsa', 'id_ed25519')) or path.suffix.lower() in {'.pem', '.key', '.dump', '.sqlite', '.db', '.log'}:
+            return True
+        if name != PROJECT_RECORDS_MANIFEST and not allow_project_record:
+            return True
+        if allow_project_record and path.suffix.lower() in {'.md', '.markdown', '.txt', '.json', '.yaml', '.yml', '.csv', '.html', '.docx', '.bin'}:
+            return False
+        if allow_project_record:
+            return True
     private_dirs = {'docs', 'archive', 'backups', '.private', '.local', '.codex', '.workbuddy-ai', '.ssh', '.venv', 'node_modules'}
     if name not in PUBLIC_DOCUMENT_PATHS and any(part.lower() in private_dirs for part in path.parts):
         return True
@@ -49,8 +70,67 @@ def blocked_path(name):
     return any(word in lower for word in ('chat-history', 'chat_history', 'conversation-history', 'conversation_history'))
 
 
+def project_records_policy(entries, blob_reader):
+    """Return the manifest-declared project-record paths and policy failures."""
+    names = {name for name, _ in entries if name.startswith('project-records/')}
+    if not names:
+        return set(), []
+    failures = []
+    manifest_oids = [oid for name, oid in entries if name == PROJECT_RECORDS_MANIFEST]
+    if len(manifest_oids) != 1:
+        return set(), ['project-records manifest is required exactly once']
+    try:
+        payload = json.loads(blob_reader(manifest_oids[0]).decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return set(), ['project-records manifest is invalid']
+    if not isinstance(payload, dict) or payload.get('manifest_version') != 'project-records-v1':
+        failures.append('project-records manifest version is invalid')
+    records = payload.get('files') if isinstance(payload, dict) else None
+    if not isinstance(records, list) or not records:
+        failures.append('project-records manifest files must be a non-empty list')
+        records = []
+    allowed = set()
+    by_name = dict(entries)
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            failures.append(f'project-records entry {index} is not an object')
+            continue
+        path = record.get('path')
+        if (not isinstance(path, str) or not safe_path(path) or not path.startswith('project-records/')
+                or path == PROJECT_RECORDS_MANIFEST):
+            failures.append(f'project-records path {index} is invalid')
+            continue
+        if path in allowed:
+            failures.append(f'project-records duplicate: {path}')
+        allowed.add(path)
+        digest = record.get('export_sha256')
+        if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
+            failures.append(f'project-records invalid digest: {path}')
+        source = record.get('source_sha256')
+        if source is None:
+            if record.get('source_kind') != 'generated':
+                failures.append(f'project-records absent source: {path}')
+        elif not isinstance(source, str) or not re.fullmatch('[0-9a-f]{64}', source):
+            failures.append(f'project-records invalid source digest: {path}')
+        if record.get('redistribution_status') != 'internal_project_record':
+            failures.append(f'project-records unapproved license: {path}')
+        if path in by_name:
+            data = blob_reader(by_name[path])
+            if hashlib.sha256(data).hexdigest() != digest or record.get('size') != len(data):
+                failures.append(f'project-records actual hash/size mismatch: {path}')
+            inspected, reasons = SECRET_SCANNER.inspect(data, path)
+            if inspected is None or inspected != data:
+                failures.append(f'project-records content requires review: {path}')
+    actual = names - {PROJECT_RECORDS_MANIFEST}
+    for path in sorted(actual - allowed):
+        failures.append(f'project-records file is not declared: {path}')
+    for path in sorted(allowed - actual):
+        failures.append(f'project-records manifest file is missing: {path}')
+    return allowed, failures
+
+
 def private_content(data):
-    if any(re.search(pattern, data) for pattern in PATTERNS):
+    if SECRET_SCANNER.has_secret(data) or any(re.search(pattern, data) for pattern in PATTERNS):
         return True
     if b'\0' in data:
         return False
@@ -69,9 +149,14 @@ def private_content(data):
 
 
 def scan_entries(entries, seen):
+    entries = list(entries)
     failures = []
+    allowed_project, manifest_failures = project_records_policy(
+        entries, lambda oid: git('cat-file', 'blob', oid)
+    )
+    failures.extend(manifest_failures)
     for name, oid in entries:
-        if blocked_path(name):
+        if blocked_path(name, allow_project_record=name in allowed_project):
             failures.append('private path: '+name)
         if oid not in seen:
             seen.add(oid)
@@ -134,8 +219,10 @@ def main():
     parser.add_argument('--history', action='store_true')
     parser.add_argument('--pre-push', action='store_true')
     parser.add_argument('--identity', action='store_true')
+    parser.add_argument('--known-root', action='append', default=[])
     args = parser.parse_args()
     try:
+        load_known(SECRET_SCANNER, ['/etc/ecommerce-rag', '/root/.codex/auth.json', *args.known_root])
         extra = []
         if args.pre_push:
             for line in sys.stdin:
