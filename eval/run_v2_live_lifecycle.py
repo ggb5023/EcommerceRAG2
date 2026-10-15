@@ -430,7 +430,14 @@ def validate_provider_evidence(report, models):
                     or not attempt["request_id_sha256"] or not attempt["usage_json"]):
                 raise AcceptanceFailure("Provider request evidence is incomplete or failed")
             covered.append(attempt["sequence"])
-        if counts != expected[item["phase"]]:
+        # Multi-document search can call the existing applicability selector
+        # after Understand. Permit that one control call explicitly; all calls
+        # still require successful responses, model, usage and request IDs.
+        allowed = report.get("phase_optional_requests", {}).get(item["phase"], {})
+        minimum = expected[item["phase"]]
+        if (set(counts) != set(minimum)
+                or any(not minimum[slot] <= count <= minimum[slot] + allowed.get(slot, 0)
+                       for slot, count in counts.items())):
             raise AcceptanceFailure("Provider phase slot coverage does not match lifecycle")
     if sorted(covered) != sorted(a["sequence"] for a in attempts):
         raise AcceptanceFailure("Provider requests outside lifecycle phases")
@@ -534,6 +541,8 @@ def main():
                 report.setdefault("intervening_provider_sequences", []).extend(row[0] for row in conn.execute(
                     "SELECT rowid FROM attempt WHERE rowid>? AND rowid<=? ORDER BY rowid",
                     (last_previous, resume_boundary)))
+        report["phase_optional_requests"] = {
+            label: {"control": 1} for label in ("markdown-query", "csv-query", "docx-query")}
         session = http.call("/v1/session")
         if (session.get("profile") != report["profile"] or session.get("tenantId") != tenant
                 or session.get("userId") != values["V2_IDENTITY_USER"] or session.get("shopId") != shop):
