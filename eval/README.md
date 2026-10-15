@@ -91,11 +91,13 @@ The current source rails are deliberately distinct:
 
 - Keycloak has local synthetic-account OIDC protocol integration. Its pinned
   distribution, Apache-2.0 license and third-party notice hashes are recorded
-  in `docker/identity/images.lock.json`; browser login and production identity
-  are not accepted by this evidence.
-- Medusa 2.21.2 is the target local REST service. The recorded MIT scope
-  excludes Enterprise-only content. It is not a real merchant API, and its
-  local catalog/orders are test records.
+  in `docker/identity/images.lock.json`. Browser acceptance uses a separate
+  authorization-code/PKCE profile; neither track accepts production identity.
+- Medusa 2.18.0 is a historical local REST candidate, currently deferred. Its MIT distribution and
+  dependency license notices are audited, while security and compatibility
+  must pass before any future deployment. The historical 2.21.2 mixed-license audit is
+  retained separately and does not authorize that runtime. Local service
+  integration and test orders do not establish a real merchant API.
 - Open Food Facts is a candidate food-product catalog. Its official terms
   distinguish ODbL database, DbCL individual content, and CC BY-SA product
   images; the first candidate excludes images and still needs field/scope
@@ -809,10 +811,42 @@ captured, and an interrupted run records NOT_PASSED with partial observations.
 Local offline-AI protocol evidence does not establish model quality, browser
 login, production identity, or `real_service_acceptance`.
 
+The frozen 53-case HTTP driver requires its explicitly selected versioned
+synthetic facts fake before making paid calls. Its bounded preflight verifies
+version, tenant/shop/resource ownership and the mock marker using a read-only
+probe; the probe response never becomes generation evidence or answer truth.
+Start that separate fake before the four-process stack acceptance. A missing or
+mismatched fake is a recorded environment failure, never permission to fall
+back to another provider or change the frozen fact inputs.
+
 Open-source service rows may become `local_integration_passed` only with a
 pinned version, artifact/license hashes, reviewed synthetic accounts, and a
 passing non-production report hash. This service state is independent of
 dataset download/admission and cannot authorize public or production data.
+
+`web/tests/keycloak.browser.mjs` visits actual local Keycloak pages and both
+Go-proxied frontends. Use a protected `KEYCLOAK_ACCOUNTS_FILE` and a fresh
+`KEYCLOAK_BROWSER_REPORT_DIR`. Optional `KEYCLOAK_BROWSER_REFRESH=1`,
+`KEYCLOAK_BROWSER_RESTART=1`, `KEYCLOAK_BROWSER_OUTAGE=1`, and
+`KEYCLOAK_BROWSER_ACCOUNT_ISOLATION=1` exercise real refresh, process recovery,
+IdP interruption and a separate unmapped signed account. The explicit protected
+`KEYCLOAK_BROWSER_AUTHORITY_ENV` enables reversible role/shop/revision/revocation
+fixtures for the dedicated synthetic identity. The runner restores fixtures,
+removes its temporary account, resumes the IdP and stops its owned replacement
+stack. Reports contain hashes and check IDs; no tokens or answers are captured.
+Nonce, callback replay, redirect validation, concurrent refresh and the absolute
+session lifetime also have Go unit coverage; report these evidence levels
+separately. Browser checks use offline AI and cannot replace real-model quality
+or production identity acceptance.
+
+`scripts/audit-medusa-lock.py` checks the selected 2.18.0 package lock, the
+reviewed source MIT notice, undeclared-license artifacts with SRI validation,
+and a completed npm security audit. It never deploys or runs package scripts.
+Unresolved high/critical security records, license gaps, missing integrity,
+version drift or an unavailable audit produce NOT_PASSED. Remediation requires
+a new lock, compatibility checks and a new report; historical reports remain
+immutable. Dependency records may repeat one advisory through several parents;
+their counts are not counts of distinct vulnerabilities.
 
 ## Merchant customer-service evaluation
 

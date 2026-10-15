@@ -39,6 +39,23 @@ The Go gateway can explicitly select `V2_IDENTITY_PROFILE=oidc` with an owned
 and account credentials outside Git. This profile verifies bearer tokens and
 live revocation and matches existing Go database permissions; it has no fixed
 identity fallback. The existing HTTP/SSE business routes are preserved.
-The selfhost installation adds employee browser login via a confidential Keycloak
-code/PKCE client, an opaque HttpOnly session and CSRF-protected Go writes.
-Production identity acceptance remains separate; see the installation guide.
+
+For browser login, use the explicit `oidc_browser` identity profile and an owned
+0600 configuration shaped like `go/internal/identity/browser-config.example.json`.
+Its separate confidential Keycloak client uses authorization code and PKCE S256,
+with password grant disabled. Tokens remain in Go; both frontends use a host-only
+HttpOnly cookie and CSRF-protected writes. Proxy `/v1/auth` and business requests
+to the same Gateway. Forward the configured frontend ports and local Keycloak
+port through SSH; only authentication redirects visit Keycloak. Return origins
+and callback URLs come from configuration. Sessions expire after 30 minutes and
+are discarded on Gateway restart; persisted business results are retained.
+`scripts/provision-keycloak-browser.py` defaults to PLAN and requires explicit
+protected inputs for its local synthetic-realm `--live` mode. Browser acceptance
+is separate from bearer protocol and production evidence.
+
+`python3 scripts/seal-v1-database.py` remains a historical, explicit legacy
+backup/restore and read-only sealing tool. The identified unused V1 database
+was subsequently retired under separate authorization after another isolated
+restore verification. Do not reuse its old configuration as an active database
+entrypoint. Old code and backup evidence are retained; no expiry automatically
+deletes any database. See [HANDOFF.md](HANDOFF.md) for the current boundary.

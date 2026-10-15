@@ -42,7 +42,7 @@
         "real_service_acceptance",
         "public_person_identity_import"
       ],
-      "notes": "Official fixed-digest Keycloak 26.8.1 distribution license and third-party notice verified. Local synthetic-account OIDC protocol acceptance covers signed tokens, Go database scopes, permission revisions, logout, expiration and identity outages. Browser login and production identity are not accepted; dataset acquisition remains not applicable.",
+      "notes": "Official fixed-digest Keycloak 26.8.1 distribution license and third-party notice verified. Bearer and browser authorization-code/PKCE integrations use local synthetic accounts with Go-owned permissions and tokens. Browser acceptance includes login, real token refresh, CSRF, account isolation, revocation, authority changes, outages, logout and restart recovery. Production identity is outside this evidence; dataset acquisition remains not applicable.",
       "real_service_acceptance": false,
       "service_artifact": {
         "version": "26.8.1",
@@ -94,7 +94,7 @@
         "real_service_acceptance",
         "enterprise_only_content"
       ],
-      "notes": "Historical license audit retained. Medusa 2.21.2 is not selected or deployed: its authoritative Enterprise list includes framework policies and transformed copies, and default startup calls policiesLoader. User selected 2.18.0 for the next local REST target; the earlier mixed-license audit does not authorize 2.21.2 deployment.",
+      "notes": "Historical license audit retained. Medusa 2.21.2 is not selected or deployed: its authoritative Enterprise list includes framework policies and transformed copies, and default startup calls policiesLoader. The later 2.18.0 candidate is also deferred; the earlier mixed-license audit does not authorize 2.21.2 deployment.",
       "real_service_acceptance": false
     },
     {
@@ -102,7 +102,7 @@
       "record_type": "open_source_service",
       "category": "merchant_api_service",
       "provider": "Medusa",
-      "dataset": "Selected Medusa 2.18.0 local REST target; synthetic accounts and records only",
+      "dataset": "Historical Medusa 2.18.0 local REST candidate; integration deferred",
       "canonical_url": "https://github.com/medusajs/medusa",
       "dataset_card_url": "https://docs.medusajs.com/",
       "original_source_terms_url": "https://github.com/medusajs/medusa/blob/v2.18.0/LICENSE",
@@ -134,7 +134,7 @@
         "customer_reply_correctness_truth",
         "real_service_acceptance"
       ],
-      "notes": "Selected by the current plan. The fixed distribution and source MIT notice are verified; retain source LICENSE because the npm package omits it. Actual dependency closure is locked and license-audited. Initial security audit is NOT_PASSED; unresolved advisories require remediation and compatibility review before deployment. No Medusa database, migration, accounts or runtime have been created.",
+      "notes": "Historical selected candidate; deferred beyond the lightweight merchant knowledge-support milestone. The fixed distribution and source MIT notice are verified; retain source LICENSE because the npm package omits it. Actual dependency closure is locked and license-audited. Initial security audit is NOT_PASSED; unresolved advisories require remediation and compatibility review before deployment. No Medusa database, migration, accounts or runtime have been created.",
       "real_service_acceptance": false
     },
     {

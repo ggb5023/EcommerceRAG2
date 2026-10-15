@@ -6,7 +6,7 @@
 
 | 层 | 职责与边界 |
 |---|---|
-| 客服 `web/`、管理 `admin-web/` | Vue/TypeScript 前端通过 Go HTTP/SSE 提交会话、资料和控制操作；不直接访问 Python 或数据库 |
+| 客服 `web/`、管理 `admin-web/` | Vue/TypeScript 前端通过 Go HTTP/SSE 提交会话、资料和控制操作；认证可跳转受配置约束的 Keycloak 登录页；不直接访问 Python 或数据库 |
 | Go 控制面 | 唯一外部业务入口，负责身份、授权、租户/店铺范围、事实 API、审批、命令对账、业务执行终态、SSE 和审计 |
 | Python AI 面 | LangChain/LangGraph 执行理解、检索、Embedding、Rerank、上下文门控、生成、解析和资料摄取；只消费 Go 签发的 scope |
 | FastAPI | Python 内部健康、就绪和受保护开发接口，不承载浏览器业务流量或业务执行终态 |
@@ -30,7 +30,11 @@
 
 `eval/public-data-sources.manifest.json` 管理公开数据集、开源服务目标和未解决的来源缺口，并记录类别、语言/司法辖区、许可与隐私状态、用途范围和获取状态。候选来源只有在原始条款、许可证范围、revision、字段/隐私审查和仓外存储均落实后才能准入；未满足时保持未下载。原始公开数据不进入 Git.
 
-当前 Go 可显式选择固定开发身份或本地 Keycloak OIDC bearer profile；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。自部署员工浏览器登录使用 confidential code/PKCE 与 Go Cookie，见下节。生产身份未验收。Medusa 与公开商品双轨暂缓，既有版本许可审计保留；本地服务或测试账号不代表真实商家 API。
+Go 显式选择固定开发身份、Keycloak OIDC bearer 或 `oidc_browser` profile，互不隐式回退；商家 facts 仍使用 fake。Keycloak 固定发行版、许可及 notice 指纹见 `docker/identity/images.lock.json`，账号是本地创建的合成身份。OIDC 每请求私有 session，将固定 issuer/subject 绑定到现有数据库身份，匹配角色、店铺和权限版本；签名/过期校验及实时 introspection 不授予数据库之外的权限。Go 签名 scope 的进程内登记将 Python 回验关联到同一 token 活跃性，仍沿用 Proto 字段。
+
+浏览器 profile 使用专用 confidential client、授权码与 PKCE S256，Go 校验 state/nonce 和固定身份。令牌仅存于 Go；前端使用随机、HttpOnly、host-only Cookie，写请求校验准确 Origin 与会话 CSRF token。最多 4096 个进程内会话，绝对寿命 30 分钟，登录事务 5 分钟；刷新串行执行且不能升级旧权限。退出先撤销本地会话和 scope，再注销上游；Go 重启丢弃会话并保留持久化业务结果。HTTP 只在显式 numeric loopback 开发配置中允许；HTTPS Cookie 使用 Secure。该设计仅支持当前独立开发实例，不代表生产会话或身份验收。
+
+Medusa 2.18.0 是历史本地 REST 候选，本里程碑暂缓集成；后续恢复此轨须重新核验许可、安全和兼容性。此前 2.21.2 的非 Enterprise MIT 范围审计单独保留，不能证明默认运行路径已获准。未验收的目标不能写成已接入事实；本地服务和测试账号都不代表真实商家 API。
 
 Open Food Facts 是候选食品商品来源；官方条款区分 ODbL 数据库、DbCL 单项内容和 CC BY-SA 商品图片，首批候选排除图片并待字段审查。UCI Online Retail II 页面标注 CC BY 4.0、API 许可字段为空，解决差异并完成隐私审查前不下载或准入。中文官方 FAQ/政策和中文社区问答尚有来源缺口；英文社区问答单独评测并保留语言与许可归属，不能作为商家政策或客服答案真值。公开数据派生的 Medusa 库存/订单是本地测试记录，删除客户标识并绑定来源版本、输入 hash 和转换版本。
 
