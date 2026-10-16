@@ -108,3 +108,20 @@ func TestFirst24CountsUnicodeRunes(t *testing.T) {
 		t.Fatalf("got %d runes, want 24", len([]rune(got)))
 	}
 }
+
+func TestV2ProfilesAndMockContract(t *testing.T) {
+	for _, profile := range []string{"v2_langgraph_fixture", "v2_langchain_mock", "v2_langchain_bailian"} {
+		if !isV2Profile(profile) {
+			t.Errorf("%s should be a v2 profile", profile)
+		}
+	}
+	if isV2Profile("m1_fixture_mock") || isV2Profile("unknown") {
+		t.Fatal("legacy or unknown profile was accepted as v2")
+	}
+	if !isMockProfile("v2_langgraph_fixture") || !isMockProfile("v2_langchain_mock") {
+		t.Fatal("offline v2 profiles must be marked mock")
+	}
+	if isMockProfile("v2_langchain_bailian") {
+		t.Fatal("Bailian profile must be marked non-mock")
+	}
+}

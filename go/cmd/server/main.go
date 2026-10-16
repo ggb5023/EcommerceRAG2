@@ -29,6 +29,14 @@ import (
 
 const turnTimeout = 60 * time.Second
 
+func isV2Profile(profile string) bool {
+	return profile == "v2_langgraph_fixture" || profile == "v2_langchain_mock" || profile == "v2_langchain_bailian"
+}
+
+func isMockProfile(profile string) bool {
+	return profile != "v2_langchain_bailian"
+}
+
 type mockSession struct {
 	tenantID           int64
 	userID             int64
@@ -112,10 +120,40 @@ func (a m1IdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
 	return session, nil
 }
 
+// v2FixtureIdentityAdapter is an isolated development identity used only by
+// the v2 profile.  It keeps the v2 tenant/document scope separate from the
+// historical M1 fixture so the Go HTTP path can exercise the same signed
+// scope that the Python v2 graph expects.  It is not an OIDC implementation.
+type v2FixtureIdentityAdapter struct {
+	db *pgxpool.Pool
+}
+
+func (a v2FixtureIdentityAdapter) Resolve(ctx context.Context) (mockSession, error) {
+	var session mockSession
+	err := a.db.QueryRow(ctx, `
+		SELECT t.id, u.id, 'v2-demo-tenant', u.external_id, u.role,
+		       COALESCE(u.shop_ids,ARRAY[]::text[]), u.permission_revision, u.revoked_at
+		FROM tenant t JOIN app_user u ON u.tenant_id=t.id
+		WHERE t.name='V2 LangGraph fixture tenant' AND t.status='active'
+		  AND u.external_id='dev-user'
+		ORDER BY t.id DESC LIMIT 1`).Scan(
+		&session.tenantID, &session.userID, &session.tenant, &session.user,
+		&session.role, &session.allowedShops, &session.permissionRevision, &session.revokedAt)
+	if err != nil {
+		return mockSession{}, err
+	}
+	if len(session.allowedShops) != 1 || session.allowedShops[0] != "shop-demo" {
+		return mockSession{}, errors.New("v2 fixture identity has an invalid shop grant")
+	}
+	session.shop = "shop-demo"
+	return session, nil
+}
+
 type gateway struct {
 	db              *pgxpool.Pool
 	rag             ragv1.RagServiceClient
 	ingest          ragv1.IngestServiceClient
+	facts           FactProvider
 	grpcConn        *grpc.ClientConn
 	session         mockSession
 	signingKey      []byte
@@ -185,7 +223,10 @@ func main() {
 			profile = "m1_fixture_mock"
 		}
 	}
-	if (profile != "synthetic_import_mock" && profile != "m1_fixture_mock") || (profile == "synthetic_import_mock") != syntheticMode {
+	if profile != "synthetic_import_mock" && profile != "m1_fixture_mock" && !isV2Profile(profile) {
+		log.Fatal("RAG_PROFILE is not supported")
+	}
+	if (profile == "synthetic_import_mock") != syntheticMode || (isV2Profile(profile) && syntheticMode) {
 		log.Fatal("RAG_PROFILE and manifest must select a consistent mock profile")
 	}
 	var identity IdentityAdapter
@@ -195,6 +236,8 @@ func main() {
 			shopID:   os.Getenv("SYNTHETIC_SHOP_ID"),
 			allShops: os.Getenv("SYNTHETIC_ALL_SHOPS") == "1",
 		}
+	} else if isV2Profile(profile) {
+		identity = v2FixtureIdentityAdapter{db: db}
 	} else {
 		identity = m1IdentityAdapter{db: db}
 	}
@@ -214,10 +257,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("connect RAG service: %v", err)
 	}
-	g := &gateway{profile: profile, db: db, rag: ragv1.NewRagServiceClient(conn),
+	g := &gateway{profile: profile, db: db, rag: ragv1.NewRagServiceClient(conn), facts: unavailableFactProvider{},
 		ingest: ragv1.NewIngestServiceClient(conn), grpcConn: conn, session: session, cancels: map[string]context.CancelFunc{}}
 	seedCtx, seedCancel := context.WithTimeout(context.Background(), 20*time.Second)
-	if !syntheticMode {
+	if !syntheticMode && !isV2Profile(profile) {
 		fixture, imported, fixtureErr := g.importM1Fixture(seedCtx)
 		if fixtureErr != nil {
 			seedCancel()
@@ -275,6 +318,7 @@ func (g *gateway) routes() http.Handler {
 	mux.HandleFunc("POST /v1/conversations", g.createConversation)
 	mux.HandleFunc("GET /v1/conversations/{id}", g.getConversation)
 	mux.HandleFunc("POST /v1/conversations/{id}/turns", g.createTurn)
+	mux.HandleFunc("POST /v1/turns/{id}/resume", g.resumeTurn)
 	mux.HandleFunc("POST /v1/dev/fixtures/import", g.importFixtureRoute)
 	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
 	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
@@ -316,7 +360,7 @@ func (g *gateway) getSession(w http.ResponseWriter, _ *http.Request) {
 		"shopId": g.session.shop, "shopName": g.session.shop, "displayName": g.session.user, "profile": g.profile,
 		"allowedShopIds": g.session.allowedShops, "allShops": g.session.allShops,
 		"permission_revision": g.currentPermissionRevision(),
-		"is_mock":             true,
+		"is_mock":             isMockProfile(g.profile),
 	})
 }
 
@@ -536,6 +580,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var parentTurnID *int64
+	var parentExecutionID int64
 	if strings.TrimSpace(in.ParentTurnID) != "" {
 		var parentID int64
 		parentID, err = strconv.ParseInt(strings.TrimSpace(in.ParentTurnID), 10, 64)
@@ -562,6 +607,17 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 409, "parent_turn_not_asking", "parent turn is not awaiting clarification")
 			return
 		}
+		err = tx.QueryRow(r.Context(), `SELECT e.id FROM conversation_execution e
+			WHERE e.tenant_id=$1 AND e.turn_id=$2 ORDER BY e.execution_no DESC LIMIT 1`,
+			g.session.tenantID, parentID).Scan(&parentExecutionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
+			return
+		}
+		if err != nil {
+			writeError(w, 503, "database_unavailable", "could not load parent execution")
+			return
+		}
 		parentTurnID = &parentID
 	}
 	var oldHash, oldRequest, oldStatus string
@@ -570,6 +626,8 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(r.Context(), `SELECT i.payload_hash,e.request_id,e.status,t.id,e.execution_no FROM turn_idempotency i
 		JOIN turn t ON t.tenant_id=i.tenant_id AND t.id=i.turn_id
 		JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
+			AND ((i.execution_id IS NOT NULL AND e.id=i.execution_id)
+				OR (i.execution_id IS NULL AND e.execution_no=1))
 		WHERE i.tenant_id=$1 AND i.conversation_id=$2 AND i.idempotency_key=$3`,
 		g.session.tenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
 	if err == nil {
@@ -578,7 +636,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"id": oldRequest, "request_id": oldRequest, "status": oldStatus, "turn_id": strconv.FormatInt(oldTurnID, 10), "execution_no": oldExecutionNo, "conversation_id": strconv.FormatInt(conversationID, 10),
-			"events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": true})
+			"events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -609,12 +667,12 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	deadline := time.Now().Add(turnTimeout)
 	if err == nil {
 		err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
-			VALUES($1,$2,1,$3,'EXECUTING',true,$4,$5) RETURNING id`,
-			g.session.tenantID, turnID, requestID, deadline, g.currentPermissionRevision()).Scan(&executionID)
+			VALUES($1,$2,1,$3,'EXECUTING',$6,$4,$5) RETURNING id`,
+			g.session.tenantID, turnID, requestID, deadline, g.currentPermissionRevision(), isMockProfile(g.profile)).Scan(&executionID)
 	}
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id)
-			VALUES($1,$2,$3,$4,$5)`, g.session.tenantID, conversationID, key, payloadHash, turnID)
+		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
+			VALUES($1,$2,$3,$4,$5,$6)`, g.session.tenantID, conversationID, key, payloadHash, turnID, executionID)
 	}
 	if err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.tenantID, turnID, query)
@@ -637,12 +695,175 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		if readIndexLock {
 			defer g.adminIndexMu.RUnlock()
 		}
-		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query)
+		var parentID, parentExecution int64
+		if parentTurnID != nil {
+			parentID = *parentTurnID
+			parentExecution = parentExecutionID
+		}
+		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, parentID, parentExecution, 1)
 	}()
 	lockTransferred = readIndexLock
 	writeJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
 		"turn_id": strconv.FormatInt(turnID, 10), "execution_no": 1, "conversation_id": strconv.FormatInt(conversationID, 10),
-		"is_mock": true, "events_url": "/v1/turns/" + requestID + "/events"})
+		"is_mock": isMockProfile(g.profile), "events_url": "/v1/turns/" + requestID + "/events"})
+}
+
+// resumeTurn continues the existing v2 ASKING turn with a new execution.
+// The original turn and checkpoint thread remain stable; only Go creates the
+// new request/execution identity and Python consumes the minimal checkpoint.
+func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
+	if !g.requireWriteRole(w) {
+		return
+	}
+	if err := g.refreshAuthorization(r.Context()); err != nil {
+		writeError(w, authorizationHTTPStatus(err), authorizationFailureCode(err), "authorization failed")
+		return
+	}
+	if !isV2Profile(g.profile) {
+		writeError(w, http.StatusConflict, "checkpoint_resume_unavailable", "checkpoint resume is available only for the v2 graph profile")
+		return
+	}
+	turnID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		return
+	}
+	var in struct {
+		Text   string `json:"text"`
+		Answer string `json:"answer"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	query := strings.TrimSpace(in.Text)
+	if query == "" {
+		query = strings.TrimSpace(in.Answer)
+	}
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "invalid_query", "answer is required")
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required")
+		return
+	}
+	canonicalPayload, _ := json.Marshal(map[string]string{"answer": query})
+	hash := sha256.Sum256(canonicalPayload)
+	payloadHash := hex.EncodeToString(hash[:])
+	storageKey := "resume:" + key
+	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not start resume")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var conversationID int64
+	var shopID, turnStatus string
+	err = tx.QueryRow(r.Context(), `SELECT t.conversation_id,c.shop_id,t.status
+		FROM turn t JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
+		WHERE t.tenant_id=$1 AND t.id=$2 AND c.user_id=$3 FOR UPDATE OF t,c`,
+		g.session.tenantID, turnID, g.session.userID).Scan(&conversationID, &shopID, &turnStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not lock turn")
+		return
+	}
+	if shopID != g.session.shop {
+		writeError(w, http.StatusForbidden, "forbidden", "turn is outside the current session")
+		return
+	}
+	if !g.authorizeConversationHistory(w, r, conversationID) {
+		return
+	}
+	var oldHash string
+	var oldTurnID, oldExecutionID int64
+	err = tx.QueryRow(r.Context(), `SELECT payload_hash,turn_id,COALESCE(execution_id,
+		(SELECT e.id FROM conversation_execution e
+		 WHERE e.tenant_id=turn_idempotency.tenant_id AND e.turn_id=turn_idempotency.turn_id
+		 ORDER BY e.execution_no ASC LIMIT 1))
+		FROM turn_idempotency
+		WHERE tenant_id=$1 AND conversation_id=$2 AND idempotency_key=$3`,
+		g.session.tenantID, conversationID, storageKey).Scan(&oldHash, &oldTurnID, &oldExecutionID)
+	if err == nil {
+		if oldHash != payloadHash || oldTurnID != turnID {
+			writeError(w, http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different resume")
+			return
+		}
+		var oldRequest, oldStatus string
+		var oldExecutionNo int64
+		err = tx.QueryRow(r.Context(), `SELECT request_id,status,execution_no FROM conversation_execution
+			WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, oldExecutionID).Scan(&oldRequest, &oldStatus, &oldExecutionNo)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load resumed execution")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": oldRequest, "request_id": oldRequest,
+			"status": oldStatus, "turn_id": strconv.FormatInt(turnID, 10), "execution_no": oldExecutionNo,
+			"conversation_id": strconv.FormatInt(conversationID, 10), "events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not check resume idempotency")
+		return
+	}
+	if turnStatus != "ASKING" {
+		writeError(w, http.StatusConflict, "turn_not_asking", "turn is not awaiting clarification")
+		return
+	}
+	var askingExecutionID int64
+	var askingExecutionNo int64
+	err = tx.QueryRow(r.Context(), `SELECT id,execution_no FROM conversation_execution
+		WHERE tenant_id=$1 AND turn_id=$2 AND status='ASKING'
+		ORDER BY execution_no DESC LIMIT 1 FOR UPDATE`, g.session.tenantID, turnID).Scan(&askingExecutionID, &askingExecutionNo)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusConflict, "parent_checkpoint_missing", "turn has no pending checkpoint execution")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load checkpoint execution")
+		return
+	}
+	requestID := newRequestID()
+	executionNo := askingExecutionNo + 1
+	deadline := time.Now().Add(turnTimeout)
+	var executionID int64
+	err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
+			VALUES($1,$2,$3,$4,'EXECUTING',$7,$5,$6) RETURNING id`,
+		g.session.tenantID, turnID, executionNo, requestID, deadline, g.currentPermissionRevision(), isMockProfile(g.profile)).Scan(&executionID)
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, g.session.tenantID, turnID)
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
+			VALUES($1,$2,$3,$4,$5,$6)`, g.session.tenantID, conversationID, storageKey, payloadHash, turnID, executionID)
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.tenantID, turnID, query)
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not persist resume")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not commit resume")
+		return
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	g.mu.Lock()
+	g.cancels[requestID] = cancel
+	g.mu.Unlock()
+	go func() {
+		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, turnID, askingExecutionID, executionNo)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": requestID, "request_id": requestID,
+		"status": "EXECUTING", "turn_id": strconv.FormatInt(turnID, 10), "execution_no": executionNo,
+		"conversation_id": strconv.FormatInt(conversationID, 10), "is_mock": isMockProfile(g.profile),
+		"events_url": "/v1/turns/" + requestID + "/events"})
 }
 
 func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
@@ -667,7 +888,8 @@ func (g *gateway) historySummary(ctx context.Context, conversationID, currentTur
 	return strings.Join(parts, "\n")
 }
 
-func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string) {
+func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string, parentTurnID, parentExecutionID, executionNo int64) {
+	mockOutput := isMockProfile(g.profile)
 	defer func() {
 		g.mu.Lock()
 		delete(g.cancels, requestID)
@@ -681,7 +903,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			object["request_id"] = requestID
 			object["turn_id"] = strconv.FormatInt(turnID, 10)
 			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
-			object["execution_no"] = 1
+			object["execution_no"] = executionNo
 		}
 		body, err := json.Marshal(payload)
 		if err != nil {
@@ -724,8 +946,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		if state == "DONE" && err == nil {
 			_, err = tx.Exec(finishCtx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, g.session.tenantID, turnID, answer)
 			if err == nil {
+				blockedReason := "provider_not_approved"
+				if mockOutput {
+					blockedReason = "mock"
+				}
 				_, err = tx.Exec(finishCtx, `INSERT INTO customer_reply(tenant_id,execution_id,text_plain,is_mock,can_copy,blocked_reason)
-				VALUES($1,$2,$3,true,false,'mock') ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=true,can_copy=false,blocked_reason='mock'`, g.session.tenantID, executionID, answer)
+				VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=false,blocked_reason=EXCLUDED.blocked_reason`, g.session.tenantID, executionID, answer, mockOutput, blockedReason)
 			}
 		}
 		appendEvent := func(kind string, object map[string]any) {
@@ -737,7 +963,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			object["request_id"] = requestID
 			object["turn_id"] = strconv.FormatInt(turnID, 10)
 			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
-			object["execution_no"] = 1
+			object["execution_no"] = executionNo
 			body, marshalErr := json.Marshal(object)
 			if marshalErr != nil {
 				err = marshalErr
@@ -748,7 +974,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		if state != "DONE" && state != "ASKING" {
 			appendEvent("error", map[string]any{"type": "error", "code": code, "message": code})
 		}
-		appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": true, "can_copy": false})
+		appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": mockOutput, "can_copy": false})
 		if err == nil {
 			err = tx.Commit(finishCtx)
 		}
@@ -771,11 +997,30 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureAuthorized() {
 		return
 	}
-	_ = writeEvent("status", map[string]any{"type": "status", "status": "EXECUTING", "is_mock": true})
-	base, err := g.issueScope(ctx, requestID)
+	_ = writeEvent("status", map[string]any{"type": "status", "status": "EXECUTING", "is_mock": mockOutput})
+	base, err := g.issueScopeForTurn(ctx, requestID, conversationID, turnID, executionID)
 	if err != nil {
 		finish("FAILED", authorizationFailureCode(err), "")
 		return
+	}
+	if parentTurnID != 0 && isV2Profile(g.profile) {
+		parentScope, scopeErr := g.issueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
+		if scopeErr != nil {
+			finish("FAILED", authorizationFailureCode(scopeErr), "")
+			return
+		}
+		resumed, resumeErr := g.rag.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{
+			Context: parentScope, PendingKind: "ASKING",
+		})
+		if resumeErr != nil || resumed == nil || !resumed.Accepted {
+			if resumeErr != nil {
+				state, code := grpcFailure(ctx, resumeErr)
+				finish(state, code, "")
+			} else {
+				finish("FAILED", "checkpoint_resume_failed", "")
+			}
+			return
+		}
 	}
 
 	routed, err := g.rag.Understand(ctx, &ragv1.UnderstandRequest{Context: base, Query: query,
@@ -785,6 +1030,19 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(state, code, "")
 		return
 	}
+	facts, factErr := lookupFacts(ctx, g.facts, base, routed.RequiredFactTools)
+	if factErr != nil {
+		for _, toolName := range routed.RequiredFactTools {
+			_, _ = g.db.Exec(context.Background(), `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
+				VALUES($1,$2,$3,$4,true)`, g.session.tenantID, requestID, toolName, factFailureCode(factErr))
+		}
+		finish("FAILED", factFailureCode(factErr), "")
+		return
+	}
+	for _, fact := range facts {
+		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
+			VALUES($1,$2,$3,'ok',false)`, g.session.tenantID, requestID, fact.ToolName)
+	}
 	if routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5 {
 		if !ensureAuthorized() {
 			return
@@ -792,6 +1050,20 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		clarification := routed.Clarification
 		if clarification == "" {
 			clarification = "请补充更多问题细节。"
+		}
+		if isV2Profile(g.profile) {
+			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{
+				Context: base, PendingKind: "ASKING",
+			})
+			if saveErr != nil {
+				state, code := grpcFailure(ctx, saveErr)
+				finish(state, code, "")
+				return
+			}
+			if saved == nil || !saved.Accepted {
+				finish("FAILED", "checkpoint_save_failed", "")
+				return
+			}
 		}
 		finish("ASKING", "", clarification)
 		return
@@ -820,6 +1092,10 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				return
 			}
 			finish("FAILED", "rag_search_failed", "")
+			return
+		}
+		if part.IsMock != mockOutput {
+			finish("FAILED", "provider_profile_mismatch", "")
 			return
 		}
 		if !ensureAuthorized() {
@@ -852,21 +1128,22 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			return
 		}
 	}
-	if err = writeEvent("evidence", map[string]any{"type": "evidence", "evidence": toEvidence(evidence), "is_mock": true}); err != nil {
+	if err = writeEvent("evidence", map[string]any{"type": "evidence", "evidence": toEvidence(evidence), "is_mock": mockOutput}); err != nil {
 		finish("FAILED", "persistence_failed", "")
 		return
 	}
 	if !ensureAuthorized() {
 		return
 	}
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, ResponsePurpose: "customer_reply"})
+	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: routed.RewrittenQuery, Evidence: evidence, Facts: facts, ResponsePurpose: "customer_reply"})
 	if err != nil {
 		state, code := grpcFailure(ctx, err)
 		finish(state, code, "")
 		return
 	}
 	var answer strings.Builder
-	isMock := true
+	isMock := mockOutput
+	sawProfileMarker := false
 	for {
 		if !ensureAuthorized() {
 			return
@@ -917,7 +1194,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.tenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
 			}
 		case *ragv1.GenerateResponse_IsMock:
+			sawProfileMarker = true
 			isMock = value.IsMock
+			if isMock != mockOutput {
+				finish("FAILED", "provider_profile_mismatch", "")
+				return
+			}
 		case *ragv1.GenerateResponse_ErrorCode:
 			finish("FAILED", value.ErrorCode, "")
 			return
@@ -925,8 +1207,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			if !value.Done {
 				continue
 			}
-			if !isMock {
-				finish("FAILED", "non_mock_provider_rejected", "")
+			if !mockOutput && !sawProfileMarker {
+				finish("FAILED", "provider_profile_mismatch", "")
+				return
+			}
+			if isMock != mockOutput {
+				finish("FAILED", "provider_profile_mismatch", "")
 				return
 			}
 			text := answer.String()

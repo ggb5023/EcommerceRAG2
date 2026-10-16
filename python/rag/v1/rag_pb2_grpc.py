@@ -29,6 +29,16 @@ class RagServiceStub:
                 request_serializer=rag_dot_v1_dot_rag__pb2.GenerateRequest.SerializeToString,
                 response_deserializer=rag_dot_v1_dot_rag__pb2.GenerateResponse.FromString,
                 _registered_method=True)
+        self.SaveCheckpoint = channel.unary_unary(
+                '/rag.v1.RagService/SaveCheckpoint',
+                request_serializer=rag_dot_v1_dot_rag__pb2.SaveCheckpointRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.SaveCheckpointResponse.FromString,
+                _registered_method=True)
+        self.ResumeCheckpoint = channel.unary_unary(
+                '/rag.v1.RagService/ResumeCheckpoint',
+                request_serializer=rag_dot_v1_dot_rag__pb2.ResumeCheckpointRequest.SerializeToString,
+                response_deserializer=rag_dot_v1_dot_rag__pb2.ResumeCheckpointResponse.FromString,
+                _registered_method=True)
         self.ReloadSyntheticIndex = channel.unary_unary(
                 '/rag.v1.RagService/ReloadSyntheticIndex',
                 request_serializer=rag_dot_v1_dot_rag__pb2.ReloadSyntheticIndexRequest.SerializeToString,
@@ -57,6 +67,19 @@ class RagServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SaveCheckpoint(self, request, context):
+        """v2 stores only the minimal identity required to resume an ASKING/HITL turn.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResumeCheckpoint(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ReloadSyntheticIndex(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -80,6 +103,16 @@ def add_RagServiceServicer_to_server(servicer, server):
                     servicer.Generate,
                     request_deserializer=rag_dot_v1_dot_rag__pb2.GenerateRequest.FromString,
                     response_serializer=rag_dot_v1_dot_rag__pb2.GenerateResponse.SerializeToString,
+            ),
+            'SaveCheckpoint': grpc.unary_unary_rpc_method_handler(
+                    servicer.SaveCheckpoint,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.SaveCheckpointRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.SaveCheckpointResponse.SerializeToString,
+            ),
+            'ResumeCheckpoint': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResumeCheckpoint,
+                    request_deserializer=rag_dot_v1_dot_rag__pb2.ResumeCheckpointRequest.FromString,
+                    response_serializer=rag_dot_v1_dot_rag__pb2.ResumeCheckpointResponse.SerializeToString,
             ),
             'ReloadSyntheticIndex': grpc.unary_unary_rpc_method_handler(
                     servicer.ReloadSyntheticIndex,
@@ -168,6 +201,60 @@ class RagService:
             '/rag.v1.RagService/Generate',
             rag_dot_v1_dot_rag__pb2.GenerateRequest.SerializeToString,
             rag_dot_v1_dot_rag__pb2.GenerateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SaveCheckpoint(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rag.v1.RagService/SaveCheckpoint',
+            rag_dot_v1_dot_rag__pb2.SaveCheckpointRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.SaveCheckpointResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeCheckpoint(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rag.v1.RagService/ResumeCheckpoint',
+            rag_dot_v1_dot_rag__pb2.ResumeCheckpointRequest.SerializeToString,
+            rag_dot_v1_dot_rag__pb2.ResumeCheckpointResponse.FromString,
             options,
             channel_credentials,
             insecure,

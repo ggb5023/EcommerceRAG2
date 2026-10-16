@@ -7,7 +7,9 @@ data completely out of the first milestone.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import math
 import os
 import re
 import threading
@@ -20,7 +22,14 @@ from typing import Any
 import grpc
 
 from app.authorization import ScopeError, validate_scope
+from app.graph.runtime import (
+    build_mock_provider_service,
+    load_checkpoint_store,
+    load_provider_service,
+)
+from app.graph.service import LangGraphRagService
 from app.ingest.pipeline import Chunk, LocalIndex, load_manifest_index
+from app.providers.contracts import ProviderError
 from rag.v1 import rag_pb2, rag_pb2_grpc
 
 
@@ -75,7 +84,8 @@ _LOCAL_INDEX = None
 _INDEX_LOCK = threading.RLock()
 _DYNAMIC_DOCUMENTS: set[tuple[str, str, str]] = set()
 _PROFILE = os.environ.get("RAG_PROFILE") or ("synthetic_import_mock" if os.environ.get("SYNTHETIC_MANIFEST") else "m1_fixture_mock")
-if _PROFILE not in {"m1_fixture_mock", "synthetic_import_mock"} or (_PROFILE == "synthetic_import_mock") != bool(os.environ.get("SYNTHETIC_MANIFEST")):
+_PROVIDER_PROFILES = {"v2_langchain_mock", "v2_langchain_bailian"}
+if _PROFILE not in {"m1_fixture_mock", "synthetic_import_mock", "v2_langgraph_fixture", *_PROVIDER_PROFILES} or (_PROFILE == "synthetic_import_mock") != bool(os.environ.get("SYNTHETIC_MANIFEST")) or (_PROFILE in {"v2_langgraph_fixture", *_PROVIDER_PROFILES} and os.environ.get("SYNTHETIC_MANIFEST")):
     raise ValueError("RAG_PROFILE and manifest must select a consistent mock profile")
 _BUSINESS_DATE = os.environ.get("SYNTHETIC_BUSINESS_DATE") or datetime.now(UTC).date().isoformat()
 date.fromisoformat(_BUSINESS_DATE)
@@ -131,11 +141,139 @@ def _allowed(ctx: Any, fixture: dict[str, str]) -> bool:
     return not ctx.shop_id or fixture["shop_id"] == ctx.shop_id
 
 
-class RagService(rag_pb2_grpc.RagServiceServicer):
-    """M1 deterministic service; Go remains the authorization authority."""
+class _GrpcCancelEvent:
+    """Small adapter that lets async Providers observe gRPC cancellation."""
 
-    def __init__(self, scope_validator=None):
+    def __init__(self, context: Any) -> None:
+        self._context = context
+
+    def is_set(self) -> bool:
+        checker = getattr(self._context, "is_active", None)
+        return bool(checker and not checker())
+
+
+def _grpc_timeout(context: Any) -> float | None:
+    remaining = getattr(context, "time_remaining", None)
+    if not callable(remaining):
+        return None
+    try:
+        value = remaining()
+    except (AttributeError, RuntimeError, TypeError):
+        return None
+    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return max(0.0, float(value))
+
+
+def _grpc_cancel_code(context: Any) -> grpc.StatusCode:
+    timeout = _grpc_timeout(context)
+    return grpc.StatusCode.DEADLINE_EXCEEDED if timeout is not None and timeout <= 0 else grpc.StatusCode.CANCELLED
+
+
+def _ensure_grpc_active(context: Any) -> None:
+    checker = getattr(context, "is_active", None)
+    if callable(checker) and not checker():
+        context.abort(_grpc_cancel_code(context), "request cancelled")
+
+
+def _abort_v2_error(context: Any, error: Exception) -> None:
+    if isinstance(error, PermissionError):
+        context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
+    if isinstance(error, (ValueError, TypeError)):
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(error))
+    if isinstance(error, RuntimeError) and str(error) == "request cancelled":
+        context.abort(_grpc_cancel_code(context), "request cancelled")
+    if isinstance(error, ProviderError):
+        code = {
+            "cancelled": _grpc_cancel_code(context),
+            "timeout": grpc.StatusCode.DEADLINE_EXCEEDED,
+            "rate_limited": grpc.StatusCode.RESOURCE_EXHAUSTED,
+            "authentication": grpc.StatusCode.UNAUTHENTICATED,
+            "invalid_input": grpc.StatusCode.INVALID_ARGUMENT,
+            "schema_error": grpc.StatusCode.FAILED_PRECONDITION,
+        }.get(error.code, grpc.StatusCode.UNAVAILABLE if error.retryable else grpc.StatusCode.INTERNAL)
+        context.abort(code, error.code)
+    context.abort(grpc.StatusCode.INTERNAL, "v2 provider execution failed")
+
+
+class RagService(rag_pb2_grpc.RagServiceServicer):
+    """Compatibility RPC boundary with an opt-in v2 LangGraph profile."""
+
+    def __init__(self, scope_validator=None, checkpoint_store=None):
         self._scope_validator = scope_validator or validate_scope
+        self._checkpoint_store = checkpoint_store if checkpoint_store is not None else load_checkpoint_store()
+        self._v2 = LangGraphRagService(checkpoint_store=self._checkpoint_store)
+        if _PROFILE == "v2_langchain_mock":
+            self._provider_v2 = build_mock_provider_service(checkpoint_store=self._checkpoint_store)
+        elif _PROFILE == "v2_langchain_bailian":
+            self._provider_v2 = load_provider_service(
+                os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env"),
+                checkpoint_store=self._checkpoint_store,
+            )
+        else:
+            self._provider_v2 = None
+
+    @staticmethod
+    def _v2_scope(scope) -> dict[str, Any]:
+        return {
+            "tenant_id": scope.tenant_id,
+            "tenant_db_id": str(scope.tenant_db_id),
+            "user_id": scope.user_id,
+            "allowed_shop_ids": list(scope.allowed_shop_ids),
+            "allowed_document_ids": list(scope.allowed_document_ids),
+            "shop_id": scope.shop_id,
+            "role": scope.role,
+            "permission_revision": scope.permission_revision,
+            "conversation_id": scope.conversation_id,
+            "turn_id": scope.turn_id,
+            "execution_id": scope.execution_id,
+        }
+
+    def _v2_evidence(self, item: dict[str, Any]) -> rag_pb2.Evidence:
+        return rag_pb2.Evidence(
+            id=item["id"], content=item["content"], source_type=item["source_type"],
+            source_ref=item["source_ref"], document_id=item["document_id"],
+            version_id=item["version_id"], rank=int(item.get("rank", 0)),
+            raw_score=float(item.get("raw_score", 0.0)), shop_id=item["shop_id"],
+            disclosure_class=item["disclosure_class"], customer_eligible=bool(item["customer_eligible"]),
+            tenant_id=item["tenant_id"],
+        )
+
+    @staticmethod
+    def _v2_input_evidence(item: Any) -> dict[str, Any]:
+        return {
+            "id": item.id, "content": item.content, "source_type": item.source_type,
+            "source_ref": item.source_ref, "document_id": item.document_id,
+            "version_id": item.version_id, "tenant_id": item.tenant_id, "shop_id": item.shop_id,
+            "disclosure_class": item.disclosure_class, "customer_eligible": item.customer_eligible,
+            "rank": int(item.rank), "raw_score": float(item.raw_score), "rrf_score": 0.0,
+        }
+
+    @staticmethod
+    def _v2_is_mock() -> bool:
+        """Expose whether the selected v2 profile is offline-only."""
+        return _PROFILE != "v2_langchain_bailian"
+
+    def _v2_checkpoint_scope(self, request, context) -> dict[str, Any]:
+        """Validate the signed identity required by an ASKING checkpoint."""
+        if _PROFILE not in {"v2_langgraph_fixture", *_PROVIDER_PROFILES}:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "v2 checkpoint is disabled")
+        self._authorize(request.context, context)
+        if request.pending_kind not in {"", "ASKING"}:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported checkpoint kind")
+        if not request.context.conversation_id or not request.context.turn_id or not request.context.execution_id:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "checkpoint execution identity is incomplete")
+        _ensure_grpc_active(context)
+        return self._v2_scope(request.context)
+
+    @staticmethod
+    def _checkpoint_response(record, response_type):
+        return response_type(
+            accepted=True,
+            thread_id=record.thread_id,
+            pending_kind=record.pending_kind,
+            expires_at=record.expires_at,
+        )
 
     def _authorize(self, scope, context):
         if not _valid_scope(scope):
@@ -169,6 +307,35 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         self._authorize(request.context, context)
         if not query:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "query is required")
+        if _PROFILE in {"v2_langgraph_fixture", *_PROVIDER_PROFILES}:
+            try:
+                _ensure_grpc_active(context)
+                service = self._provider_v2 or self._v2
+                result = (
+                    asyncio.run(service.arun(
+                        query=query,
+                        scope=self._v2_scope(request.context),
+                        response_purpose="internal",
+                        cancel_event=_GrpcCancelEvent(context),
+                        timeout_s=_grpc_timeout(context),
+                    ))
+                    if self._provider_v2
+                    else service.run(
+                        query=query,
+                        scope=self._v2_scope(request.context),
+                        response_purpose="internal",
+                    )
+                )
+            except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
+                _abort_v2_error(context, error)
+            _ensure_grpc_active(context)
+            return rag_pb2.UnderstandResponse(
+                rewritten_query=result.get("rewritten_query", query), intent=result.get("intent", "knowledge"),
+                information_source=result.get("information_source", "own_knowledge"),
+                required_fact_tools=result.get("required_fact_tools", []),
+                clarification=result.get("clarification", ""), confidence=float(result.get("confidence", 0.0)),
+                reason=result.get("reason", "v2_langgraph_fixture"),
+            )
         if _is_vague(query) or len(query) <= 2:
             if re.search(r"SKU-[A-Z0-9-]+|保温杯|毛巾|收纳箱|马克杯|配送|退货", request.history_summary, re.IGNORECASE):
                 return rag_pb2.UnderstandResponse(
@@ -198,6 +365,34 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
         query = request.query.strip()
         if not query:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "query is required")
+        if _PROFILE in {"v2_langgraph_fixture", *_PROVIDER_PROFILES}:
+            try:
+                _ensure_grpc_active(context)
+                service = self._provider_v2 or self._v2
+                result = (
+                    asyncio.run(service.arun(
+                        query=query,
+                        scope=self._v2_scope(request.context),
+                        response_purpose=request.response_purpose or "internal",
+                        cancel_event=_GrpcCancelEvent(context),
+                        timeout_s=_grpc_timeout(context),
+                    ))
+                    if self._provider_v2
+                    else service.run(
+                        query=query,
+                        scope=self._v2_scope(request.context),
+                        response_purpose=request.response_purpose or "internal",
+                    )
+                )
+            except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
+                _abort_v2_error(context, error)
+            for item in result.get("evidence", []):
+                _ensure_grpc_active(context)
+                self._authorize(request.context, context)
+                yield rag_pb2.SearchResponse(phase="retrieval", complete=False, evidence=[self._v2_evidence(item)], request_id=request.context.request_id, is_mock=self._v2_is_mock())
+            _ensure_grpc_active(context)
+            yield rag_pb2.SearchResponse(phase="complete", complete=True, request_id=request.context.request_id, is_mock=self._v2_is_mock())
+            return
         with _INDEX_LOCK:
             index = _LOCAL_INDEX
         if index is not None:
@@ -314,6 +509,61 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def Generate(self, request, context):
         self._authorize(request.context, context)
+        if _PROFILE in {"v2_langgraph_fixture", *_PROVIDER_PROFILES}:
+            try:
+                _ensure_grpc_active(context)
+                evidence = [self._v2_input_evidence(item) for item in request.evidence]
+                facts = self._v2._validate_facts([
+                    {
+                        "tool_name": item.tool_name,
+                        "value_json": item.value_json,
+                        "observed_at": item.observed_at,
+                        "is_mock": item.is_mock,
+                    }
+                    for item in request.facts
+                ])
+                service = self._provider_v2 or self._v2
+                result = (
+                    asyncio.run(service.arun_with_evidence(
+                        query=request.query,
+                        scope=self._v2_scope(request.context),
+                        evidence=evidence,
+                        facts=facts,
+                        response_purpose=request.response_purpose or "internal",
+                        cancel_event=_GrpcCancelEvent(context),
+                        timeout_s=_grpc_timeout(context),
+                    ))
+                    if self._provider_v2
+                    else service.run_with_evidence(
+                        query=request.query,
+                        scope=self._v2_scope(request.context),
+                        evidence=evidence,
+                        response_purpose=request.response_purpose or "internal",
+                    )
+                )
+            except (PermissionError, ValueError, TypeError, RuntimeError, ProviderError) as error:
+                _abort_v2_error(context, error)
+            sequence = 0
+            for chunk in [result.get("answer", "")[i:i + 32] for i in range(0, len(result.get("answer", "")), 32)]:
+                _ensure_grpc_active(context)
+                self._authorize(request.context, context)
+                sequence += 1
+                yield rag_pb2.GenerateResponse(sequence=sequence, delta=chunk)
+            for item in result.get("citations", []):
+                _ensure_grpc_active(context)
+                self._authorize(request.context, context)
+                sequence += 1
+                yield rag_pb2.GenerateResponse(sequence=sequence, citation=self._v2_evidence(item))
+            usage_json = json.dumps(
+                {"is_mock": self._v2_is_mock(), "graph": "langgraph"},
+                separators=(",", ":"),
+            )
+            for event in ({"usage_json": usage_json}, {"is_mock": self._v2_is_mock()}, {"can_copy": bool(result.get("can_copy", False))}, {"done": True}):
+                _ensure_grpc_active(context)
+                self._authorize(request.context, context)
+                sequence += 1
+                yield rag_pb2.GenerateResponse(sequence=sequence, **event)
+            return
         if hasattr(context, "is_active") and not context.is_active():
             return
         evidence = [
@@ -350,6 +600,34 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             self._authorize(request.context, context)
             sequence += 1
             yield rag_pb2.GenerateResponse(sequence=sequence, **event)
+
+    def SaveCheckpoint(self, request, context):
+        scope = self._v2_checkpoint_scope(request, context)
+        try:
+            record = self._v2.save_asking_checkpoint(scope)
+        except PermissionError as error:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
+        except (KeyError, ValueError, TypeError) as error:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(error))
+        except RuntimeError as error:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(error))
+        _ensure_grpc_active(context)
+        return self._checkpoint_response(record, rag_pb2.SaveCheckpointResponse)
+
+    def ResumeCheckpoint(self, request, context):
+        scope = self._v2_checkpoint_scope(request, context)
+        try:
+            record = self._v2.resume_checkpoint(scope)
+        except KeyError as error:
+            context.abort(grpc.StatusCode.NOT_FOUND, str(error))
+        except PermissionError as error:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
+        except (ValueError, TypeError) as error:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(error))
+        except RuntimeError as error:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(error))
+        _ensure_grpc_active(context)
+        return self._checkpoint_response(record, rag_pb2.ResumeCheckpointResponse)
 
 
 def register(server: Any) -> None:

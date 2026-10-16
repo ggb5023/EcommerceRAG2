@@ -233,7 +233,7 @@ func (g *gateway) adminSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"tenant_id": g.session.tenant, "user_id": g.session.user,
 		"runtime_role": g.session.role, "shop_id": g.session.shop, "allowed_shop_ids": g.session.allowedShops,
 		"permission_revision": g.currentPermissionRevision(), "admin_roles": roles,
-		"admin_role_catalog": catalog, "is_mock": true})
+		"admin_role_catalog": catalog, "is_mock": isMockProfile(g.profile)})
 }
 
 func (g *gateway) adminOverview(w http.ResponseWriter, r *http.Request) {
@@ -812,7 +812,7 @@ func (g *gateway) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(queued.JobID, 10),
 		"manifest_sha256": queued.ManifestSHA256, "package_sha256": queued.PackageSHA256,
-		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": true})
+		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": isMockProfile(g.profile)})
 }
 
 type adminConflictError struct{ message string }

@@ -19,6 +19,11 @@ message RequestContext {
   int64 scope_expires_at = 12;
   int64 tenant_db_id = 13;
   int64 user_db_id = 14;
+  // Optional v2 execution identity. These fields are signed with the scope
+  // and are required when Python creates an ASKING/HITL checkpoint.
+  string conversation_id = 15;
+  string turn_id = 16;
+  string execution_id = 17;
 }
 message Evidence {
   string id = 1;
@@ -45,6 +50,9 @@ service RagService {
   rpc Understand(UnderstandRequest) returns (UnderstandResponse);
   rpc Search(SearchRequest) returns (stream SearchResponse);
   rpc Generate(GenerateRequest) returns (stream GenerateResponse);
+  // v2 stores only the minimal identity required to resume an ASKING/HITL turn.
+  rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
+  rpc ResumeCheckpoint(ResumeCheckpointRequest) returns (ResumeCheckpointResponse);
   rpc ReloadSyntheticIndex(ReloadSyntheticIndexRequest) returns (ReloadSyntheticIndexResponse);
 }
 message UnderstandRequest {
@@ -98,6 +106,27 @@ message GenerateResponse {
   }
 }
 
+message SaveCheckpointRequest {
+  RequestContext context = 1;
+  string pending_kind = 2;
+}
+message SaveCheckpointResponse {
+  bool accepted = 1;
+  string thread_id = 2;
+  string pending_kind = 3;
+  int64 expires_at = 4;
+}
+message ResumeCheckpointRequest {
+  RequestContext context = 1;
+  string pending_kind = 2;
+}
+message ResumeCheckpointResponse {
+  bool accepted = 1;
+  string thread_id = 2;
+  string pending_kind = 3;
+  int64 expires_at = 4;
+}
+
 message ReloadSyntheticIndexRequest {
   RequestContext context = 1;
   repeated SyntheticIndexChunk chunks = 2;
@@ -146,10 +175,20 @@ message SubmitRequest {
   string source_id = 3;
   string object_key = 4;
   string pipeline_version = 5;
+  // v2 package submission. Go supplies the already-authorized identity and
+  // Python persists the package and creates the durable ingestion job.
+  string manifest_yaml = 6;
+  repeated PackageFile files = 7;
+  string tenant_db_id = 8;
+  string user_db_id = 9;
+  string shop_id = 10;
 }
 message SubmitResponse {
   string job_id = 1;
   JobStatus status = 2;
+  string manifest_sha256 = 3;
+  string package_sha256 = 4;
+  int32 item_count = 5;
 }
 message GetStatusRequest {
   RequestContext context = 1;

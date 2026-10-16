@@ -203,10 +203,19 @@ func scopeMAC(key []byte, scope *ragv1.RequestContext) []byte {
 }
 
 func (g *gateway) issueScope(ctx context.Context, requestID string) (*ragv1.RequestContext, error) {
-	return g.issueScopeForShop(ctx, requestID, g.session.shop)
+	return g.issueScopeForShopWithTurn(ctx, requestID, g.session.shop, "", "", "")
 }
 
 func (g *gateway) issueScopeForShop(ctx context.Context, requestID, shop string) (*ragv1.RequestContext, error) {
+	return g.issueScopeForShopWithTurn(ctx, requestID, shop, "", "", "")
+}
+
+func (g *gateway) issueScopeForTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64) (*ragv1.RequestContext, error) {
+	return g.issueScopeForShopWithTurn(ctx, requestID, g.session.shop,
+		strconv.FormatInt(conversationID, 10), strconv.FormatInt(turnID, 10), strconv.FormatInt(executionID, 10))
+}
+
+func (g *gateway) issueScopeForShopWithTurn(ctx context.Context, requestID, shop, conversationID, turnID, executionID string) (*ragv1.RequestContext, error) {
 	if !slices.Contains(g.session.allowedShops, shop) {
 		return nil, status.Error(codes.PermissionDenied, "shop_not_authorized")
 	}
@@ -228,7 +237,8 @@ func (g *gateway) issueScopeForShop(ctx context.Context, requestID, shop string)
 		ShopId: shop, Role: g.session.role, AllowedShopIds: append([]string(nil), g.session.allowedShops...),
 		AllShops: g.session.allShops, PermissionRevision: g.currentPermissionRevision(),
 		AllowedDocumentIds: ids, EnforceDocumentScope: true, ScopeExpiresAt: time.Now().Add(turnTimeout + 5*time.Second).Unix(),
-		TenantDbId: g.session.tenantID, UserDbId: g.session.userID}
+		TenantDbId: g.session.tenantID, UserDbId: g.session.userID,
+		ConversationId: conversationID, TurnId: turnID, ExecutionId: executionID}
 	scope.ScopeSignature = hex.EncodeToString(scopeMAC(g.signingKey, scope))
 	if err = g.refreshAuthorization(ctx); err != nil {
 		return nil, err
@@ -246,7 +256,8 @@ func (g *gateway) validateScope(ctx context.Context, scope *ragv1.RequestContext
 	var tenant string
 	err = g.db.QueryRow(ctx, `SELECT CASE name WHEN 'M1 isolated prototype' THEN 'm1-tenant'
         WHEN 'Synthetic ecommerce demo v1' THEN 'demo-tenant-a'
-        WHEN 'Synthetic ecommerce tenant b' THEN 'demo-tenant-b' ELSE '' END FROM tenant WHERE id=$1`, scope.TenantDbId).Scan(&tenant)
+        WHEN 'Synthetic ecommerce tenant b' THEN 'demo-tenant-b'
+        WHEN 'V2 LangGraph fixture tenant' THEN 'v2-demo-tenant' ELSE '' END FROM tenant WHERE id=$1`, scope.TenantDbId).Scan(&tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return status.Error(codes.PermissionDenied, "invalid_scope")
 	}

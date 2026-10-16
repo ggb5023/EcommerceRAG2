@@ -1,0 +1,227 @@
+import asyncio
+import tempfile
+from pathlib import Path
+from threading import Event
+
+from app.chains.provider import build_provider_chains
+from app.graph.runtime import load_provider_service
+from app.graph.service import LangGraphRagService
+from app.providers.aliyun_bailian import MockProvider
+from app.providers.config import validate_values
+
+
+def mock_provider():
+    values = {
+        "PROVIDER_PROFILE": "mock",
+        "CONTROL_MODEL": "mock-control",
+        "EMBEDDING_MODEL": "mock-embedding",
+        "RERANK_MODEL": "mock-rerank",
+        "GENERATION_MODEL": "mock-generation",
+    }
+    return MockProvider(validate_values(values))
+
+
+def scope(*documents):
+    return {
+        "tenant_id": "v2-demo-tenant",
+        "user_id": "dev-user",
+        "permission_revision": "1",
+        "role": "operator",
+        "allowed_shop_ids": ["shop-demo"],
+        "allowed_document_ids": list(documents),
+        "shop_id": "shop-demo",
+    }
+
+
+async def _provider_chains_keep_metadata_and_embedding_contract():
+    chains = build_provider_chains(
+        control=mock_provider(),
+        embedding=mock_provider(),
+        rerank=mock_provider(),
+        generation=mock_provider(),
+    )
+    control = await chains.control.ainvoke({
+        "messages": [{"role": "user", "content": "问题"}],
+    })
+    assert control["provider"]["request_id"].startswith("mock-control-")
+    embedding = await chains.embedding.ainvoke({
+        "texts": ["文本"], "text_type": "document", "output_type": "dense&sparse",
+    })
+    assert len(embedding["items"][0]["dense"]) == 1024
+    assert embedding["items"][0]["provider"]["model"] == "mock-embedding"
+
+
+async def _provider_graph_is_async_and_remains_non_copyable():
+    provider = mock_provider()
+    chains = build_provider_chains(
+        control=provider, embedding=provider, rerank=provider, generation=provider,
+    )
+    result = await LangGraphRagService().arun(
+        query="保温杯容量是多少？",
+        scope=scope("v2-doc-bottle"),
+        response_purpose="customer_reply",
+        provider_chains=chains,
+    )
+    assert result["is_mock"] is False
+    assert result["can_copy"] is False
+    assert result["evidence"][0]["document_id"] == "v2-doc-bottle"
+    assert result["trace"]["provider"]["request_id"].startswith("mock-generation-")
+    assert result["trace"]["retrieval"]["retrieval"]["retrieval_mode"] == "fixture_embedding_contract"
+
+
+def test_provider_chains_keep_metadata_and_embedding_contract():
+    asyncio.run(_provider_chains_keep_metadata_and_embedding_contract())
+
+
+def test_provider_graph_is_async_and_remains_non_copyable():
+    asyncio.run(_provider_graph_is_async_and_remains_non_copyable())
+
+
+def test_provider_graph_calls_embedding_with_query_and_document_contracts():
+    class RecordingProvider(MockProvider):
+        def __init__(self, config):
+            super().__init__(config)
+            self.calls = []
+
+        async def embed(self, texts, *, text_type, dimensions=1024, output_type="dense&sparse", instruct_version="", cancel_event=None):
+            self.calls.append((list(texts), text_type, dimensions, output_type))
+            return await super().embed(
+                texts,
+                text_type=text_type,
+                dimensions=dimensions,
+                output_type=output_type,
+                instruct_version=instruct_version,
+                cancel_event=cancel_event,
+            )
+
+    async def run():
+        provider = RecordingProvider(validate_values({
+            "PROVIDER_PROFILE": "mock",
+            "CONTROL_MODEL": "mock-control",
+            "EMBEDDING_MODEL": "mock-embedding",
+            "RERANK_MODEL": "mock-rerank",
+            "GENERATION_MODEL": "mock-generation",
+        }))
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+        )
+        result = await LangGraphRagService().arun(
+            query="保温杯容量是多少？",
+            scope=scope("v2-doc-bottle"),
+            response_purpose="customer_reply",
+            provider_chains=chains,
+        )
+        assert result["evidence"][0]["document_id"] == "v2-doc-bottle"
+        assert [call[1:] for call in provider.calls] == [
+            ("query", 1024, "dense&sparse"),
+            ("document", 1024, "dense&sparse"),
+        ]
+
+    asyncio.run(run())
+
+
+def test_provider_graph_uses_persistent_retriever_without_fixture_candidates():
+    class RecordingRetriever:
+        def __init__(self):
+            self.calls = []
+
+        async def asearch(self, **kwargs):
+            self.calls.append(kwargs)
+            return [{
+                "id": "db-chunk-1",
+                "content": "持久化资料中的保温杯容量为480毫升。",
+                "source_type": "postgres_chunk",
+                "source_ref": "db://chunk/1",
+                "document_id": "persist-doc",
+                "version_id": "persist-version",
+                "tenant_id": "v2-demo-tenant",
+                "shop_id": "shop-demo",
+                "disclosure_class": "external_allowed",
+                "customer_eligible": True,
+                "raw_score": 1.0,
+                "dense_rank": 1,
+                "sparse_rank": 1,
+                "metadata": {},
+            }]
+
+    async def run():
+        provider = mock_provider()
+        retriever = RecordingRetriever()
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+            retriever=retriever,
+        )
+        result = await LangGraphRagService().arun(
+            query="保温杯容量是多少？",
+            scope=scope("persist-doc"),
+            response_purpose="customer_reply",
+            provider_chains=chains,
+        )
+        assert result["evidence"][0]["document_id"] == "persist-doc"
+        assert result["trace"]["retrieval"]["retrieval"]["retrieval_mode"] == "pgvector_trigram_rrf"
+        assert len(retriever.calls) == 1
+        assert retriever.calls[0]["scope"]["allowed_document_ids"] == ["persist-doc"]
+
+    asyncio.run(run())
+
+
+def test_provider_graph_propagates_deadline_and_cancellation_boundary():
+    class RecordingProvider(MockProvider):
+        def __init__(self, config):
+            super().__init__(config)
+            self.seen = None
+
+        async def control(self, messages, *, response_schema=None, timeout_s=None, cancel_event=None):
+            self.seen = (timeout_s, cancel_event)
+            return await super().control(
+                messages,
+                response_schema=response_schema,
+                timeout_s=timeout_s,
+                cancel_event=cancel_event,
+            )
+
+    async def run():
+        provider = RecordingProvider(validate_values({
+            "PROVIDER_PROFILE": "mock",
+            "CONTROL_MODEL": "mock-control",
+            "EMBEDDING_MODEL": "mock-embedding",
+            "RERANK_MODEL": "mock-rerank",
+            "GENERATION_MODEL": "mock-generation",
+        }))
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+        )
+        event = Event()
+        result = await LangGraphRagService().arun(
+            query="保温杯容量是多少？", scope=scope("v2-doc-bottle"),
+            provider_chains=chains, cancel_event=event, timeout_s=1.25,
+        )
+        assert result["answer"]
+        assert provider.seen == (1.25, event)
+        event.set()
+        try:
+            await LangGraphRagService().arun(
+                query="保温杯容量是多少？", scope=scope("v2-doc-bottle"),
+                provider_chains=chains, cancel_event=event, timeout_s=1.25,
+            )
+        except RuntimeError as error:
+            assert str(error) == "request cancelled"
+        else:
+            raise AssertionError("cancelled graph execution must fail closed")
+
+    asyncio.run(run())
+
+
+def test_provider_runtime_factory_keeps_profile_selection_explicit():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "providers.env"
+        path.write_text(
+            "PROVIDER_PROFILE=mock\n"
+            "CONTROL_MODEL=mock-control\n"
+            "EMBEDDING_MODEL=mock-embedding\n"
+            "RERANK_MODEL=mock-rerank\n"
+            "GENERATION_MODEL=mock-generation\n",
+            encoding="utf-8",
+        )
+        service = load_provider_service(path)
+    assert service.provider_chains is not None

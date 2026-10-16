@@ -61,5 +61,61 @@ class MigrationRunnerStaticTests(unittest.TestCase):
         ):
             self.assertIn(fragment, sql)
 
+    def test_v2_checkpoint_migration_pins_saver_schema_and_dml_grants(self):
+        migration = ROOT / "sql/migrations/0015_v2_graph_checkpoint.sql"
+        sql = migration.read_text(encoding="utf-8")
+        for table in (
+            "v2_asking_checkpoint",
+            "checkpoint_migrations",
+            "checkpoints",
+            "checkpoint_blobs",
+            "checkpoint_writes",
+        ):
+            expected = f"CREATE TABLE IF NOT EXISTS {table}"
+            if table == "v2_asking_checkpoint":
+                expected = "CREATE TABLE v2_asking_checkpoint"
+            self.assertIn(expected, sql)
+        self.assertIn("generate_series(0, 9)", sql)
+        self.assertIn("GRANT SELECT, INSERT, UPDATE, DELETE ON checkpoints TO rag_app", sql)
+        self.assertIn("VALUES ('0015', :'migration_checksum')", sql)
+
+    def test_resume_idempotency_is_bound_to_exact_execution(self):
+        migration = ROOT / "sql/migrations/0016_resume_idempotency_execution.sql"
+        sql = migration.read_text(encoding="utf-8")
+        for fragment in (
+            "ALTER TABLE turn_idempotency",
+            "ADD COLUMN execution_id BIGINT",
+            "turn_idempotency_execution_fk",
+            "REFERENCES conversation_execution",
+            "idx_turn_idempotency_execution",
+            "VALUES ('0016', :'migration_checksum')",
+        ):
+            self.assertIn(fragment, sql)
+
+    def test_v2_fixture_tenant_is_isolated_from_m1_identity(self):
+        migration = ROOT / "sql/migrations/0017_v2_fixture_tenant.sql"
+        sql = migration.read_text(encoding="utf-8")
+        for fragment in (
+            "V2 LangGraph fixture tenant",
+            "v2-demo-tenant",
+            "dev-user",
+            "v2-doc-bottle",
+            "v2-doc-shipping",
+            "v2-doc-internal",
+            "VALUES ('0017', :'migration_checksum')",
+        ):
+            self.assertIn(fragment, sql)
+
+    def test_v2_retrieval_indexes_are_versioned(self):
+        migration = ROOT / "sql/migrations/0018_v2_retrieval_indexes.sql"
+        sql = migration.read_text(encoding="utf-8")
+        for fragment in (
+            "idx_v2_document_active_scope",
+            "idx_v2_chunk_scope_version",
+            "idx_v2_chunk_embed_text_trgm",
+            "VALUES ('0018', :'migration_checksum')",
+        ):
+            self.assertIn(fragment, sql)
+
 if __name__ == "__main__":
     unittest.main()
