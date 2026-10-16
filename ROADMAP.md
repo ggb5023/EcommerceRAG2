@@ -17,12 +17,13 @@
 
 ### P1 仓库整理与架构收敛
 
-- [ ] 推送全部本地分支，打基线 tag `baseline-20261015`
-- [ ] 收拢旧工作树 `/opt/ecommerce-rag` 上的未提交改动（提交到独立分支或明确放弃）
+- [x] 推送全部本地分支，打基线 tag `baseline-20261016`
+- [x] 收拢旧工作树上的未提交改动（已存入远端分支 `archive/v1-wip-20261008`）
 - [ ] Python 三个进程合成一个 `ai` 进程（AI RPC、摄取 RPC 和 worker 循环）
 - [ ] `web/` 和 `admin-web/` 合并为 `frontend/`
 - [ ] Go 内置本地账号，Keycloak 改为可选 profile
 - [ ] Compose 默认 3 个服务；补源码部署（systemd）说明
+- [ ] 新 Compose 跑通后删除已停止的旧验收环境 `ecr-milestone-20261014`（容器、volumes 及其运行目录）
 - [ ] 测试 fixture 移出正式迁移链，改为单独加载
 - [ ] `scripts/` 分为 dev 和 ops，删除一次性验收脚本
 - [ ] 精简 `eval/README.md`，评测统一一个入口
