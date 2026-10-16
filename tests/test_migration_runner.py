@@ -147,5 +147,19 @@ class MigrationRunnerStaticTests(unittest.TestCase):
         ):
             self.assertIn(fragment, sql)
 
+    def test_fixture_identities_are_disabled_outside_development(self):
+        sql = (ROOT / "sql/migrations/0029_disable_fixture_identities.sql").read_text(encoding="utf-8")
+        for fragment in (
+            "CREATE FUNCTION ecr_is_development_database",
+            "db_name ~ '^ecr_v2_(test|dev)_'",
+            "IF NOT ecr_is_development_database(current_database())",
+            "SET revoked_at = now()",
+            "SET status = 'disabled'",
+            "VALUES ('0029', :'migration_checksum')",
+        ):
+            self.assertIn(fragment, sql)
+        seed = (ROOT / "scripts/dev/seed-fixtures.sql").read_text(encoding="utf-8")
+        self.assertIn("IF NOT ecr_is_development_database(current_database())", seed)
+
 if __name__ == "__main__":
     unittest.main()
