@@ -83,7 +83,6 @@ class PrivacyControls(unittest.TestCase):
         self.assertFalse(privacy.blocked_path("docs/decisions/0001-product-positioning.md"))
         self.assertTrue(privacy.blocked_path("docs/decisions/notes.md"))
         self.assertTrue(privacy.blocked_path("docs/decisions/0001-x/private.md"))
-        self.assertTrue(privacy.blocked_path("HANDOFF.md"))
         self.assertTrue(privacy.blocked_path("docs/customer-report.md"))
         self.assertTrue(privacy.blocked_path(".local/dev-docs/docs/install.md"))
 

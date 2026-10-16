@@ -60,7 +60,8 @@ def blocked_path(name, allow_project_record=False):
         return True
     public_markdown = (
         name == 'README.md'
-        or name in {'AGENTS.md', 'ROADMAP.md'}
+        # FACTS/HANDOFF are retired but remain curated public files in history.
+        or name in {'AGENTS.md', 'ROADMAP.md', 'FACTS.md', 'HANDOFF.md'}
         or public_document(name)
         or name == 'eval/README.md'
         or (name.startswith('data/synthetic/') and path.suffix.lower() in {'.md', '.markdown'})
