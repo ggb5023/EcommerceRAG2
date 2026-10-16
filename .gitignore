@@ -52,3 +52,10 @@ go/bin/
 bin/
 tmp/
 .DS_Store
+
+# Individually reviewed publication documentation
+!/docs/publication.md
+!/project-records/README.md
+!/project-records/config/README.md
+!/project-records/rebuild/README.md
+!project-records/fixtures/markdown/*.md

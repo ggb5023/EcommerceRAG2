@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "acceptance_metadata_export",
+  "status": "PASS",
+  "acceptance_label": "single-merchant self-hosted knowledge customer-service loop",
+  "scope": "independent single-merchant installation with synthetic knowledge and accounts",
+  "reviewer_kind": "agent",
+  "human_review_completed": false,
+  "delegation_authorization": "explicit_user_instruction",
+  "real_service_acceptance": false,
+  "customer_quality": {
+    "status": "PASS",
+    "high_risk": "8/8",
+    "ordinary": "7/7",
+    "required_evidence": "10/10",
+    "applicable_citations": "10/10",
+    "severe_safety_errors": 0
+  },
+  "original_answer_point_gate": {
+    "status": "NOT_PASSED",
+    "passed_cases": 44,
+    "case_count": 53,
+    "omitted_case_count": 9
+  },
+  "export_note": "Historical aggregate export; full reviewed nonsecret originals and safe variants are archived privately in OSS. Not a new quality result.",
+  "record_scope": "historical_milestone_20261014",
+  "latest_semantic_failures": [
+    "syn-019",
+    "syn-031"
+  ],
+  "latest_online_rerun_completed": false
+}

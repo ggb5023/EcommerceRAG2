@@ -1,0 +1,503 @@
+{
+  "manifest_version": "source-fixtures-v1",
+  "generated_at": "2026-10-03",
+  "real_pdf_track_manifest": "/var/lib/ecommerce-rag/real-docs/real-docs-v1/manifest.json",
+  "storage_policy": "Restricted outside Git; raw inputs and reports are not copied into repository artifacts.",
+  "real_service_acceptance": false,
+  "fixtures": [
+    {
+      "fixture_id": "md-faq-short-v1",
+      "format": "markdown",
+      "path": "markdown/md-faq-short-v1.md",
+      "scenario_tags": [
+        "short_faq",
+        "question_answer"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 264,
+      "sha256": "9a11b395f867c106b93afb84d017e3f6cc7f039cf1d85126c48282208242aac1",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "md-policy-long-v1",
+      "format": "markdown",
+      "path": "markdown/md-policy-long-v1.md",
+      "scenario_tags": [
+        "long_text",
+        "section_boundary",
+        "hard_split"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 399,
+      "sha256": "f238250bc794cf87e78a91ae8489722e17b41df0f73f7fe746bce86af01c5e8e",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "md-structure-v1",
+      "format": "markdown",
+      "path": "markdown/md-structure-v1.md",
+      "scenario_tags": [
+        "heading_jump",
+        "code_fence",
+        "table",
+        "missing_image"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 483,
+      "sha256": "fe78935f3f67974b6b49f80eb6f42fa0faac23a64cfdaea6352640b1f27abaac",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-bad-rows-v1",
+      "format": "csv",
+      "path": "csv/csv-bad-rows-v1.csv",
+      "scenario_tags": [
+        "column_mismatch",
+        "validation_error"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 64,
+      "sha256": "c446d38573288f9721263519a6229a9fb6be968cf18192b65420cad9e5782f9c",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-long-cell-v1",
+      "format": "csv",
+      "path": "csv/csv-long-cell-v1.csv",
+      "scenario_tags": [
+        "long_cell",
+        "hard_split"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 2909,
+      "sha256": "da46159a90216b07258728b00405f01743dec60329d89c10f2237987bcfb1614",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-products-record-v1",
+      "format": "csv",
+      "path": "csv/csv-products-record-v1.csv",
+      "scenario_tags": [
+        "record_mode",
+        "tenant_filter",
+        "row_boundary"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 150,
+      "sha256": "56105806adbac9f9ffdc0d02dae29fa4a99926b1feb674a80b780913499884d1",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-quoted-multiline-v1",
+      "format": "csv",
+      "path": "csv/csv-quoted-multiline-v1.csv",
+      "scenario_tags": [
+        "quoted_multiline",
+        "csv_reader"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 81,
+      "sha256": "c9ae5ff5092b10ce776bee0f8ec361be7ee98a70e7c63264120651566fdcd0d5",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-utf16-v1",
+      "format": "csv",
+      "path": "csv/csv-utf16-v1.csv",
+      "scenario_tags": [
+        "encoding_utf16",
+        "explicit_config"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 62,
+      "sha256": "950ad7e103d311ec40ed6c465331a1b975facd1c6391ea14a578c23a59b28a03",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "csv-utf8-bom-v1",
+      "format": "csv",
+      "path": "csv/csv-utf8-bom-v1.csv",
+      "scenario_tags": [
+        "encoding_bom",
+        "encoding_review"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 40,
+      "sha256": "65259d3a491f65ed37de06aa594bce381654b07822f5aff1fe8cf3faf305bf6a",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "docx-heading-table-v1",
+      "format": "docx",
+      "path": "docx/docx-heading-table-v1.docx",
+      "scenario_tags": [
+        "heading",
+        "table",
+        "mixed_content"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 1210,
+      "sha256": "26bf13fba61dcc163eae10573b4f3fa9315bf110db2e4e2ea7152f175a4ac9c9",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "docx-long-paragraph-v1",
+      "format": "docx",
+      "path": "docx/docx-long-paragraph-v1.docx",
+      "scenario_tags": [
+        "long_text",
+        "hard_split"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 1027,
+      "sha256": "746ab4d0479c3f410b0c462405c4e13c9cb161f0a0be3ddba7c44a232f9408c8",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "docx-repeated-header-v1",
+      "format": "docx",
+      "path": "docx/docx-repeated-header-v1.docx",
+      "scenario_tags": [
+        "repeated_header",
+        "table_boundary"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 1058,
+      "sha256": "74d4e755065b93918c7d17b3303c3ac05647fed03439e5b151573f5a2ad954d5",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "crawler-html-v1",
+      "format": "html",
+      "path": "html/crawler-html-v1.html",
+      "scenario_tags": [
+        "crawler_html",
+        "heading",
+        "table",
+        "image",
+        "script_ignored"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "parseable",
+      "size_bytes": 547,
+      "sha256": "b976c9909688be8a37db9664d4c57040af596f6c4207fe20a3922c10f74d4440",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "broken-docx",
+      "format": "docx",
+      "path": "invalid/broken-docx.docx",
+      "scenario_tags": [
+        "corrupt_container",
+        "failure_path"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 10,
+      "sha256": "bde0819eaca76a8a9481f474d3d8b0a3cad84b07b60a2996cc999df5b3ba10ea",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "empty",
+      "format": "invalid",
+      "path": "invalid/empty.bin",
+      "scenario_tags": [
+        "empty_file",
+        "preflight_failure"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "invalid-utf8",
+      "format": "csv",
+      "path": "invalid/invalid-utf8.csv",
+      "scenario_tags": [
+        "encoding_failure",
+        "preflight_failure"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 23,
+      "sha256": "a48049a47ac2ac7ddb48b6bb6782c5d7e9b4d14e65166676422b1c9d0d3b37ce",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "path-traversal",
+      "format": "invalid",
+      "path": "invalid/path-traversal.manifest.yaml",
+      "scenario_tags": [
+        "manifest_path_traversal",
+        "security_failure"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 48,
+      "sha256": "bec2a103bc9ed6408faf8e45cc9fbcd2534ef8c8b3e257a6ab6333b3bf3dcd19",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    },
+    {
+      "fixture_id": "unsupported",
+      "format": "html",
+      "path": "invalid/unsupported.html",
+      "scenario_tags": [
+        "unsupported_type",
+        "preflight_failure"
+      ],
+      "source_type": "synthetic_engineering_fixture",
+      "generated_at": "2026-10-03",
+      "license_status": "internal-generated",
+      "expected_parse_status": "expected_failure",
+      "size_bytes": 46,
+      "sha256": "47a6298f9e4603ca7637b8808fcc2430d2115de8677ec1ddc80715e7ebc6ee77",
+      "allowed_use": [
+        "parser regression",
+        "chunking experiment",
+        "citation position mapping"
+      ],
+      "forbidden_use": [
+        "merchant policy truth",
+        "price/inventory truth",
+        "tenant authorization truth",
+        "customer reply acceptance"
+      ],
+      "real_service_acceptance": false
+    }
+  ]
+}

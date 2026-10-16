@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "record_type": "rebuild_metadata_export",
+  "method": "local-locked-toolchains",
+  "runtime_base_digest_recorded": true,
+  "dependency_lock_hashes_recorded": true,
+  "source_code_commit_recorded": true,
+  "real_service_acceptance": false,
+  "export_note": "GitHub keeps rebuild inputs. OSS inventories build outputs and records pending binary/license review explicitly."
+}

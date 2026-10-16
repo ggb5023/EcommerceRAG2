@@ -1,0 +1,3 @@
+sku_id,name,price,tenant_id,shop_id
+SYN-001,合成传感器,199,demo-tenant-a,demo-shop-east
+SYN-002,合成扩展板,299,demo-tenant-a,demo-shop-east

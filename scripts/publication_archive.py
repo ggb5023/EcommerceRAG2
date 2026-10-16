@@ -90,7 +90,7 @@ def inventory(roots, output, known_roots=()):
         for path in enumerate_root(root):
             rel = path.relative_to(root).as_posix()
             info = path.lstat()
-            record = dict(source_alias=alias, original_path=rel, size=info.st_size,
+            record = dict(source_alias=alias, source_kind='generated' if alias=='database_export' else 'file', original_path=rel, size=info.st_size,
                           original_sha256=None, export_sha256=None, destination='OSS',
                           license_status='project_or_authorized_private_material',
                           status='PENDING', methods=[], category=category(rel))
@@ -125,7 +125,17 @@ def inventory(roots, output, known_roots=()):
                 if sha(content) != record['original_sha256'] or path.stat().st_mtime_ns != info.st_mtime_ns:
                     record['reason'] = 'source-changed-during-snapshot'
                     continue
-                exported, methods = scanner.inspect(content, rel)
+                if alias == 'database_export' and path.suffix == '.jsonl':
+                    from publication_db_export import sanitize_row
+                    for line in content.splitlines():
+                        envelope = json.loads(line)
+                        row = envelope['data']
+                        checked, _ = sanitize_row(path.stem, row, scanner)
+                        if checked != row or scanner.has_secret(line):
+                            raise ValueError('database safety validation failed')
+                    exported, methods = content, ['verified-sanitized-database-export']
+                else:
+                    exported, methods = scanner.inspect(content, rel)
                 if exported is None:
                     record['reason'] = ','.join(methods)
                     continue
@@ -138,6 +148,9 @@ def inventory(roots, output, known_roots=()):
                         stream.write(exported)
                 if file_sha(dest) != digest:
                     raise ValueError('local object conflict')
+                if record['source_kind'] == 'generated':
+                    record['original_sha256'] = None
+                    record['generated_from'] = 'consistent_read_only_database_snapshot'
                 record.update(status='READY', export_sha256=digest, export_size=len(exported),
                               methods=methods or ['original-reviewed-unchanged'],
                               object_path='objects/sha256/'+digest)

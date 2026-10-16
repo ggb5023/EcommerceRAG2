@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "record_type": "customer_quality_metadata_export",
+  "status": "PASS",
+  "case_count": 15,
+  "high_risk": "8/8",
+  "ordinary": "7/7",
+  "required_support_delivery": "10/10",
+  "applicable_citations": "10/10",
+  "severe_safety_errors": 0,
+  "reviewer_kind": "agent",
+  "human_review_completed": false,
+  "real_service_acceptance": false,
+  "export_note": "Only aggregate counts are published; answer captures and semantic review text are retained outside Git."
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "record_type": "legacy_database_retirement_metadata_export",
+  "status": "PASS",
+  "authorized": true,
+  "fresh_backup_restore_verified": true,
+  "legacy_database_deleted_after_verification": true,
+  "shared_roles_unchanged": true,
+  "preserved_settings_unchanged": true,
+  "legacy_code_unchanged": true,
+  "forced_disconnects": 0,
+  "real_service_acceptance": false,
+  "export_note": "Database names, backup locations, credentials and full backup files are deliberately omitted; retention and restore evidence remains in restricted operations storage."
+}

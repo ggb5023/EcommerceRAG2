@@ -1,0 +1,9 @@
+{
+  "index_version": "public-archive-v1",
+  "oss_bucket": "ecommercerag-dev",
+  "oss_region": "cn-beijing",
+  "oss_prefix": "ecommercerag2/publication/20261015/20261015-bc05f848b417/",
+  "private_manifest_sha256": null,
+  "archive_status": "PREPARING",
+  "real_service_acceptance": false
+}
