@@ -50,7 +50,7 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 | 数据库集成 | `V2_INTEGRATION_ENV=... uv run pytest tests/test_v2_ingest_database.py tests/test_postgres_retriever.py` | 使用独立的 `ecr_v2_test_*` 库 |
 | 跨进程 | `ECR_V2_GO_PYTHON=1 go test ./internal/gateway -run TestGoCallsDedicatedPythonV2GRPC` | Go 调用真实 Python 进程 |
 | 浏览器 | `cd web && node tests/v2-lifecycle.browser.mjs` | 上传、审核、发布、问答、回滚、撤回 |
-| 评测 | 见 `eval/README.md` | 离线回归免费；真实模型评测走预算账本 |
+| 评测 | `bash eval/run.sh offline`（已含在 check.sh 中）；真实模型见 `bash eval/run.sh live` | 离线回归免费；真实模型评测走预算账本，详见 `eval/README.md` |
 
 上层测试不能用下层结果代替。汇报时写明运行了哪几层。
 
