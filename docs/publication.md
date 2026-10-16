@@ -44,8 +44,8 @@ Archive tooling accepts an output directory outside all input roots. Supply
 credentials only through a protected mode-0600 configuration file:
 
 ```bash
-python scripts/publication_archive.py inventory --root v2=/path/to/source --root runtime=/path/to/runtime --output /path/to/protected/export
-/path/to/publication-tools/bin/python scripts/publication_archive.py upload --output /path/to/protected/export --prefix ecommercerag2/publication/20261015/BATCH_ID/ --config /path/to/protected/oss.env
+python scripts/ops/publication_archive.py inventory --root v2=/path/to/source --root runtime=/path/to/runtime --output /path/to/protected/export
+/path/to/publication-tools/bin/python scripts/ops/publication_archive.py upload --output /path/to/protected/export --prefix ecommercerag2/publication/20261015/BATCH_ID/ --config /path/to/protected/oss.env
 ```
 
 A failed or interrupted upload can be rerun with the same output and prefix.
@@ -58,7 +58,7 @@ For private retrieval, use authenticated OSS SDK access without generating a
 public or signed URL:
 
 ```bash
-/path/to/publication-tools/bin/python scripts/publication_download.py --config /path/to/protected/oss.env --prefix ecommercerag2/publication/20261015/BATCH_ID/ --destination /path/to/empty/recovery
+/path/to/publication-tools/bin/python scripts/ops/publication_download.py --config /path/to/protected/oss.env --prefix ecommercerag2/publication/20261015/BATCH_ID/ --destination /path/to/empty/recovery
 ```
 
 The downloader verifies the private manifest digest from the public index,

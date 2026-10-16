@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "scripts/test-migrations.sh"
+RUNNER = ROOT / "scripts/dev/test-migrations.sh"
 
 
 class MigrationRunnerStaticTests(unittest.TestCase):

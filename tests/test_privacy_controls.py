@@ -13,10 +13,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('infra_config', ROOT / 'scripts/infra_config.py')
+SPEC = importlib.util.spec_from_file_location('infra_config', ROOT / 'scripts/db/infra_config.py')
 infra = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(infra)
-GUARD_SPEC = importlib.util.spec_from_file_location('privacy_guard', ROOT / 'scripts/privacy_guard.py')
+GUARD_SPEC = importlib.util.spec_from_file_location('privacy_guard', ROOT / 'scripts/check/privacy_guard.py')
 privacy = importlib.util.module_from_spec(GUARD_SPEC)
 GUARD_SPEC.loader.exec_module(privacy)
 
@@ -43,7 +43,7 @@ class PrivacyControls(unittest.TestCase):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
 
     def guard(self, *args, data=None):
-        return subprocess.run([sys.executable, str(ROOT / 'scripts/privacy_guard.py'), *args],
+        return subprocess.run([sys.executable, str(ROOT / 'scripts/check/privacy_guard.py'), *args],
                               cwd=self.repo, input=data, env=self.env, capture_output=True)
 
     def test_clean_history(self):
@@ -193,9 +193,9 @@ class PrivacyControls(unittest.TestCase):
     @unittest.skipUnless(os.name == 'posix', 'Git Bash and python3 are exercised on the Linux development host')
     def test_real_commit_and_push_hooks(self):
         shutil.copytree(ROOT / '.githooks', self.repo / '.githooks')
-        (self.repo / 'scripts').mkdir()
-        shutil.copy2(ROOT / 'scripts/privacy_guard.py', self.repo / 'scripts/privacy_guard.py')
-        shutil.copy2(ROOT / 'scripts/publication_scan.py', self.repo / 'scripts/publication_scan.py')
+        (self.repo / 'scripts/check').mkdir(parents=True)
+        shutil.copy2(ROOT / 'scripts/check/privacy_guard.py', self.repo / 'scripts/check/privacy_guard.py')
+        shutil.copy2(ROOT / 'scripts/check/publication_scan.py', self.repo / 'scripts/check/publication_scan.py')
         for hook in (self.repo / '.githooks').iterdir():
             hook.chmod(0o755)
         self.git('config', 'core.hooksPath', '.githooks')
@@ -252,7 +252,7 @@ class PrivateConfig(unittest.TestCase):
     @unittest.skipUnless(os.name == 'posix', 'Shell deployment guards require Linux')
     def test_missing_configuration_stops_shell_actions(self):
         with self.configuration():
-            for script in ('bootstrap-dev.sh', 'check-data-mount.sh', 'db-firewall.sh'):
+            for script in ('dev/bootstrap-dev.sh', 'db/check-data-mount.sh', 'db/db-firewall.sh'):
                 result = subprocess.run(['bash', str(ROOT / 'scripts' / script)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, script)
                 self.assertIn(b'UNVERIFIED infrastructure configuration', result.stdout + result.stderr)

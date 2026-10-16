@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check-doc-baseline.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check/check-doc-baseline.py"
 DOCUMENTS = {
     "README.md": "[P](docs/product.md) [A](docs/architecture.md) [R](ROADMAP.md) [D](docs/development.md) [G](AGENTS.md)\n",
     "AGENTS.md": (

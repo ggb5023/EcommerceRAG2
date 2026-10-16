@@ -15,7 +15,7 @@ Linux、Docker Engine 与 Compose v2、Git、Python 3.12、uv、openssl。建议
 使用仓外目录。下面路径是安装者自备文件，不能提交到 Git。初始化需要 root，以创建与容器 UID 对应的受限目录和文件：
 
 ```bash
-sudo python/.venv/bin/python scripts/selfhost.py init \
+sudo python/.venv/bin/python scripts/ops/selfhost.py init \
   --directory /var/lib/ecommerce-rag/merchant \
   --origin https://shop.example.com:8443 \
   --provider-config /etc/ecommerce-rag/providers.env \
@@ -31,7 +31,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
   -f docker/selfhost/compose.yml up -d
 ```
 
-若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库、Redis 引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
+若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/ops/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库、Redis 引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
 
 默认仅绑定本机 Web 端口。需要对外开放时，在初始化时显式设置 `--bind 0.0.0.0`，同时配置主机防火墙和有效证书。数据库、Redis 和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；容器内同一域名由 Compose edge 别名解析。
 

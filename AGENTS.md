@@ -24,7 +24,7 @@
 - 浏览器只访问 Go；权限只由 Go 决定，Python 只用 Go 签发的 scope。
 - 一张表只有一个写入方；不用 SQL 直写终态绕过业务流程。
 - 结构变化只能新增 checksum 迁移；应用不执行 DDL。
-- Go 和 Python 的契约只在 `proto/rag/v1/rag.proto`；改完运行 `bash scripts/generate-proto.sh`，不手改生成文件。
+- Go 和 Python 的契约只在 `proto/rag/v1/rag.proto`；改完运行 `bash scripts/dev/generate-proto.sh`，不手改生成文件。
 
 ## 检查
 
@@ -32,7 +32,7 @@
 - Go：在 `go/` 下运行 `gofmt`、`go test ./...`、`go vet ./...`。
 - Python：在 `python/` 下运行 `uv sync --frozen`、`uv run pytest`、`uv run ruff check app`。
 - 前端：在 `web/`、`admin-web/` 下运行 `npm test`、`npm run build`。
-- 文档：`python3 scripts/check-doc-baseline.py`、`python3 scripts/check-docs.py`。
+- 文档：`python3 scripts/check/check-doc-baseline.py`、`python3 scripts/check/check-docs.py`。
 
 先跑与改动直接相关的检查；跨服务、数据库或用户流程的改动要扩大范围。汇报时写明哪些没有运行。离线测试通过不代表真实模型或真实商家场景通过。
 
@@ -40,8 +40,8 @@
 
 - 修改前看 `git status`，保护已有的未提交工作；不用 `reset --hard`、`clean`、裸 `stash`。
 - 一个功能点一次提交，只暂存具体文件，不用 `git add .` 或 `-A`。
-- 提交前运行 `python3 scripts/privacy_guard.py`；不用 `--no-verify`。
-- 提交身份 `EcommerceRAG Maintainers <maintainers@example.invalid>`；hooks 路径 `.githooks`，缺失时运行 `bash scripts/install-git-hooks.sh`。
+- 提交前运行 `python3 scripts/check/privacy_guard.py`；不用 `--no-verify`。
+- 提交身份 `EcommerceRAG Maintainers <maintainers@example.invalid>`；hooks 路径 `.githooks`，缺失时运行 `bash scripts/dev/install-git-hooks.sh`。
 - 唯一远端是 `origin`，即 GitHub `ggb5023/EcommerceRAG2`；主分支 `main`。push、merge、改写远端历史都需要明确授权。
 
 ## 安全

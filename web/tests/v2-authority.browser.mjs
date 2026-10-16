@@ -19,7 +19,7 @@ await mkdir(output, { recursive: true, mode: 0o700 })
 const fixture = `
 import json,sys
 from pathlib import Path
-sys.path.insert(0, str(Path.cwd() / 'scripts'))
+sys.path.insert(0, str(Path.cwd() / 'scripts' / 'dev'))
 from v2_services import load_values
 import psycopg
 try:

@@ -75,7 +75,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
-    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "scripts" / "dev"))
     sys.path.insert(0, str(ROOT / "python"))
     from app.graph.workflow import (
         CONTROL_SCHEMA,

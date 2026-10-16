@@ -32,7 +32,7 @@ const authorityConfig = process.env.KEYCLOAK_BROWSER_AUTHORITY_ENV
 const authorityFixture = `
 import json,sys
 from pathlib import Path
-sys.path.insert(0,str(Path.cwd()/'scripts'))
+sys.path.insert(0,str(Path.cwd()/'scripts'/'dev'))
 from v2_services import load_values
 import psycopg
 try:
@@ -233,7 +233,7 @@ try {
     await test('gateway-restart-requires-login-and-preserves-business', async () => {
       phase = 'stop_owned_stack'
       const runtime = '/etc/ecommerce-rag/v2-browser-20261014.env'
-      const stop = `from pathlib import Path\nimport os,signal\nmatches=[]\nfor p in Path('/proc').iterdir():\n if not p.name.isdigit():continue\n try:args=(p/'cmdline').read_bytes().split(b'\\0')\n except OSError:continue\n if b'/opt/ecommerce-rag-v2/scripts/v2_services.py' in args and b'${runtime}' in args:matches.append(int(p.name))\nassert len(matches)==1\nos.kill(matches[0],signal.SIGTERM)\n`
+      const stop = `from pathlib import Path\nimport os,signal\nmatches=[]\nfor p in Path('/proc').iterdir():\n if not p.name.isdigit():continue\n try:args=(p/'cmdline').read_bytes().split(b'\\0')\n except OSError:continue\n if b'/opt/ecommerce-rag-v2/scripts/dev/v2_services.py' in args and b'${runtime}' in args:matches.append(int(p.name))\nassert len(matches)==1\nos.kill(matches[0],signal.SIGTERM)\n`
       execFileSync(root + '/python/.venv/bin/python', ['-c', stop], { stdio: ['ignore', 'pipe', 'pipe'] })
       for (let i = 0; i < 100; i++) {
         try { const response = await page.request.get(customer + '/v1/auth/session', { timeout: 500 }); if (response.status() >= 500) break }
@@ -241,7 +241,7 @@ try {
         await page.waitForTimeout(200)
       }
       stackLog = await open(output + '/replacement.log', 'wx', 0o600)
-      ownedStack = spawn('bash', ['scripts/v2-local-services.sh', '--env', runtime], { cwd: root, stdio: ['ignore', stackLog.fd, stackLog.fd] })
+      ownedStack = spawn('bash', ['scripts/dev/v2-local-services.sh', '--env', runtime], { cwd: root, stdio: ['ignore', stackLog.fd, stackLog.fd] })
       phase = 'wait_replacement_ready'
       let ready = false
       // The launcher builds Go before its own readiness timer starts. A cold
@@ -269,7 +269,7 @@ try {
   await browser.close()
   if (ownedStack) {
     // This runner owns only the replacement supervisor and its children.
-    const stop = `from pathlib import Path\nimport os,signal\npid=${ownedStack.pid}\nfor p in Path('/proc').iterdir():\n if not p.name.isdigit():continue\n try:\n  args=(p/'cmdline').read_bytes().split(b'\\0');ppid=int((p/'stat').read_text().split()[3])\n except (OSError,ValueError):continue\n if ppid==pid and b'/opt/ecommerce-rag-v2/scripts/v2_services.py' in args:os.kill(int(p.name),signal.SIGTERM)\n`
+    const stop = `from pathlib import Path\nimport os,signal\npid=${ownedStack.pid}\nfor p in Path('/proc').iterdir():\n if not p.name.isdigit():continue\n try:\n  args=(p/'cmdline').read_bytes().split(b'\\0');ppid=int((p/'stat').read_text().split()[3])\n except (OSError,ValueError):continue\n if ppid==pid and b'/opt/ecommerce-rag-v2/scripts/dev/v2_services.py' in args:os.kill(int(p.name),signal.SIGTERM)\n`
     execFileSync(root + '/python/.venv/bin/python', ['-c', stop], { stdio: ['ignore', 'pipe', 'pipe'] })
     ownedStack.kill('SIGTERM')
     await stackLog?.close()

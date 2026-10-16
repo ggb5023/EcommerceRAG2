@@ -18,7 +18,7 @@ assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname))
 const preflight = `
 import json,sys
 from pathlib import Path
-sys.path.insert(0, str(Path.cwd() / 'scripts'))
+sys.path.insert(0, str(Path.cwd() / 'scripts' / 'dev'))
 from v2_services import configure,load_values
 import psycopg
 try:
@@ -72,7 +72,7 @@ async function startStack() {
   iteration++
   const logPath = path.join(output, `stack-${iteration}.log`)
   const log = await open(logPath, 'wx', 0o600)
-  stack = spawn(python, [path.join(root, 'scripts/v2_services.py'), '--env', config], { cwd: root, stdio: ['ignore', log.fd, log.fd] })
+  stack = spawn(python, [path.join(root, 'scripts/dev/v2_services.py'), '--env', config], { cwd: root, stdio: ['ignore', log.fd, log.fd] })
   await log.close()
   await waitFor(async () => {
     assert.equal(stack.exitCode, null, 'owned stack exited before readiness')

@@ -7,7 +7,8 @@ import tempfile
 import unittest
 import zipfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts' / 'ops'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts' / 'check'))
 from publication_scan import Scanner, sha
 from publication_archive import inventory, transfer
 

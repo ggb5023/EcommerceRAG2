@@ -21,7 +21,7 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(ROOT / 'scripts' / 'dev'))
 from quality_capture import capture, secure_directory
 from run_v2_quality_e2e import write_report
 from v2_services import load_values

@@ -3,14 +3,14 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web ./
-COPY scripts/frontend-notices.mjs /tmp/frontend-notices.mjs
+COPY scripts/ops/frontend-notices.mjs /tmp/frontend-notices.mjs
 RUN npm run build && node /tmp/frontend-notices.mjs
 FROM node:24.21.0-alpine AS admin
 WORKDIR /admin
 COPY admin-web/package.json admin-web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY admin-web ./
-COPY scripts/frontend-notices.mjs /tmp/frontend-notices.mjs
+COPY scripts/ops/frontend-notices.mjs /tmp/frontend-notices.mjs
 RUN npm run build && node /tmp/frontend-notices.mjs
 FROM golang:1.27.1-bookworm AS proxy
 WORKDIR /src

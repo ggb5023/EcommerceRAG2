@@ -106,7 +106,7 @@ def test_scenario_rejects_changed_case_or_query_baseline(tmp_path):
 def test_preflight_requires_the_frozen_versioned_fake_before_paid_calls(monkeypatch, tmp_path, defect):
     import sys
     from io import BytesIO
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts' / 'dev'))
     import v2_services
     values = {'V2_FACTS_BASE_URL': 'http://127.0.0.1:18090', 'V2_FACTS_VERSION': 'selected-fixture',
               'V2_IDENTITY_TENANT': 'tenant', 'V2_IDENTITY_USER': 'user', 'V2_IDENTITY_SHOP': 'shop'}
@@ -158,7 +158,7 @@ def test_failed_persisted_evidence_read_preserves_execution_and_redacts_error(mo
 @pytest.mark.parametrize('ids', [['other'], ['db-chunk-1', 'db-chunk-1']])
 def test_context_binding_rejects_foreign_or_duplicate_ids_before_connection(monkeypatch, tmp_path, ids):
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts' / 'dev'))
     import v2_services
     monkeypatch.setattr(v2_services, 'load_values', lambda path: {})
     capture = tmp_path / 'capture.json'

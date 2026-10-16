@@ -22,7 +22,7 @@ from uuid import uuid4
 from run_v2_quality_e2e import HTTP, E2EFailure, digest, load_jsonl, write_report
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "dev"))
 from v2_services import load_values
 
 SCENARIOS = {

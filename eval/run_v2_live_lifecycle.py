@@ -31,7 +31,7 @@ from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "dev"))
 DEFAULT_CORPUS = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/documents.jsonl")
 
 

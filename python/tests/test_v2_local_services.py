@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("v2_services", ROOT / "scripts/v2_services.py")
+SPEC = importlib.util.spec_from_file_location("v2_services", ROOT / "scripts/dev/v2_services.py")
 services = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(services)
 
@@ -156,7 +156,7 @@ def test_sigterm_stops_ready_stack_without_killing_unrelated_process(tmp_path):
     commands, environments = child_commands(tmp_path)
     script = (
         "import importlib.util,json;from pathlib import Path;"
-        f"s=importlib.util.spec_from_file_location('supervisor',{str(ROOT / 'scripts/v2_services.py')!r});"
+        f"s=importlib.util.spec_from_file_location('supervisor',{str(ROOT / 'scripts/dev/v2_services.py')!r});"
         "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
         f"commands=json.loads({json.dumps(commands)!r});envs=json.loads({json.dumps(environments)!r});"
         f"raise SystemExit(m.supervise(commands,envs,lambda n:Path({str(tmp_path)!r},n).exists(),"

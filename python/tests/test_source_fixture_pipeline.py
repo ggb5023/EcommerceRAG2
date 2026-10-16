@@ -8,11 +8,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "python"))
 
-from scripts.build_source_fixtures import build
-from scripts.run_chunk_report import main as run_chunk_report_main
-from scripts.run_source_parsers import main as run_parser_main
-from scripts.run_source_parsers import run
-from scripts.validate_source_fixtures import validate
+from scripts.dev.build_source_fixtures import build
+from scripts.dev.run_chunk_report import main as run_chunk_report_main
+from scripts.dev.run_source_parsers import main as run_parser_main
+from scripts.dev.run_source_parsers import run
+from scripts.dev.validate_source_fixtures import validate
 
 
 def test_generated_html_fixture_joins_parser_and_chunk_reports(tmp_path: Path):

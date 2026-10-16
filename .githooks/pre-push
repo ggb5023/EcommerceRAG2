@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-exec python3 scripts/privacy_guard.py --pre-push
+exec python3 scripts/check/privacy_guard.py --pre-push

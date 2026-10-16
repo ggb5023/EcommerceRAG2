@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-HARNESS = REPO / "scripts" / "ingest-worker-process-smoke.sh"
+HARNESS = REPO / "scripts" / "dev" / "ingest-worker-process-smoke.sh"
 
 
 def run_harness(env: dict[str, str]) -> subprocess.CompletedProcess[str]:

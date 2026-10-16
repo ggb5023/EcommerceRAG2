@@ -35,7 +35,7 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
     """Exercise independent channels in the dedicated DB, then remove fixture rows."""
     import psycopg
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "dev"))
     from v2_services import load_values
 
     values = load_values(Path(os.environ["V2_INTEGRATION_ENV"]))

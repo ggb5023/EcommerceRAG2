@@ -14,14 +14,14 @@
 | `eval/` | 评测集与评测工具 |
 | `data/synthetic/` | 合成店铺资料（冻结评测输入） |
 | `docker/` | 数据库、身份、自部署 Compose |
-| `scripts/` | 开发、检查、部署与运维脚本 |
+| `scripts/` | 检查、开发、部署、DB 服务器脚本，分目录说明见 [脚本索引](../scripts/README.md) |
 
 ## 环境
 
 工具链版本见 `toolchains.lock.json`：Go、Node、uv（Python 3.12）。数据库需要 PostgreSQL 16，带 `vector` 和 `pg_trgm` 扩展。
 
 ```bash
-bash scripts/install-git-hooks.sh
+bash scripts/dev/install-git-hooks.sh
 (cd python && uv sync --frozen)
 (cd web && npm ci) && (cd admin-web && npm ci)
 ```
@@ -29,14 +29,14 @@ bash scripts/install-git-hooks.sh
 ## 本地运行
 
 1. 由数据库管理员预先创建独立数据库、服务角色和扩展；应用不执行 DDL。
-2. 迁移：`python/.venv/bin/python scripts/v2-migrate.py --env /path/to/migration.env`。迁移用户必须是非超级用户、无 `BYPASSRLS`。
-3. 启动后端：`bash scripts/v2-local-services.sh --env /path/to/runtime.env`。配置文件权限为 `0600`，放在仓库外。默认模型 profile 是离线的 `v2_langchain_mock`，不产生费用。
+2. 迁移：`python/.venv/bin/python scripts/ops/v2-migrate.py --env /path/to/migration.env`。迁移用户必须是非超级用户、无 `BYPASSRLS`。
+3. 启动后端：`bash scripts/dev/v2-local-services.sh --env /path/to/runtime.env`。配置文件权限为 `0600`，放在仓库外。默认模型 profile 是离线的 `v2_langchain_mock`，不产生费用。
 4. 启动前端：`web/` 和 `admin-web/` 分别运行 `npm run dev`，用 `VITE_API_PROXY_TARGET`、`VITE_ADMIN_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口。
 
 使用真实模型时，改用 `v2_langchain_bailian` profile，并配置共享预算账本：
 
 ```bash
-python/.venv/bin/python scripts/provider-budget.py initialize \
+python/.venv/bin/python scripts/dev/provider-budget.py initialize \
   --ledger /path/to/private/budget.sqlite --window-id <window> --cap-cny <cap>
 ```
 
@@ -56,8 +56,8 @@ python/.venv/bin/python scripts/provider-budget.py initialize \
 
 ## 改契约和数据库
 
-- **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/generate-proto.sh` → `bash scripts/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
-- **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。
+- **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
+- **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/dev/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。
 - **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
 
 ## 提交
