@@ -42,7 +42,7 @@
 - 一个功能点一次提交，只暂存具体文件，不用 `git add .` 或 `-A`。
 - 提交前运行 `python3 scripts/privacy_guard.py`；不用 `--no-verify`。
 - 提交身份 `EcommerceRAG Maintainers <maintainers@example.invalid>`；hooks 路径 `.githooks`，缺失时运行 `bash scripts/install-git-hooks.sh`。
-- `origin` 是 Gitee 主仓，`github` 是 GitHub 镜像。push、merge、改写远端历史都需要明确授权。
+- 唯一远端是 `origin`，即 GitHub `ggb5023/EcommerceRAG2`；主分支 `main`。push、merge、改写远端历史都需要明确授权。
 
 ## 安全
 
