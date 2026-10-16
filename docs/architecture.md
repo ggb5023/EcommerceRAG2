@@ -79,7 +79,6 @@
 | 前端 | `web/` 和 `admin-web/` 两个工程 | 单一 `frontend/` | P1 |
 | 身份 | Keycloak 必选 | Go 内置本地账号，OIDC 可选 | P1 |
 | 部署 | Compose 有 9 个服务（含 bootstrap、edge、redis） | 3 个默认服务 | P1 |
-| 迁移 | 测试 fixture 混在 0005、0017、0019、0021 等正式迁移中 | 正式迁移链只含结构；fixture 单独加载 | P1 |
 | 脚本 | `scripts/` 下 75 个，含一次性验收脚本 | dev、ops 分类，10 个左右 | P1 |
 | 资料 | DOCX、Markdown、CSV、FAQ；无商品表结构，无时效 | 商品表结构化、生效和失效时间 | P2 |
 | 工作台 | 人工队列加员工 AI 辅助 | 建议回复、一键复制、知识缺口 | P2 |

@@ -7,7 +7,7 @@
 | 目录 | 用途 | 主要入口 |
 | --- | --- | --- |
 | `check/` | 被 `check.sh` 或 git hooks 调用的检查 | `privacy_guard.py`（pre-commit、pre-push）、`check-doc-baseline.py`、`check-docs.py`、`check-proto.sh`、`provider-smoke.py`、`facts-fake-matrix.sh` |
-| `dev/` | 本机开发：环境、启动、契约生成、迁移测试 | `bootstrap-dev.sh`、`v2-local-services.sh`、`generate-proto.sh`、`test-migrations.sh`、`provider-budget.py`、`install-git-hooks.sh` |
+| `dev/` | 本机开发：环境、启动、契约生成、迁移测试 | `bootstrap-dev.sh`、`v2-local-services.sh`、`seed-fixtures.sql`、`generate-proto.sh`、`test-migrations.sh`、`provider-budget.py`、`install-git-hooks.sh` |
 | `ops/` | 自部署安装、迁移、备份恢复、私有发布 | `selfhost.py`、`v2-migrate.py`、`selfhost-backup.py`、`selfhost-restore.py`、`publication_archive.py` |
 | `db/` | 在 DB 服务器上运行（`/opt/ecommerce-rag-ops`），由 `package-ops.sh` 打包 | `bootstrap-db.sh`、`backup-db.sh`、`verify-db.sh`、`db-firewall.sh` |
 
