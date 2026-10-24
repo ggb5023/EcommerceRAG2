@@ -52,6 +52,14 @@ bash scripts/dev/install-git-hooks.sh
 3. 启动后端：`bash scripts/dev/v2-local-services.sh --env /path/to/runtime.env`。配置文件权限为 `0600`，放在仓库外。默认模型 profile 是离线的 `v2_langchain_mock`，不产生费用。
 4. 启动前端：在 `frontend/` 运行 `npm run dev`，用 `VITE_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口；`/v1` 与 `/admin/v1` 走同一个代理目标。
 
+`frontend/` 是唯一入口，`/chat`、`/support`、`/shop/:slug`、`/admin/*` 都在同一个 origin 下；浏览器仍然只访问 Go，前端不做授权判断。开发机常驻启动用一条命令：
+
+```bash
+cd frontend && VITE_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev -- --port 5173
+```
+
+systemd 单元属于机器特定状态，不进仓库（部署契约在 M5 定义）；仓库只约定启动命令与端口 5173。生产镜像由 `docker/selfhost/web.Dockerfile` 构建一套产物，Go 在 `/srv/frontend` 做单页兜底。
+
 使用真实模型时，改用 `v2_langchain_bailian` profile，并配置共享预算账本：
 
 ```bash
