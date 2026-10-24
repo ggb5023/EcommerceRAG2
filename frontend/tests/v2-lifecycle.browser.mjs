@@ -6,9 +6,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
+// One merged frontend serves shop, workspace and admin; admin steps stay on
+// the same origin and only change path.
 const workspace = process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173'
-const administration = process.env.ADMIN_WEB_BASE_URL ?? 'http://127.0.0.1:5174'
-for (const url of [workspace, administration]) {
+for (const url of [workspace]) {
   assert.ok(['127.0.0.1', 'localhost'].includes(new URL(url).hostname), 'isolated loopback URL required')
 }
 const run = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -40,7 +41,7 @@ async function upload(days) {
   const content = Buffer.from(`# ${documentId}\n\n编号 ${documentId} 的标准配送时效为 ${days} 个工作日。\n`)
   const hash = createHash('sha256').update(content).digest('hex')
   const manifest = `schema_version: 1\nsource:\n  id: ${documentId}\n  name: Browser controlled policy\npipeline_version: v2-browser-lifecycle\ndocuments:\n  - document_id: ${documentId}\n    title: ${documentId}\n    path: policy.md\n    format: markdown\n    sha256: ${hash}\n    disclosure_class: external_allowed\n`
-  await admin.goto(administration + '/admin/merchant/sources')
+  await admin.goto(workspace + '/admin/merchant/sources')
   // 页面上还有 KnowledgeImport 组件的 .import-form(section)，这里只取旧的 YAML 导入 form
   const form = admin.locator('form.import-form')
   await form.locator('select').selectOption('shop-demo')
@@ -54,7 +55,7 @@ async function upload(days) {
   mutations++
   const job = await response.json()
   for (let attempt = 0; attempt < 100; attempt++) {
-    const status = await admin.request.get(administration + '/admin/v1/merchant/ingestion/' + job.job_id)
+    const status = await admin.request.get(workspace + '/admin/v1/merchant/ingestion/' + job.job_id)
     assert.equal(status.status(), 200)
     const current = await status.json()
     if (current.status === 'awaiting_review') {
@@ -70,7 +71,7 @@ async function upload(days) {
 }
 
 async function operate(input, operation) {
-  await admin.goto(administration + '/admin/merchant/reviews')
+  await admin.goto(workspace + '/admin/merchant/reviews')
   const row = admin.locator('.version-row').filter({ hasText: input.hash })
   await row.waitFor()
   const loaded = admin.waitForResponse(r => new URL(r.url()).pathname.endsWith('/admin/v1/merchant/reviews/' + input.version))

@@ -12,8 +12,8 @@ const info = await lstat(accountsPath)
 assert.equal(info.mode & 0o777, 0o600)
 assert.ok(info.isFile() && !info.isSymbolicLink())
 const accounts = JSON.parse(await readFile(accountsPath, 'utf8'))
-const customer = 'http://127.0.0.1:5173'
-const admin = 'http://127.0.0.1:5174'
+const customer = process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173'
+const admin = customer
 const output = process.env.KEYCLOAK_BROWSER_REPORT_DIR ?? `/var/lib/ecommerce-rag/real-docs/reports/keycloak-browser-${randomUUID()}`
 assert.ok(output.startsWith('/var/lib/ecommerce-rag/'))
 await mkdir(output, { recursive: true, mode: 0o700 })
