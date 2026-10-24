@@ -37,6 +37,7 @@
 | [0005](0005-copyable-reply-policy.md) | 可复制回复的边界：只给建议，不代发 | 已采纳 |
 | [0006](0006-provider-usage.md) | 模型用量与共享预算账本 | 已采纳 |
 | [0007](0007-offline-document-parsing.md) | 文档解析能力保持离线、不接入默认摄取链路 | 已采纳 |
+| [0008](0008-local-accounts-and-session-revocation.md) | 本地账号：argon2id、可吊销会话、Keycloak 降为可选 | 提议 |
 
 ## 后果
 
