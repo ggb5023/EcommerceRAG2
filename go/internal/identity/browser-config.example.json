@@ -5,7 +5,7 @@
   "bindings": [{"subject":"synthetic-subject","tenant":"synthetic-tenant","user":"synthetic-user","shop":"synthetic-shop"}],
   "browser": {
     "customer_origin": "http://127.0.0.1:5173",
-    "admin_origin": "http://127.0.0.1:5174",
+    "admin_origin": "http://127.0.0.1:5173",
     "callback_url": "http://127.0.0.1:5173/v1/auth/callback",
     "allow_loopback_http": true
   }

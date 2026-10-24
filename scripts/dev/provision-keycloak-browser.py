@@ -68,7 +68,7 @@ def run(args):
     if code != 200 or not secret.get("value"):
         raise ValueError("browser_secret_unavailable")
     config.update(client_id="ecr-v2-browser", secret_file=str(args.output_secret))
-    config["browser"] = {"customer_origin": "http://127.0.0.1:5173", "admin_origin": "http://127.0.0.1:5174",
+    config["browser"] = {"customer_origin": "http://127.0.0.1:5173", "admin_origin": "http://127.0.0.1:5173",
                          "callback_url": "http://127.0.0.1:5173/v1/auth/callback", "allow_loopback_http": True}
     for path, data in ((args.output_secret, secret["value"]), (args.output_config, json.dumps(config))):
         if not path.is_absolute() or path.parent.is_symlink():

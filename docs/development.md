@@ -8,7 +8,7 @@
 | --- | --- |
 | `go/` | Go gateway（`cmd/gateway`）、Web 静态服务（`cmd/web`）、开发用 facts fake |
 | `python/` | AI 与摄取（`app/graph`、`app/retrieval`、`app/ingest`、`app/providers`、`app/rpc`） |
-| `web/`、`admin-web/` | 顾客与客服前端、商家管理台（P1 合并为 `frontend/`） |
+| `frontend/` | 顾客页、客服工作台、商家管理台（单一 Vue 工程，按路由分区） |
 | `proto/` | Go 与 Python 的 gRPC 契约 |
 | `sql/migrations/` | checksum 迁移 |
 | `eval/` | 评测集与评测工具 |
@@ -23,7 +23,7 @@
 ```bash
 bash scripts/dev/install-git-hooks.sh
 (cd python && uv sync --frozen)
-(cd web && npm ci) && (cd admin-web && npm ci)
+(cd frontend && npm ci --include=dev)
 ```
 
 `scripts/dev/bootstrap-dev.sh` 可在任意 Ubuntu 24.04 机器上执行：版本取自 `toolchains.lock.json`，不依赖固定仓库路径或固定内网地址；下载优先用官方校验和验证，GitHub 不可达时 `buf`、`grpcurl` 退回 `go install` 构建，`uv` 退回官方安装脚本。`codex` 只在存在时记录版本，不作为前置依赖。装完先跑 `bash scripts/check.sh` 确认工具链完整（缺 `shellcheck`、`protoc` 会直接失败）。
@@ -50,7 +50,7 @@ bash scripts/dev/install-git-hooks.sh
 1. 由数据库管理员预先创建独立数据库、服务角色和扩展；应用不执行 DDL。
 2. 迁移：`python/.venv/bin/python scripts/ops/v2-migrate.py --env /path/to/migration.env`。迁移用户必须是非超级用户、无 `BYPASSRLS`。
 3. 启动后端：`bash scripts/dev/v2-local-services.sh --env /path/to/runtime.env`。配置文件权限为 `0600`，放在仓库外。默认模型 profile 是离线的 `v2_langchain_mock`，不产生费用。
-4. 启动前端：`web/` 和 `admin-web/` 分别运行 `npm run dev`，用 `VITE_API_PROXY_TARGET`、`VITE_ADMIN_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口。
+4. 启动前端：在 `frontend/` 运行 `npm run dev`，用 `VITE_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口；`/v1` 与 `/admin/v1` 走同一个代理目标。
 
 使用真实模型时，改用 `v2_langchain_bailian` profile，并配置共享预算账本：
 
@@ -68,7 +68,7 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 | 基础 | `bash scripts/check.sh` | 单元测试、静态检查、Proto、前端构建；默认跳过需要数据库的用例 |
 | 数据库集成 | `V2_INTEGRATION_ENV=... uv run pytest tests/test_v2_ingest_database.py tests/test_postgres_retriever.py` | 使用独立的 `ecr_v2_test_*` 库 |
 | 跨进程 | `ECR_V2_GO_PYTHON=1 go test ./internal/gateway -run TestGoCallsDedicatedPythonV2GRPC` | Go 调用真实 Python 进程 |
-| 浏览器 | `cd web && node tests/v2-lifecycle.browser.mjs` | 上传、审核、发布、问答、回滚、撤回 |
+| 浏览器 | `cd frontend && node tests/v2-lifecycle.browser.mjs` | 上传、审核、发布、问答、回滚、撤回 |
 | 评测 | `bash eval/run.sh offline`（已含在 check.sh 中）；真实模型见 `bash eval/run.sh live` | 离线回归免费；真实模型评测走预算账本，详见 `eval/README.md` |
 
 上层测试不能用下层结果代替。汇报时写明运行了哪几层。
@@ -78,16 +78,16 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 浏览器用例直接驱动真实 UI，跑之前需要满足两个前置条件，否则会以断言失败告终：
 
 1. 后端必须是**离线档**：用例里有 `profile === 'v2_langchain_mock'` 的断言，在线档会拒绝执行浏览器写操作。
-2. 本机要有 Playwright 的 Chromium：`cd web && npx playwright install chromium`（另需 `npx playwright install-deps chromium` 需要的系统库）。
+2. 本机要有 Playwright 的 Chromium：`cd frontend && npx playwright install chromium`（另需 `npx playwright install-deps chromium` 需要的系统库）。
 
-用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`）和 `ADMIN_WEB_BASE_URL`（默认 `http://127.0.0.1:5174`）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
+用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`，合并后是唯一入口，`/admin/*` 也在这个 origin 下）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
 
 ## 改契约和数据库
 
 - **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
 - **测试数据**：0002、0017、0019、0021 中的开发账号（`dev-user`、`shop-demo` 等）只在库名为 `ecr_v2_test_*`、`ecr_v2_dev_*` 或含 `m1_test` 的库中保持可用，其他库由迁移 0029 停用。测试改坏了这些账号，用 `psql "$V2_MIGRATION_DSN" -f scripts/dev/seed-fixtures.sql` 恢复。新的测试数据不要写进迁移。
 - **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/dev/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。
-- **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。`web/` 仍在用的 `/v1/conversations`、`/v1/turns` 属于旧会话接口，M3 合并前端时一并处理，新代码只写 `/v1/customer/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
+- **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。`frontend/` 仍在用的 `/v1/conversations`、`/v1/turns` 属于旧会话接口，与本轮合并无关，退休另行安排，新代码只写 `/v1/customer/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
 
 ## 提交
 

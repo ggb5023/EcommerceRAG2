@@ -1,4 +1,4 @@
-import { csrfHeaders } from './auth'
+import { csrfHeaders } from '../auth'
 
 export type AdminSession = {
   tenant_id: string

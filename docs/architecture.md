@@ -54,7 +54,7 @@
 ## 契约
 
 - 浏览器到 Go：HTTP/SSE。顾客 `/v1/customer/`，客服 `/v1/support/`，管理 `/admin/v1/`。写请求校验 Origin、CSRF 和 Idempotency-Key。P1 补 OpenAPI 描述。
-- `/v1/conversations` 与 `/v1/turns` 是 `web/` 仍在使用的旧会话接口，和上面的顾客接口并存；新代码只使用 `/v1/customer/`，旧接口在 M3 合并前端时一并处理。
+- `/v1/conversations` 与 `/v1/turns` 是 `frontend/` 仍在使用的旧会话接口，和上面的顾客接口并存；新代码只使用 `/v1/customer/`，旧接口的退休另行安排。
 - Go 到 Python：只用 `proto/rag/v1/rag.proto`。改动顺序是先改 proto，再运行 `bash scripts/dev/generate-proto.sh`，最后用 `buf breaking` 检查兼容。不新增平行的 HTTP/JSON 业务接口。容器之间走 mTLS。
 - 数据库：只通过 `sql/migrations/` 的 checksum 迁移演进。
 
@@ -78,7 +78,6 @@
 
 | 方面 | 当前 | 目标 | 阶段 |
 | --- | --- | --- | --- |
-| 前端 | `web/` 和 `admin-web/` 两个工程 | 单一 `frontend/` | P1 |
 | 身份 | Keycloak 必选 | Go 内置本地账号，OIDC 可选 | P1 |
 | 部署 | Compose 有 9 个服务（含 bootstrap、edge、redis） | 3 个默认服务 | P1 |
 | 资料 | DOCX、Markdown、CSV、FAQ；无商品表结构，无时效 | 商品表结构化、生效和失效时间 | P2 |

@@ -13,8 +13,8 @@ func TestRoutesAndHost(t *testing.T) {
 	handler := func(name string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, name) })
 	}
-	h := routes(handler("go"), handler("oidc"), handler("customer"), handler("admin"), "merchant.test:8443")
-	for path, want := range map[string]string{"/v1/customer/session": "go", "/admin/v1/session": "go", "/admin/assets/app.js": "admin", "/identity/realms/merchant": "oidc", "/support": "customer"} {
+	h := routes(handler("go"), handler("oidc"), handler("frontend"), "merchant.test:8443")
+	for path, want := range map[string]string{"/v1/customer/session": "go", "/admin/v1/session": "go", "/admin/assets/app.js": "frontend", "/identity/realms/merchant": "oidc", "/support": "frontend", "/admin/merchant/reviews": "frontend"} {
 		r := httptest.NewRequest("GET", "https://merchant.test:8443"+path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -51,9 +51,9 @@ func TestSPAAssetAndFallback(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "index.html"), []byte("index"), 0600)
 	os.WriteFile(filepath.Join(root, "app.js"), []byte("asset"), 0600)
-	for path, want := range map[string]string{"/admin/app.js": "asset", "/admin/merchant/reviews": "index"} {
+	for path, want := range map[string]string{"/app.js": "asset", "/admin/merchant/reviews": "index"} {
 		w := httptest.NewRecorder()
-		spa(root, "/admin").ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		spa(root, "").ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 		if w.Body.String() != want {
 			t.Fatal(path, w.Body.String())
 		}

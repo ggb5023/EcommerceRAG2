@@ -277,6 +277,6 @@ try {
   await writeFile(output + '/report.json', JSON.stringify({ report_version: 'keycloak-browser-v1', status: finished ? 'PASS' : 'NOT_PASSED', checks,
     provider_profile: 'v2_langchain_mock', turn_id: turn?.request_id ?? null, result_sha256: resultHash ?? null,
     reviewer_kind: 'agent', human_review_completed: false, real_service_acceptance: false,
-    implementation_sha256: Object.fromEntries(await Promise.all(['go/internal/identity/browser.go', 'go/internal/gateway/identity.go', 'web/src/auth.ts', 'admin-web/src/auth.ts'].map(async p => [p, createHash('sha256').update(await readFile(root + p)).digest('hex')]))) }, null, 2), { mode: 0o600, flag: 'wx' })
+    implementation_sha256: Object.fromEntries(await Promise.all(['go/internal/identity/browser.go', 'go/internal/gateway/identity.go', 'frontend/src/auth.ts'].map(async p => [p, createHash('sha256').update(await readFile(root + p)).digest('hex')]))) }, null, 2), { mode: 0o600, flag: 'wx' })
   console.log(JSON.stringify({ report_directory: output, status: finished ? 'PASS' : 'NOT_PASSED' }))
 }

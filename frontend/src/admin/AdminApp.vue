@@ -8,7 +8,7 @@ import CustomerTrial from './CustomerTrial.vue'
 import type {PreviewChunk} from './knowledge-preview'
 import { ApiError, get, post, request, type AdminSession } from './api'
 import { adminPageFromPath, adminPathForPage, type AdminPage } from './routes'
-import { browserAuth, checkBrowserAuth, login, logout } from './auth'
+import { browserAuth, checkBrowserAuth, login, logout } from '../auth'
 
 type Row = Record<string, any>
 type ItemResponse = { items: Row[] }
