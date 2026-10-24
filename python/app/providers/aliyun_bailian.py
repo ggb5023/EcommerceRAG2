@@ -1100,6 +1100,15 @@ class MockProvider:
                 structured['applicability_dimensions'] = []
             if 'limit_citation_ids' in response_schema.get('properties', {}):
                 structured['limit_citation_ids'] = []
+            # 配送类问题要求模型给出“不承诺到货时间”的边界声明；离线回显没有
+            # 这段内容，补一句确定性的边界说明，否则 delivery 路径会判为无效。
+            if 'delivery_capability_limit' in response_schema.get('properties', {}):
+                structured['delivery_capability_limit'] = '以物流记录为准，本店不承诺具体到货时间。'
+            plan_schema = response_schema.get('properties', {}).get('clarification_plan')
+            if isinstance(plan_schema, dict) and isinstance(plan_schema.get('required'), list):
+                structured['clarification_plan'] = {
+                    key: '请补充具体信息' for key in plan_schema['required'] if isinstance(key, str)
+                }
         return GenerationResult(
             text,
             structured,
