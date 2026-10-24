@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Run the four owned V2 processes with isolated service credentials."""
+"""Run the owned V2 services: the Go gateway and the single Python ai process.
+
+The ai process owns both RPC listeners and the ingest worker, so one child
+receives the two service roles it needs.  Credentials stay inside that child:
+the gateway still never sees a Python database role.
+"""
 from __future__ import annotations
 
 import argparse
@@ -27,11 +32,10 @@ SERVICE_KEYS = {
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
                 "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE"},
     "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
-           "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE"} | PROVIDER_KEYS,
-    "ingest": {"V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
-               "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE"} | STORAGE_KEYS,
-    "worker": {"V2_INGEST_DSN", "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS",
-               "V2_INGEST_WORKER_ID"} | STORAGE_KEYS | PROVIDER_KEYS,
+           "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE",
+           "V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
+           "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS", "V2_INGEST_WORKER_ID"}
+          | STORAGE_KEYS | PROVIDER_KEYS,
 }
 CONFIG_KEYS = set().union(*SERVICE_KEYS.values(), COMMON_KEYS) | {
     "V2_AI_DSN", "V2_MIGRATION_DSN", "V2_START_TIMEOUT_SECONDS", "V2_STOP_TIMEOUT_SECONDS",
@@ -137,36 +141,47 @@ def service_environment(name: str, values: dict[str, str]) -> dict[str, str]:
             if key in SYSTEM_KEYS | COMMON_KEYS | SERVICE_KEYS[name]}
 
 
+def rpc_serving(values: dict[str, str], address: str, service: str) -> bool:
+    import grpc
+    from grpc_health.v1 import health_pb2, health_pb2_grpc
+    if values.get("V2_RPC_TLS") == "mtls":
+        creds = grpc.ssl_channel_credentials(Path(values["V2_RPC_CA_FILE"]).read_bytes(),
+            Path(values["V2_RPC_KEY_FILE"]).read_bytes(), Path(values["V2_RPC_CERT_FILE"]).read_bytes())
+        rpc_channel = grpc.secure_channel(address, creds)
+    else:
+        rpc_channel = grpc.insecure_channel(address)
+    with rpc_channel as channel:
+        result = health_pb2_grpc.HealthStub(channel).Check(
+            health_pb2.HealthCheckRequest(service=service), timeout=0.5)
+        return result.status == health_pb2.HealthCheckResponse.SERVING
+
+
+def worker_heartbeat(values: dict[str, str]) -> bool:
+    import psycopg
+    with psycopg.connect(values["V2_GATEWAY_DSN"], connect_timeout=1,
+                        options="-c statement_timeout=1000") as connection:
+        row = connection.execute(
+            "SELECT status IN ('idle','working') AND heartbeat_at > now()-interval '10 seconds' "
+            "FROM ingest_worker_heartbeat WHERE worker_id=%s", (values["V2_INGEST_WORKER_ID"],)
+        ).fetchone()
+    return row is not None and row[0] is True
+
+
 def ready(name: str, values: dict[str, str]) -> bool:
-    """Probe HTTP/RPC health and the heartbeat of this invocation's worker."""
+    """Probe HTTP/RPC health and the heartbeat of this invocation's worker.
+
+    The ai child serves both RPC services and runs the worker loop, so its
+    readiness covers three facets: RAG health, ingest health and the heartbeat
+    of this supervisor invocation's worker id.
+    """
     try:
         if name == "gateway":
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open("http://" + values["HTTP_ADDR"] + "/healthz", timeout=0.5) as response:
                 return response.status == 200 and json.loads(response.read(4096)).get("status") == "ok"
-        if name in {"ai", "ingest"}:
-            import grpc
-            from grpc_health.v1 import health_pb2, health_pb2_grpc
-            target = values["V2_GRPC_ADDR" if name == "ai" else "V2_INGEST_GRPC_ADDR"]
-            service = "rag.v1.RagService" if name == "ai" else "rag.v1.IngestService"
-            if values.get("V2_RPC_TLS") == "mtls":
-                creds = grpc.ssl_channel_credentials(Path(values["V2_RPC_CA_FILE"]).read_bytes(),
-                    Path(values["V2_RPC_KEY_FILE"]).read_bytes(), Path(values["V2_RPC_CERT_FILE"]).read_bytes())
-                rpc_channel = grpc.secure_channel(target, creds)
-            else:
-                rpc_channel = grpc.insecure_channel(target)
-            with rpc_channel as channel:
-                result = health_pb2_grpc.HealthStub(channel).Check(
-                    health_pb2.HealthCheckRequest(service=service), timeout=0.5)
-                return result.status == health_pb2.HealthCheckResponse.SERVING
-        import psycopg
-        with psycopg.connect(values["V2_GATEWAY_DSN"], connect_timeout=1,
-                            options="-c statement_timeout=1000") as connection:
-            row = connection.execute(
-                "SELECT status IN ('idle','working') AND heartbeat_at > now()-interval '10 seconds' "
-                "FROM ingest_worker_heartbeat WHERE worker_id=%s", (values["V2_INGEST_WORKER_ID"],)
-            ).fetchone()
-        return row is not None and row[0] is True
+        return (rpc_serving(values, values["V2_GRPC_ADDR"], "rag.v1.RagService")
+                and rpc_serving(values, values["V2_INGEST_GRPC_ADDR"], "rag.v1.IngestService")
+                and worker_heartbeat(values))
     except Exception:  # noqa: BLE001 - bounded probe failures do not expose credentials
         return False
 
@@ -219,7 +234,7 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
                     print("FAIL V2 readiness timeout: " + ",".join(sorted(pending)), file=sys.stderr, flush=True)
                     return 1
             if not pending and not announced:
-                print("READY V2 gateway,ai,ingest,worker", flush=True)
+                print("READY V2 gateway,ai", flush=True)
                 announced = True
             time.sleep(0.1)
         return 0
@@ -245,9 +260,7 @@ def main() -> int:
                                cwd=ROOT / "go", env={k: v for k, v in values.items() if k in SYSTEM_KEYS}, check=False)
         if built.returncode:
             raise StartupError("V2 gateway build failed")
-        commands = {"gateway": [str(binary)], "ai": [sys.executable, "-m", "app.rpc.server"],
-                    "ingest": [sys.executable, "-m", "app.rpc.ingest_server"],
-                    "worker": [sys.executable, "-m", "app.ingest.worker_main"]}
+        commands = {"gateway": [str(binary)], "ai": [sys.executable, "-m", "app.ai_process"]}
         return supervise(commands, {name: service_environment(name, values) for name in commands},
                          lambda name: ready(name, values), cwd=ROOT / "python",
                          start_timeout=start_timeout, stop_timeout=stop_timeout)

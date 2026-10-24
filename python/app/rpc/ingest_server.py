@@ -11,16 +11,29 @@ from app.rpc.server import new_server, serve
 from rag.v1 import rag_pb2_grpc
 
 
-def build_server():
+def load_ingest_database() -> IngestDatabase:
+    """Load the ingest adapter; the database role is verified by entrypoints."""
     database = IngestDatabase.from_env()
     if database is None:
         raise ValueError("V2_INGEST_DSN is required")
-    verify_database(database.conn_string, "rag_v2_ingest")
     database.verify_schema()
+    return database
+
+
+def build_ingest_service(database: IngestDatabase) -> IngestService:
+    return IngestService(database, artifact_store=load_artifact_store())
+
+
+def ingest_server(service: IngestService):
     server = new_server("rag.v1.IngestService", "V2_INGEST_RPC_WORKERS")
-    service = IngestService(database, artifact_store=load_artifact_store())
     rag_pb2_grpc.add_IngestServiceServicer_to_server(service, server)
     return server
+
+
+def build_server():
+    database = load_ingest_database()
+    verify_database(database.conn_string, "rag_v2_ingest")
+    return ingest_server(build_ingest_service(database))
 
 
 def main():

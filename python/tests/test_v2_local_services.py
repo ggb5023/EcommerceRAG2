@@ -43,14 +43,15 @@ def test_real_children_receive_only_their_service_credentials(tmp_path):
         if name == "gateway":
             assert received["V2_GATEWAY_DSN"] == "gateway-connection"
             assert "V2_INGEST_DSN" not in received and "V2_RETRIEVER_DSN" not in received
-        elif name == "ai":
-            assert received["V2_RETRIEVER_DSN"] == received["V2_CHECKPOINT_DSN"] == "ai-connection"
-            assert "V2_INGEST_DSN" not in received and "V2_GATEWAY_DSN" not in received
-        else:
-            assert received["V2_INGEST_DSN"] == "ingest-connection"
-            assert "V2_GATEWAY_DSN" not in received and "V2_RETRIEVER_DSN" not in received
-        if name == "ingest":
             assert "V2_PROVIDER_CONFIG" not in received
+        else:
+            # The merged ai process serves three facets, so it holds both roles;
+            # the gateway role and the migration role stay outside it.
+            assert received["V2_RETRIEVER_DSN"] == received["V2_CHECKPOINT_DSN"] == "ai-connection"
+            assert received["V2_INGEST_DSN"] == "ingest-connection"
+            assert received["V2_INGEST_GRPC_ADDR"] and received["V2_GRPC_ADDR"]
+            assert received["INGEST_STORAGE_PROFILE"] == "filesystem"
+            assert "V2_GATEWAY_DSN" not in received
 
 
 @pytest.mark.parametrize("identity_profile", ["oidc", "oidc_browser"])
@@ -96,8 +97,8 @@ def test_online_profile_accepts_positive_finite_budget(tmp_path):
     assert configured["V2_ONLINE_BUDGET_CNY"] == "12.50"
     assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_CNY"] == "12.50"
     assert "V2_ONLINE_BUDGET_CNY" not in services.service_environment("gateway", configured)
-    assert services.service_environment("worker", configured)["V2_ONLINE_BUDGET_LEDGER"] == str(path)
-    assert "V2_ONLINE_BUDGET_LEDGER" not in services.service_environment("ingest", configured)
+    assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_LEDGER"] == str(path)
+    assert "V2_ONLINE_BUDGET_LEDGER" not in services.service_environment("gateway", configured)
 
 
 def test_runtime_file_permissions_symlinks_and_duplicate_keys_are_rejected(tmp_path):
@@ -187,5 +188,5 @@ def test_sigterm_stops_ready_stack_without_killing_unrelated_process(tmp_path):
 def test_business_date_only_reaches_ai_not_permission_authority():
     values = {"SYNTHETIC_BUSINESS_DATE": "2026-09-29"}
     assert services.service_environment("ai", values)["SYNTHETIC_BUSINESS_DATE"] == "2026-09-29"
-    for name in ("gateway", "ingest", "worker"):
+    for name in ("gateway",):
         assert "SYNTHETIC_BUSINESS_DATE" not in services.service_environment(name, values)
