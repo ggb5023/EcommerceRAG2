@@ -47,6 +47,7 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+.vite/
 coverage/
 .pytest_cache/
 go/bin/
