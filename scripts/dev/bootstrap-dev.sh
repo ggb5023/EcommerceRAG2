@@ -69,15 +69,19 @@ else
 fi
 
 say "Go $GO_VER"
-if [[ ! -x "$root/go-$GO_VER/bin/go" ]]; then
-  tarball="$cache/go$GO_VER.linux-amd64.tar.gz"
-  download "$tarball" \
-    "https://go.dev/dl/go$GO_VER.linux-amd64.tar.gz" \
-    "https://mirrors.aliyun.com/golang/go$GO_VER.linux-amd64.tar.gz" || { echo "Go 下载失败" >&2; exit 1; }
-  # 官方清单里有每个文件的 sha256；取不到就只告警，不阻塞。
-  manifest="$cache/go-releases.json"
-  if download "$manifest" "https://go.dev/dl/?mode=json"; then
-    expected=$(python3 - "$manifest" "$GO_VER" <<'PY'
+# 已有匹配版本就沿用，避免覆盖别的工具链（例如 dsh 自带的 node）依赖的链接
+if command -v go >/dev/null && go version 2>/dev/null | grep -q "go$GO_VER "; then
+  echo "  已存在 go$GO_VER（$(command -v go)），保持现有安装"
+else
+  if [[ ! -x "$root/go-$GO_VER/bin/go" ]]; then
+    tarball="$cache/go$GO_VER.linux-amd64.tar.gz"
+    download "$tarball" \
+      "https://go.dev/dl/go$GO_VER.linux-amd64.tar.gz" \
+      "https://mirrors.aliyun.com/golang/go$GO_VER.linux-amd64.tar.gz" || { echo "Go 下载失败" >&2; exit 1; }
+    # 官方清单里有每个文件的 sha256；取不到就只告警，不阻塞。
+    manifest="$cache/go-releases.json"
+    if download "$manifest" "https://go.dev/dl/?mode=json"; then
+      expected=$(python3 - "$manifest" "$GO_VER" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
 for release in data:
@@ -88,33 +92,38 @@ for release in data:
                 raise SystemExit
 PY
 )
-    [[ -n "$expected" ]] || expected=$(go_known_sha "$GO_VER")
-    verify_sha "$tarball" "$expected"
-  else
-    echo "  ! 取不到 Go 校验清单，跳过校验"
+      [[ -n "$expected" ]] || expected=$(go_known_sha "$GO_VER")
+      verify_sha "$tarball" "$expected"
+    else
+      echo "  ! 取不到 Go 校验清单，跳过校验"
+    fi
+    install -d "$root/go-$GO_VER"
+    tar -xzf "$tarball" --strip-components=1 -C "$root/go-$GO_VER"
   fi
-  install -d "$root/go-$GO_VER"
-  tar -xzf "$tarball" --strip-components=1 -C "$root/go-$GO_VER"
+  ln -sfn "$root/go-$GO_VER/bin/go" /usr/local/bin/go
+  ln -sfn "$root/go-$GO_VER/bin/gofmt" /usr/local/bin/gofmt
 fi
-ln -sfn "$root/go-$GO_VER/bin/go" /usr/local/bin/go
-ln -sfn "$root/go-$GO_VER/bin/gofmt" /usr/local/bin/gofmt
 
 say "Node $NODE_VER"
-if [[ ! -x "$root/node-$NODE_VER/bin/node" ]]; then
-  sums="$cache/node-SHASUMS256.txt"
-  download "$sums" \
-    "https://nodejs.org/dist/$NODE_TAG/SHASUMS256.txt" \
-    "https://npmmirror.com/mirrors/node/$NODE_TAG/SHASUMS256.txt" || { echo "Node 校验和下载失败" >&2; exit 1; }
-  tarball="$cache/node-$NODE_TAG-linux-x64.tar.xz"
-  download "$tarball" \
-    "https://nodejs.org/dist/$NODE_TAG/node-$NODE_TAG-linux-x64.tar.xz" \
-    "https://npmmirror.com/mirrors/node/$NODE_TAG/node-$NODE_TAG-linux-x64.tar.xz" || { echo "Node 下载失败" >&2; exit 1; }
-  expected=$(awk -v f="node-$NODE_TAG-linux-x64.tar.xz" '$2 == f {print $1}' "$sums")
-  verify_sha "$tarball" "$expected"
-  install -d "$root/node-$NODE_VER"
-  tar -xJf "$tarball" --strip-components=1 -C "$root/node-$NODE_VER"
+if command -v node >/dev/null && [[ "$(node --version 2>/dev/null)" == "$NODE_TAG" ]]; then
+  echo "  已存在 node $NODE_TAG（$(command -v node)），保持现有安装"
+else
+  if [[ ! -x "$root/node-$NODE_VER/bin/node" ]]; then
+    sums="$cache/node-SHASUMS256.txt"
+    download "$sums" \
+      "https://nodejs.org/dist/$NODE_TAG/SHASUMS256.txt" \
+      "https://npmmirror.com/mirrors/node/$NODE_TAG/SHASUMS256.txt" || { echo "Node 校验和下载失败" >&2; exit 1; }
+    tarball="$cache/node-$NODE_TAG-linux-x64.tar.xz"
+    download "$tarball" \
+      "https://nodejs.org/dist/$NODE_TAG/node-$NODE_TAG-linux-x64.tar.xz" \
+      "https://npmmirror.com/mirrors/node/$NODE_TAG/node-$NODE_TAG-linux-x64.tar.xz" || { echo "Node 下载失败" >&2; exit 1; }
+    expected=$(awk -v f="node-$NODE_TAG-linux-x64.tar.xz" '$2 == f {print $1}' "$sums")
+    verify_sha "$tarball" "$expected"
+    install -d "$root/node-$NODE_VER"
+    tar -xJf "$tarball" --strip-components=1 -C "$root/node-$NODE_VER"
+  fi
+  for binary in node npm npx; do ln -sfn "$root/node-$NODE_VER/bin/$binary" "/usr/local/bin/$binary"; done
 fi
-for binary in node npm npx; do ln -sfn "$root/node-$NODE_VER/bin/$binary" "/usr/local/bin/$binary"; done
 
 say "uv $UV_VER"
 if ! command -v uv >/dev/null; then
