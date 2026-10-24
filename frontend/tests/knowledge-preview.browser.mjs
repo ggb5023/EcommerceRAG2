@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import {mkdir,writeFile} from 'node:fs/promises'
 import {chromium} from 'playwright'
-const base=process.env.KNOWLEDGE_ADMIN_URL??'http://127.0.0.1:19574'
+const base=process.env.KNOWLEDGE_ADMIN_URL??process.env.WORKSPACE_URL??'http://127.0.0.1:5173'
 const out=process.env.KNOWLEDGE_BROWSER_REPORT_DIR
 assert.ok(out,'fresh protected report directory required')
 await mkdir(out,{mode:0o700})

@@ -25,7 +25,7 @@ async function showSources(id:string){if(!snapshot.value)return;try{sources.valu
 onMounted(()=>{void enter();poll=setInterval(()=>void refresh().catch(failed),5000)})
 onUnmounted(()=>{controller.abort();clearInterval(poll)})
 </script>
-<template><main class="channel-shell"><header><h1>{{shop.name}}</h1><p>{{shop.welcome_message}}</p><strong role="status">{{stateText}}</strong></header>
+<template><main class="channel-shell zone-web"><header><h1>{{shop.name}}</h1><p>{{shop.welcome_message}}</p><strong role="status">{{stateText}}</strong></header>
 <p v-if="error" role="alert">{{error}}</p><button v-if="!snapshot" @click="enter()" :disabled="busy">重新进入</button>
 <section aria-label="咨询记录"><article v-for="m in snapshot?.messages" :key="m.id" :class="m.source"><strong>{{({customer:'你',assistant:'AI 客服',agent:'人工客服',system:'服务提示'})[m.source]}}</strong><p class="message-text">{{m.text}}</p><button v-if="m.citations.length" @click="showSources(m.id)">查看来源（{{m.citations.length}}）</button></article></section>
 <aside v-if="sources.length" aria-label="回答来源"><button @click="sources=[]">收起来源</button><article v-for="s in sources" :key="s.evidence_id"><h3>[{{s.citation_index}}] {{s.title}}</h3><small>资料版本 {{s.version_id}}</small><p class="message-text">{{s.snippet}}</p></article></aside>

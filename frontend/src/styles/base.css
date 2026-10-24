@@ -1,0 +1,7 @@
+/* Site-wide defaults: one copy for every zone. The admin shell overrides
+   font/colour tokens on .admin-shell because its design differs. */
+:root{color:#17231f;background:#f6f8f6;font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0;min-width:320px}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}

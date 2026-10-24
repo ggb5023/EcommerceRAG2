@@ -12,8 +12,8 @@ const info = await lstat(accountsPath)
 assert.equal(info.mode & 0o777, 0o600)
 assert.ok(info.isFile() && !info.isSymbolicLink())
 const accounts = JSON.parse(await readFile(accountsPath, 'utf8'))
-const customer = 'http://127.0.0.1:5173'
-const admin = 'http://127.0.0.1:5174'
+const customer = process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173'
+const admin = customer
 const output = process.env.KEYCLOAK_BROWSER_REPORT_DIR ?? `/var/lib/ecommerce-rag/real-docs/reports/keycloak-browser-${randomUUID()}`
 assert.ok(output.startsWith('/var/lib/ecommerce-rag/'))
 await mkdir(output, { recursive: true, mode: 0o700 })
@@ -277,6 +277,6 @@ try {
   await writeFile(output + '/report.json', JSON.stringify({ report_version: 'keycloak-browser-v1', status: finished ? 'PASS' : 'NOT_PASSED', checks,
     provider_profile: 'v2_langchain_mock', turn_id: turn?.request_id ?? null, result_sha256: resultHash ?? null,
     reviewer_kind: 'agent', human_review_completed: false, real_service_acceptance: false,
-    implementation_sha256: Object.fromEntries(await Promise.all(['go/internal/identity/browser.go', 'go/internal/gateway/identity.go', 'web/src/auth.ts', 'admin-web/src/auth.ts'].map(async p => [p, createHash('sha256').update(await readFile(root + p)).digest('hex')]))) }, null, 2), { mode: 0o600, flag: 'wx' })
+    implementation_sha256: Object.fromEntries(await Promise.all(['go/internal/identity/browser.go', 'go/internal/gateway/identity.go', 'frontend/src/auth.ts'].map(async p => [p, createHash('sha256').update(await readFile(root + p)).digest('hex')]))) }, null, 2), { mode: 0o600, flag: 'wx' })
   console.log(JSON.stringify({ report_directory: output, status: finished ? 'PASS' : 'NOT_PASSED' }))
 }

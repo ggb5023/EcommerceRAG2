@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
-const baseURL = (process.env.ADMIN_WEB_BASE_URL ?? 'http://127.0.0.1:5174').replace(/\/$/, '')
+const baseURL = (process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173').replace(/\/$/, '')
 const routes = [
   ['/admin/overview', '运行状态'],
   ['/admin/access/accounts', '账号与权限'],

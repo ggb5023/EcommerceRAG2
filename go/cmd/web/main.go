@@ -1,4 +1,4 @@
-// Web hosts the two static apps and the single HTTPS business/auth origin.
+// Web hosts the single merged frontend and the HTTPS business/auth origin.
 package main
 
 import (
@@ -46,7 +46,7 @@ func spa(root, prefix string) http.Handler {
 		http.ServeFile(w, r, path)
 	})
 }
-func routes(gateway, identity, web, admin http.Handler, authority string) http.Handler {
+func routes(gateway, identity, frontend http.Handler, authority string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != authority {
 			http.Error(w, "invalid host", http.StatusBadRequest)
@@ -60,10 +60,8 @@ func routes(gateway, identity, web, admin http.Handler, authority string) http.H
 			identity.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/admin/v1/") || r.URL.Path == "/healthz":
 			gateway.ServeHTTP(w, r)
-		case r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/"):
-			admin.ServeHTTP(w, r)
 		default:
-			web.ServeHTTP(w, r)
+			frontend.ServeHTTP(w, r)
 		}
 	})
 }
@@ -74,8 +72,7 @@ func main() {
 	}
 	gateway := proxy("http://gateway:8080")
 	identity := proxy("http://keycloak:8080")
-	web := spa("/srv/web", "")
-	admin := spa("/srv/admin", "/admin")
+	frontend := spa("/srv/frontend", "")
 	host := os.Getenv("ECR_HOSTNAME")
 	if host == "" {
 		log.Fatal("HTTPS hostname required")
@@ -84,7 +81,7 @@ func main() {
 	if port != "443" {
 		authority = net.JoinHostPort(host, port)
 	}
-	handler := routes(gateway, identity, web, admin, authority)
+	handler := routes(gateway, identity, frontend, authority)
 	server := http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
 	log.Fatal(server.ListenAndServeTLS("/run/web/tls.crt", "/run/web/tls.key"))
 }

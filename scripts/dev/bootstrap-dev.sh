@@ -208,5 +208,5 @@ PY
 
 say "完成"
 echo "仓库: $repo"
-echo "接下来: (cd python && uv sync --frozen) / (cd web && npm ci) / bash scripts/check.sh"
+echo "接下来: (cd python && uv sync --frozen) / (cd frontend && npm ci --include=dev) / bash scripts/check.sh"
 echo "运行时配置与 provider 凭据的写法见 docs/development.md#运行配置"

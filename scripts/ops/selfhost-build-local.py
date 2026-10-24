@@ -36,10 +36,9 @@ def main():
     local_base='ecommerce-rag-local-base:verified-pg16'
     command(['docker','tag',BASE,local_base])
     dest.mkdir(mode=0o700,parents=True)
-    for app in ['web','admin-web']:
-        command(['npm','ci','--no-audit','--no-fund'],ROOT/app)
-        command(['npm','run','build'],ROOT/app)
-        command(['node',str(ROOT/'scripts/ops/frontend-notices.mjs')],ROOT/app)
+    command(['npm','ci','--include=dev','--no-audit','--no-fund'],ROOT/'frontend')
+    command(['npm','run','build'],ROOT/'frontend')
+    command(['node',str(ROOT/'scripts/ops/frontend-notices.mjs')],ROOT/'frontend')
     env={**os.environ,'CGO_ENABLED':'0'}
     for app,tag in [('gateway','go'),('web','web')]:
         command(['go','build','-trimpath','-o',str(dest/app),'./cmd/'+app],ROOT/'go',env)
@@ -52,7 +51,7 @@ def main():
         shutil.copytree(ROOT/'python'/directory,dest/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     shutil.copytree(ROOT/'sql',dest/'sql');(dest/'scripts').mkdir()
     for name in ['v2-migrate.py','selfhost-bootstrap.py','selfhost-health.py']:shutil.copy2(ROOT/'scripts/ops'/name,dest/'scripts'/name)
-    for app,target in [('web','web-dist'),('admin-web','admin-dist')]:shutil.copytree(ROOT/app/'dist',dest/target)
+    shutil.copytree(ROOT/'frontend'/'dist',dest/'frontend-dist')
     shutil.copy2('/etc/ssl/certs/ca-certificates.crt',dest/'ca-certificates.crt')
     notices=dest/'go-notices';notices.mkdir()
     goroot=Path(subprocess.check_output(['go','env','GOROOT'],text=True).strip())
@@ -63,7 +62,7 @@ def main():
             target=notices/'modules'/path.relative_to(module_root);target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,target)
     specs={
       'go':'FROM scratch\nCOPY gateway /gateway\nCOPY go-notices /licenses\nCOPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n',
-      'web':'FROM scratch\nCOPY web /web\nCOPY go-notices /licenses\nCOPY web-dist /srv/web\nCOPY admin-dist /srv/admin\nUSER 65532:65532\nENTRYPOINT ["/web"]\n',
+      'web':'FROM scratch\nCOPY web /web\nCOPY go-notices /licenses\nCOPY frontend-dist /srv/frontend\nUSER 65532:65532\nENTRYPOINT ["/web"]\n',
       'python':f'FROM {local_base}\nWORKDIR /app\nCOPY cpython /opt/cpython\nCOPY venv /app/.venv\nCOPY app /app/app\nCOPY rag /app/rag\nCOPY fixtures /app/fixtures\nCOPY sql /app/sql\nCOPY scripts /app/scripts\nCOPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nUSER 65532:65532\nENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 V2_MIGRATION_DIR=/app/sql/migrations SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nENTRYPOINT ["/app/.venv/bin/python"]\nCMD ["-m","app.rpc.server"]\n'}
     # The same source-only probe binary is used by canonical and local builds.
     command(['go','build','-trimpath','-o',str(dest/'probe'),'./cmd/probe'],ROOT/'go',env)

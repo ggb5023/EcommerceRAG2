@@ -31,9 +31,9 @@
 - 全量：`bash scripts/check.sh`。
 - Go：在 `go/` 下运行 `gofmt`、`go test ./...`、`go vet ./...`。
 - Python：在 `python/` 下运行 `uv sync --frozen`、`uv run pytest`、`uv run ruff check app`。
-- 前端：在 `web/`、`admin-web/` 下运行 `npm test`、`npm run build`。
+- 前端：在 `frontend/` 下运行 `npm test`、`npm run build`。
 - 文档：`python3 scripts/check/check-doc-baseline.py`、`python3 scripts/check/check-docs.py`。
-- 浏览器：`cd web && node tests/v2-lifecycle.browser.mjs`，前置条件（离线档、Chromium）见[开发指南](docs/development.md#浏览器层用例)。
+- 浏览器：`cd frontend && node tests/v2-lifecycle.browser.mjs`，前置条件（离线档、Chromium）见[开发指南](docs/development.md#浏览器层用例)。
 
 先跑与改动直接相关的检查；跨服务、数据库或用户流程的改动要扩大范围。汇报时写明哪些没有运行。离线测试通过不代表真实模型或真实商家场景通过。
 

@@ -1,3 +1,4 @@
+import './styles/base.css'
 import { createApp, h } from 'vue'
 import { createRouter, createWebHistory, RouterView } from 'vue-router'
 import { routes } from './routes'
