@@ -33,6 +33,7 @@
 - Python：在 `python/` 下运行 `uv sync --frozen`、`uv run pytest`、`uv run ruff check app`。
 - 前端：在 `web/`、`admin-web/` 下运行 `npm test`、`npm run build`。
 - 文档：`python3 scripts/check/check-doc-baseline.py`、`python3 scripts/check/check-docs.py`。
+- 浏览器：`cd web && node tests/v2-lifecycle.browser.mjs`，前置条件（离线档、Chromium）见[开发指南](docs/development.md#浏览器层用例)。
 
 先跑与改动直接相关的检查；跨服务、数据库或用户流程的改动要扩大范围。汇报时写明哪些没有运行。离线测试通过不代表真实模型或真实商家场景通过。
 
@@ -47,6 +48,7 @@
 ## 安全
 
 - 凭据、DSN、私钥、客户正文和完整聊天记录不进入 Git、日志或文档。秘密只从仓库外的受限配置读取。
+- 模型与第三方 token 只写在 `/etc/ecommerce-rag/providers.env`（0600）；`.env` 与运行时配置只放连接串和路径，不放凭据，两个文件的职责见[开发指南](docs/development.md#运行配置)。
 - 真实模型可以按需调用，但必须走共享预算账本；额度用完就停下，向用户申请（见[决策 0006](docs/decisions/0006-provider-usage.md)）。
 - 生产数据变更、常驻服务重启、发布推送，都必须属于当前任务并获得授权。
 

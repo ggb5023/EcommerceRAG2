@@ -26,6 +26,25 @@ bash scripts/dev/install-git-hooks.sh
 (cd web && npm ci) && (cd admin-web && npm ci)
 ```
 
+`scripts/dev/bootstrap-dev.sh` 可在任意 Ubuntu 24.04 机器上执行：版本取自 `toolchains.lock.json`，不依赖固定仓库路径或固定内网地址；下载优先用官方校验和验证，GitHub 不可达时 `buf`、`grpcurl` 退回 `go install` 构建，`uv` 退回官方安装脚本。`codex` 只在存在时记录版本，不作为前置依赖。装完先跑 `bash scripts/check.sh` 确认工具链完整（缺 `shellcheck`、`protoc` 会直接失败）。
+
+## 运行配置
+
+配置拆成两个文件，职责不同，不要互相复制。
+
+**运行时配置**（仓库外，权限 `0600`）：键名必须落在 `scripts/dev/v2_services.py` 的 `CONFIG_KEYS` 白名单内，否则进程启动即失败（`runtime config contains an invalid or duplicate key`）。模板见 [`.env.example`](../.env.example)。必填项：
+
+- 四个 DSN：`V2_GATEWAY_DSN`、`V2_RETRIEVER_DSN`、`V2_CHECKPOINT_DSN`、`V2_INGEST_DSN`
+- 开发身份：`V2_IDENTITY_TENANT`、`V2_IDENTITY_USER`（填 `external_id`，不是自增主键）
+- `SCOPE_SIGNING_KEY_FILE`：Go 签发 scope 用的密钥文件，`0600`、内容 ≥ 32 字节
+- 在线档另需 `V2_PROVIDER_CONFIG` 与预算三项 `V2_ONLINE_BUDGET_LEDGER` / `V2_ONLINE_BUDGET_ID` / `V2_ONLINE_BUDGET_CNY`
+
+`V2_RPC_TLS` 留空表示进程间明文；只有显式写了取值才会走 mTLS，并需要同时给出 CA、证书和密钥三个路径。
+
+**Provider 配置**（`/etc/ecommerce-rag/providers.env`，权限 `0600`，属主是运行用户）：百炼、MinerU、Tavily 的凭据都在这一个文件里，模板见 [`providers.env.example`](../providers.env.example)。`python/app/providers/config.py` 明确不合并环境变量，写进运行时配置或 `.env` 不会生效。
+
+两个文件都不进 Git；凭据、DSN、密钥只在仓库外出现。
+
 ## 本地运行
 
 1. 由数据库管理员预先创建独立数据库、服务角色和扩展；应用不执行 DDL。
@@ -54,12 +73,21 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 
 上层测试不能用下层结果代替。汇报时写明运行了哪几层。
 
+### 浏览器层用例
+
+浏览器用例直接驱动真实 UI，跑之前需要满足两个前置条件，否则会以断言失败告终：
+
+1. 后端必须是**离线档**：用例里有 `profile === 'v2_langchain_mock'` 的断言，在线档会拒绝执行浏览器写操作。
+2. 本机要有 Playwright 的 Chromium：`cd web && npx playwright install chromium`（另需 `npx playwright install-deps chromium` 需要的系统库）。
+
+用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`）和 `ADMIN_WEB_BASE_URL`（默认 `http://127.0.0.1:5174`）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
+
 ## 改契约和数据库
 
 - **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
 - **测试数据**：0002、0017、0019、0021 中的开发账号（`dev-user`、`shop-demo` 等）只在库名为 `ecr_v2_test_*`、`ecr_v2_dev_*` 或含 `m1_test` 的库中保持可用，其他库由迁移 0029 停用。测试改坏了这些账号，用 `psql "$V2_MIGRATION_DSN" -f scripts/dev/seed-fixtures.sql` 恢复。新的测试数据不要写进迁移。
 - **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/dev/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。
-- **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
+- **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。`web/` 仍在用的 `/v1/conversations`、`/v1/turns` 属于旧会话接口，M3 合并前端时一并处理，新代码只写 `/v1/customer/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
 
 ## 提交
 
