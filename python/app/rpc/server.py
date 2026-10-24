@@ -11,6 +11,7 @@ from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
 from app.configuration import verify_ai_configuration
+from app.connections import AI_ROLE
 from app.graph.runtime import load_checkpoint_store
 from app.rpc.rag import RagService
 from app.rpc.transport import enabled, server_credentials
@@ -69,19 +70,31 @@ def new_server(service_name, concurrency_key):
     return server
 
 
-def build_server():
-    verify_ai_configuration()
-    checkpoint = load_checkpoint_store()
-    verify_schema = getattr(checkpoint, "verify_schema", None)
+def build_rag_service(checkpoint_store=None, *, connections=None):
+    """Construct the RAG servicer; database identity is verified by callers."""
+    if connections is not None:
+        connections.check_role(AI_ROLE)
+    if checkpoint_store is None:
+        checkpoint_store = load_checkpoint_store(connections)
+    verify_schema = getattr(checkpoint_store, "verify_schema", None)
     if callable(verify_schema):
         verify_schema()
-    service = RagService(checkpoint_store=checkpoint)
+    return RagService(checkpoint_store=checkpoint_store, connections=connections)
+
+
+def rag_server(service):
     server = new_server("rag.v1.RagService", "V2_GRPC_WORKERS")
     rag_pb2_grpc.add_RagServiceServicer_to_server(service, server)
     return server
 
 
-def serve(server, address):
+def build_server():
+    verify_ai_configuration()
+    return rag_server(build_rag_service())
+
+
+def bind(server, address):
+    """Bind one listener so readiness reflects a real socket, not a config value."""
     if enabled():
         _split_address(address)
         port = server.add_secure_port(address, server_credentials())
@@ -90,6 +103,11 @@ def serve(server, address):
         port = server.add_insecure_port(address)
     if not port:
         raise RuntimeError("cannot bind internal RPC address")
+    return port
+
+
+def serve(server, address):
+    bind(server, address)
     server.start()
     signal.signal(signal.SIGTERM, lambda *_: server.stop(5))
     signal.signal(signal.SIGINT, lambda *_: server.stop(5))

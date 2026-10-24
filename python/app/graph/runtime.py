@@ -27,18 +27,25 @@ from .checkpoint import (
 from .service import LangGraphRagService
 
 
-def load_checkpoint_store() -> CheckpointStore:
-    """Select durable storage only when an operator explicitly supplies a DSN."""
+def load_checkpoint_store(connections=None) -> CheckpointStore:
+    """Select durable storage only when an operator explicitly supplies a DSN.
+
+    ``connections`` is the role-bound ai pool of the merged ai process; it only
+    supplies the connection factory, never a different database identity.
+    """
     dsn = os.environ.get("V2_CHECKPOINT_DSN", "").strip()
-    if dsn:
+    if not dsn:
+        return InMemoryCheckpointStore()
+    if connections is None:
         return PostgresCheckpointStore(dsn)
-    return InMemoryCheckpointStore()
+    return PostgresCheckpointStore(dsn, connect=connections.connect)
 
 
 def load_provider_service(
     path: str | Path = CONFIG_PATH,
     *,
     checkpoint_store: CheckpointStore | None = None,
+    connections=None,
 ) -> LangGraphRagService:
     """Build a provider-backed service without logging configuration values."""
     config = load_provider_config(path)
@@ -46,7 +53,7 @@ def load_provider_service(
         require_online_budget()
         ensure_secure_config_file(path)
     provider = build_provider(config)
-    retriever = _load_retriever()
+    retriever = _load_retriever(connections)
     chains = build_provider_chains(
         control=provider,
         embedding=provider,
@@ -58,7 +65,7 @@ def load_provider_service(
 
 
 def build_mock_provider_service(
-    *, checkpoint_store: CheckpointStore | None = None,
+    *, checkpoint_store: CheckpointStore | None = None, connections=None,
 ) -> LangGraphRagService:
     """Build the explicit offline Provider profile without reading a file."""
     config = validate_values({
@@ -69,7 +76,7 @@ def build_mock_provider_service(
         "GENERATION_MODEL": "mock-generation",
     })
     provider = MockProvider(config)
-    retriever = _load_retriever()
+    retriever = _load_retriever(connections)
     chains = build_provider_chains(
         control=provider,
         embedding=provider,
@@ -80,7 +87,7 @@ def build_mock_provider_service(
     return LangGraphRagService(provider_chains=chains, checkpoint_store=checkpoint_store)
 
 
-def _load_retriever() -> PostgresRetriever | None:
+def _load_retriever(connections=None) -> PostgresRetriever | None:
     """Load persistent retrieval only when an operator supplies a DSN.
 
     The fixture profile remains completely offline when the variable is absent.
@@ -90,6 +97,6 @@ def _load_retriever() -> PostgresRetriever | None:
     dsn = os.environ.get("V2_RETRIEVER_DSN", "").strip()
     if not dsn:
         return None
-    retriever = PostgresRetriever(dsn)
+    retriever = PostgresRetriever(dsn, connect=connections.connect) if connections is not None else PostgresRetriever(dsn)
     retriever.verify_schema()
     return retriever

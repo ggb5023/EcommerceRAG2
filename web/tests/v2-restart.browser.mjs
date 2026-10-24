@@ -60,11 +60,11 @@ async function childProcesses() {
   const result = {}
   for (const id of children) {
     const args = (await readFile(`/proc/${id}/cmdline`, 'utf8')).split('\0')
-    for (const [name, marker] of Object.entries({ gateway: path.join(root, '.local/v2-gateway'), ai: 'app.rpc.server', ingest: 'app.rpc.ingest_server', worker: 'app.ingest.worker_main' })) {
+    for (const [name, marker] of Object.entries({ gateway: path.join(root, '.local/v2-gateway'), ai: 'app.ai_process' })) {
       if (args.includes(marker)) result[name] = Number(id)
     }
   }
-  assert.deepEqual(Object.keys(result).sort(), ['ai', 'gateway', 'ingest', 'worker'])
+  assert.deepEqual(Object.keys(result).sort(), ['ai', 'gateway'])
   return result
 }
 async function startStack() {
@@ -76,8 +76,8 @@ async function startStack() {
   await log.close()
   await waitFor(async () => {
     assert.equal(stack.exitCode, null, 'owned stack exited before readiness')
-    return (await readFile(logPath, 'utf8')).includes('READY V2 gateway,ai,ingest,worker')
-  }, 'four-process readiness timeout', 40)
+    return (await readFile(logPath, 'utf8')).includes('READY V2 gateway,ai')
+  }, 'two-process readiness timeout', 40)
   owned = await childProcesses()
 }
 async function stackStopped() {
@@ -134,7 +134,7 @@ try {
     asking = await createPage('那个怎么样？'); askingURL = page.url()
     assert.equal((await result(asking)).status, 'ASKING')
   })
-  await step('crash-real-active-execution-and-stop-all-four-processes', async () => {
+  await step('crash-real-active-execution-and-stop-all-two-processes', async () => {
     await page.goto(base + '/chat'); await page.locator('#question').waitFor()
     const created = page.waitForResponse(r => r.url().endsWith('/v1/conversations') && r.request().method() === 'POST')
     await page.getByRole('button', { name: '＋ 新建会话', exact: true }).click(); assert.equal((await created).status(), 201)
@@ -164,7 +164,7 @@ try {
     const next = await send('SKU-CUP-480 保温杯容量？')
     assert.equal((await result(next)).status, 'DONE')
   })
-  await step('done-browser-result-survives-four-process-restart', async () => {
+  await step('done-browser-result-survives-two-process-restart', async () => {
     await page.goto(doneURL); await page.locator('#question').waitFor(); await restored(done)
     assert.equal(createHash('sha256').update(JSON.stringify(await result(done))).digest('hex'), doneHash)
     assert.ok(await page.locator('.evidence-card').count())
@@ -185,7 +185,7 @@ try {
       profile: 'v2_langchain_mock', real_service_acceptance: false, business_result_writes: false,
       git_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
       requests: { done: done?.request_id, asking: asking?.request_id, interrupted: interrupted?.request_id },
-      faults: ['SIGSTOP AI', 'SIGKILL owned Gateway', 'supervisor cleanup', 'four-process restart'] }, null, 2), { mode: 0o600, flag: 'wx' })
+      faults: ['SIGSTOP AI', 'SIGKILL owned Gateway', 'supervisor cleanup', 'two-process restart'] }, null, 2), { mode: 0o600, flag: 'wx' })
     await browser.close()
   }
 }

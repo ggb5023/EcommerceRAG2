@@ -34,7 +34,7 @@ bash scripts/dev/install-git-hooks.sh
 
 **运行时配置**（仓库外，权限 `0600`）：键名必须落在 `scripts/dev/v2_services.py` 的 `CONFIG_KEYS` 白名单内，否则进程启动即失败（`runtime config contains an invalid or duplicate key`）。模板见 [`.env.example`](../.env.example)。必填项：
 
-- 四个 DSN：`V2_GATEWAY_DSN`、`V2_RETRIEVER_DSN`、`V2_CHECKPOINT_DSN`、`V2_INGEST_DSN`
+- 四个 DSN：`V2_GATEWAY_DSN`、`V2_RETRIEVER_DSN`、`V2_CHECKPOINT_DSN`、`V2_INGEST_DSN`；`ai` 是单进程，同时持有后三个并各开一个角色绑定连接池，`gateway` 仍然拿不到任何 Python 角色
 - 开发身份：`V2_IDENTITY_TENANT`、`V2_IDENTITY_USER`（填 `external_id`，不是自增主键）
 - `SCOPE_SIGNING_KEY_FILE`：Go 签发 scope 用的密钥文件，`0600`、内容 ≥ 32 字节
 - 在线档另需 `V2_PROVIDER_CONFIG` 与预算三项 `V2_ONLINE_BUDGET_LEDGER` / `V2_ONLINE_BUDGET_ID` / `V2_ONLINE_BUDGET_CNY`

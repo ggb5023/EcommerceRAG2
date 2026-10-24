@@ -7,12 +7,13 @@ from app.storage import ObjectStore, ObjectStoreError
 
 
 class JournaledStore:
-    def __init__(self, store: ObjectStore, dsn: str, claim):
+    def __init__(self, store: ObjectStore, dsn: str, claim, *, connect=psycopg.connect):
         self.store, self.dsn, self.claim = store, dsn, claim
+        self._connect = connect
 
     def put_bytes(self, key, data, **kwargs):
         claim = self.claim
-        with psycopg.connect(self.dsn) as conn, conn.transaction():
+        with self._connect(self.dsn) as conn, conn.transaction():
             job = conn.execute(
                 "SELECT id FROM ingest_job WHERE tenant_id=%s AND id=%s AND owner_token=%s "
                 "AND fencing_epoch=%s AND status='running' AND lease_expires_at>now() "
@@ -27,7 +28,7 @@ class JournaledStore:
                 (claim.tenant_id, claim.job_id, claim.fencing_epoch, claim.owner_token, key, key.rsplit('/', 1)[-1]),
             )
         # The journal row survives a crash while a remote write is pending.
-        with psycopg.connect(self.dsn) as conn, conn.transaction():
+        with self._connect(self.dsn) as conn, conn.transaction():
             row = conn.execute("SELECT status,owner_token FROM ingest_artifact_object WHERE object_key=%s FOR UPDATE", (key,)).fetchone()
             if not row or row[0] not in {"planned", "stored"} or row[1] != claim.owner_token:
                 raise ObjectStoreError("artifact attempt is closed")
@@ -36,7 +37,7 @@ class JournaledStore:
             return metadata
 
     def delete(self, key):
-        with psycopg.connect(self.dsn) as conn, conn.transaction():
+        with self._connect(self.dsn) as conn, conn.transaction():
             row = conn.execute("SELECT status,owner_token FROM ingest_artifact_object WHERE object_key=%s FOR UPDATE", (key,)).fetchone()
             if not row or row[1] != self.claim.owner_token or row[0] == "retained":
                 raise ObjectStoreError("artifact deletion is not authorized")
@@ -44,9 +45,9 @@ class JournaledStore:
             conn.execute("UPDATE ingest_artifact_object SET status='cleaned',updated_at=now() WHERE object_key=%s", (key,))
 
 
-def cleanup_orphans(store: ObjectStore, dsn: str, limit: int = 100) -> int:
+def cleanup_orphans(store: ObjectStore, dsn: str, limit: int = 100, *, connect=psycopg.connect) -> int:
     cleaned = 0
-    with psycopg.connect(dsn) as conn, conn.transaction():
+    with connect(dsn) as conn, conn.transaction():
         # Acquire the job lock before object locks, in the same order as the
         # version commit. A commit already in flight settles before cleanup.
         jobs = conn.execute(

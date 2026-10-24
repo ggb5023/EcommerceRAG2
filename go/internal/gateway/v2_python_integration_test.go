@@ -23,6 +23,8 @@ import (
 // TestGoCallsDedicatedPythonV2GRPC is opt-in because it starts a temporary
 // Python process.  It exercises the actual generated Go client against the
 // dedicated v2 entrypoint; the regular unit suite stays self-contained.
+// ECR_V2_PYTHON_ENTRYPOINT selects app.rpc.server (default) or the merged
+// app.ai_process, so both entrypoints keep a real cross-process boundary.
 func TestGoCallsDedicatedPythonV2GRPC(t *testing.T) {
 	if os.Getenv("ECR_V2_GO_PYTHON") != "1" {
 		t.Skip("set ECR_V2_GO_PYTHON=1 to run the temporary Go-to-Python boundary test")
@@ -52,7 +54,11 @@ func TestGoCallsDedicatedPythonV2GRPC(t *testing.T) {
 	}
 	address := listener.Addr().String()
 	_ = listener.Close()
-	process := exec.Command(python, "-m", "app.rpc.server")
+	entrypoint := os.Getenv("ECR_V2_PYTHON_ENTRYPOINT")
+	if entrypoint == "" {
+		entrypoint = "app.rpc.server"
+	}
+	process := exec.Command(python, "-m", entrypoint)
 	process.Dir = repo
 	process.Env = []string{
 		"PATH=" + os.Getenv("PATH"),

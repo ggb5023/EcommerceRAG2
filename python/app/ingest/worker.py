@@ -212,6 +212,11 @@ class IngestWorker:
         database = IngestDatabase.from_env()
         if database is None:
             return None
+        return cls.from_environment(database)
+
+    @classmethod
+    def from_environment(cls, database: IngestDatabase) -> IngestWorker:
+        """Build the worker on an already verified ingest connection."""
         return cls(
             database,
             poll_seconds=float(os.environ.get("V2_INGEST_POLL_SECONDS", "0.9")),
@@ -229,7 +234,8 @@ class IngestWorker:
         self._heartbeat("idle", started=started)
         while not external.is_set():
             try:
-                cleanup_orphans(self.artifact_store, self.database.conn_string)
+                cleanup_orphans(self.artifact_store, self.database.conn_string,
+                                connect=self.database.connector)
                 claim = self._claim()
                 if claim is None:
                     self._heartbeat("idle", started=started)
@@ -254,7 +260,7 @@ class IngestWorker:
     ) -> None:
         try:
             with (
-                psycopg.connect(self.database.conn_string) as connection,
+                self.database.connection() as connection,
                 connection.cursor() as cursor,
             ):
                 cursor.execute(
@@ -279,9 +285,7 @@ class IngestWorker:
     def _claim(self) -> IngestClaim | None:
         owner = f"{self.worker_id}:{uuid4().hex}"
         with (
-            psycopg.connect(
-                self.database.conn_string, row_factory=dict_row
-            ) as connection,
+            self.database.connection(row_factory=dict_row) as connection,
             connection.transaction(),
             connection.cursor() as cursor,
         ):
@@ -385,7 +389,8 @@ class IngestWorker:
             if lost_lease.is_set():
                 raise RuntimeError("ingest lease lost")
             asyncio.run(self._embed(parsed, lost_lease))
-            journal = JournaledStore(self.artifact_store, self.database.conn_string, claim)
+            journal = JournaledStore(self.artifact_store, self.database.conn_string, claim,
+                                     connect=self.database.connector)
             for document in parsed["documents"]:
                 bundle = store_artifact_bundle(journal, tenant_id=tenant_alias, shop_id=claim.shop_id,
                     document_version_id=f"attempt-{uuid4().hex}", artifacts=document["artifacts"],
@@ -442,7 +447,7 @@ class IngestWorker:
         while not stop.wait(self.lease_seconds / 3):
             try:
                 with (
-                    psycopg.connect(self.database.conn_string) as connection,
+                    self.database.connection() as connection,
                     connection.cursor() as cursor,
                 ):
                     cursor.execute(
@@ -479,7 +484,7 @@ class IngestWorker:
         self, claim: IngestClaim, parsed: dict[str, Any], dataset_sha: str
     ) -> None:
         with (
-            psycopg.connect(self.database.conn_string) as connection,
+            self.database.connection() as connection,
             connection.transaction(),
             connection.cursor() as cursor,
         ):
@@ -668,7 +673,7 @@ class IngestWorker:
     ) -> None:
         try:
             with (
-                psycopg.connect(self.database.conn_string) as connection,
+                self.database.connection() as connection,
                 connection.transaction(),
                 connection.cursor() as cursor,
             ):
@@ -741,7 +746,7 @@ class IngestWorker:
 
     def _tenant_alias(self, tenant_pk: int) -> str:
         with (
-            psycopg.connect(self.database.conn_string) as connection,
+            self.database.connection() as connection,
             connection.cursor() as cursor,
         ):
             cursor.execute("SELECT external_id FROM tenant WHERE id=%s", (tenant_pk,))

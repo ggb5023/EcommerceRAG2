@@ -31,6 +31,8 @@
 
 默认部署是 3 个服务：`gateway`、`ai`、`postgres`。Keycloak 和 Redis 只在显式启用时运行。
 
+`ai` 进程内部仍保留两个数据库角色和各自的连接池：`rag_v2_ai` 负责检索与 checkpoint，`rag_v2_ingest` 负责摄取任务、资料与命令写入。合并进程不合并写者，见约束 3。
+
 ## 组件职责
 
 | 组件 | 负责 | 不负责 |
@@ -76,7 +78,6 @@
 
 | 方面 | 当前 | 目标 | 阶段 |
 | --- | --- | --- | --- |
-| Python 进程 | 3 个：`app.rpc.server`、`app.rpc.ingest_server`、`app.ingest.worker_main` | 1 个 `ai` 进程 | P1 |
 | 前端 | `web/` 和 `admin-web/` 两个工程 | 单一 `frontend/` | P1 |
 | 身份 | Keycloak 必选 | Go 内置本地账号，OIDC 可选 | P1 |
 | 部署 | Compose 有 9 个服务（含 bootstrap、edge、redis） | 3 个默认服务 | P1 |
