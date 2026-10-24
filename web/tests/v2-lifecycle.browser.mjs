@@ -41,12 +41,14 @@ async function upload(days) {
   const hash = createHash('sha256').update(content).digest('hex')
   const manifest = `schema_version: 1\nsource:\n  id: ${documentId}\n  name: Browser controlled policy\npipeline_version: v2-browser-lifecycle\ndocuments:\n  - document_id: ${documentId}\n    title: ${documentId}\n    path: policy.md\n    format: markdown\n    sha256: ${hash}\n    disclosure_class: external_allowed\n`
   await admin.goto(administration + '/admin/merchant/sources')
-  await admin.locator('.import-form select').selectOption('shop-demo')
-  await admin.locator('.import-form input[type=file]').nth(0).setInputFiles({ name: 'manifest.yaml', mimeType: 'application/yaml', buffer: Buffer.from(manifest) })
-  await admin.locator('.import-form input[type=file]').nth(1).setInputFiles({ name: 'policy.md', mimeType: 'text/markdown', buffer: content })
-  await admin.locator('.import-form textarea').fill(manifest)
+  // 页面上还有 KnowledgeImport 组件的 .import-form(section)，这里只取旧的 YAML 导入 form
+  const form = admin.locator('form.import-form')
+  await form.locator('select').selectOption('shop-demo')
+  await form.locator('input[type=file]').nth(0).setInputFiles({ name: 'manifest.yaml', mimeType: 'application/yaml', buffer: Buffer.from(manifest) })
+  await form.locator('input[type=file]').nth(1).setInputFiles({ name: 'policy.md', mimeType: 'text/markdown', buffer: content })
+  await form.locator('textarea').fill(manifest)
   const submitted = admin.waitForResponse(r => r.url().endsWith('/admin/v1/merchant/sources/import') && r.request().method() === 'POST')
-  await admin.getByRole('button', { name: '校验并排队', exact: true }).click()
+  await form.getByRole('button', { name: '校验并排队', exact: true }).click()
   const response = await submitted
   assert.equal(response.status(), 202)
   mutations++
