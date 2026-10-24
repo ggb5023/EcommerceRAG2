@@ -11,6 +11,7 @@ from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
 from app.configuration import verify_ai_configuration
+from app.connections import AI_ROLE
 from app.graph.runtime import load_checkpoint_store
 from app.rpc.rag import RagService
 from app.rpc.transport import enabled, server_credentials
@@ -69,14 +70,16 @@ def new_server(service_name, concurrency_key):
     return server
 
 
-def build_rag_service(checkpoint_store=None):
+def build_rag_service(checkpoint_store=None, *, connections=None):
     """Construct the RAG servicer; database identity is verified by callers."""
+    if connections is not None:
+        connections.check_role(AI_ROLE)
     if checkpoint_store is None:
-        checkpoint_store = load_checkpoint_store()
+        checkpoint_store = load_checkpoint_store(connections)
     verify_schema = getattr(checkpoint_store, "verify_schema", None)
     if callable(verify_schema):
         verify_schema()
-    return RagService(checkpoint_store=checkpoint_store)
+    return RagService(checkpoint_store=checkpoint_store, connections=connections)
 
 
 def rag_server(service):

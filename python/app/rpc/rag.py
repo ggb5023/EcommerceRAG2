@@ -98,17 +98,17 @@ def _abort_v2_error(context: Any, error: Exception, *, stage: str = 'unknown', r
 
 class RagService(rag_pb2_grpc.RagServiceServicer):
 
-    def __init__(self, *, profile=None, scope_validator=None, checkpoint_store=None):
+    def __init__(self, *, profile=None, scope_validator=None, checkpoint_store=None, connections=None):
         self.profile = profile or os.environ.get('RAG_PROFILE', '')
         if self.profile not in {'v2_langchain_mock', 'v2_langchain_bailian', 'v2_langgraph_fixture'}:
             raise ValueError('an explicit V2 RAG_PROFILE is required')
         self._scope_validator = scope_validator or validate_scope
-        self._checkpoint_store = checkpoint_store if checkpoint_store is not None else load_checkpoint_store()
+        self._checkpoint_store = checkpoint_store if checkpoint_store is not None else load_checkpoint_store(connections)
         self._v2 = LangGraphRagService(checkpoint_store=self._checkpoint_store)
         if self.profile == 'v2_langchain_mock':
-            self._provider_v2 = build_mock_provider_service(checkpoint_store=self._checkpoint_store)
+            self._provider_v2 = build_mock_provider_service(checkpoint_store=self._checkpoint_store, connections=connections)
         elif self.profile == 'v2_langchain_bailian':
-            self._provider_v2 = load_provider_service(os.environ.get('V2_PROVIDER_CONFIG', '/etc/ecommerce-rag/providers.env'), checkpoint_store=self._checkpoint_store)
+            self._provider_v2 = load_provider_service(os.environ.get('V2_PROVIDER_CONFIG', '/etc/ecommerce-rag/providers.env'), checkpoint_store=self._checkpoint_store, connections=connections)
         else:
             self._provider_v2 = None
 

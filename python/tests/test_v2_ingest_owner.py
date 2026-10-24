@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 
+import psycopg
 import pytest
+
 from app.ingest.database import SubmittedJob, package_payload_hash
 from app.ingest.worker import ClaimedFile, parse_persisted_package
 from app.rpc.ingest import IngestService
@@ -50,6 +52,7 @@ def test_python_parser_produces_all_chunks_before_persistence():
 
 class _FakeDatabase:
     conn_string = "unused-by-this-contract-test"
+    connector = staticmethod(psycopg.connect)
     def __init__(self):
         self.kwargs = None
 

@@ -1,9 +1,9 @@
 """Single Python ai process: RAG RPC, ingest RPC and the ingest worker.
 
-One process still keeps two database identities.  Retrieval and checkpoints use
-``rag_v2_ai``; ingestion RPC and the worker use ``rag_v2_ingest``.  Merging the
-processes must not merge the writers, so the two roles and their schemas are
-verified before either socket is bound.
+One process still keeps two database identities.  Retrieval and checkpoints
+check out of the ``rag_v2_ai`` pool; ingestion RPC and the worker check out of
+the ``rag_v2_ingest`` pool.  Merging the processes must not merge the writers,
+so both roles and their schemas are verified before either socket is bound.
 """
 from __future__ import annotations
 
@@ -13,6 +13,13 @@ import sys
 import threading
 
 from app.configuration import verify_merged_configuration
+from app.connections import (
+    AI_POOL_SIZE,
+    AI_ROLE,
+    INGEST_POOL_SIZE,
+    INGEST_ROLE,
+    open_role,
+)
 from app.ingest.worker import IngestWorker
 from app.rpc.ingest_server import (
     build_ingest_service,
@@ -27,7 +34,7 @@ DEFAULT_STOP_TIMEOUT_SECONDS = 8.0
 
 
 class AiProcess:
-    """Both RPC listeners and the worker loop, owned by one process."""
+    """Both RPC listeners, the worker loop and the two role pools."""
 
     def __init__(
         self,
@@ -35,6 +42,7 @@ class AiProcess:
         rag_server,
         ingest_server,
         worker=None,
+        connections=(),
         rag_address: str = DEFAULT_RAG_ADDRESS,
         ingest_address: str = DEFAULT_INGEST_ADDRESS,
         worker_timeout: float = DEFAULT_STOP_TIMEOUT_SECONDS,
@@ -42,19 +50,21 @@ class AiProcess:
         self.rag_server = rag_server
         self.ingest_server = ingest_server
         self.worker = worker
+        self.connections = tuple(connections)
         self.rag_address = rag_address
         self.ingest_address = ingest_address
         self.worker_timeout = worker_timeout
         self.worker_error: BaseException | None = None
         self._thread: threading.Thread | None = None
         self._stopped = threading.Event()
+        self._closed = False
 
     def start(self) -> None:
         try:
             bind(self.rag_server, self.rag_address)
             if self.ingest_server is not None:
                 bind(self.ingest_server, self.ingest_address)
-        except Exception:
+        except BaseException:
             self.stop(grace=0)
             raise
         self.rag_server.start()
@@ -68,7 +78,11 @@ class AiProcess:
         self._stopped.wait()
 
     def stop(self, *, grace: float = 5.0) -> None:
+        """Stop listeners, then the worker, then the pools. Idempotent."""
         self._stopped.set()
+        if self._closed:
+            return
+        self._closed = True
         # Stop accepting new RPC before the worker, so no new claim arrives
         # while the worker is draining. An unfinished job is left to its lease
         # and fencing epoch instead of being force-committed.
@@ -79,6 +93,8 @@ class AiProcess:
             self.worker.stop()
         if self._thread is not None:
             self._thread.join(timeout=self.worker_timeout)
+        for connections in self.connections:
+            connections.close()
 
     def _run_worker(self) -> None:
         try:
@@ -92,21 +108,35 @@ class AiProcess:
 def build_ai_process() -> AiProcess:
     verify_merged_configuration()
     worker_timeout = float(os.environ.get("V2_STOP_TIMEOUT_SECONDS", DEFAULT_STOP_TIMEOUT_SECONDS))
-    rag = rag_server(build_rag_service())
     if os.environ.get("V2_FIXTURE_MODE") == "1":
-        return AiProcess(rag_server=rag, ingest_server=None, worker=None, worker_timeout=worker_timeout)
-    database = load_ingest_database()
-    worker = IngestWorker.from_env()
-    if worker is None:
-        raise ValueError("V2_INGEST_DSN is required")
-    return AiProcess(
-        rag_server=rag,
-        ingest_server=ingest_server(build_ingest_service(database)),
-        worker=worker,
-        rag_address=os.environ.get("V2_GRPC_ADDR", DEFAULT_RAG_ADDRESS),
-        ingest_address=os.environ.get("V2_INGEST_GRPC_ADDR", DEFAULT_INGEST_ADDRESS),
-        worker_timeout=worker_timeout,
-    )
+        return AiProcess(
+            rag_server=rag_server(build_rag_service()),
+            ingest_server=None,
+            worker=None,
+            worker_timeout=worker_timeout,
+        )
+    ai = open_role(AI_ROLE, os.environ["V2_RETRIEVER_DSN"], size=AI_POOL_SIZE, application_name="ecr-ai")
+    try:
+        ingest = open_role(INGEST_ROLE, os.environ["V2_INGEST_DSN"], size=INGEST_POOL_SIZE,
+                           application_name="ecr-ingest")
+    except BaseException:
+        ai.close()
+        raise
+    try:
+        database = load_ingest_database(ingest)
+        return AiProcess(
+            rag_server=rag_server(build_rag_service(connections=ai)),
+            ingest_server=ingest_server(build_ingest_service(database)),
+            worker=IngestWorker.from_environment(database),
+            connections=(ai, ingest),
+            rag_address=os.environ.get("V2_GRPC_ADDR", DEFAULT_RAG_ADDRESS),
+            ingest_address=os.environ.get("V2_INGEST_GRPC_ADDR", DEFAULT_INGEST_ADDRESS),
+            worker_timeout=worker_timeout,
+        )
+    except BaseException:
+        ai.close()
+        ingest.close()
+        raise
 
 
 def main() -> int:

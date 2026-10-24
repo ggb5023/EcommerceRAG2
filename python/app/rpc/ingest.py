@@ -19,7 +19,7 @@ from rag.v1 import rag_pb2, rag_pb2_grpc
 class IngestService(rag_pb2_grpc.IngestServiceServicer):
     def __init__(self, database: IngestDatabase, *, scope_validator=validate_scope, artifact_store=None):
         self.database = database
-        self.commands = CommandStore(database.conn_string, artifact_store=artifact_store)
+        self.commands = CommandStore(database.conn_string, artifact_store=artifact_store, connect=database.connector)
         self.scope_validator = scope_validator
 
     def _authorize(self, scope, context):

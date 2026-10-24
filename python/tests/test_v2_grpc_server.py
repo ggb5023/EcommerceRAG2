@@ -46,7 +46,7 @@ def test_v2_grpc_server_verifies_durable_checkpoint_schema(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("V2_FIXTURE_MODE", "1")
     monkeypatch.setenv("RAG_PROFILE", "v2_langgraph_fixture")
-    monkeypatch.setattr("app.rpc.server.load_checkpoint_store", lambda: store)
+    monkeypatch.setattr("app.rpc.server.load_checkpoint_store", lambda *_args, **_kwargs: store)
     server = build_server()
     try:
         assert store.verified is True

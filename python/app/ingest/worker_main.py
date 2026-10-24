@@ -21,7 +21,8 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: worker.stop())
     signal.signal(signal.SIGINT, lambda *_: worker.stop())
     if args.once:
-        cleanup_orphans(worker.artifact_store, worker.database.conn_string)
+        cleanup_orphans(worker.artifact_store, worker.database.conn_string,
+                        connect=worker.database.connector)
         claim = worker._claim()
         if claim:
             worker._process(claim)

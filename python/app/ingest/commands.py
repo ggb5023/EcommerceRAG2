@@ -31,9 +31,10 @@ def command_action(value: int) -> str:
 
 
 class CommandStore:
-    def __init__(self, conn_string: str, *, artifact_store=None):
+    def __init__(self, conn_string: str, *, artifact_store=None, connect=psycopg.connect):
         self.conn_string = conn_string
         self.artifact_store = artifact_store
+        self._connect = connect
 
     @staticmethod
     def _identity(cursor: Any, scope: Any, action: str) -> None:
@@ -55,7 +56,7 @@ class CommandStore:
         if (scope.scope_audience != "ingest" or scope.command_id != request.command_id
                 or scope.command_action != action or scope.command_payload_sha256 != digest):
             raise IngestAuthorizationError("command is not bound to its signed payload")
-        with (psycopg.connect(self.conn_string, row_factory=dict_row) as connection,
+        with (self._connect(self.conn_string, row_factory=dict_row) as connection,
               connection.transaction(), connection.cursor() as cursor):
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
                            (f"knowledge:{scope.tenant_db_id}",))
@@ -88,7 +89,7 @@ class CommandStore:
             return rag_pb2.IngestCommandResult(**result)
 
     def get(self, scope: Any, command_id: str) -> rag_pb2.IngestCommandResult | None:
-        with (psycopg.connect(self.conn_string, row_factory=dict_row) as connection,
+        with (self._connect(self.conn_string, row_factory=dict_row) as connection,
               connection.cursor() as cursor):
             cursor.execute("SELECT * FROM ingest_command_result WHERE tenant_id=%s AND command_id=%s",
                            (scope.tenant_db_id, command_id))

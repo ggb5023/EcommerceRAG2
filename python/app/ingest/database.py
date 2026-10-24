@@ -55,10 +55,20 @@ def package_payload_hash(
 class IngestDatabase:
     """Small synchronous psycopg adapter used by gRPC and the worker."""
 
-    def __init__(self, conn_string: str) -> None:
+    def __init__(self, conn_string: str, *, connect=psycopg.connect) -> None:
         if not conn_string.strip():
             raise ValueError("ingest connection string is required")
         self.conn_string = conn_string
+        self._connect = connect
+
+    @property
+    def connector(self):
+        """Raw factory, shared with adapters that keep their own connection."""
+        return self._connect
+
+    def connection(self, **kwargs):
+        """Check out one connection through the configured factory."""
+        return self._connect(self.conn_string, **kwargs)
 
     @classmethod
     def from_env(cls) -> IngestDatabase | None:
@@ -85,7 +95,7 @@ class IngestDatabase:
             "schema_migration",
         }
         with (
-            psycopg.connect(self.conn_string) as connection,
+            self.connection() as connection,
             connection.cursor() as cursor,
         ):
             cursor.execute(
@@ -169,7 +179,7 @@ class IngestDatabase:
         if not idempotency_key or not source_id or not source_name:
             raise ValueError("submission identity is incomplete")
         with (
-            psycopg.connect(self.conn_string) as connection,
+            self.connection() as connection,
             connection.transaction(),
             connection.cursor() as cursor,
         ):
@@ -359,7 +369,7 @@ class IngestDatabase:
 
     def get_status(self, *, tenant_db_id: int, job_id: int, shop_id: str) -> dict[str, Any] | None:
         with (
-            psycopg.connect(self.conn_string, row_factory=dict_row) as connection,
+            self.connection(row_factory=dict_row) as connection,
             connection.cursor() as cursor,
         ):
             cursor.execute(
@@ -370,7 +380,7 @@ class IngestDatabase:
 
     def cancel(self, *, tenant_db_id: int, job_id: int) -> str | None:
         with (
-            psycopg.connect(self.conn_string) as connection,
+            self.connection() as connection,
             connection.transaction(),
             connection.cursor() as cursor,
         ):
