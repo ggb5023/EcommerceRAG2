@@ -252,10 +252,17 @@ class PrivateConfig(unittest.TestCase):
     @unittest.skipUnless(os.name == 'posix', 'Shell deployment guards require Linux')
     def test_missing_configuration_stops_shell_actions(self):
         with self.configuration():
-            for script in ('dev/bootstrap-dev.sh', 'db/check-data-mount.sh', 'db/db-firewall.sh'):
+            for script in ('db/check-data-mount.sh', 'db/db-firewall.sh'):
                 result = subprocess.run(['bash', str(ROOT / 'scripts' / script)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, script)
                 self.assertIn(b'UNVERIFIED infrastructure configuration', result.stdout + result.stderr)
+
+    def test_bootstrap_script_does_not_require_infrastructure_configuration(self):
+        # The bootstrap is machine independent by design (see docs/development.md);
+        # pin that so the deployment guard cannot creep back in unnoticed.
+        script = (ROOT / 'scripts' / 'dev' / 'bootstrap-dev.sh').read_text(encoding='utf-8')
+        self.assertNotIn('ECR_INFRA_ENV', script)
+        self.assertNotIn('infra_config', script)
 
 
 if __name__ == '__main__':
