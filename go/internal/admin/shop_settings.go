@@ -46,7 +46,11 @@ func (g *Handler) adminShopSettings(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 409, "shop_settings_conflict", "public slug unavailable or shop changed")
 		return
 	}
-	if auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "shop_settings", "shop", id, "", "", 0, "merchant configured customer channel", "applied", map[string]any{"customer_chat_enabled": in.Enabled}) != nil || tx.Commit(r.Context()) != nil {
+	if err := auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "shop_settings", "shop", id, "", "", 0, "merchant configured customer channel", "success", map[string]any{"customer_chat_enabled": in.Enabled}); err != nil {
+		httpapi.WriteError(w, 503, "audit_unavailable", "could not record shop settings audit")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "settings not confirmed")
 		return
 	}
