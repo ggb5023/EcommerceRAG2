@@ -1,0 +1,5 @@
+/* Shared resets extracted from the two former shells: identical in both. */
+*{box-sizing:border-box}
+body{margin:0;min-width:320px}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}

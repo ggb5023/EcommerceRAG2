@@ -14,7 +14,7 @@ async function exit(){owned.value=false;stream?.abort();snapshot.value=null;queu
 onMounted(async()=>{try{await load();if(route.params.id)await open(String(route.params.id))}catch(e){failed(e)}poll=setInterval(()=>void load().catch(failed),5000);heartbeat=setInterval(()=>{if(owned.value)void act('heartbeat')},30000)})
 onUnmounted(()=>{stream?.abort();clearInterval(poll);clearInterval(heartbeat)})
 </script>
-<template><main class="channel-shell"><header><h1>客服工作台</h1><nav><RouterLink to="/chat">员工 AI 助手</RouterLink><a href="/admin/overview">知识管理</a><button v-if="browserAuth.authenticated" @click="exit">退出</button></nav></header><p v-if="error" role="alert">{{error}}</p>
+<template><main class="channel-shell zone-web"><header><h1>客服工作台</h1><nav><RouterLink to="/chat">员工 AI 助手</RouterLink><a href="/admin/overview">知识管理</a><button v-if="browserAuth.authenticated" @click="exit">退出</button></nav></header><p v-if="error" role="alert">{{error}}</p>
 <button v-if="browserAuth.enabled&&!browserAuth.authenticated" @click="login('customer')">员工登录</button>
 <div v-else class="support-columns"><aside><h2>待接管 / 我的会话</h2><button @click="load().catch(failed)">刷新队列</button><p v-if="!queue.length">暂无待接管会话。</p><button v-for="c in queue" :key="c.id" @click="open(c.id).catch(failed)">{{c.state==='WAITING_HUMAN'?'待领取':'已领取'}} · {{c.id.slice(-8)}}</button></aside>
 <section v-if="snapshot"><h2>会话 {{snapshot.conversation.id.slice(-8)}}</h2><p role="status">{{snapshot.conversation.state}} · 控制版本 {{snapshot.conversation.epoch}}</p><button v-if="snapshot.conversation.state==='WAITING_HUMAN'" @click="act('claim')" :disabled="busy">领取会话</button>
