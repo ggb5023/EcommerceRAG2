@@ -101,10 +101,12 @@ def test_merged_process_opens_one_pool_per_role_and_registers_both_services(monk
 
 def test_fixture_profile_serves_rag_only_without_pools_or_ingest_credentials(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("V2_GRPC_ADDR", "127.0.0.1:150052")
     process, rag, ingest, seen = merged(monkeypatch, fixture=True)
     assert process.rag_server is rag
     assert process.ingest_server is None and process.worker is None
     assert process.connections == ()
+    assert process.rag_address == "127.0.0.1:150052"
     assert seen["roles"] == [] and seen["database"] is None
 
 

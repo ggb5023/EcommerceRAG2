@@ -113,6 +113,8 @@ def build_ai_process() -> AiProcess:
             rag_server=rag_server(build_rag_service()),
             ingest_server=None,
             worker=None,
+            rag_address=os.environ.get("V2_GRPC_ADDR", DEFAULT_RAG_ADDRESS),
+            ingest_address=os.environ.get("V2_INGEST_GRPC_ADDR", DEFAULT_INGEST_ADDRESS),
             worker_timeout=worker_timeout,
         )
     ai = open_role(AI_ROLE, os.environ["V2_RETRIEVER_DSN"], size=AI_POOL_SIZE, application_name="ecr-ai")
