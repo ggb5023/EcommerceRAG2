@@ -477,3 +477,35 @@ def test_concurrent_claim_does_not_duplicate_work(db):
     assert len(selected) == 1
     db.worker._process(selected[0])
     assert version(db, job.job_id)[3] == "ready"
+
+
+def test_merged_pools_keep_two_role_bound_writers(db):
+    """The single ai process must still write through two separate identities."""
+    from app.connections import AI_ROLE, INGEST_ROLE, ConnectionsError, open_role
+
+    ai = open_role(AI_ROLE, db.values["V2_AI_DSN"], size=1, application_name="ecr-test-ai")
+    ingest = open_role(INGEST_ROLE, db.values["V2_INGEST_DSN"], size=1, application_name="ecr-test-ingest")
+    try:
+        with ai.connect(db.values["V2_AI_DSN"]) as conn:
+            assert conn.execute("SELECT current_user").fetchone() == ("rag_v2_ai",)
+            assert conn.execute(
+                "SELECT application_name FROM pg_stat_activity WHERE pid=pg_backend_pid()").fetchone() == ("ecr-test-ai",)
+        with ingest.connect(db.values["V2_INGEST_DSN"]) as conn:
+            assert conn.execute("SELECT current_user").fetchone() == ("rag_v2_ingest",)
+            assert conn.execute(
+                "SELECT application_name FROM pg_stat_activity WHERE pid=pg_backend_pid()").fetchone() == ("ecr-test-ingest",)
+        assert ai.owns(db.values["V2_AI_DSN"]) and ingest.owns(db.values["V2_INGEST_DSN"])
+        assert not ai.owns(db.values["V2_INGEST_DSN"])
+        with pytest.raises(ConnectionsError, match="foreign database identity"):
+            ai.connect(db.values["V2_INGEST_DSN"])
+        for connections, statement in (
+            (ai, "UPDATE ingest_job SET updated_at=now() WHERE false"),
+            (ingest, "UPDATE v2_asking_checkpoint SET consumed_at=now() WHERE false"),
+            (ingest, "INSERT INTO checkpoints(thread_id) VALUES('denied')"),
+        ):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with connections.connect(connections.dsn) as conn:
+                    conn.execute(statement)
+    finally:
+        ai.close()
+        ingest.close()
