@@ -19,8 +19,8 @@ shellcheck -S warning scripts/*.sh scripts/*/*.sh eval/*.sh docker/db/*.sh docke
 buf lint
 buf build -o /dev/null
 buf breaking --against .git#branch=main
-(cd web; npm ci --no-audit --no-fund; npm test; npm run build)
-(cd admin-web; npm ci --no-audit --no-fund; npm test; npm run build)
+(cd web; npm ci --include=dev --no-audit --no-fund; npm test; npm run build)
+(cd admin-web; npm ci --include=dev --no-audit --no-fund; npm test; npm run build)
 bash scripts/check/facts-fake-matrix.sh
 bash eval/run.sh offline
 echo "PASS foundation checks (business and real API tests not included)"
