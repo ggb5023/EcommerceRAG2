@@ -7,6 +7,7 @@ python3 -m unittest discover -s tests -p 'test_privacy*.py'
 python3 -m unittest discover -s tests -p 'test_publication*.py'
 python3 -m unittest discover -s tests -p 'test_worker_process_harness.py'
 python3 scripts/check/check-docs.py
+python3 scripts/check/check-openapi.py
 python3 scripts/check/check-doc-baseline.py
 while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts docker eval -name '*.sh' -print0)
 test -x scripts/dev/v2-local-services.sh

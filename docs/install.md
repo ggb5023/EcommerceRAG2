@@ -75,6 +75,58 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 
 无论哪种 profile，应用都不执行 DDL；升级先备份，再运行 bootstrap 迁移任务，再启动同一版本的应用。
 
+
+## 源码部署（systemd）
+
+不使用容器时，用两个单元分别托管后端与前端，二者都以仓库外的受限配置启动：
+
+```ini
+# /etc/systemd/system/ecommerce-rag.service
+[Unit]
+Description=EcommerceRAG backend (gateway + ai)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ecr
+WorkingDirectory=/opt/EcommerceRAG2
+EnvironmentFile=/etc/ecommerce-rag/dev.env
+ExecStart=/opt/EcommerceRAG2/scripts/dev/v2_services.py --env /etc/ecommerce-rag/dev.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ecommerce-rag /run/ecommerce-rag
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/ecommerce-rag-web.service
+[Unit]
+Description=EcommerceRAG web (merged SPA)
+After=ecommerce-rag.service
+
+[Service]
+Type=simple
+User=ecr
+WorkingDirectory=/opt/EcommerceRAG2/frontend
+ExecStart=/usr/bin/npm run dev -- --host 127.0.0.1 --port 5173
+Environment=VITE_GATEWAY_ORIGIN=http://127.0.0.1:8080
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`dev.env` 只放连接串与路径，凭据在 `/etc/ecommerce-rag/providers.env`（0600）。升级流程：
+`git pull --ff-only` → 依赖安装（`uv sync --frozen`、`npm ci`）→ `systemctl restart ecommerce-rag ecommerce-rag-web`；
+回滚回到上一个提交后重启同样的两个单元。源码部署同样走 `/setup` 首次安装，且迁移必须在
+bootstrap 之前完成（与 Compose 三段式一致）。
+
 ## 使用与故障定位
 
 - `/admin/overview`：管理员登录，设置店铺名称、欢迎语及客户入口；上传、预览、审核和发布知识。

@@ -1,0 +1,229 @@
+openapi: 3.1.0
+info:
+  title: EcommerceRAG browser API
+  version: v1
+  description: >-
+    The only HTTP surface the browser may use. Permissions are decided by Go;
+    Python never receives browser credentials. Errors share one envelope:
+    {"error": "<code>"}.
+servers:
+  - url: https://{host}:8443
+    variables:
+      host: {default: shop.example.com}
+security:
+  - sessionCookie: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Liveness and schema readiness
+      responses:
+        '200': {description: OK}
+        '503': {description: Database unavailable}
+  /setup:
+    get:
+      security: []
+      summary: One-time first-run page (loopback in development, otherwise token)
+      parameters:
+        - {name: token, in: query, required: false, schema: {type: string}}
+      responses:
+        '200': {description: Setup form}
+        '403': {description: Setup locked}
+        '409': {description: Expired token, already completed, or bootstrap missing}
+    post:
+      security: []
+      summary: Set the owner password (writes local_credential only)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: {type: object, required: [password], properties: {password: {type: string, minLength: 12, maxLength: 256}, token: {type: string}}}
+      responses:
+        '303': {description: Redirect to /login}
+        '400': {description: Password too short}
+        '409': {description: Setup closed}
+  /v1/auth/session:
+    get:
+      security: []
+      summary: Browser identity state
+      responses:
+        '200':
+          description: Session state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: {type: boolean}
+                  authenticated: {type: boolean}
+                  mode: {type: string, enum: [disabled, oidc, local]}
+                  csrf_token: {type: string}
+                  must_change_password: {type: boolean}
+  /v1/auth/login:
+    post:
+      security: []
+      summary: Local username/password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string}}}
+      responses:
+        '200': {description: Session cookie issued}
+        '401': {description: Invalid credentials}
+        '403': {description: account_revoked}
+        '423': {description: Account locked}
+        '429': {description: Rate limited}
+  /v1/auth/logout:
+    post:
+      summary: Revoke the current session
+      parameters: [{name: X-CSRF-Token, in: header, required: true, schema: {type: string}}]
+      responses:
+        '204': {description: Logged out}
+  /v1/auth/password:
+    post:
+      summary: Change the current password (revokes all sessions)
+      parameters: [{name: X-CSRF-Token, in: header, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string, minLength: 12, maxLength: 256}}}
+      responses:
+        '200': {description: Changed; re-login required}
+        '401': {description: Current password wrong or session expired}
+        '423': {description: Locked after repeated failures}
+  /v1/session:
+    get:
+      summary: Workspace identity summary
+      responses:
+        '200': {description: Identity summary}
+        '401': {description: Session invalid}
+        '403': {description: account_revoked or password_change_required}
+  /v1/conversations:
+    get:
+      summary: List staff conversations
+      responses: {'200': {description: OK}}
+    post:
+      summary: Create a staff conversation
+      responses: {'200': {description: OK}}
+  /v1/conversations/{id}:
+    get:
+      summary: Conversation detail
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/conversations/{id}/turns:
+    post:
+      summary: Send a staff turn
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/turns/{id}:
+    get:
+      summary: Turn state
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/turns/{id}/events:
+    get:
+      summary: Turn server-sent events
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: text/event-stream}}
+  /v1/turns/{id}/cancel:
+    post:
+      summary: Cancel a turn
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'202': {description: Cancellation accepted}}
+  /v1/turns/{id}/resume:
+    post:
+      summary: Resume an interrupted turn
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/customer/session:
+    post:
+      summary: Create an anonymous customer session (visitor token)
+      responses: {'200': {description: OK}}
+  /v1/customer/shops/{slug}:
+    get:
+      summary: Public shop profile
+      parameters: [{name: slug, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/customer/conversations:
+    post:
+      summary: Start a customer conversation
+      responses: {'200': {description: OK}}
+  /v1/customer/conversations/{id}:
+    get:
+      summary: Customer conversation
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/customer/conversations/{id}/messages:
+    post:
+      summary: Send a customer message
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: OK}}
+  /v1/customer/conversations/{id}/events:
+    get:
+      summary: Customer server-sent events
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: text/event-stream}}
+  /v1/support/queue:
+    get:
+      summary: Human handoff queue
+      responses: {'200': {description: OK}}
+  /admin/v1/session:
+    get:
+      summary: Admin role catalog and grants
+      responses: {'200': {description: OK}}
+  /admin/v1/overview:
+    get:
+      summary: Admin overview
+      responses: {'200': {description: OK}}
+  /admin/v1/access/accounts:
+    get:
+      summary: Accounts within the current scope
+      responses: {'200': {description: OK}}
+  /admin/v1/access/requests:
+    get:
+      summary: Permission request queue
+      responses: {'200': {description: OK}}
+    post:
+      summary: Create a permission request
+      responses: {'201': {description: Created}}
+  /admin/v1/access/requests/{id}/decision:
+    post:
+      summary: Approve or reject a request
+      parameters: [{name: id, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: Decided}}
+  /admin/v1/staff:
+    post:
+      summary: Create a staff account with a one-time password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, role, reason]
+              properties:
+                username: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$'}
+                role: {type: string, enum: [merchant_admin, knowledge_reviewer]}
+                shop_ids: {type: array, items: {type: string}}
+                reason: {type: string, minLength: 10, maxLength: 2000}
+      responses:
+        '201': {description: Account created; initial_password is returned once}
+        '400': {description: role_not_grantable or invalid input}
+        '403': {description: admin_scope_denied}
+        '409': {description: username_exists}
+  /admin/v1/merchant/shops:
+    get:
+      summary: Shops in scope
+      responses: {'200': {description: OK}}
+  /admin/v1/merchant/reviews:
+    get:
+      summary: Versions awaiting review
+      responses: {'200': {description: OK}}
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ecr_v2_session
