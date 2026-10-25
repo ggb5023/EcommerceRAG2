@@ -88,6 +88,8 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 1. 后端必须是**离线档**：用例里有 `profile === 'v2_langchain_mock'` 的断言，在线档会拒绝执行浏览器写操作。
 2. 本机要有 Playwright 的 Chromium：`cd frontend && npx playwright install chromium`（另需 `npx playwright install-deps chromium` 需要的系统库）。
 
+冻结评测语料在仓外；缺失时相关用例与 `scripts/check/check-eval-corpus.py` 默认 SKIP，`ECR_REQUIRE_EVAL=1` 时按失败处理，metadata 的 sha256 与实际 cases 文件不符一律失败。语料路径可用 `ECR_EVAL_REVISION` 覆盖。
+
 用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`，合并后是唯一入口，`/admin/*` 也在这个 origin 下）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
 
 本地账号登录用例 `frontend/tests/login.browser.mjs` 需要 `V2_IDENTITY_PROFILE=local` 的栈，并先用 CLI `reset-password` 把目标账号置为首次改密状态；通过 `LOGIN_USER`、`LOGIN_PASSWORD`、`LOGIN_NEW_PASSWORD` 传入账号与密码。

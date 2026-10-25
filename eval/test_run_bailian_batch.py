@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,16 +15,46 @@ assert SPEC and SPEC.loader
 SPEC.loader.exec_module(MODULE)
 
 
+NEEDED = (
+    "synthetic-m2-v1-revision-1.jsonl",
+    "synthetic-m2-v1-revision-1.metadata.json",
+    "documents.jsonl",
+    "alignment-revision-1.json",
+)
+
+
+def _revision_root() -> Path:
+    override = os.environ.get("ECR_EVAL_REVISION")
+    return Path(override) if override else MODULE.DEFAULT_REVISION_ROOT
+
+
+def _corpus_state() -> tuple[Path, list[str]]:
+    root = _revision_root()
+    return root, [name for name in NEEDED if not (root / name).is_file()]
+
+
+def _require_corpus() -> Path:
+    root, missing = _corpus_state()
+    if not missing:
+        return root
+    detail = f"eval corpus missing under {root}: {', '.join(missing)}"
+    if os.environ.get("ECR_REQUIRE_EVAL") == "1":
+        pytest.fail(detail)
+    pytest.skip(detail)
+    raise AssertionError("unreachable")
+
+
 def test_default_context_v2_inputs_are_revision_one():
     assert MODULE.DEFAULT_CONTEXT_REVIEW.name.endswith("context-v2.json")
     assert MODULE.DEFAULT_REVISION_ROOT.name == "synthetic-m2-v1-aligned-provisional"
 
 
 def test_bounded_plan_keeps_seven_ineligible_cases_out_of_provider_calls():
-    cases_path = MODULE.DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.jsonl"
-    metadata_path = MODULE.DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.metadata.json"
-    corpus_path = MODULE.DEFAULT_REVISION_ROOT / "documents.jsonl"
-    alignment_path = MODULE.DEFAULT_REVISION_ROOT / "alignment-revision-1.json"
+    root = _require_corpus()
+    cases_path = root / "synthetic-m2-v1-revision-1.jsonl"
+    metadata_path = root / "synthetic-m2-v1-revision-1.metadata.json"
+    corpus_path = root / "documents.jsonl"
+    alignment_path = root / "alignment-revision-1.json"
     cases, corpus, alignment, issues = MODULE.retrieval.load_inputs(
         cases_path, corpus_path, alignment_path, metadata_path
     )
