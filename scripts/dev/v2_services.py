@@ -97,6 +97,8 @@ def configure(values: dict[str, str]) -> dict[str, str]:
     identity_profile = values.setdefault("V2_IDENTITY_PROFILE", "development")
     if identity_profile == "development":
         required |= {"V2_IDENTITY_TENANT", "V2_IDENTITY_USER"}
+    elif identity_profile == "local":
+        required.add("V2_IDENTITY_TENANT")
     elif identity_profile in {"oidc", "oidc_browser"}:
         required.add("V2_OIDC_CONFIG_FILE")
     else:
