@@ -24,6 +24,14 @@ def write(path, value, owner=65532):
         os.chown(path, owner, owner)
 
 
+def write_if_absent(path, value, owner=65532):
+    """Setup metadata may be regenerated; secrets stay O_EXCL."""
+    if path.exists():
+        print(f'SKIP existing {path}')
+        return
+    write(path, value, owner)
+
+
 def command(args):
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -61,8 +69,8 @@ def initialize(args):
     else:
         accounts=[]
         realm={}
-    write(runtime/'bootstrap/config.json',json.dumps({'origin':args.origin,'shop_name':args.shop_name,'database_passwords':passwords,'accounts':accounts,'realm':realm,'owner_username':args.owner_username}),0)
-    write(runtime/'bootstrap/accounts.json',json.dumps({'accounts':accounts,'owner_username':args.owner_username}),0)
+    write_if_absent(runtime/'bootstrap/config.json',json.dumps({'origin':args.origin,'shop_name':args.shop_name,'database_passwords':passwords,'accounts':accounts,'realm':realm,'owner_username':args.owner_username}),0)
+    write_if_absent(runtime/'bootstrap/accounts.json',json.dumps({'accounts':accounts,'owner_username':args.owner_username}),0)
     if args.identity_profile == 'oidc_browser':
         write(runtime/'gateway/browser-secret',client)
     write(runtime/'gateway/scope-key',secrets.token_hex(32))
