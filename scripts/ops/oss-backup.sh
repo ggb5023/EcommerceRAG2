@@ -29,7 +29,10 @@ done
 fail() { echo "FAIL oss-backup: $*" >&2; exit 1; }
 [ -f "$ENV_FILE" ] || fail "credential file missing"
 [ "$(stat -c '%a' "$ENV_FILE")" = "600" ] || fail "credential file must be mode 0600"
-set -a; . "$ENV_FILE"; set +a
+set -a
+# shellcheck source=/dev/null
+. "$ENV_FILE"
+set +a
 for key in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET; do
   [ -n "${!key:-}" ] || fail "missing $key in $ENV_FILE"
 done
