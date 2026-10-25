@@ -9,18 +9,36 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 )
 
 // Setup serves the one-time first-run page. It writes only local_credential:
 // the owner skeleton and its grants come from the bootstrap job.
 type Setup struct {
-	Store *Store
-	Token string
-	mu    sync.Mutex
+	Store       *Store
+	Token       string
+	TokenIssued time.Time
+	mu          sync.Mutex
 }
 
+// SetupTokenTTL bounds the printed install token. A restart prints a new one.
+const SetupTokenTTL = 30 * time.Minute
+
+type gate int
+
+const (
+	gateDenied gate = iota
+	gateAllowed
+	gateExpired
+)
+
 func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
-	if !s.authorized(r) {
+	switch s.authorized(r) {
+	case gateExpired:
+		s.render(w, http.StatusConflict, "安装令牌已过期",
+			"一次性安装令牌只有 30 分钟有效期。请重启 gateway 生成新令牌后重试。", "", "", "")
+		return
+	case gateDenied:
 		s.render(w, http.StatusForbidden, "安装入口已锁定",
 			"只允许从 loopback 访问，或携带启动日志中的一次性安装令牌。", "", "", "")
 		return
@@ -75,35 +93,41 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 		"", "", target.OwnerExternalID)
 }
 
-func (s *Setup) authorized(r *http.Request) bool {
+func (s *Setup) authorized(r *http.Request) gate {
 	token := r.Header.Get("X-Setup-Token")
 	if token == "" && r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		token = r.PostForm.Get("token")
 	}
 	s.mu.Lock()
-	expected := s.Token
+	expected, issued := s.Token, s.TokenIssued
 	s.mu.Unlock()
 	if expected != "" && len(token) == len(expected) &&
 		subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1 {
-		return true
+		if issued.IsZero() || time.Since(issued) <= SetupTokenTTL {
+			return gateAllowed
+		}
+		return gateExpired
 	}
 	// Loopback免令牌只在开发档：开发拓扑里 Vite 会把 /setup 代理到 127.0.0.1，
 	// 网关看到的都是 loopback；只要出现任何转发头就等同于非本机。
 	if os.Getenv("APP_ENV") != "development" {
-		return false
+		return gateDenied
 	}
 	for _, header := range []string{"X-Forwarded-For", "X-Real-IP", "Forwarded"} {
 		if r.Header.Get(header) != "" {
-			return false
+			return gateDenied
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return false
+		return gateDenied
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	if ip != nil && ip.IsLoopback() {
+		return gateAllowed
+	}
+	return gateDenied
 }
 
 func (s *Setup) render(w http.ResponseWriter, status int, title, message, command, doc, username string) {
