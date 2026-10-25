@@ -1,13 +1,11 @@
 """Explicit database/identity bootstrap job. Applications never execute DDL."""
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
 
 import psycopg
-from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 ROOT = Path(os.environ.get('ECR_BOOTSTRAP_ROOT','/run/bootstrap'))
@@ -17,30 +15,11 @@ PG_PORT=os.environ.get('ECR_POSTGRES_PORT','5432')
 
 def main():
     config = json.loads((ROOT / 'config.json').read_text())
-    admin = make_conninfo(host=PG_HOST, port=PG_PORT, dbname='postgres', user='postgres', password=(ROOT / 'pg-password').read_text())
-    with psycopg.connect(admin, autocommit=True) as conn:
-        for role, password in config['database_passwords'].items():
-            if not conn.execute('SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=%s)', (role,)).fetchone()[0]:
-                conn.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}').format(sql.Identifier(role), sql.Literal(password)))
-        if not conn.execute("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='rag_app')").fetchone()[0]:
-            conn.execute('CREATE ROLE rag_app NOLOGIN NOSUPERUSER NOBYPASSRLS')
-        for database, owner in (('ecr_v2', 'rag_migration'), ('keycloak', 'keycloak')):
-            if not conn.execute('SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=%s)', (database,)).fetchone()[0]:
-                conn.execute(sql.SQL('CREATE DATABASE {} OWNER {}').format(sql.Identifier(database), sql.Identifier(owner)))
-                conn.execute(sql.SQL('REVOKE CONNECT ON DATABASE {} FROM PUBLIC').format(sql.Identifier(database)))
-        for role in ('rag_v2_gateway', 'rag_v2_ai', 'rag_v2_ingest'):
-            conn.execute(sql.SQL('GRANT CONNECT ON DATABASE ecr_v2 TO {}').format(sql.Identifier(role)))
-    with psycopg.connect(make_conninfo(admin, dbname='ecr_v2'), autocommit=True) as conn:
-        conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
-        conn.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-        if conn.execute("SELECT extversion FROM pg_extension WHERE extname='vector'").fetchone()[0] != '0.8.6':
-            raise ValueError('expected pgvector 0.8.6')
-    os.environ['V2_MIGRATION_DSN'] = make_conninfo(host=PG_HOST, port=PG_PORT, dbname='ecr_v2', user='rag_migration', password=config['database_passwords']['rag_migration'])
-    spec = importlib.util.spec_from_file_location('migrate', os.environ.get('ECR_MIGRATION_SCRIPT','/app/scripts/v2-migrate.py'))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.migrate()
-    with psycopg.connect(os.environ['V2_MIGRATION_DSN']) as conn:
+    dsn = make_conninfo(host=PG_HOST, port=PG_PORT, dbname='ecr_v2', user='rag_migration',
+                        password=config['database_passwords']['rag_migration'])
+    with psycopg.connect(dsn) as conn:
+        if conn.execute("SELECT to_regclass('public.schema_migration') IS NOT NULL").fetchone()[0] is not True:
+            raise ValueError('schema is not migrated; run the migrate one-shot first')
         # Initial merchant identities are operator provisioning, never final AI
         # results or ingestion status. Reruns preserve existing authorization.
         row = conn.execute("SELECT id FROM tenant WHERE external_id='merchant'").fetchone()

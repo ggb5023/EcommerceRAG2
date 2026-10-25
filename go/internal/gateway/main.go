@@ -144,7 +144,7 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func Main() {
-	if os.Getenv("APP_ENV") == "selfhost" {
+	if env := os.Getenv("APP_ENV"); env == "selfhost" || env == "production" {
 		profile := os.Getenv("V2_IDENTITY_PROFILE")
 		if (profile != "oidc_browser" && profile != "local") || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
 			log.Fatal("selfhost requires local or browser identity, mTLS, customer origin and real Provider; facts are disabled")

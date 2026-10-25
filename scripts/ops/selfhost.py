@@ -111,7 +111,7 @@ def initialize(args):
     common={'APP_ENV':'selfhost','RAG_PROFILE':'v2_langchain_bailian','V2_RPC_TLS':'mtls','V2_RPC_CA_FILE':'/run/runtime/rpc-ca.crt','V2_RPC_CERT_FILE':'/run/runtime/rpc.crt','V2_RPC_KEY_FILE':'/run/runtime/rpc.key','V2_AUTHORITY_GRPC_ADDR':'gateway:50054'}
     paid={'V2_PROVIDER_CONFIG':'/run/runtime/providers.env','V2_ONLINE_BUDGET_CNY':args.budget_cny,'V2_ONLINE_BUDGET_LEDGER':'/run/budget/'+budget_file,'V2_ONLINE_BUDGET_ID':args.budget_id}
     storage={'INGEST_STORAGE_PROFILE':'filesystem','INGEST_ARTIFACT_ROOT':'/var/lib/ecr/artifacts'}
-    configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8080','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ingest:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'V2_CUSTOMER_PROXY_HOST':'edge','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
+    configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8443','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ai:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json','V2_IDENTITY_PROXY_URL':'http://keycloak:8080'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'WEB_ROOT':'/srv/frontend','ECR_HOSTNAME':origin.hostname,'ECR_HTTPS_PORT':str(port),'WEB_TLS_CERT':'/run/web/tls.crt','WEB_TLS_KEY':'/run/web/tls.key','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
       'ai':{**common,**paid,**storage,'V2_GRPC_ADDR':'0.0.0.0:50052','V2_INGEST_GRPC_ADDR':'0.0.0.0:50053',
              'V2_RETRIEVER_DSN':dsn('rag_v2_ai'),'V2_CHECKPOINT_DSN':dsn('rag_v2_ai'),
              'V2_INGEST_DSN':dsn('rag_v2_ingest'),'V2_INGEST_WORKER_ID':'merchant-worker'}}
@@ -122,7 +122,7 @@ def initialize(args):
         write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
     write(runtime/'redis/redis.conf','bind 0.0.0.0\nprotected-mode yes\nappendonly yes\nrequirepass '+secrets.token_hex(32)+'\n',999)
     write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_BUDGET_DIR='+str(budget_dir),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
-    print('PASS protected installation prepared; run bootstrap then start Compose. Account details: bootstrap/accounts.json')
+    print('PASS protected installation prepared; run docker compose up -d (db-init -> migrate -> bootstrap). Account details: bootstrap/accounts.json')
 
 
 def main():

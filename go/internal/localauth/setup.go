@@ -33,14 +33,15 @@ const (
 )
 
 func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
+	token := s.requestToken(r)
 	switch s.authorized(r) {
 	case gateExpired:
 		s.render(w, http.StatusConflict, "安装令牌已过期",
-			"一次性安装令牌只有 30 分钟有效期。请重启 gateway 生成新令牌后重试。", "", "", "")
+			"一次性安装令牌只有 30 分钟有效期。请重启 gateway 生成新令牌后重试。", "", "", "", token)
 		return
 	case gateDenied:
 		s.render(w, http.StatusForbidden, "安装入口已锁定",
-			"只允许从 loopback 访问，或携带启动日志中的一次性安装令牌。", "", "", "")
+			"只允许从 loopback 访问，或携带启动日志中的一次性安装令牌。", "", "", "", token)
 		return
 	}
 	target, err := s.Store.SetupTarget(r.Context())
@@ -48,38 +49,38 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ErrSetupComplete):
 		s.render(w, http.StatusConflict, "安装已完成",
 			"本地账号已存在。重置密码请使用运维命令。",
-			"go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>", "", "")
+			"go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>", "", "", token)
 		return
 	case errors.Is(err, ErrSetupNeedsBootstrap):
 		s.render(w, http.StatusConflict, "还缺少初始化骨架",
 			"未找到唯一的 owner 骨架或 merchant 租户。请先运行一次性 bootstrap，再回到本页设置密码。",
-			"docker compose --profile setup run --rm bootstrap", "docs/install.md", "")
+			"docker compose up -d  # db-init → migrate → bootstrap 会自动执行", "docs/install.md", "", token)
 		return
 	case err != nil:
-		s.render(w, http.StatusServiceUnavailable, "数据库暂不可用", "请稍后重试。", "", "", "")
+		s.render(w, http.StatusServiceUnavailable, "数据库暂不可用", "请稍后重试。", "", "", "", token)
 		return
 	}
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
-			s.render(w, http.StatusBadRequest, "请求无法解析", "请重新提交。", "", "", target.OwnerExternalID)
+			s.render(w, http.StatusBadRequest, "请求无法解析", "请重新提交。", "", "", target.OwnerExternalID, token)
 			return
 		}
 		password := r.PostForm.Get("password")
 		if len(password) < 12 || len(password) > 256 {
-			s.render(w, http.StatusBadRequest, "密码长度不符合要求", "密码需要 12 到 256 个字节。", "", "", target.OwnerExternalID)
+			s.render(w, http.StatusBadRequest, "密码长度不符合要求", "密码需要 12 到 256 个字节。", "", "", target.OwnerExternalID, token)
 			return
 		}
 		hash, err := Hash(password)
 		if err != nil {
-			s.render(w, http.StatusServiceUnavailable, "无法生成密码哈希", "请稍后重试。", "", "", target.OwnerExternalID)
+			s.render(w, http.StatusServiceUnavailable, "无法生成密码哈希", "请稍后重试。", "", "", target.OwnerExternalID, token)
 			return
 		}
 		if err := s.Store.CompleteSetup(r.Context(), target, hash); err != nil {
 			if errors.Is(err, ErrSetupComplete) {
-				s.render(w, http.StatusConflict, "安装已完成", "本地账号已存在。", "", "", "")
+				s.render(w, http.StatusConflict, "安装已完成", "本地账号已存在。", "", "", "", token)
 				return
 			}
-			s.render(w, http.StatusServiceUnavailable, "安装未完成", "请检查数据库后重试。", "", "", "")
+			s.render(w, http.StatusServiceUnavailable, "安装未完成", "请检查数据库后重试。", "", "", "", token)
 			return
 		}
 		s.mu.Lock()
@@ -90,15 +91,25 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, http.StatusOK, "首次安装",
 		"账号已由 bootstrap 创建。请为下面的 owner 账号设置密码；设置完成后此页面永久关闭。",
-		"", "", target.OwnerExternalID)
+		"", "", target.OwnerExternalID, token)
+}
+
+func (s *Setup) requestToken(r *http.Request) string {
+	if token := r.Header.Get("X-Setup-Token"); token != "" {
+		return token
+	}
+	if token := r.URL.Query().Get("token"); token != "" {
+		return token
+	}
+	if r.Method == http.MethodPost {
+		_ = r.ParseForm()
+		return r.PostForm.Get("token")
+	}
+	return ""
 }
 
 func (s *Setup) authorized(r *http.Request) gate {
-	token := r.Header.Get("X-Setup-Token")
-	if token == "" && r.Method == http.MethodPost {
-		_ = r.ParseForm()
-		token = r.PostForm.Get("token")
-	}
+	token := s.requestToken(r)
 	s.mu.Lock()
 	expected, issued := s.Token, s.TokenIssued
 	s.mu.Unlock()
@@ -130,7 +141,7 @@ func (s *Setup) authorized(r *http.Request) gate {
 	return gateDenied
 }
 
-func (s *Setup) render(w http.ResponseWriter, status int, title, message, command, doc, username string) {
+func (s *Setup) render(w http.ResponseWriter, status int, title, message, command, doc, username, token string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
@@ -143,10 +154,10 @@ func (s *Setup) render(w http.ResponseWriter, status int, title, message, comman
 	}
 	form := ""
 	if username != "" {
-		form = fmt.Sprintf(`<form method="post"><label>账号</label>
+		form = fmt.Sprintf(`<form method="post"><input type="hidden" name="token" value="%s"><label>账号</label>
 <input value="%s" readonly><label>新密码（12–256 字节）</label>
 <input type="password" name="password" required minlength="12" maxlength="256">
-<button type="submit">设置密码并启用账号</button></form>`, html.EscapeString(username))
+<button type="submit">设置密码并启用账号</button></form>`, html.EscapeString(token), html.EscapeString(username))
 	}
 	fmt.Fprintf(w, page, html.EscapeString(title), html.EscapeString(title), html.EscapeString(message), guidance, form)
 }
