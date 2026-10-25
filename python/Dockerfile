@@ -5,7 +5,6 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 COPY app ./app
 COPY rag ./rag
-COPY fixtures ./fixtures
 USER 65532:65532
 ENV V2_GRPC_ADDR=0.0.0.0:50052
 EXPOSE 50052

@@ -5,7 +5,6 @@ COPY python/pyproject.toml python/uv.lock ./
 RUN uv sync --frozen --no-dev
 COPY python/app ./app
 COPY python/rag ./rag
-COPY python/fixtures ./fixtures
 COPY sql ./sql
 COPY scripts/ops/v2-migrate.py scripts/ops/selfhost-db-init.py scripts/ops/selfhost-bootstrap.py scripts/ops/selfhost-health.py ./scripts/
 USER 65532:65532

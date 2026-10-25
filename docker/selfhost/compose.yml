@@ -34,7 +34,7 @@ services:
   migrate:
     <<: *python
     restart: "no"
-    command: [/app/.venv/bin/python, /app/scripts/v2-migrate.py, --env, /run/migration/migration.env]
+    command: [/app/scripts/v2-migrate.py, --env, /run/migration/migration.env]
     volumes: ["${ECR_RUNTIME}/migration.env:/run/migration/migration.env:ro"]
     depends_on: {db-init: {condition: service_completed_successfully}}
   # One-shot: migrator creates tenant, shop and the owner skeleton.

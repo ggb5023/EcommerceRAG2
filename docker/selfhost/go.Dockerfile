@@ -6,6 +6,8 @@ COPY frontend ./
 COPY scripts/ops/frontend-notices.mjs /tmp/frontend-notices.mjs
 RUN npm run build && node /tmp/frontend-notices.mjs
 FROM golang:1.27.1-bookworm AS build
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 COPY go/go.mod go/go.sum ./
 COPY go/cmd ./cmd

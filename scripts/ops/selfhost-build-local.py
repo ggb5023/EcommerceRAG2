@@ -47,7 +47,7 @@ def main():
     for file in (dest/'venv/bin').iterdir():
         if file.name.startswith('python') and file.is_symlink():file.unlink();file.symlink_to('/opt/cpython/bin/python3.12')
     (dest/'venv/pyvenv.cfg').write_text('home = /opt/cpython/bin\ninclude-system-site-packages = false\nversion = 3.12\n')
-    for directory in ['app','rag','fixtures']:
+    for directory in ['app','rag']:
         shutil.copytree(ROOT/'python'/directory,dest/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     shutil.copytree(ROOT/'sql',dest/'sql');(dest/'scripts').mkdir()
     for name in ['v2-migrate.py','selfhost-bootstrap.py','selfhost-health.py']:shutil.copy2(ROOT/'scripts/ops'/name,dest/'scripts'/name)
@@ -63,7 +63,7 @@ def main():
     specs={
       'go':'FROM scratch\nCOPY gateway /gateway\nCOPY go-notices /licenses\nCOPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n',
       'web':'FROM scratch\nCOPY web /web\nCOPY go-notices /licenses\nCOPY frontend-dist /srv/frontend\nUSER 65532:65532\nENTRYPOINT ["/web"]\n',
-      'python':f'FROM {local_base}\nWORKDIR /app\nCOPY cpython /opt/cpython\nCOPY venv /app/.venv\nCOPY app /app/app\nCOPY rag /app/rag\nCOPY fixtures /app/fixtures\nCOPY sql /app/sql\nCOPY scripts /app/scripts\nCOPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nUSER 65532:65532\nENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 V2_MIGRATION_DIR=/app/sql/migrations SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nENTRYPOINT ["/app/.venv/bin/python"]\nCMD ["-m","app.rpc.server"]\n'}
+      'python':f'FROM {local_base}\nWORKDIR /app\nCOPY cpython /opt/cpython\nCOPY venv /app/.venv\nCOPY app /app/app\nCOPY rag /app/rag\nCOPY sql /app/sql\nCOPY scripts /app/scripts\nCOPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nUSER 65532:65532\nENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 V2_MIGRATION_DIR=/app/sql/migrations SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\nENTRYPOINT ["/app/.venv/bin/python"]\nCMD ["-m","app.rpc.server"]\n'}
     # The same source-only probe binary is used by canonical and local builds.
     command(['go','build','-trimpath','-o',str(dest/'probe'),'./cmd/probe'],ROOT/'go',env)
     specs['go']=specs['go'].replace('COPY gateway /gateway','COPY gateway /gateway\nCOPY probe /probe')

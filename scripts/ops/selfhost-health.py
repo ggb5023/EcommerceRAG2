@@ -3,7 +3,11 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+root = Path(__file__).resolve().parents[2]
+if (root / 'python' / 'app').is_dir():
+    sys.path.insert(0, str(root / 'python'))
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import psycopg
 from grpc_health.v1 import health_pb2, health_pb2_grpc
