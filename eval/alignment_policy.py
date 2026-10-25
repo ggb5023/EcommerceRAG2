@@ -12,7 +12,7 @@ def parse_date(value: Any) -> date | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ValueError(f"invalid date value: {value!r}")
+        raise TypeError(f"invalid date value: {value!r}")
     return date.fromisoformat(value)
 
 

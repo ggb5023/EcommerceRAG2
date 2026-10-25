@@ -77,13 +77,14 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
     sys.path.insert(0, str(ROOT / "scripts" / "dev"))
     sys.path.insert(0, str(ROOT / "python"))
+    from v2_services import load_values
+
     from app.graph.workflow import (
         CONTROL_SCHEMA,
         GENERATION_INSTRUCTION,
         GENERATION_SCHEMA,
     )
     from app.providers.config import ensure_secure_config_file, load_provider_config
-    from v2_services import load_values
 
     values = load_values(path)
     if values.get("RAG_PROFILE") != "v2_langchain_bailian" or base_url != "http://" + values.get("HTTP_ADDR", ""):

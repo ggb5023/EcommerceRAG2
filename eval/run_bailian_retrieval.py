@@ -31,6 +31,8 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from answer_point_evidence import validate_review
+from quality_capture import capture
+
 from app.providers import build_provider
 from app.providers.config import (
     ProviderConfigError,
@@ -38,7 +40,6 @@ from app.providers.config import (
     load_provider_config,
 )
 from app.providers.contracts import ProviderError
-from quality_capture import capture
 
 DEFAULT_CASES = ROOT / "eval" / "synthetic_cases.jsonl"
 DEFAULT_CORPUS = Path(

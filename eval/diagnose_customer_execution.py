@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -198,7 +199,7 @@ def diagnose(snapshot, attachments=None):
             category = 'CITED' if key in {binding_key(e) for e in citations} else 'CITATION_MISSING'
         findings.append({**{k: item[k] for k in ('id', 'document_id', 'version_id')}, 'observation': category})
     transitions = []
-    for left, right in zip(STAGES, STAGES[1:]):
+    for left, right in itertools.pairwise(STAGES):
         if left in indexed and right in indexed:
             transitions.append({'from': left, 'to': right, 'removed_ids': sorted(
                 item['id'] for key, item in indexed[left].items() if key not in indexed[right])})
@@ -294,7 +295,7 @@ def main():
         print('PASS read-only diagnosis written; semantic status: '+report['semantic_review'])
     except DiagnosticError as error:
         raise SystemExit(str(error)) from None
-    except Exception:
+    except Exception:  # noqa: BLE001 - CLI boundary maps any failure to a fixed message
         raise SystemExit('diagnosis_failed_no_sensitive_details_emitted') from None
 
 

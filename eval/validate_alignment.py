@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from alignment_policy import ALLOWED_DISCLOSURE_CLASSES, assess_document
 from alignment_artifact import approved_artifact_issues
+from alignment_policy import ALLOWED_DISCLOSURE_CLASSES, assess_document
 
 ALLOWED_ALIGNMENT_STATUSES = {"PENDING_REVIEW", "APPROVED", "REJECTED"}
 REQUIRED_CASE_COUNT = 60
@@ -32,10 +32,10 @@ def _load_jsonl(path: Path) -> tuple[list[dict[str, Any]], str | None]:
                 continue
             value = json.loads(raw)
             if not isinstance(value, dict):
-                raise TypeError(f"line {line_number} is not an object")
+                raise ValueError(f"line {line_number} is not an object")  # noqa: TRY004 - invalid input is reported as a value error here
             rows.append(value)
         return rows, None
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
         return [], f"jsonl_input_invalid:{type(error).__name__}"
 
 
@@ -43,9 +43,9 @@ def _load_json(path: Path) -> tuple[dict[str, Any], str | None]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
-            raise TypeError("root must be an object")
+            raise ValueError("root must be an object")  # noqa: TRY004 - invalid input is reported as a value error here
         return value, None
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
         return {}, f"json_input_invalid:{type(error).__name__}"
 
 

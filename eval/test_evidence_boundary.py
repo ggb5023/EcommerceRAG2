@@ -47,8 +47,8 @@ def fixture(tmp_path):
         for e in cap['result']['evidence']: e['versionId'] = '1'
         put(caps / row['capture_id'], cap); row['capture_sha256'] = m.sha256(caps / row['capture_id'])
         next(r for r in reviews if r['case_id'] == row['case_id'])['capture_sha256'] = row['capture_sha256']
-    indexed = [dict(evidence_id=e['id'], document_id=e['documentId'], version_id='1', source_sha256='d'*64,
-                    chunk_sha256=m.digest('chunk-fingerprint:' + e['snippet']))
+    indexed = [{'evidence_id': e['id'], 'document_id': e['documentId'], 'version_id': '1', 'source_sha256': 'd'*64,
+                    'chunk_sha256': m.digest('chunk-fingerprint:' + e['snippet'])}
                for row in rows for e in m.load(caps / row['capture_id'])['result']['evidence']]
     for row in rows:
         snippets = {e['id']: e['snippet'] for e in m.load(caps / row['capture_id'])['result']['evidence']}
@@ -74,8 +74,8 @@ def fixture(tmp_path):
         'agent_attestation_sha256': m.sha256(attestation), 'review_package_manifest_sha256': m.sha256(manifest),
         'baseline_report_sha256': m.sha256(report), 'cases_sha256': contract['bindings']['cases_sha256'],
         'reviewer_kind': 'agent', 'human_review_completed': False, 'review_completed': True,
-        'rows': [dict(case_id=r['case_id'], capture_sha256=r['capture_sha256'], points=[dict(status='omitted', expected_sha256=h)
-                  for h in rule['original_point_sha256']]) for r, rule in zip(reviews, contract['cases'])]})
+        'rows': [{'case_id': r['case_id'], 'capture_sha256': r['capture_sha256'], 'points': [{'status': 'omitted', 'expected_sha256': h}
+                  for h in rule['original_point_sha256']]} for r, rule in zip(reviews, contract['cases'])]})
     review = put(tmp_path / 'review.json', {'review_version': 'v2-evidence-boundary-review-v1', 'rows': reviews,
                  'original_review_sha256': m.sha256(original), 'agent_attestation_sha256': m.sha256(attestation),
                  'contract_sha256': m.sha256(m.DEFAULT_CONTRACT), 'e2e_report_sha256': m.sha256(report),
@@ -90,7 +90,7 @@ def fixture(tmp_path):
                               'provider_attempt_after': 10, 'provider_attempt_delta': 0, 'request_reached_provider': False,
                               'restricted_evidence_absent': True, 'citation_ids_valid': True,
                               'evidence_customer_qualified': True, 'denied_before_turn': True} for i in contract['excluded_case_ids']],
-                 'replay_checks': [{'passed': True, 'scenario': s, 'observations': [dict(endpoint=e, http_status=403, error_code='permission_changed')
+                 'replay_checks': [{'passed': True, 'scenario': s, 'observations': [{'endpoint': e, 'http_status': 403, 'error_code': 'permission_changed'}
                                     for e in ['turn_result', 'events']]} for s in ['shop_grant_removed', 'shop_grant_removed',
                      'identity_revoked', 'permission_revision_changed']]})
     return contract, list(docs.values()), report, caps, review, safety, lifecycle

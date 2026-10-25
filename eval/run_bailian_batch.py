@@ -32,6 +32,7 @@ if str(EVAL_ROOT) not in sys.path:
 
 import run_bailian_retrieval as retrieval
 from answer_point_evidence import validate_review
+
 from app.providers import build_provider
 from app.providers.config import (
     ProviderConfigError,

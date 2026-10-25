@@ -9,8 +9,8 @@ import json
 import os
 import ssl
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,14 +38,14 @@ def run(args):
         csrf=''
         def call(path,body=None):
             raw=None if body is None else json.dumps(body).encode()
-            headers={'Origin':args.base_url,'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':str(uuid4())}
+            headers={'Origin':args.base_url,'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':str(uuid4())}  # noqa: B023
             request=urllib.request.Request(args.base_url+path,data=raw,headers=headers)
             try:
-                with opener.open(request,timeout=10) as r:return json.load(r)
+                with opener.open(request,timeout=10) as r:return json.load(r)  # noqa: B023
             except urllib.error.HTTPError as error:
                 if error.code!=429:raise
                 time.sleep(60)
-                with opener.open(request,timeout=10) as r:return json.load(r)
+                with opener.open(request,timeout=10) as r:return json.load(r)  # noqa: B023
         csrf=call('/v1/customer/session',{'shop_slug':args.shop})['csrf_token']
         conversation=call('/v1/customer/conversations',{})['conversation_id']
         started=time.monotonic()
@@ -98,4 +98,5 @@ if __name__=='__main__':
     p.add_argument('--base-url',required=True);p.add_argument('--ca',type=Path,required=True);p.add_argument('--shop',default='my-shop');p.add_argument('--capture-dir',type=Path,required=True);p.add_argument('--report',type=Path,required=True)
     args=p.parse_args()
     try:run(args)
-    except Exception:raise SystemExit('NOT_PASSED customer evaluation; inspect protected runtime and capture') from None
+    except Exception:  # noqa: BLE001 - CLI boundary maps any failure to a fixed message
+        raise SystemExit('NOT_PASSED customer evaluation; inspect protected runtime and capture') from None
