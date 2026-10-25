@@ -75,3 +75,11 @@
 
 - 停用通过 `revoked_at` 的变化触发 0006/0009 的 `permission_revision` bump，因此停用不仅让会话解析失败，也让已签发的 scope 在下次校验时失效。
 - `local_auth_event` 保留 90 天，由运维脚本清理；应用进程不执行清理 SQL。
+
+### 补充（2026-10-25 第三轮）：首个 owner 骨架与 /setup 门禁
+
+- 首个 owner 的 `app_user` 与三条 `admin_role_grant`（`merchant_admin`、`knowledge_reviewer`、`access_admin`）由 `selfhost-bootstrap.py` 以 migrator 角色创建，并写一条 `admin_audit`；bootstrap 不创建 `local_credential`，账号存在但无法登录。
+- gateway 不获得 `admin_role_grant` 的写权限（迁移 0023 已 REVOKE）；`/setup` 只写 `local_credential`。
+- `/setup` 的判定是「该租户 `local_credential` 为空且存在唯一 owner 骨架」，不用 `app_user` 计数；`local_credential` 一旦非空即永久返回 409 `setup_already_completed`，之后重置密码走 CLI `reset-password`。
+- `/setup` 的门禁是一次性安装令牌 + loopback，而不是「账号表为空」；用户名只读展示，商家只设密码，`must_change_password=false`。
+- 不采用「让 gateway 直接写 `admin_role_grant`」或「改写 `ecr_issue_admin_grant`」两种方案：前者要重新开一次写权限，后者改动安全关键函数。
