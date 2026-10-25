@@ -135,6 +135,7 @@ async function loadPage() {
   detail.value = null
   try {
     await checkBrowserAuth()
+    if (browserAuth.mustChangePassword) { void router.replace('/password'); return }
     if (browserAuth.enabled && !browserAuth.authenticated) { clearRestrictedContent(); identityStatus.value = 401; return }
     identityStatus.value = 0
     if (!session.value) session.value = await get<AdminSession>('/admin/v1/session')

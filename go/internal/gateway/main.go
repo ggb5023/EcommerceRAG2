@@ -12,6 +12,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
+	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/transport"
 	"io"
 	"log"
@@ -115,6 +116,8 @@ type gateway struct {
 	identityCheck   func(context.Context) error
 	scopeIdentities *scopeIdentityRegistry
 	browser         *identity.Browser
+	localAuth       *localauth.Handler
+	localSetup      *localauth.Setup
 	customer        *customer.Service
 }
 
@@ -140,8 +143,9 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 
 func Main() {
 	if os.Getenv("APP_ENV") == "selfhost" {
-		if os.Getenv("V2_IDENTITY_PROFILE") != "oidc_browser" || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
-			log.Fatal("selfhost requires browser identity, mTLS, customer origin and real Provider; facts are disabled")
+		profile := os.Getenv("V2_IDENTITY_PROFILE")
+		if (profile != "oidc_browser" && profile != "local") || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
+			log.Fatal("selfhost requires local or browser identity, mTLS, customer origin and real Provider; facts are disabled")
 		}
 	} else if os.Getenv("APP_ENV") != "development" && os.Getenv("APP_ENV") != "test" {
 		log.Fatal("an identity adapter is required; development/test adapter is explicit")
@@ -169,12 +173,19 @@ func Main() {
 	var session mockSession
 	var adapter IdentityAdapter
 	var browser *identity.Browser
+	var localStore *localauth.Store
+	var localToken string
 	switch os.Getenv("V2_IDENTITY_PROFILE") {
 	case "", "development":
 		session, err = (developmentIdentityAdapter{db: db}).Resolve(ctx)
 		if err != nil {
 			log.Fatal("development identity unavailable")
 		}
+	case "local":
+		store := localauth.NewStore(db)
+		adapter = localIdentityAdapter{store: store}
+		localStore = store
+		localToken = randomToken()
 	case "oidc", "oidc_browser":
 		config, configErr := identity.LoadConfig(os.Getenv("V2_OIDC_CONFIG_FILE"))
 		if configErr != nil {
@@ -243,6 +254,21 @@ func Main() {
 	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
+	}
+	if localStore != nil {
+		g.localAuth = &localauth.Handler{
+			Store:           localStore,
+			Limiter:         localauth.NewLimiter(nil),
+			Key:             g.signingKey,
+			Origins:         []string{os.Getenv("V2_CUSTOMER_ORIGIN")},
+			Secure:          func(r *http.Request) bool { return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" },
+			LockoutAttempts: 5,
+			LockoutFor:      15 * time.Minute,
+		}
+		g.localSetup = &localauth.Setup{Store: localStore, Token: localToken}
+		// The one-time install token is printed once at startup; it is never
+		// written to the database or returned by an API.
+		log.Printf("SETUP_TOKEN=%s", localToken)
 	}
 	if adapter == nil {
 		if err = g.authority().Refresh(ctx); err != nil {
@@ -354,7 +380,15 @@ func (g *gateway) Routes() http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
 		}
+		if r.URL.Path == "/setup" && g.localSetup != nil {
+			g.localSetup.Handle(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
+			if g.localAuth != nil {
+				g.localAuth.Handle(w, r)
+				return
+			}
 			if g.browser != nil {
 				if r.Method == "POST" && r.URL.Path == "/v1/auth/logout" && g.customer != nil && g.browser.ValidateWrite(r) == nil {
 					_ = g.customer.ReleaseSession(r.Context(), customer.StaffSessionHash(r))
@@ -389,6 +423,16 @@ func (g *gateway) Routes() http.Handler {
 					return
 				}
 			}
+			if g.localAuth != nil {
+				if err := g.localAuth.ValidateWrite(r); err != nil {
+					code := http.StatusForbidden
+					if errors.Is(err, localauth.ErrSessionInvalid) {
+						code = http.StatusUnauthorized
+					}
+					writeError(w, code, "local_request_rejected", "request rejected")
+					return
+				}
+			}
 			if g.identity != nil {
 				session, check, err := g.identity.Resolve(r)
 				if err != nil {
@@ -399,6 +443,10 @@ func (g *gateway) Routes() http.Handler {
 						code = http.StatusServiceUnavailable
 					}
 					writeError(w, code, "identity_rejected", "identity rejected")
+					return
+				}
+				if session.MustChangePassword {
+					writeError(w, http.StatusForbidden, "password_change_required", "password change required")
 					return
 				}
 				requestGateway := g.scoped(session, check)

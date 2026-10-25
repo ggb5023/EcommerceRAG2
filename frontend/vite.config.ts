@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/v1': target,
         '/admin/v1': target,
+        '/setup': target,
       },
     },
     test: {

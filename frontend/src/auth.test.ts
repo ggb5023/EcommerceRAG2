@@ -3,6 +3,7 @@ import { browserAuth, checkBrowserAuth, csrfHeaders, logout } from './auth'
 
 afterEach(() => {
   browserAuth.enabled = false; browserAuth.authenticated = false; browserAuth.csrf = ''
+  browserAuth.mode = 'disabled'; browserAuth.mustChangePassword = false
   vi.unstubAllGlobals()
 })
 
@@ -11,7 +12,7 @@ describe('browser identity boundary', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ enabled: true, authenticated: true, csrf_token: 'synthetic-csrf' }))))
     await checkBrowserAuth()
     expect(csrfHeaders()).toEqual({ 'X-CSRF-Token': 'synthetic-csrf' })
-    expect(Object.keys(browserAuth).sort()).toEqual(['authenticated', 'csrf', 'enabled'])
+    expect(Object.keys(browserAuth).sort()).toEqual(['authenticated', 'csrf', 'enabled', 'mode', 'mustChangePassword'])
   })
   it('clears local state even when upstream logout fails', async () => {
     browserAuth.enabled = true; browserAuth.authenticated = true; browserAuth.csrf = 'synthetic-csrf'
