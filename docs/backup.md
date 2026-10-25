@@ -21,3 +21,56 @@ sudo python/.venv/bin/python scripts/ops/selfhost-restore.py \
 恢复后应用仍停止，原 Web 入口保持不变。检查新目录的 `restore-evidence.json`，确认角色、证书有效期及文件所有权，再安排身份和浏览器恢复验证与正式入口切换。不要同时在两套安装上写入同一店铺或使用同一恢复账本承诺独立预算；丢失或已损坏的账本不能以重新初始化消除历史请求。
 
 验收恢复时核对数据库结构与迁移 checksum、资料/版本/chunk 数量及 hash、客户和人工消息、来源撤销、匿名 Cookie 恢复、员工重新登录及队列重排。恢复验证和失败报告分别保留。恢复成功之前，备份不算可用；本文件不替代实际恢复证据。
+
+## OSS 异地备份
+
+本节面向工程维护：备份的是冻结评测语料、eval 资产与 git 历史，不含商家业务数据；商家备份见前文。
+
+冻结评测语料、`eval/` 工程资产与 git 历史每天备份到阿里云 OSS（`ecr1-beijing`，`oss-cn-beijing`，
+ZRS、版本控制、AES256）。备份前缀 `ecr-backup/`；`drill/` 下的旧演练数据只读保留，脚本不写入也不删除。
+
+**备份范围**
+
+- `corpus/revision/current/`：冻结语料 5 个 revision 文件；目录不存在时只写带 `corpus_revision=absent`
+  标记的清单与快照，不上传任何替代数据。
+- `eval/current/`：`eval/` 下的用例、契约、review 与校验脚本（排除 `__pycache__`、`.pytest_cache`、`*.pyc`）
+  以及清单 `manifest.sha256`。
+- `git/<short-sha>.bundle`：`git bundle create --all` 的整仓历史，上传前先 `git bundle verify`。
+- `reports/<ts>/`：仅当显式传 `--with-reports DIR` 时归档；默认留空。
+
+**不备份**：`/etc/ecommerce-rag/` 下的密钥、DSN、`budget.sqlite`、`.local/` 与任何运行时凭据。
+如未来需要备份密钥，必须另开任务并先加密、另存密钥。
+
+**清单与幂等**
+
+清单是 `sha256sum` 兼容格式（`<sha256>  <相对路径>`），`#` 行记录生成时间、git 提交与
+`corpus_revision=present|absent`。每次运行先拉取远端 `manifest.sha256` 逐对象比较：一致则打印
+`NOOP` 并跳过上传；语料有变化时快照写到 `corpus/revision/snapshots/<UTC ts>.sha256`。
+上传后逐对象回读并比对 sha256，不依赖 ETag（服务端加密/分片下 ETag 不等价）。
+
+**运行**
+
+```bash
+sudo scripts/ops/oss-backup.sh              # 内网 endpoint（服务器）
+sudo scripts/ops/oss-backup.sh --dry-run    # 只打印计划，不写入
+sudo scripts/ops/oss-backup.sh --public-endpoint
+```
+
+凭据只从 `/etc/ecommerce-rag/oss.env`（0600）读取；脚本不打印、不记录、不上传其内容。
+cron 每天 03:17 以 `flock -n /run/ecr-oss-backup.lock` 防重入，日志 `/var/log/ecr-oss-backup.log`。
+
+**恢复**
+
+```bash
+sudo scripts/ops/oss-restore.sh --dest /tmp/ecr-restore --git-bundle
+```
+
+脚本按清单下载对象、写入 `manifest.sha256` 并逐个 `sha256sum -c`；语料存在时执行
+`ECR_REQUIRE_EVAL=1 python3 scripts/check/check-eval-corpus.py`，语料缺失时明确 `SKIP` 并在
+`--require-revision` 下失败。git bundle 用 `git bundle verify` 校验。恢复只写目标目录，不删除已有内容。
+
+**状态含义**
+
+- `NOOP`：远端清单与本地逐对象一致，本区未上传。
+- `corpus_revision=absent`：语料目录不存在，跳过语料上传；这是“缺件”，不是“已备份”。
+- `check.sh` 全绿不代表评测已验证；P1 验收用 `ECR_REQUIRE_EVAL=1 bash scripts/check.sh`。
