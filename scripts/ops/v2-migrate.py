@@ -23,8 +23,9 @@ def load_environment(path: Path) -> None:
 
 
 def migrate() -> None:
-    root = Path(__file__).resolve().parents[2]
-    files = sorted((root / "sql/migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    directory = os.environ.get("V2_MIGRATION_DIR")
+    root = Path(directory) if directory else Path(__file__).resolve().parents[2] / "sql/migrations"
+    files = sorted(root.glob("[0-9][0-9][0-9][0-9]_*.sql"))
     versions = [p.name[:4] for p in files]
     if versions != [f"{i:04}" for i in range(1, len(files) + 1)]:
         raise ValueError("migration sequence is incomplete")

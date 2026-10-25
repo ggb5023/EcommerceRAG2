@@ -12,9 +12,10 @@ const error = ref('')
 const localMode = ref(false)
 
 const destination = (): string => {
+  if (route.query.app === 'admin' && typeof route.query.return_to !== 'string') return '/admin'
   const raw = typeof route.query.return_to === 'string' ? route.query.return_to : '/chat'
-  return ['/chat', '/support', '/admin', '/shop'].some(prefix => raw === prefix || raw.startsWith(prefix + '/') || raw.startsWith(prefix + '?'))
-    ? raw : '/chat'
+  if (['/chat', '/support', '/admin', '/shop'].some(prefix => raw === prefix || raw.startsWith(prefix + '/') || raw.startsWith(prefix + '?'))) return raw
+  return route.query.app === 'admin' ? '/admin' : '/chat'
 }
 
 onMounted(async () => {

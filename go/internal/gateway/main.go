@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
+	"github.com/ggb5023/EcommerceRAG/go/internal/edge"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
 	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
@@ -142,7 +144,7 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func Main() {
-	if os.Getenv("APP_ENV") == "selfhost" {
+	if env := os.Getenv("APP_ENV"); env == "selfhost" || env == "production" {
 		profile := os.Getenv("V2_IDENTITY_PROFILE")
 		if (profile != "oidc_browser" && profile != "local") || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
 			log.Fatal("selfhost requires local or browser identity, mTLS, customer origin and real Provider; facts are disabled")
@@ -265,7 +267,7 @@ func Main() {
 			LockoutAttempts: 5,
 			LockoutFor:      15 * time.Minute,
 		}
-		g.localSetup = &localauth.Setup{Store: localStore, Token: localToken}
+		g.localSetup = &localauth.Setup{Store: localStore, Token: localToken, TokenIssued: time.Now()}
 		// The one-time install token is printed once at startup; it is never
 		// written to the database or returned by an API.
 		log.Printf("SETUP_TOKEN=%s", localToken)
@@ -326,7 +328,40 @@ func Main() {
 			}
 		}
 	}()
-	server := &http.Server{Addr: addr, Handler: g.Routes(), ReadHeaderTimeout: 5 * time.Second}
+	handler := g.Routes()
+	secure := false
+	if root := strings.TrimSpace(os.Getenv("WEB_ROOT")); root != "" {
+		// The gateway takes over the edge role: one HTTPS origin, static
+		// frontend fallback and the optional identity proxy, with the same
+		// host check and CSP as before.
+		host := strings.TrimSpace(os.Getenv("ECR_HOSTNAME"))
+		if host == "" {
+			log.Fatal("WEB_ROOT requires ECR_HOSTNAME")
+		}
+		port := os.Getenv("ECR_HTTPS_PORT")
+		if port == "" {
+			port = "8443"
+		}
+		authority := host
+		if port != "443" {
+			authority = net.JoinHostPort(host, port)
+		}
+		var identityProxy http.Handler
+		if browser != nil {
+			target := strings.TrimSpace(os.Getenv("V2_IDENTITY_PROXY_URL"))
+			if target == "" {
+				target = "http://keycloak:8080"
+			}
+			identityProxy = edge.Proxy(target)
+		}
+		handler = edge.Routes(handler, identityProxy, edge.SPA(root, ""), authority)
+		secure = true
+	}
+	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	if secure {
+		server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+	}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal("Gateway bind failed")
@@ -339,7 +374,19 @@ func Main() {
 	}
 	g.ready.Store(true)
 	log.Printf("V2 Gateway listening on %s", addr)
-	if err = server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if secure {
+		cert, key := os.Getenv("WEB_TLS_CERT"), os.Getenv("WEB_TLS_KEY")
+		if cert == "" {
+			cert = "/run/web/tls.crt"
+		}
+		if key == "" {
+			key = "/run/web/tls.key"
+		}
+		err = server.ServeTLS(listener, cert, key)
+	} else {
+		err = server.Serve(listener)
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("Gateway stopped unexpectedly")
 	}
 }

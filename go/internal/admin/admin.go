@@ -61,6 +61,7 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/v1/access/requests", g.adminListRequests)
 	mux.HandleFunc("POST /admin/v1/access/requests", g.adminCreateRequest)
 	mux.HandleFunc("POST /admin/v1/access/requests/{id}/decision", g.adminDecideRequest)
+	mux.HandleFunc("POST /admin/v1/staff", g.adminCreateStaff)
 	mux.HandleFunc("GET /admin/v1/access/audit", g.adminAudit)
 	mux.HandleFunc("POST /admin/v1/access/grants/{id}/revoke", g.adminRevokeGrant)
 	mux.HandleFunc("GET /admin/v1/merchant/shops", g.adminShops)
