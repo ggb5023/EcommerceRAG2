@@ -2,7 +2,7 @@
 
 [项目入口](../README.md) · [导入知识](knowledge.md) · [客服操作](support.md) · [备份恢复](backup.md)
 
-此部署运行一个商家、一家店铺。客户匿名咨询；员工使用本地 Keycloak 登录。订单、实时价格、库存与配送承诺不在首版能力内。项目仍在开发阶段，尚未经过生产环境验证。
+此部署运行一个商家、一家店铺。客户匿名咨询；员工默认使用 Go 内置账号登录，Keycloak 改为可选 profile。订单、实时价格、库存与配送承诺不在首版能力内。项目仍在开发阶段，尚未经过生产环境验证。
 
 ## 准备
 
@@ -37,7 +37,12 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 
 已有预算账本时，传入 `--budget-dir`、`--budget-file`、`--budget-id` 和对应的 `--budget-cny` 复用它，不要复制或重建。账本目录和文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
 
-安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后在 Keycloak 修改密码。默认管理员 `admin`、客服 `support`。Keycloak 的 bootstrap 管理员属于独立运维身份，其配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。
+安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后修改密码。
+
+- **内置账号（默认，`--identity-profile local`）**：`selfhost.py` 只写 `accounts: []`，bootstrap 创建 `merchant` 租户、`main-shop` 店铺与一个 owner 骨架（不写密码），不启动 Keycloak。启动后打开 `https://<host>/setup` 设置 owner 密码：该页面只在 loopback 或携带启动日志中一次性 `SETUP_TOKEN` 时可访问，成功后永久关闭。之后的密码重置走 `go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>`。
+- **OIDC（`--identity-profile oidc_browser`）**：保留 Keycloak 路径，账号来自 realm 导入；Keycloak 的 bootstrap 管理员属于独立运维身份，配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。
+
+无论哪种 profile，应用都不执行 DDL；升级先备份，再运行 bootstrap 迁移任务，再启动同一版本的应用。
 
 ## 使用与故障定位
 

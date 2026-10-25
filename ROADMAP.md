@@ -22,7 +22,7 @@
 - [x] **M1 仓库减噪**：`scripts/` 分为 check、dev、ops、db 并删除一次性脚本；迁移 0029 在非开发库停用测试账号，`scripts/dev/seed-fixtures.sql` 负责恢复；`eval/run.sh` 作为统一入口并接入 `check.sh`；删除公开数据轨
 - [x] **M2 Python 单进程**（约 1 周）：AI RPC、摄取 RPC、worker 合成一个 `ai` 进程；进程内按 `rag_v2_ai`、`rag_v2_ingest` 保留两个连接池。合并进程、双池与单写者边界已由测试覆盖
 - [x] **M3 前端合并**（约 1 周）：`web/`、`admin-web/` 合并为 `frontend/`，统一 vue-router
-- [ ] **M4 本地账号**（约 1.5 周）：Go 内置账号密码登录（argon2id、限流、锁定），Keycloak 改为可选 profile
+- [x] **M4 本地账号**（约 1.5 周）：Go 内置账号密码登录（argon2id、限流、锁定），Keycloak 改为可选 profile
 - [ ] **M5 部署收敛**（约 1 周）：Compose 默认 `gateway`、`ai`、`postgres` 三个服务；源码部署（systemd）说明；浏览器到 Go 的 OpenAPI 描述；删除已停止的旧验收环境 `ecr-milestone-20261014`
 
 验收：`bash scripts/check.sh` 通过；冻结评测集在真实模型上不低于基线；全新机器按 `docs/install.md` 30 分钟内跑通导入、问答和转人工。
@@ -51,7 +51,7 @@
 
 ## 当前任务
 
-M4 本地账号。
+M5 部署收敛。
 
 每个里程碑使用分支 `m<N>-<主题>`，验收后合入 `main`。结束时运行 `bash scripts/check.sh` 和相关的集成、浏览器测试，并用真实模型跑一次冻结评测。完成后勾选本文，并更新 `docs/architecture.md` 的差距表。
 
