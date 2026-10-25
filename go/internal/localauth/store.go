@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,12 +45,20 @@ type ResolvedSession struct {
 // Store owns every local-account write. The gateway role has no privileges on
 // tenant or shop; those tables stay owned by migrations and bootstrap.
 type Store struct {
-	DB  *pgxpool.Pool
-	Now func() time.Time
+	DB *pgxpool.Pool
+	// Tenant names the single merchant tenant: bootstrap creates external id
+	// "merchant"; deployments that still carry the development identity set
+	// V2_IDENTITY_TENANT instead. Fixture tenants are never consulted.
+	Tenant string
+	Now    func() time.Time
 }
 
 func NewStore(db *pgxpool.Pool) *Store {
-	return &Store{DB: db, Now: time.Now}
+	tenant := os.Getenv("V2_IDENTITY_TENANT")
+	if tenant == "" {
+		tenant = "merchant"
+	}
+	return &Store{DB: db, Tenant: tenant, Now: time.Now}
 }
 
 func (s *Store) now() time.Time {
@@ -160,11 +169,13 @@ func (s *Store) ResolveSession(ctx context.Context, idHash string) (ResolvedSess
 	if err != nil {
 		return out, err
 	}
-	if out.RevokedAt != nil || out.Expired(s.now()) {
-		return out, ErrSessionInvalid
-	}
+	// Check the account before the session: disable revokes sessions too, and the
+	// caller must still see account_revoked rather than a generic invalid session.
 	if out.Account.RevokedAt != nil {
 		return out, ErrAccountDisabled
+	}
+	if out.RevokedAt != nil || out.Expired(s.now()) {
+		return out, ErrSessionInvalid
 	}
 	return out, nil
 }
@@ -306,24 +317,8 @@ type SetupTarget struct {
 // credential count, not the account count: bootstrap already created the owner
 // skeleton, and counting app_user would close /setup before it ever runs.
 func (s *Store) SetupTarget(ctx context.Context) (SetupTarget, error) {
-	var tenantID int64
-	var tenants int
-	rows, err := s.DB.Query(ctx, `SELECT id FROM tenant WHERE status='active' ORDER BY id LIMIT 2`)
+	tenantID, err := s.ActiveTenant(ctx)
 	if err != nil {
-		return SetupTarget{}, err
-	}
-	for rows.Next() {
-		tenants++
-		if err := rows.Scan(&tenantID); err != nil {
-			rows.Close()
-			return SetupTarget{}, err
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return SetupTarget{}, err
-	}
-	if tenants != 1 {
 		return SetupTarget{}, ErrSetupNeedsBootstrap
 	}
 	var credentials int
@@ -380,10 +375,152 @@ func (s *Store) CompleteSetup(ctx context.Context, target SetupTarget, passwordH
 		if owners != 1 {
 			return ErrSetupNeedsBootstrap
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
+		now := s.now()
+		if _, err := tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
 			must_change_password,created_at,updated_at,password_changed_at)
-			VALUES($1,$2,$3,false,$4,$4,$4)`,
-			target.TenantID, target.OwnerUserID, passwordHash, s.now())
+			VALUES($1,$2,$3,false,$4::timestamptz,$4::timestamptz,$4::timestamptz)`,
+			target.TenantID, target.OwnerUserID, passwordHash, now); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,
+			resource_type,resource_id,reason,result,metadata_json)
+			VALUES($1,$2,'setup.completed','local_credential',$3,
+			'first local credential created by /setup','success',jsonb_build_object('username',$4::text))`,
+			target.TenantID, target.OwnerUserID,
+			fmt.Sprintf("%d:%d", target.TenantID, target.OwnerUserID), target.OwnerExternalID)
 		return err
 	})
+}
+
+var ErrTenantUnavailable = errors.New("localauth: active tenant is unavailable")
+
+// ActiveTenant returns the single active tenant. Multi-tenant routing is out of
+// scope for M4, so ambiguity is an error rather than a guess.
+func (s *Store) ActiveTenant(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.DB.QueryRow(ctx, `SELECT id FROM tenant WHERE external_id=$1 AND status='active'`,
+		s.Tenant).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrTenantUnavailable
+	}
+	return id, err
+}
+
+// User is the CLI view of an account, without credential material.
+type User struct {
+	TenantID       int64
+	UserID         int64
+	ExternalID     string
+	Role           string
+	RevokedAt      *time.Time
+	HasCredential  bool
+	MustChange     bool
+	LockedUntil    *time.Time
+	FailedAttempts int
+}
+
+// FindUser resolves an account for operator commands, with or without a
+// credential row.
+func (s *Store) FindUser(ctx context.Context, username string) (User, error) {
+	var user User
+	err := s.DB.QueryRow(ctx, `SELECT u.tenant_id,u.id,u.external_id,u.role,u.revoked_at,
+			c.user_id IS NOT NULL,COALESCE(c.must_change_password,false),
+			c.locked_until,COALESCE(c.failed_attempts,0)
+		FROM app_user u
+		JOIN tenant t ON t.id=u.tenant_id AND t.status='active'
+		LEFT JOIN local_credential c ON c.tenant_id=u.tenant_id AND c.user_id=u.id
+		WHERE u.external_id=$1 ORDER BY u.id LIMIT 2`, username).Scan(
+		&user.TenantID, &user.UserID, &user.ExternalID, &user.Role, &user.RevokedAt,
+		&user.HasCredential, &user.MustChange, &user.LockedUntil, &user.FailedAttempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user, ErrAccountNotFound
+	}
+	return user, err
+}
+
+// CreateOperator adds a non-owner account and its credential. Owner and admin
+// roles are refused here: the gateway role cannot write admin_role_grant, so an
+// owner created this way would own nothing.
+func (s *Store) CreateOperator(ctx context.Context, tenantID int64, username, role, passwordHash string, mustChange bool) (int64, error) {
+	if role != "operator" && role != "viewer" {
+		return 0, errors.New("localauth: CLI only creates operator or viewer accounts")
+	}
+	var userID int64
+	err := s.withTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
+		var existing int64
+		err := tx.QueryRow(ctx, `SELECT id FROM app_user WHERE tenant_id=$1 AND external_id=$2`,
+			tenantID, username).Scan(&existing)
+		if err == nil {
+			return errors.New("localauth: account already exists")
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		now := s.now()
+		if err := tx.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids)
+			VALUES($1,$2,$3,(SELECT ARRAY[id] FROM shop WHERE tenant_id=$1 AND status='active' ORDER BY id LIMIT 1))
+			RETURNING id`, tenantID, username, role).Scan(&userID); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
+			must_change_password,created_at,updated_at,password_changed_at)
+			VALUES($1,$2,$3,$4,$5::timestamptz,$5::timestamptz,$5::timestamptz)`, tenantID, userID, passwordHash, mustChange, now)
+		return err
+	})
+	return userID, err
+}
+
+// ResetPassword replaces the hash, forces a change on next login, clears lock
+// state and revokes every live session as admin_reset.
+func (s *Store) ResetPassword(ctx context.Context, tenantID, userID int64, passwordHash string, mustChange bool) (int64, error) {
+	var revoked int64
+	err := s.withTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
+		now := s.now()
+		tag, err := tx.Exec(ctx, `UPDATE local_credential SET password_hash=$3,
+			must_change_password=$4,failed_attempts=0,locked_until=NULL,last_failed_at=NULL,
+			password_changed_at=$5::timestamptz,updated_at=$5::timestamptz WHERE tenant_id=$1 AND user_id=$2`,
+			tenantID, userID, passwordHash, mustChange, now)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrAccountNotFound
+		}
+		tag, err = tx.Exec(ctx, `UPDATE local_session SET revoked_at=$3,revoked_reason='admin_reset'
+			WHERE tenant_id=$1 AND user_id=$2 AND revoked_at IS NULL`, tenantID, userID, now)
+		if err != nil {
+			return err
+		}
+		revoked = tag.RowsAffected()
+		_, err = tx.Exec(ctx, `INSERT INTO local_auth_event(event,tenant_id,user_id,created_at)
+			VALUES('password_changed',$1,$2,$3)`, tenantID, userID, now)
+		return err
+	})
+	return revoked, err
+}
+
+// ListUsers is the operator listing; it never selects credential material.
+func (s *Store) ListUsers(ctx context.Context, tenantID int64) ([]User, error) {
+	rows, err := s.DB.Query(ctx, `SELECT u.tenant_id,u.id,u.external_id,u.role,u.revoked_at,
+			c.user_id IS NOT NULL,COALESCE(c.must_change_password,false),
+			c.locked_until,COALESCE(c.failed_attempts,0)
+		FROM app_user u
+		JOIN tenant t ON t.id=u.tenant_id AND t.status='active'
+		LEFT JOIN local_credential c ON c.tenant_id=u.tenant_id AND c.user_id=u.id
+		WHERE u.tenant_id=$1 ORDER BY u.external_id`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(&user.TenantID, &user.UserID, &user.ExternalID, &user.Role,
+			&user.RevokedAt, &user.HasCredential, &user.MustChange, &user.LockedUntil,
+			&user.FailedAttempts); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
 }

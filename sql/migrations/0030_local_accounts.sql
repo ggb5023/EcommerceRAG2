@@ -62,6 +62,8 @@ REVOKE ALL ON local_credential,local_session,local_auth_event FROM PUBLIC,rag_v2
 GRANT SELECT,INSERT,UPDATE,DELETE ON local_credential,local_session TO rag_v2_gateway;
 GRANT SELECT,INSERT ON local_auth_event TO rag_v2_gateway;
 GRANT USAGE,SELECT ON SEQUENCE local_auth_event_id_seq TO rag_v2_gateway;
+-- CLI/staff creation inserts app_user rows through the gateway role.
+GRANT USAGE,SELECT ON SEQUENCE app_user_id_seq TO rag_v2_gateway;
 
 INSERT INTO schema_migration(version,checksum_sha256) VALUES ('0030', :'migration_checksum');
 COMMIT;
