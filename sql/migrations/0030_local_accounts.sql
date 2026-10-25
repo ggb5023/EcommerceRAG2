@@ -26,10 +26,10 @@ CREATE TABLE local_credential (
 );
 
 CREATE TABLE local_session (
-    id_hash TEXT PRIMARY KEY,
+    id_hash TEXT PRIMARY KEY CHECK (id_hash ~ '^[0-9a-f]{64}$'),
     tenant_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
-    csrf_hash TEXT NOT NULL,
+    csrf_hash TEXT NOT NULL CHECK (csrf_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     idle_expires_at TIMESTAMPTZ NOT NULL,
@@ -38,7 +38,8 @@ CREATE TABLE local_session (
     revoked_reason TEXT CHECK (revoked_reason IS NULL OR revoked_reason IN
         ('password_changed','admin_reset','logout','lockout','account_revoked')),
     FOREIGN KEY (tenant_id,user_id) REFERENCES app_user(tenant_id,id) ON DELETE CASCADE,
-    CHECK (absolute_expires_at > created_at)
+    CHECK (absolute_expires_at > created_at),
+    CHECK ((revoked_at IS NULL) = (revoked_reason IS NULL))
 );
 CREATE INDEX idx_local_session_user ON local_session(tenant_id,user_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_local_session_expiry ON local_session(absolute_expires_at);
@@ -46,7 +47,8 @@ CREATE INDEX idx_local_session_expiry ON local_session(absolute_expires_at);
 CREATE TABLE local_auth_event (
     id BIGSERIAL PRIMARY KEY,
     event TEXT NOT NULL CHECK (event IN
-        ('login_failed','account_locked','rate_limited','account_disabled','account_enabled')),
+        ('login_failed','login_succeeded','password_changed','account_locked','rate_limited',
+         'account_disabled','account_enabled')),
     subject_hash TEXT,
     tenant_id BIGINT,
     user_id BIGINT,

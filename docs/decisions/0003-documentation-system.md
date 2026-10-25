@@ -38,6 +38,7 @@
 | [0006](0006-provider-usage.md) | 模型用量与共享预算账本 | 已采纳 |
 | [0007](0007-offline-document-parsing.md) | 文档解析能力保持离线、不接入默认摄取链路 | 已采纳 |
 | [0008](0008-local-accounts-and-session-revocation.md) | 本地账号：argon2id、可吊销会话、Keycloak 降为可选 | 提议 |
+| [0009](0009-customer-cross-device.md) | 顾客跨设备历史：会话凭据码 vs 邮箱注册（仅比较，未实现） | 提议 |
 
 ## 后果
 

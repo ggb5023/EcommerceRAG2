@@ -70,3 +70,8 @@
 - bootstrap 保持一次性、幂等，在迁移之后、gateway 之前执行。
 - M4 验收：不启动 Keycloak、不传任何 OIDC 变量（`V2_IDENTITY_PROFILE=local`），能建号、能登录、能进 `/admin`。
 - Keycloak 的 Compose profile 化与默认三服务仍归 M5；M4 只做 profile 与脚本支持。
+
+### 补充（2026-10-25）：吊销传播与审计保留
+
+- 停用通过 `revoked_at` 的变化触发 0006/0009 的 `permission_revision` bump，因此停用不仅让会话解析失败，也让已签发的 scope 在下次校验时失效。
+- `local_auth_event` 保留 90 天，由运维脚本清理；应用进程不执行清理 SQL。
