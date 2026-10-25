@@ -35,6 +35,9 @@ type Session struct {
 	PermissionRevision string
 	RevokedAt          *time.Time
 	RevisionPinned     bool
+	// MustChangePassword is set by the local profile until /v1/auth/password
+	// succeeds; the gateway middleware blocks everything else.
+	MustChangePassword bool
 }
 type Resource struct{ Shop, Disclosure string }
 type Authority struct {

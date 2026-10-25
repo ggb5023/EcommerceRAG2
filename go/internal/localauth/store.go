@@ -39,7 +39,8 @@ type Account struct {
 // ResolvedSession is a live cookie joined with the current account state.
 type ResolvedSession struct {
 	Session
-	Account Account
+	Account          Account
+	TenantExternalID string
 }
 
 // Store owns every local-account write. The gateway role has no privileges on
@@ -154,15 +155,16 @@ func (s *Store) ResolveSession(ctx context.Context, idHash string) (ResolvedSess
 	err := s.DB.QueryRow(ctx, `SELECT s.tenant_id,s.user_id,s.csrf_hash,s.created_at,
 			s.idle_expires_at,s.absolute_expires_at,s.revoked_at,COALESCE(s.revoked_reason,''),
 			u.external_id,u.role,COALESCE(u.shop_ids,ARRAY[]::text[]),u.permission_revision,
-			u.revoked_at,c.must_change_password
+			u.revoked_at,c.must_change_password,t.external_id
 		FROM local_session s
 		JOIN app_user u ON u.tenant_id=s.tenant_id AND u.id=s.user_id
+		JOIN tenant t ON t.id=s.tenant_id
 		JOIN local_credential c ON c.tenant_id=s.tenant_id AND c.user_id=s.user_id
 		WHERE s.id_hash=$1`, idHash).Scan(
 		&out.TenantID, &out.UserID, &out.CSRFHash, &out.CreatedAt, &out.IdleExpiresAt,
 		&out.AbsoluteExpiresAt, &out.RevokedAt, &out.RevokedReason,
 		&out.Account.ExternalID, &out.Account.Role, &out.Account.Shops,
-		&out.Account.Revision, &out.Account.RevokedAt, &out.MustChangePassword)
+		&out.Account.Revision, &out.Account.RevokedAt, &out.MustChangePassword, &out.TenantExternalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrSessionInvalid
 	}
@@ -523,4 +525,52 @@ func (s *Store) ListUsers(ctx context.Context, tenantID int64) ([]User, error) {
 		users = append(users, user)
 	}
 	return users, rows.Err()
+}
+
+// FindAccountByID loads one account for an authenticated session.
+func (s *Store) FindAccountByID(ctx context.Context, tenantID, userID int64) (Account, error) {
+	var account Account
+	err := s.DB.QueryRow(ctx, `SELECT u.tenant_id,u.id,u.external_id,u.role,
+		COALESCE(u.shop_ids,ARRAY[]::text[]),u.permission_revision,u.revoked_at,
+		c.password_hash,c.must_change_password,c.failed_attempts,c.locked_until
+		FROM app_user u
+		JOIN local_credential c ON c.tenant_id=u.tenant_id AND c.user_id=u.id
+		JOIN tenant t ON t.id=u.tenant_id AND t.status='active'
+		WHERE u.tenant_id=$1 AND u.id=$2`, tenantID, userID).Scan(
+		&account.TenantID, &account.UserID, &account.ExternalID, &account.Role,
+		&account.Shops, &account.Revision, &account.RevokedAt, &account.PasswordHash,
+		&account.MustChangePassword, &account.FailedAttempts, &account.LockedUntil)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return account, ErrAccountNotFound
+	}
+	return account, err
+}
+
+// ChangePassword is the self-service path: clear the forced-change flag, revoke
+// every session with password_changed (including the current one) and audit it.
+func (s *Store) ChangePassword(ctx context.Context, tenantID, userID int64, passwordHash string) (int64, error) {
+	var revoked int64
+	err := s.withTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
+		now := s.now()
+		tag, err := tx.Exec(ctx, `UPDATE local_credential SET password_hash=$3,
+			must_change_password=false,failed_attempts=0,locked_until=NULL,last_failed_at=NULL,
+			password_changed_at=$4,updated_at=$4 WHERE tenant_id=$1 AND user_id=$2`,
+			tenantID, userID, passwordHash, now)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrAccountNotFound
+		}
+		tag, err = tx.Exec(ctx, `UPDATE local_session SET revoked_at=$3,revoked_reason='password_changed'
+			WHERE tenant_id=$1 AND user_id=$2 AND revoked_at IS NULL`, tenantID, userID, now)
+		if err != nil {
+			return err
+		}
+		revoked = tag.RowsAffected()
+		_, err = tx.Exec(ctx, `INSERT INTO local_auth_event(event,tenant_id,user_id,created_at)
+			VALUES('password_changed',$1,$2,$3)`, tenantID, userID, now)
+		return err
+	})
+	return revoked, err
 }
