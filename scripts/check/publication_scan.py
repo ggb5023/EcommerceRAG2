@@ -21,7 +21,9 @@ PATTERNS = [
     re.compile(rb'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'),
     re.compile(rb'(?i)\b(?:postgres(?:ql)?|redis|mysql)://[^\s/\"\x27]+:[^\s@\"\x27]+@[^\s\"\x27]+'),
     re.compile(rb'(?i)https?://[^\s<>\"\x27]+[?&](?:signature|x-oss-signature|x-amz-signature|security-token|ossaccesskeyid)=[^\s<>\"\x27]+'),
-    re.compile(rb'\$(?:2[aby]\$\d\d\$[A-Za-z0-9./]{40,}|argon2[^\s\"\x27]+)|SCRAM-SHA-256\$[^\s\"\x27]+'),
+    # A complete PHC digest is a credential; a bare "$argon2id$v=" format prefix
+    # in source code is not, so the argon2 branch requires every field.
+    re.compile(rb'\$(?:2[aby]\$\d\d\$[A-Za-z0-9./]{40,}|argon2(?:id|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/=]{8,}\$[A-Za-z0-9+/=]{8,})|SCRAM-SHA-256\$[^\s\"\x27]+'),
 ]
 ASSIGN = re.compile(rb'''(?im)(["']?[A-Za-z_][A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^'\n]*'|[^\s,;\n]+)''')
 MAX_EXPANDED = 128 * 1024 * 1024

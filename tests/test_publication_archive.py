@@ -26,6 +26,14 @@ class PublicationTests(unittest.TestCase):
         plain = b'# nonsecret Chinese source\n'
         self.assertEqual(scanner.inspect(plain, 'notes.md'), (plain, []))
 
+    def test_complete_argon2_digest_is_still_treated_as_secret(self):
+        scanner = Scanner()
+        prefix = '$' + 'argon2id$v=19$m=65536,t=3,p=4$'
+        complete = (prefix + 'c2FsdHNhbHRzYWx0c2FsdA$a2V5a2V5a2V5a2V5a2V5a2V5a2V5a2V5').encode()
+        self.assertTrue(scanner.has_secret(complete))
+        # A format prefix in source code is not a stored credential.
+        self.assertFalse(scanner.has_secret(('"$' + 'argon2id$v="').encode()))
+
     def test_archive_content_and_path_inspection(self):
         scanner = Scanner()
         secret = ('sk-' + 'x'*35).encode()
