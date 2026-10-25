@@ -94,7 +94,7 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 
 - **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
 - **测试数据**：0002、0017、0019、0021 中的开发账号（`dev-user`、`shop-demo` 等）只在库名为 `ecr_v2_test_*`、`ecr_v2_dev_*` 或含 `m1_test` 的库中保持可用，其他库由迁移 0029 停用。测试改坏了这些账号，用 `psql "$V2_MIGRATION_DSN" -f scripts/dev/seed-fixtures.sql` 恢复。新的测试数据不要写进迁移。
-- **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/dev/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。
+- **迁移**：在 `sql/migrations/` 新增 `NNNN_描述.sql`，不修改已有迁移。用 `bash scripts/dev/test-migrations.sh` 在独立库上验证。新表要明确写入方和角色授权。合并进 `main` 之前允许修改未合并的迁移，但必须重建跑过旧版本的测试库；合并之后只允许新增迁移。
 - **HTTP API**：顾客 `/v1/customer/`、客服 `/v1/support/`、管理 `/admin/v1/`。`frontend/` 仍在用的 `/v1/conversations`、`/v1/turns` 属于旧会话接口，与本轮合并无关，退休另行安排，新代码只写 `/v1/customer/`。写请求校验 Origin、CSRF 和 Idempotency-Key。
 
 ## 提交
