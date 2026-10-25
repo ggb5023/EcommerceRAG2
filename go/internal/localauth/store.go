@@ -294,3 +294,96 @@ func (s *Store) withTenantLock(ctx context.Context, tenantID int64, fn func(pgx.
 	}
 	return tx.Commit(ctx)
 }
+
+// SetupTarget is the owner skeleton that bootstrap created for this tenant.
+type SetupTarget struct {
+	TenantID        int64
+	OwnerUserID     int64
+	OwnerExternalID string
+}
+
+// SetupTarget resolves the one-time setup target. The gate is the per-tenant
+// credential count, not the account count: bootstrap already created the owner
+// skeleton, and counting app_user would close /setup before it ever runs.
+func (s *Store) SetupTarget(ctx context.Context) (SetupTarget, error) {
+	var tenantID int64
+	var tenants int
+	rows, err := s.DB.Query(ctx, `SELECT id FROM tenant WHERE status='active' ORDER BY id LIMIT 2`)
+	if err != nil {
+		return SetupTarget{}, err
+	}
+	for rows.Next() {
+		tenants++
+		if err := rows.Scan(&tenantID); err != nil {
+			rows.Close()
+			return SetupTarget{}, err
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return SetupTarget{}, err
+	}
+	if tenants != 1 {
+		return SetupTarget{}, ErrSetupNeedsBootstrap
+	}
+	var credentials int
+	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM local_credential WHERE tenant_id=$1`, tenantID).Scan(&credentials); err != nil {
+		return SetupTarget{}, err
+	}
+	if credentials > 0 {
+		return SetupTarget{}, ErrSetupComplete
+	}
+	var owner SetupTarget
+	owners, err := s.DB.Query(ctx, `SELECT id,external_id FROM app_user
+		WHERE tenant_id=$1 AND role='owner' AND revoked_at IS NULL ORDER BY id LIMIT 2`, tenantID)
+	if err != nil {
+		return SetupTarget{}, err
+	}
+	found := 0
+	for owners.Next() {
+		found++
+		if err := owners.Scan(&owner.OwnerUserID, &owner.OwnerExternalID); err != nil {
+			owners.Close()
+			return SetupTarget{}, err
+		}
+	}
+	owners.Close()
+	if err := owners.Err(); err != nil {
+		return SetupTarget{}, err
+	}
+	if found != 1 {
+		return SetupTarget{}, ErrSetupNeedsBootstrap
+	}
+	owner.TenantID = tenantID
+	return owner, nil
+}
+
+// CompleteSetup writes the first credential. It re-checks the gate inside the
+// same transaction under the tenant lock, so two concurrent submissions cannot
+// both create a credential.
+func (s *Store) CompleteSetup(ctx context.Context, target SetupTarget, passwordHash string) error {
+	return s.withTenantLock(ctx, target.TenantID, func(tx pgx.Tx) error {
+		var credentials int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM local_credential WHERE tenant_id=$1`,
+			target.TenantID).Scan(&credentials); err != nil {
+			return err
+		}
+		if credentials > 0 {
+			return ErrSetupComplete
+		}
+		var owners int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM app_user
+			WHERE tenant_id=$1 AND id=$2 AND role='owner' AND revoked_at IS NULL`,
+			target.TenantID, target.OwnerUserID).Scan(&owners); err != nil {
+			return err
+		}
+		if owners != 1 {
+			return ErrSetupNeedsBootstrap
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
+			must_change_password,created_at,updated_at,password_changed_at)
+			VALUES($1,$2,$3,false,$4,$4,$4)`,
+			target.TenantID, target.OwnerUserID, passwordHash, s.now())
+		return err
+	})
+}

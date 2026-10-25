@@ -51,13 +51,20 @@ def initialize(args):
     passwords={r:secrets.token_hex(32) for r in ['rag_migration','rag_v2_gateway','rag_v2_ai','rag_v2_ingest','keycloak']}
     write(runtime/'bootstrap/pg-password',secrets.token_hex(32),0)
     client=secrets.token_hex(32)
-    accounts=[{'username':'admin','role':'owner','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}, {'username':'support','role':'operator','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}]
-    realm={'realm':'merchant','enabled':True,'registrationAllowed':False,'resetPasswordAllowed':False,'sslRequired':'external','accessTokenLifespan':300,
-      'clients':[{'clientId':'merchant-browser','secret':client,'publicClient':False,'standardFlowEnabled':True,'directAccessGrantsEnabled':False,'implicitFlowEnabled':False,'serviceAccountsEnabled':False,'redirectUris':[args.origin+'/v1/auth/callback'],'webOrigins':[], 'attributes':{'pkce.code.challenge.method':'S256'},'protocolMappers':[{'name':'audience','protocol':'openid-connect','protocolMapper':'oidc-audience-mapper','config':{'included.client.audience':'merchant-browser','access.token.claim':'true','id.token.claim':'false'}}]}],
-      'users':[{'id':a['subject'],'username':a['username'],'firstName':'Merchant','lastName':a['username'],'email':a['username']+'@example.invalid','emailVerified':True,'enabled':True,'credentials':[{'type':'password','value':a['password'],'temporary':False}]} for a in accounts]}
-    write(runtime/'bootstrap/config.json',json.dumps({'origin':args.origin,'shop_name':args.shop_name,'database_passwords':passwords,'accounts':accounts,'realm':realm}),0)
-    write(runtime/'bootstrap/accounts.json',json.dumps({'accounts':accounts}),0)
-    write(runtime/'gateway/browser-secret',client)
+    # Local profile keeps Keycloak off: the bootstrap job creates a single owner
+    # skeleton and /setup only completes its password.
+    if args.identity_profile == 'oidc_browser':
+        accounts=[{'username':args.owner_username,'role':'owner','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}, {'username':'support','role':'operator','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}]
+        realm={'realm':'merchant','enabled':True,'registrationAllowed':False,'resetPasswordAllowed':False,'sslRequired':'external','accessTokenLifespan':300,
+          'clients':[{'clientId':'merchant-browser','secret':client,'publicClient':False,'standardFlowEnabled':True,'directAccessGrantsEnabled':False,'implicitFlowEnabled':False,'serviceAccountsEnabled':False,'redirectUris':[args.origin+'/v1/auth/callback'],'webOrigins':[], 'attributes':{'pkce.code.challenge.method':'S256'},'protocolMappers':[{'name':'audience','protocol':'openid-connect','protocolMapper':'oidc-audience-mapper','config':{'included.client.audience':'merchant-browser','access.token.claim':'true','id.token.claim':'false'}}]}],
+          'users':[{'id':a['subject'],'username':a['username'],'firstName':'Merchant','lastName':a['username'],'email':a['username']+'@example.invalid','emailVerified':True,'enabled':True,'credentials':[{'type':'password','value':a['password'],'temporary':False}]} for a in accounts]}
+    else:
+        accounts=[]
+        realm={}
+    write(runtime/'bootstrap/config.json',json.dumps({'origin':args.origin,'shop_name':args.shop_name,'database_passwords':passwords,'accounts':accounts,'realm':realm,'owner_username':args.owner_username}),0)
+    write(runtime/'bootstrap/accounts.json',json.dumps({'accounts':accounts,'owner_username':args.owner_username}),0)
+    if args.identity_profile == 'oidc_browser':
+        write(runtime/'gateway/browser-secret',client)
     write(runtime/'gateway/scope-key',secrets.token_hex(32))
     # Private RPC PKI is separate from the browser HTTPS trust root.
     pki=runtime/'bootstrap'
@@ -96,13 +103,14 @@ def initialize(args):
     common={'APP_ENV':'selfhost','RAG_PROFILE':'v2_langchain_bailian','V2_RPC_TLS':'mtls','V2_RPC_CA_FILE':'/run/runtime/rpc-ca.crt','V2_RPC_CERT_FILE':'/run/runtime/rpc.crt','V2_RPC_KEY_FILE':'/run/runtime/rpc.key','V2_AUTHORITY_GRPC_ADDR':'gateway:50054'}
     paid={'V2_PROVIDER_CONFIG':'/run/runtime/providers.env','V2_ONLINE_BUDGET_CNY':args.budget_cny,'V2_ONLINE_BUDGET_LEDGER':'/run/budget/'+budget_file,'V2_ONLINE_BUDGET_ID':args.budget_id}
     storage={'INGEST_STORAGE_PROFILE':'filesystem','INGEST_ARTIFACT_ROOT':'/var/lib/ecr/artifacts'}
-    configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8080','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ingest:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':'oidc_browser','V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json','V2_CUSTOMER_ORIGIN':args.origin,'V2_CUSTOMER_PROXY_HOST':'edge','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
+    configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8080','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ingest:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'V2_CUSTOMER_PROXY_HOST':'edge','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
       'ai':{**common,**paid,'V2_GRPC_ADDR':'0.0.0.0:50052','V2_RETRIEVER_DSN':dsn('rag_v2_ai'),'V2_CHECKPOINT_DSN':dsn('rag_v2_ai')},
       'ingest':{**common,**storage,'V2_INGEST_GRPC_ADDR':'0.0.0.0:50053','V2_INGEST_DSN':dsn('rag_v2_ingest')},
       'worker':{'APP_ENV':'selfhost','RAG_PROFILE':'v2_langchain_bailian',**paid,**storage,'V2_INGEST_DSN':dsn('rag_v2_ingest'),'V2_INGEST_WORKER_ID':'merchant-worker'}}
     for name,values in configs.items():write(runtime/(name+'.env'),'\n'.join(k+'='+v for k,v in values.items())+'\n',0)
     for name in ['ai','worker']:write(runtime/name/'providers.env',args.provider_config.read_text())
-    write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
+    if args.identity_profile == 'oidc_browser':
+        write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
     write(runtime/'redis/redis.conf','bind 0.0.0.0\nprotected-mode yes\nappendonly yes\nrequirepass '+secrets.token_hex(32)+'\n',999)
     write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_BUDGET_DIR='+str(budget_dir),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
     print('PASS protected installation prepared; run bootstrap then start Compose. Account details: bootstrap/accounts.json')
@@ -115,6 +123,7 @@ def main():
     p.add_argument('--budget-dir',type=Path);p.add_argument('--budget-file');p.add_argument('--budget-id')
     p.add_argument('--tls-cert',type=Path);p.add_argument('--tls-key',type=Path);p.add_argument('--tls-ca',type=Path);p.add_argument('--local-certificate',action='store_true')
     p.add_argument('--shop-name',default='我的店铺');p.add_argument('--project',default='ecr-merchant');p.add_argument('--bind',default='127.0.0.1')
+    p.add_argument('--identity-profile',choices=['local','oidc_browser'],default='local');p.add_argument('--owner-username',default='admin')
     args=p.parse_args()
     try:initialize(args)
     except Exception:raise SystemExit('FAIL installation preparation; check HTTPS, protected Provider, budget, empty directory and openssl') from None
