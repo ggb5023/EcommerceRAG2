@@ -26,10 +26,32 @@ sudo python/.venv/bin/python scripts/ops/selfhost.py init \
 sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
   -f docker/selfhost/compose.yml build
 sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
-  -f docker/selfhost/compose.yml --profile setup run --rm bootstrap
-sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
   -f docker/selfhost/compose.yml up -d
 ```
+
+`up -d` 会自动按顺序执行一次性任务：`db-init`（建角色/库/扩展）→ `migrate`（checksum 迁移）→
+`bootstrap`（tenant、shop 与 owner 骨架），然后启动 `gateway`、`ai`、`postgres`。三者幂等，
+`gateway` 通过 `service_completed_successfully` 等它们成功。**不要手工再跑一次 bootstrap 或迁移**；
+这一步失败时先看 `docker compose ps -a` 与对应一次性任务的日志。
+
+首次安装（内置账号档）：
+
+```bash
+# 1. 确认服务就绪（CA 就是初始化时生成的 web CA）
+curl --cacert /var/lib/ecommerce-rag/merchant/web/web-ca.crt \
+  https://shop.example.com:8443/healthz
+# 2. 取出一次性安装令牌（只打印一次、不落盘，30 分钟内有效）
+sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
+  -f docker/selfhost/compose.yml logs gateway | grep -m1 SETUP_TOKEN=
+# 3. 浏览器首次访问需信任 /web/web-ca.crt（或临时忽略证书错误），然后打开：
+#    https://shop.example.com:8443/setup?token=<令牌>
+# 4. 设置 owner 密码 → 自动跳转 /login → 登录 → /admin
+```
+
+`/setup` 返回 `409 setup_requires_bootstrap` 说明一次性编排没有完成（`db-init`/`migrate`/`bootstrap`
+任一失败），先修复编排再重试；返回 `409 setup_already_completed` 说明本地凭据已存在，重置走 CLI。
+`APP_ENV=production` 下 loopback 免令牌不生效，必须带令牌。**迁移顺序不能颠倒**：schema 必须先于
+owner 骨架，owner 骨架必须先于 `/setup`。
 
 若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/ops/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库、Redis 引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
 
@@ -39,6 +61,8 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 
 安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后修改密码。
 
+- **员工与 access_admin**：管理台「新增员工」只能授予 `merchant_admin` 与 `knowledge_reviewer`；`access_admin` 属于带外授权，页面不提供。转移或新增 `access_admin` 需要运维以 migrator 身份执行
+  `INSERT INTO admin_role_grant(...) ... ON CONFLICT (tenant_id,user_id,role) DO UPDATE ...` 并自行记录审计，不通过 HTTP 接口。
 - **内置账号（默认，`--identity-profile local`）**：`selfhost.py` 只写 `accounts: []`，bootstrap 创建 `merchant` 租户、`main-shop` 店铺与一个 owner 骨架（不写密码），不启动 Keycloak。启动后打开 `https://<host>/setup` 设置 owner 密码：该页面只在 loopback 或携带启动日志中一次性 `SETUP_TOKEN` 时可访问，成功后永久关闭。之后的密码重置走 `go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>`。
 - **OIDC（`--identity-profile oidc_browser`）**：保留 Keycloak 路径，账号来自 realm 导入；Keycloak 的 bootstrap 管理员属于独立运维身份，配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。
 

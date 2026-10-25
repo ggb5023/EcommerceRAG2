@@ -20,24 +20,33 @@ services:
     networks: [private]
     restart: unless-stopped
     healthcheck: {test: [CMD-SHELL, "pg_isready -U postgres -d postgres"], interval: 5s, timeout: 3s, retries: 30}
-  redis:
-    image: redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2
-    command: [redis-server, /run/redis/redis.conf]
-    volumes: [redis-data:/data, "${ECR_RUNTIME:?run selfhost init}/redis:/run/redis:ro"]
-    networks: [private]
-    restart: unless-stopped
-  bootstrap:
+  # One-shot: superuser creates roles, databases and extensions.
+  db-init:
     <<: *python
     user: "0:0"
     restart: "no"
     read_only: false
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
-    profiles: [setup]
+    command: [/app/scripts/selfhost-db-init.py]
+    volumes: ["${ECR_RUNTIME}/bootstrap:/run/bootstrap:ro"]
+    depends_on: {postgres: {condition: service_healthy}}
+  # One-shot: migrator applies the checksum migrations.
+  migrate:
+    <<: *python
+    restart: "no"
+    command: [/app/.venv/bin/python, /app/scripts/v2-migrate.py, --env, /run/migration/migration.env]
+    volumes: ["${ECR_RUNTIME}/migration.env:/run/migration/migration.env:ro"]
+    depends_on: {db-init: {condition: service_completed_successfully}}
+  # One-shot: migrator creates tenant, shop and the owner skeleton.
+  bootstrap:
+    <<: *python
+    restart: "no"
     command: [/app/scripts/selfhost-bootstrap.py]
     volumes: ["${ECR_RUNTIME}/bootstrap:/run/bootstrap:ro", "${ECR_RUNTIME}/gateway:/run/gateway", "${ECR_RUNTIME}/identity:/run/identity"]
-    depends_on: {postgres: {condition: service_healthy}}
+    depends_on: {migrate: {condition: service_completed_successfully}}
   keycloak:
     image: quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    profiles: [oidc]
     command: [start, --import-realm, --http-enabled=true, --http-relative-path=/identity, --proxy-headers=xforwarded, --health-enabled=true, --hostname-strict=true]
     env_file: ["${ECR_RUNTIME}/identity.env"]
     volumes: ["${ECR_RUNTIME}/identity:/opt/keycloak/data/import:ro"]
@@ -55,31 +64,36 @@ services:
     build: {context: ../.., dockerfile: docker/selfhost/go.Dockerfile}
     image: ecommerce-rag-go:selfhost
     env_file: ["${ECR_RUNTIME}/gateway.env"]
-    volumes: ["${ECR_RUNTIME}/gateway:/run/runtime:ro"]
+    volumes: ["${ECR_RUNTIME}/gateway:/run/runtime:ro", "${ECR_RUNTIME}/web:/run/web:ro"]
+    ports: ["${ECR_WEB_BIND:-127.0.0.1}:${ECR_HTTPS_PORT:-8443}:8443"]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     tmpfs: ["/tmp:size=16m,mode=1777"]
     networks: [private]
     restart: unless-stopped
-    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_healthy}, edge: {condition: service_started}, ai: {condition: service_healthy}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+      bootstrap: {condition: service_completed_successfully}
+      ai: {condition: service_healthy}
     healthcheck: {test: [CMD, /probe], interval: 5s, timeout: 3s, retries: 30}
   ai:
     <<: *python
     command: [-m, app.ai_process]
     env_file: ["${ECR_RUNTIME}/ai.env"]
     volumes: ["${ECR_RUNTIME}/ai:/run/runtime:ro", "${ECR_RUNTIME}/artifacts:/var/lib/ecr/artifacts", "${ECR_BUDGET_DIR:?provide protected budget directory}:/run/budget"]
-    depends_on: {postgres: {condition: service_healthy}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
     healthcheck: {test: [CMD, /app/.venv/bin/python, /app/scripts/selfhost-health.py, ai], interval: 5s, timeout: 3s, retries: 30}
-  edge:
-    build: {context: ../.., dockerfile: docker/selfhost/web.Dockerfile}
-    image: ecommerce-rag-web:selfhost
-    environment: {ECR_HTTPS_PORT: "${ECR_HTTPS_PORT:-8443}", ECR_HOSTNAME: "${ECR_HOSTNAME}"}
-    ports: ["${ECR_WEB_BIND:-127.0.0.1}:${ECR_HTTPS_PORT:-8443}:${ECR_HTTPS_PORT:-8443}"]
-    volumes: ["${ECR_RUNTIME}/web:/run/web:ro"]
-    networks: {private: {aliases: ["${ECR_HOSTNAME:?provide HTTPS hostname}"]}}
+  redis:
+    image: redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2
+    profiles: [cache]
+    command: [redis-server, /run/redis/redis.conf]
+    volumes: [redis-data:/data, "${ECR_RUNTIME:?run selfhost init}/redis:/run/redis:ro"]
+    networks: [private]
     restart: unless-stopped
-    security_opt: [no-new-privileges:true]
 networks:
   private: {}
 volumes:
