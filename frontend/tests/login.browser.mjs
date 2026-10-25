@@ -1,6 +1,10 @@
 // Local-account login flow against a running local-profile stack.
 // Requires LOGIN_USER with must_change_password=true (operator resets it first).
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const base = (process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5173').replace(/\/$/, '')
@@ -10,6 +14,9 @@ const next = process.env.LOGIN_NEW_PASSWORD ?? 'browser-final-pass-123456'
 assert.ok(initial, 'LOGIN_PASSWORD is required')
 assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname), 'isolated loopback URL required')
 
+const run = randomUUID()
+const output = path.resolve(fileURLToPath(new URL(`../../.local/local-login/browser/${run}/`, import.meta.url)))
+await mkdir(output, { recursive: true, mode: 0o700 })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome', headless: true })
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
 const errors = []
@@ -25,6 +32,7 @@ async function submitLogin(password) {
   await page.getByRole('button', { name: /登录/ }).click()
 }
 
+let finished = false
 try {
   await step('anonymous-workspace-prompts-login', async () => {
     await page.goto(base + '/chat')
@@ -63,7 +71,16 @@ try {
     await page.getByRole('alert').filter({ hasText: '锁定' }).waitFor()
   })
   assert.deepEqual(errors, [], 'page errors: ' + errors.join('; '))
-  console.log(`PASS local login browser: ${checks.length} checks`)
+  finished = true
 } finally {
+  await writeFile(path.join(output, 'report.json'), JSON.stringify({
+    status: finished ? 'PASS' : 'FAIL',
+    profile: 'local',
+    real_service_acceptance: false,
+    environment: { workspace: base },
+    page_errors: errors,
+    checks,
+  }, null, 2), { mode: 0o600, flag: 'wx' })
   await browser.close()
 }
+console.log(`PASS local login browser: ${checks.length} checks; report=${output}/report.json`)
