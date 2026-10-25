@@ -24,6 +24,8 @@ sudo python/.venv/bin/python scripts/ops/selfhost-restore.py \
 
 ## OSS 异地备份
 
+本节面向工程维护：备份的是冻结评测语料、eval 资产与 git 历史，不含商家业务数据；商家备份见前文。
+
 冻结评测语料、`eval/` 工程资产与 git 历史每天备份到阿里云 OSS（`ecr1-beijing`，`oss-cn-beijing`，
 ZRS、版本控制、AES256）。备份前缀 `ecr-backup/`；`drill/` 下的旧演练数据只读保留，脚本不写入也不删除。
 
