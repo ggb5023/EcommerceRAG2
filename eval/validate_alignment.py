@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from alignment_policy import ALLOWED_DISCLOSURE_CLASSES, assess_document
 from alignment_artifact import approved_artifact_issues
+from alignment_policy import ALLOWED_DISCLOSURE_CLASSES, assess_document
 
 ALLOWED_ALIGNMENT_STATUSES = {"PENDING_REVIEW", "APPROVED", "REJECTED"}
 REQUIRED_CASE_COUNT = 60

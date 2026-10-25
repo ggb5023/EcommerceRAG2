@@ -1,9 +1,16 @@
 import copy
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
-from diagnose_customer_execution import DiagnosticError, diagnose, digest, identity, load_connections, read_execution
+from diagnose_customer_execution import (
+    DiagnosticError,
+    diagnose,
+    digest,
+    identity,
+    load_connections,
+    read_execution,
+)
 
 
 def item(number=1, generation=False):
@@ -98,7 +105,7 @@ def test_bound_agent_review_is_separate_and_cannot_skip_artifacts():
 def test_only_two_scoped_read_only_connections_and_no_current_acl():
     s = snapshot()
     calls = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     class Result:
         def __init__(self, rows): self.rows = rows
         def fetchone(self): return self.rows[0] if self.rows else None

@@ -8,8 +8,15 @@ from uuid import uuid4
 
 from quality_capture import secure_directory
 from run_v2_quality_e2e import (
-    E2EFailure, HTTP, attach_persisted_evidence, budget_snapshot, case_passed,
-    digest, run_case, runtime_identity, write_report,
+    HTTP,
+    E2EFailure,
+    attach_persisted_evidence,
+    budget_snapshot,
+    case_passed,
+    digest,
+    run_case,
+    runtime_identity,
+    write_report,
 )
 
 SCENARIOS = [

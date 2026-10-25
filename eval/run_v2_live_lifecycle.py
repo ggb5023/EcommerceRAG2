@@ -482,9 +482,10 @@ def main():
             "worktree": subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).splitlines(),
         }
         import psycopg
+        from v2_services import load_values
+
         from app.providers.budget import BudgetLedger
         from app.providers.config import ensure_secure_config_file, load_provider_config
-        from v2_services import load_values
 
         values = load_values(args.runtime_env)
         if values.get("RAG_PROFILE") != report["profile"]:

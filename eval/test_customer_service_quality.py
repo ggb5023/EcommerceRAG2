@@ -2,7 +2,6 @@ import hashlib
 import json
 
 import pytest
-
 from customer_service_quality import FIELDS, score
 
 
