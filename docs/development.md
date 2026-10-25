@@ -90,6 +90,8 @@ python/.venv/bin/python scripts/dev/provider-budget.py initialize \
 
 用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`，合并后是唯一入口，`/admin/*` 也在这个 origin 下）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
 
+本地账号登录用例 `frontend/tests/login.browser.mjs` 需要 `V2_IDENTITY_PROFILE=local` 的栈，并先用 CLI `reset-password` 把目标账号置为首次改密状态；通过 `LOGIN_USER`、`LOGIN_PASSWORD`、`LOGIN_NEW_PASSWORD` 传入账号与密码。
+
 ## 改契约和数据库
 
 - **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
