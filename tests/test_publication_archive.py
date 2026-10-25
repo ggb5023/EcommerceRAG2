@@ -33,6 +33,8 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(scanner.has_secret(complete))
         # A format prefix in source code is not a stored credential.
         self.assertFalse(scanner.has_secret(('"$' + 'argon2id$v="').encode()))
+        parameterless = ('$' + 'argon2id$' + 'c2FsdHNhbHRzYWx0c2FsdA' + '$' + 'a2V5a2V5a2V5a2V5a2V5a2V5a2V5a2V5').encode()
+        self.assertTrue(scanner.has_secret(parameterless))
 
     def test_archive_content_and_path_inspection(self):
         scanner = Scanner()

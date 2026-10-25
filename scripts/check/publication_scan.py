@@ -24,6 +24,9 @@ PATTERNS = [
     # A complete PHC digest is a credential; a bare "$argon2id$v=" format prefix
     # in source code is not, so the argon2 branch requires every field.
     re.compile(rb'\$(?:2[aby]\$\d\d\$[A-Za-z0-9./]{40,}|argon2(?:id|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/=]{8,}\$[A-Za-z0-9+/=]{8,})|SCRAM-SHA-256\$[^\s\"\x27]+'),
+    # Parameter-less PHC (missing the m/t/p segment) is still a digest, not a
+    # format prefix: "$argon2id$v=" stays 4 characters and cannot match {8,}.
+    re.compile(rb'\$argon2(?:id|i|d)\$[A-Za-z0-9+/=]{8,}\$[A-Za-z0-9+/=]{8,}'),
 ]
 ASSIGN = re.compile(rb'''(?im)(["']?[A-Za-z_][A-Za-z0-9_.-]*(?:["']?)\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^'\n]*'|[^\s,;\n]+)''')
 MAX_EXPANDED = 128 * 1024 * 1024
