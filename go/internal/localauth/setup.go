@@ -7,6 +7,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 )
 
@@ -75,12 +76,6 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Setup) authorized(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-			return true
-		}
-	}
 	token := r.Header.Get("X-Setup-Token")
 	if token == "" && r.Method == http.MethodPost {
 		_ = r.ParseForm()
@@ -89,8 +84,26 @@ func (s *Setup) authorized(r *http.Request) bool {
 	s.mu.Lock()
 	expected := s.Token
 	s.mu.Unlock()
-	return expected != "" && len(token) == len(expected) &&
-		subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+	if expected != "" && len(token) == len(expected) &&
+		subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1 {
+		return true
+	}
+	// Loopback免令牌只在开发档：开发拓扑里 Vite 会把 /setup 代理到 127.0.0.1，
+	// 网关看到的都是 loopback；只要出现任何转发头就等同于非本机。
+	if os.Getenv("APP_ENV") != "development" {
+		return false
+	}
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP", "Forwarded"} {
+		if r.Header.Get(header) != "" {
+			return false
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Setup) render(w http.ResponseWriter, status int, title, message, command, doc, username string) {

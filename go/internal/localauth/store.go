@@ -218,12 +218,18 @@ type Event struct {
 	TenantID    *int64
 	UserID      *int64
 	IP          string
+	// Detail is a small JSON object such as {"source":"password_change"}.
+	Detail string
 }
 
 func (s *Store) RecordEvent(ctx context.Context, event Event) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO local_auth_event(event,subject_hash,tenant_id,user_id,ip,created_at)
-		VALUES($1,NULLIF($2,''),$3,$4,NULLIF($5,'')::inet,$6)`,
-		event.Name, event.SubjectHash, event.TenantID, event.UserID, event.IP, s.now())
+	detail := event.Detail
+	if detail == "" {
+		detail = "{}"
+	}
+	_, err := s.DB.Exec(ctx, `INSERT INTO local_auth_event(event,subject_hash,tenant_id,user_id,ip,detail,created_at)
+		VALUES($1,NULLIF($2,''),$3,$4,NULLIF($5,'')::inet,$6::jsonb,$7)`,
+		event.Name, event.SubjectHash, event.TenantID, event.UserID, event.IP, detail, s.now())
 	return err
 }
 

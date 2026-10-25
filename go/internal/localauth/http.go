@@ -89,7 +89,7 @@ func (h *Handler) sessionState(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if ok, wait := h.Limiter.Allow(ip); !ok {
-		_ = h.event(r.Context(), "rate_limited", "", nil, nil, ip)
+		_ = h.event(r.Context(), "rate_limited", "", nil, nil, ip, "")
 		w.Header().Set("Retry-After", strings.TrimSuffix(wait.Round(time.Second).String(), "s"))
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
 		return
@@ -106,18 +106,14 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	account, err := h.Store.FindAccount(r.Context(), in.Username)
 	if err != nil {
 		_ = DummyVerify(in.Password)
-		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), nil, nil, ip)
+		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), nil, nil, ip, `{"source":"login"}`)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
-		return
-	}
-	if account.RevokedAt != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_revoked"})
 		return
 	}
 	now := h.Store.now()
 	if account.LockedUntil != nil && account.LockedUntil.After(now) {
 		if h.Limiter.ProbeExceeded(ip) {
-			_ = h.event(r.Context(), "rate_limited", "", &account.TenantID, &account.UserID, ip)
+			_ = h.event(r.Context(), "rate_limited", "", &account.TenantID, &account.UserID, ip, "")
 			w.Header().Set("Retry-After", "900")
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
 			return
@@ -127,10 +123,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := Verify(in.Password, account.PasswordHash); err != nil {
+		// Password first: a wrong password never learns whether the account is
+		// disabled, only a correct one does.
 		_, lockedUntil, _ := h.Store.RegisterFailure(r.Context(), account.TenantID, account.UserID, h.LockoutAttempts, h.LockoutFor)
-		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), &account.TenantID, &account.UserID, ip)
+		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), &account.TenantID, &account.UserID, ip, "")
 		if lockedUntil != nil {
-			_ = h.event(r.Context(), "account_locked", "", &account.TenantID, &account.UserID, ip)
+			_ = h.event(r.Context(), "account_locked", "", &account.TenantID, &account.UserID, ip, "")
 			_, _ = h.Store.RevokeUserSessions(r.Context(), account.TenantID, account.UserID, "lockout")
 			w.Header().Set("Retry-After", "900")
 			writeJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
@@ -140,6 +138,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.Store.ClearFailures(r.Context(), account.TenantID, account.UserID)
+	if account.RevokedAt != nil {
+		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), &account.TenantID, &account.UserID, ip,
+			`{"source":"login","reason":"account_revoked"}`)
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_revoked"})
+		return
+	}
 	session, cookie, _, err := NewSession(account.TenantID, account.UserID, account.MustChangePassword, now)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
@@ -150,7 +154,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
 		return
 	}
-	_ = h.event(r.Context(), "login_succeeded", "", &account.TenantID, &account.UserID, ip)
+	_ = h.event(r.Context(), "login_succeeded", "", &account.TenantID, &account.UserID, ip, "")
 	h.setCookie(w, r, cookie)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mode": "local", "authenticated": true,
@@ -192,6 +196,18 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := Verify(in.Current, account.PasswordHash); err != nil {
+		ip := clientIP(r)
+		_, lockedUntil, _ := h.Store.RegisterFailure(r.Context(), session.TenantID, session.UserID, h.LockoutAttempts, h.LockoutFor)
+		_ = h.event(r.Context(), "login_failed", SubjectHash(account.ExternalID), &session.TenantID, &session.UserID, ip,
+			`{"source":"password_change"}`)
+		if lockedUntil != nil {
+			_ = h.event(r.Context(), "account_locked", "", &session.TenantID, &session.UserID, ip, `{"source":"password_change"}`)
+			_, _ = h.Store.RevokeUserSessions(r.Context(), session.TenantID, session.UserID, "lockout")
+			h.clearCookie(w, r)
+			w.Header().Set("Retry-After", "900")
+			writeJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
+			return
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
 	}
@@ -265,8 +281,8 @@ func (h *Handler) clearCookie(w http.ResponseWriter, r *http.Request) {
 		Secure: h.Secure != nil && h.Secure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
 }
 
-func (h *Handler) event(ctx context.Context, name, subject string, tenantID, userID *int64, ip string) error {
-	return h.Store.RecordEvent(ctx, Event{Name: name, SubjectHash: subject, TenantID: tenantID, UserID: userID, IP: ip})
+func (h *Handler) event(ctx context.Context, name, subject string, tenantID, userID *int64, ip, detail string) error {
+	return h.Store.RecordEvent(ctx, Event{Name: name, SubjectHash: subject, TenantID: tenantID, UserID: userID, IP: ip, Detail: detail})
 }
 
 func clientIP(r *http.Request) string {
