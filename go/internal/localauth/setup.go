@@ -23,6 +23,7 @@ type Setup struct {
 
 // SetupTokenTTL bounds the printed install token. A restart prints a new one.
 const SetupTokenTTL = 30 * time.Minute
+const setupCookie = "ecr_setup_token"
 
 type gate int
 
@@ -33,6 +34,14 @@ const (
 )
 
 func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && r.URL.Query().Get("token") != "" {
+		if s.authorized(r) == gateAllowed {
+			s.setTokenCookie(w, r, r.URL.Query().Get("token"))
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			http.Redirect(w, r, "/setup", http.StatusSeeOther)
+			return
+		}
+	}
 	token := s.requestToken(r)
 	switch s.authorized(r) {
 	case gateExpired:
@@ -86,6 +95,7 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.Token = ""
 		s.mu.Unlock()
+		s.clearTokenCookie(w, r)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -100,6 +110,9 @@ func (s *Setup) requestToken(r *http.Request) string {
 	}
 	if token := r.URL.Query().Get("token"); token != "" {
 		return token
+	}
+	if cookie, err := r.Cookie(setupCookie); err == nil && cookie.Value != "" {
+		return cookie.Value
 	}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
@@ -141,9 +154,24 @@ func (s *Setup) authorized(r *http.Request) gate {
 	return gateDenied
 }
 
+func (s *Setup) setTokenCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: token, Path: "/setup", HttpOnly: true,
+		Secure: setupSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: int(SetupTokenTTL.Seconds())})
+}
+
+func (s *Setup) clearTokenCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: "", Path: "/setup", HttpOnly: true,
+		Secure: setupSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+}
+
+func setupSecure(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
 func (s *Setup) render(w http.ResponseWriter, status int, title, message, command, doc, username, token string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.WriteHeader(status)
 	guidance := ""
 	if command != "" {

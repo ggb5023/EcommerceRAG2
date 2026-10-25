@@ -45,6 +45,8 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
   -f docker/selfhost/compose.yml logs gateway | grep -m1 SETUP_TOKEN=
 # 3. 浏览器首次访问需信任 /web/web-ca.crt（或临时忽略证书错误），然后打开：
 #    https://shop.example.com:8443/setup?token=<令牌>
+#    页面会把令牌换成短期的 HttpOnly cookie，并 303 到不带 token 的 /setup；
+#    反向代理的访问日志请对 token= 参数打码（例如 log_format 里替换该查询参数）。
 # 4. 设置 owner 密码 → 自动跳转 /login → 登录 → /admin
 ```
 
@@ -55,7 +57,12 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 
 若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/ops/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库、Redis 引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
 
-默认仅绑定本机 Web 端口。需要对外开放时，在初始化时显式设置 `--bind 0.0.0.0`，同时配置主机防火墙和有效证书。数据库、Redis 和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；容器内同一域名由 Compose edge 别名解析。
+默认仅绑定本机 Web 端口：Compose 发布 `127.0.0.1:8443`，`ECR_WEB_BIND` 默认就是 `127.0.0.1`。
+从其他机器访问时，要么在初始化时显式 `--bind 0.0.0.0`，要么前置一层反向代理；两种方式都要配主机防火墙和有效证书。
+即使发布到 `0.0.0.0`，`/setup` 仍强制一次性令牌（`APP_ENV=production` 下 loopback 豁免不生效）。
+数据库、Redis 和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；
+只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；
+容器内同一域名由 gateway 的网络别名解析。
 
 已有预算账本时，传入 `--budget-dir`、`--budget-file`、`--budget-id` 和对应的 `--budget-cny` 复用它，不要复制或重建。账本目录和文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
 
