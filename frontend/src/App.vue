@@ -33,6 +33,7 @@ async function reloadWorkspace() {
   try {
     await checkBrowserAuth()
     if (browserAuth.enabled && !browserAuth.authenticated) { clearTurnState(); session.value = null; conversations.value = []; unavailable.value = true; identityErrorStatus.value = 401; error.value = '请登录后访问工作台。'; return }
+    if (browserAuth.mustChangePassword) { await router.replace('/password'); return }
     await loadWorkspace(typeof route.params.conversation_id === 'string' ? route.params.conversation_id : undefined)
     if (activeConversation.value && route.path === '/chat') await router.replace(`/chat/${activeConversation.value.id}`)
   } catch (caught) { clearTurnState(); session.value = null; conversations.value = []; unavailable.value = true; identityErrorStatus.value = (caught as { status?: number }).status ?? 503; error.value = caught instanceof Error ? caught.message : '身份服务不可用。' }
