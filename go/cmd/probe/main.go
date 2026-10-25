@@ -21,22 +21,36 @@ func main() {
 		port = p
 	}
 	target := "http://127.0.0.1:" + port + "/healthz"
+	authority := ""
 	client := http.Client{Timeout: 2 * time.Second}
 	if os.Getenv("WEB_ROOT") != "" {
 		cert := os.Getenv("WEB_TLS_CERT")
 		if cert == "" {
 			cert = "/run/web/tls.crt"
 		}
-		authority := os.Getenv("ECR_HOSTNAME")
+		host := os.Getenv("ECR_HOSTNAME")
+		authority = host
+		if httpsPort := os.Getenv("ECR_HTTPS_PORT"); httpsPort != "" && httpsPort != "443" {
+			authority = net.JoinHostPort(host, httpsPort)
+		}
 		pool := x509.NewCertPool()
 		pem, err := os.ReadFile(cert)
 		if err != nil || !pool.AppendCertsFromPEM(pem) {
 			os.Exit(1)
 		}
-		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: authority, MinVersion: tls.VersionTLS13}}
+		// SNI must be a bare hostname, while Host must match the authority the
+		// front door validates (host:port when the port is not 443).
+		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: host, MinVersion: tls.VersionTLS13}}
 		target = "https://127.0.0.1:" + port + "/healthz"
 	}
-	response, err := client.Get(target)
+	request, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		os.Exit(1)
+	}
+	if authority != "" {
+		request.Host = authority
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		os.Exit(1)
 	}

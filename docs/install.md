@@ -47,7 +47,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 #    https://shop.example.com:8443/setup?token=<令牌>
 #    页面会把令牌换成短期的 HttpOnly cookie，并 303 到不带 token 的 /setup；
 #    反向代理的访问日志请对 token= 参数打码（例如 log_format 里替换该查询参数）。
-# 4. 设置 owner 密码 → 自动跳转 /login → 登录 → /admin
+# 4. 设置 owner 密码 → 自动跳转 /login?app=admin → 登录 → /admin（普通员工登录进入 /chat）
 ```
 
 `/setup` 返回 `409 setup_requires_bootstrap` 说明一次性编排没有完成（`db-init`/`migrate`/`bootstrap`

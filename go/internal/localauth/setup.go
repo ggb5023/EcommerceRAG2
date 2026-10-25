@@ -96,7 +96,7 @@ func (s *Setup) Handle(w http.ResponseWriter, r *http.Request) {
 		s.Token = ""
 		s.mu.Unlock()
 		s.clearTokenCookie(w, r)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, "/login?app=admin", http.StatusSeeOther)
 		return
 	}
 	s.render(w, http.StatusOK, "首次安装",
