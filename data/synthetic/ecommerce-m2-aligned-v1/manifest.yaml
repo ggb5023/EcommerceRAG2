@@ -149,7 +149,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 3028186da66b964690f32ad4373b46b3d018ae48415521afb22b77d74c5c7ada
+  sha256: 57ad75560ad731e562cae852201ce430ececee92516a6877fcda6f104953f17e
 - document_id: aligned-fact-promotion-v1
   expected_doc_id: syn-fact-promotion
   path: sources/aligned-fact-promotion-v1.md
@@ -227,7 +227,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 731effe14b3818da27e565ba98ef60f21bebb8827c67bcbd6457236d7588db1a
+  sha256: 6b5d984c67a2b1f772ad346be30057735ca830192ae262fcc9f67d39bb453c17
 - document_id: aligned-web-usbc-v1
   expected_doc_id: syn-web-usbc
   path: sources/aligned-web-usbc-v1.md
@@ -370,7 +370,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 9ae9bfea469992c42c72c2f1906e6552a1f9086387a6b7ed15217baa2a9342e5
+  sha256: 1456303b88eff34f54567df10a3f02ef13520a3a5df34178cf66c3c7b4fab3d7
 - document_id: aligned-routing-refuse-v1
   expected_doc_id: syn-routing-refuse
   path: sources/aligned-routing-refuse-v1.md
@@ -396,7 +396,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 5a25debca6f81d41b77839a8d2543eb8705228b391e294aafc8fd76dd4812b77
+  sha256: cae780661bd5e7fca7a84d9d6e96bc60bcb8cb5c93356018b8a4cd37f8a13ad2
 - document_id: aligned-routing-conflict-v1
   expected_doc_id: syn-routing-conflict
   path: sources/aligned-routing-conflict-v1.md
@@ -435,7 +435,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 076b04b5a3d49edcb02f6651a37116c82cdc7cc3b72908cc3ddcf4e6c029a3b1
+  sha256: 6193b7e0962ea5dbe59d7e2fc60244bebe86bacb78f47111c5bfd3e2300a2816
 - document_id: aligned-routing-human-v1
   expected_doc_id: syn-routing-human
   path: sources/aligned-routing-human-v1.md
@@ -487,7 +487,7 @@ documents:
   effective_from: '2026-01-01'
   effective_to: null
   source_type: synthetic
-  sha256: 90dc96bc6b570cb608969a67334a4cd4bd0b349e9cfe47f48f4022b271c67b91
+  sha256: 8517d40a60a5417c477d7ecebcbe39cb4a8e88c02c6defb7527421bf75771bb7
 - document_id: aligned-version-revoked-v1
   expected_doc_id: syn-version-revoked
   path: sources/aligned-version-revoked-v1.md
