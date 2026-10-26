@@ -65,7 +65,7 @@ cron 每天 03:17 以 `flock -n /run/ecr-oss-backup.lock` 防重入，日志 `/v
 sudo scripts/ops/oss-restore.sh --dest /tmp/ecr-restore --git-bundle
 ```
 
-脚本按清单下载对象、写入 `manifest.sha256` 并逐个 `sha256sum -c`；git 侧优先读取 `git/latest` 指针（bundle 名 + sha256），校验后 `git bundle verify` 并打印所选 bundle 与提交号；指针缺失时才按对象修改时间取最新。语料存在时执行
+脚本按清单下载对象、写入 `manifest.sha256` 并逐个 `sha256sum -c`；git 侧优先读取 `git/latest` 指针（bundle 名 + sha256），校验后 `git bundle verify` 并打印所选 bundle 与提交号；指针缺失时才按对象修改时间取最新；演练可用 `ECR_RESTORE_IGNORE_POINTER=1` 强制走该回退分支并打印警告与所选 bundle。语料存在时执行
 `ECR_REQUIRE_EVAL=1 python3 scripts/check/check-eval-corpus.py`，语料缺失时明确 `SKIP` 并在
 `--require-revision` 下失败。git bundle 用 `git bundle verify` 校验。恢复只写目标目录，不删除已有内容。
 

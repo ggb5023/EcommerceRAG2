@@ -93,7 +93,13 @@ if [ "$RESTORE_BUNDLE" = 1 ]; then
   mkdir -p "$DEST/git"
   latest=$TMP/git-latest
   name=""; expected_sha=""
-  if oss cp "$BASE/git/latest" "$latest" -f -q >/dev/null 2>&1 && [ -s "$latest" ]; then
+  if [ "${ECR_RESTORE_IGNORE_POINTER:-0}" = "1" ]; then
+    echo "WARN ECR_RESTORE_IGNORE_POINTER=1; skipping git/latest and using modified-time order"
+    line=$(oss ls "$BASE/git/" -q 2>/dev/null | grep '\.bundle' | sort -k1,2 | tail -1)
+    name=$(printf '%s\n' "$line" | awk '{print $NF}' | sed 's#.*/##')
+    [ -n "$name" ] || fail "no git bundle in backup"
+    echo "WARN picked latest by modified time: $name"
+  elif oss cp "$BASE/git/latest" "$latest" -f -q >/dev/null 2>&1 && [ -s "$latest" ]; then
     name=$(sed -n 's/^bundle=//p' "$latest" | head -1)
     expected_sha=$(sed -n 's/^sha256=//p' "$latest" | head -1)
     printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._-]+\.bundle$' || fail "git/latest bundle name invalid"
