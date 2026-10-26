@@ -42,7 +42,7 @@ class E2EFailure(RuntimeError):
 
 def load_scenarios(path: Path, cases_path: Path, cases: list[dict]) -> dict[str, list[str]]:
     value = json.loads(path.read_bytes())
-    if (value.get("scenario_version") != "v2-quality-conversation-v1"
+    if (value.get("scenario_version") not in {"v2-quality-conversation-v1", "v2-quality-conversation-v2"}
             or value.get("cases_sha256") != hashlib.sha256(cases_path.read_bytes()).hexdigest()):
         raise E2EFailure("scenario_baseline_mismatch")
     by_id = {case["case_id"]: case for case in cases}

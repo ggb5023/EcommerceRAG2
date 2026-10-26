@@ -102,6 +102,20 @@ def test_scenario_rejects_changed_case_or_query_baseline(tmp_path):
         runner.load_scenarios(path, source, cases)
 
 
+@pytest.mark.parametrize("version", ["v2-quality-conversation-v1", "v2-quality-conversation-v2"])
+def test_scenario_accepts_both_schema_versions(tmp_path, version):
+    cases = [{"case_id": "case", "query": "frozen query"}]
+    source = tmp_path / "cases.jsonl"
+    source.write_text(json.dumps(cases[0]) + "\n")
+    config = {"scenario_version": version,
+              "cases_sha256": runner.hashlib.sha256(source.read_bytes()).hexdigest(),
+              "scenarios": [{"case_id": "case", "query_sha256": runner.digest("frozen query"),
+                             "prerequisite_queries": ["controlled prerequisite"]}]}
+    path = tmp_path / "scenario.json"
+    path.write_text(json.dumps(config))
+    assert runner.load_scenarios(path, source, cases) == {"case": ["controlled prerequisite"]}
+
+
 @pytest.mark.parametrize('defect', [None, 'absent', 'wrong_version', 'wrong_owner', 'not_fake'])
 def test_preflight_requires_the_frozen_versioned_fake_before_paid_calls(monkeypatch, tmp_path, defect):
     import sys
