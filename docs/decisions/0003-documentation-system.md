@@ -45,6 +45,9 @@
 | [0013](0013-merchant-delegated-agent-review.md) | 商家侧 agent 代理审核 L1/L2/L3 与数据出域边界（仅提议） | 提议 |
 | [0014](0014-split-gate-reasons.md) | 质量门区分 failed 与 not_measured | 已采纳 |
 | [0015](0015-agent-review-owns-quality-in-development.md) | 开发阶段由 agent 评审承担质量门槛 | 已采纳 |
+| [0016](0016-content-inspection.md) | 内容巡检（L3）设计草案 | 提议 |
+| [0017](0017-m6-l1-import-precheck.md) | M6-L1 导入预检：数据模型与接口 | 提议 |
+| [0018](0018-m6-l2-review-suggestion.md) | M6-L2 审核建议：判据与接口 | 提议 |
 
 ## 后果
 
