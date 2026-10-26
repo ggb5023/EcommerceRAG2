@@ -559,3 +559,54 @@ def test_historical_snapshot_limits_do_not_require_rule_applicability_dimensions
         'evidence': [{'id': 'source', 'content': '库存快照；引用前重新核对时间和店铺。'}]},
         SimpleNamespace(generation=Generation())))
     assert '重新核对时间和店铺' in result['answer']
+
+
+def test_snapshot_fallback_only_for_factual_evidence_without_facts():
+    from app.graph.workflow import snapshot_fallback_allowed
+
+    evidence = [{"id": "snap", "content": "snapshot"}]
+    assert snapshot_fallback_allowed("factual", "请确认SKU", evidence, []) is True
+    assert snapshot_fallback_allowed("knowledge", "请确认SKU", evidence, []) is False
+    assert snapshot_fallback_allowed("factual", "", evidence, []) is False
+    assert snapshot_fallback_allowed("factual", "请确认SKU", [], []) is False
+    assert snapshot_fallback_allowed("factual", "请确认SKU", evidence, [{"tool_name": "get_stock"}]) is False
+
+
+def test_snapshot_fallback_generates_qualified_answer_and_citations():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            instruction = payload["messages"][0]["content"]
+            assert "来自快照" in instruction and "不能保证当前状态" in instruction
+            assert "不得索要标识" in instruction
+            assert payload["response_schema"]["properties"]["citation_ids"]["minItems"] == 1
+            return {"structured": {"answer": "来自快照：库存 18 件，不能保证当前状态。", "citation_ids": ["snap"],
+                                    "evidence_limits": "来自快照，不能保证当前状态", "next_inputs": "",
+                                    "limit_citation_ids": ["snap"]},
+                    "provider": {}}
+
+    evidence = [{"id": "snap", "content": "SKU-EAR-200 库存快照 18 件，不能保证当前状态"}]
+    state = {"query": "蓝牙耳机还有库存吗", "intent": "factual", "clarification": "请确认SKU", "evidence": evidence}
+    result = asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
+    assert result["answer"].startswith("来自快照")
+    assert result["citations"] == evidence
+
+
+def test_missing_identifier_without_snapshot_still_clarifies():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.graph.workflow import provider_generate_node
+
+    class Generation:
+        async def ainvoke(self, payload):
+            raise AssertionError("generation must not run without evidence")
+
+    state = {"query": "蓝牙耳机还有库存吗", "intent": "factual", "clarification": "请确认SKU", "evidence": []}
+    result = asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
+    assert result["answer"] == "请确认SKU"
+    assert result["reply_decision"]["behavior"] == "CLARIFY"

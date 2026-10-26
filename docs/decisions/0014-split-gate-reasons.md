@@ -19,6 +19,13 @@ batch 轨道没有 HTTP 引用字段，引用有效性必然是 `None`；compone
   `NOT_MEASURED`；两者都无 → `PASS`。component 状态只看 component 轨的 `failed`，
   component 的未测量不再拖累 e2e 完成度判定。
 
+## 事实意图缺标识时的回退（行为修正）
+
+`factual`/`realtime_business` 意图在缺少 SKU/订单号时不再直接澄清：先执行语料检索；
+命中已发布快照 → 按“快照值 + 时效声明（来自快照/不能保证当前状态）”作答并附引用；
+无证据 → 维持澄清；拿到标识后仍走 facts 接口，快照只作兜底，不得冒充实时事实。
+这是产品行为修正，不改变期望要点、冻结集或阈值。
+
 ## 后果
 
 - batch 无 HTTP 引用字段不再被写成“引用失败”；component 未评审不再阻挡 e2e 语义轨完成。
