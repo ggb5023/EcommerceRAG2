@@ -194,3 +194,19 @@ func TestHistoricalStandardMustBeUniqueInNearestUserQuestion(t *testing.T) {
 		}
 	}
 }
+
+func TestSnapshotQualifierIsAddedOnce(t *testing.T) {
+	qualified := withSnapshotQualifier("库存 18 件")
+	if !strings.Contains(qualified, "来自快照") || !strings.Contains(qualified, "不能保证当前状态") {
+		t.Fatal("missing snapshot qualifier")
+	}
+	if again := withSnapshotQualifier(qualified); again != qualified {
+		t.Fatal("qualifier must not be duplicated")
+	}
+	if withSnapshotQualifier("来自快照，不能保证当前状态") != "来自快照，不能保证当前状态" {
+		t.Fatal("existing qualifier changed")
+	}
+	if withSnapshotQualifier("  ") != "来自快照，不能保证当前状态。" {
+		t.Fatal("empty answer fallback wrong")
+	}
+}

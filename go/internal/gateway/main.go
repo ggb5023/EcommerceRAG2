@@ -1044,6 +1044,17 @@ func (g *gateway) historySummary(ctx context.Context, conversationID, currentTur
 	return boundedHistory(parts)
 }
 
+func withSnapshotQualifier(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if strings.Contains(trimmed, "快照") || strings.Contains(trimmed, "不能保证") {
+		return text
+	}
+	if trimmed == "" {
+		return "来自快照，不能保证当前状态。"
+	}
+	return text + "（来自快照，不能保证当前状态）"
+}
+
 func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID, turnID, executionID int64, query string, parentTurnID, parentExecutionID, executionNo int64) {
 	mockOutput := isMockProfile(g.profile)
 	defer func() {
@@ -1194,6 +1205,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
 	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
 	factResourceID := ""
+	snapshotFallback := false
 	if orderToolsRequired && productToolsRequired {
 		routed.Intent, routed.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
 		routed.RequiredFactTools = nil
@@ -1204,6 +1216,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			routed.Clarification = "请提供有效订单号后再查询订单或物流状态。"
 			routed.Confidence = 0.2
 			routed.RequiredFactTools = nil
+			snapshotFallback = true
 		} else {
 			factResourceID = orderID
 		}
@@ -1212,6 +1225,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		if !valid {
 			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
 			routed.RequiredFactTools = nil
+			snapshotFallback = true
 		} else {
 			factResourceID = sku
 		}
@@ -1243,7 +1257,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
 			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
 	}
-	if routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5 {
+	if !snapshotFallback && (routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
 		if !ensureScopeAuthorized() {
 			return
 		}
@@ -1331,6 +1345,22 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			finish("FAILED", "persistence_failed", "")
 			return
 		}
+	}
+	if snapshotFallback && len(evidence) == 0 {
+		if isV2Profile(g.profile) {
+			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{Context: base, PendingKind: "ASKING"})
+			if saveErr != nil {
+				state, code := grpcFailure(ctx, saveErr)
+				finish(state, code, "")
+				return
+			}
+			if saved == nil || !saved.Accepted {
+				finish("FAILED", "checkpoint_save_failed", "")
+				return
+			}
+		}
+		finish("ASKING", "", routed.Clarification)
+		return
 	}
 	if err = writeEvent("evidence", map[string]any{"type": "evidence", "evidence": toEvidence(evidence), "is_mock": mockOutput}); err != nil {
 		finish("FAILED", "persistence_failed", "")
@@ -1426,6 +1456,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 				return
 			}
 			text := answer.String()
+			if snapshotFallback {
+				text = withSnapshotQualifier(text)
+			}
 			if !ensureScopeAuthorized() {
 				return
 			}
