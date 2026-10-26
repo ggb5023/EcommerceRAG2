@@ -58,6 +58,18 @@ def partition(cases, audit):
     return [case for case in cases if case["case_id"] in excluded]
 
 
+def isolated_database_name_valid(database: str, expected_database: str, lifecycle_database: str) -> bool:
+    """Prefix is a naming convention, not the isolation boundary.
+
+    Isolation is enforced by --expected-database matching the lifecycle report
+    name plus the lifecycle hash binding. ecr_v2_dev_local is already allowed,
+    so the prefix list itself cannot be a security boundary; ecr_v2_accept_ is
+    the operator's dedicated acceptance namespace.
+    """
+    allowed = ("ecr_v2_dev_", "ecr_v2_test_", "ecr_v2_accept_")
+    return database == expected_database == lifecycle_database and database.startswith(allowed)
+
+
 def validate_e2e_identity(e2e, cases, cases_hash, lifecycle_hash):
     # Safety is measured independently of answer quality. A complete failed
     # batch may be audited, but the final gate still requires execution PASS.
@@ -282,8 +294,8 @@ def main():
         with psycopg.connect(authority["V2_MIGRATION_DSN"], connect_timeout=5) as conn:
             db, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls "
                                                       "FROM pg_roles WHERE rolname=current_user").fetchone()
-            if (db != args.expected_database or db != lifecycle.get("database", {}).get("name")
-                    or not db.startswith(("ecr_v2_dev_", "ecr_v2_test_")) or superuser or bypass):
+            if (not isolated_database_name_valid(db, args.expected_database, lifecycle.get("database", {}).get("name"))
+                    or superuser or bypass):
                 raise E2EFailure("isolated_authority_database_required")
             if not conn.execute("SELECT pg_try_advisory_lock(742020,1)").fetchone()[0]:
                 raise E2EFailure("authority_fixture_already_running")

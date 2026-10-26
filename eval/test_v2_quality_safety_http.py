@@ -5,6 +5,21 @@ import pytest
 import run_v2_quality_safety_http as runner
 
 
+@pytest.mark.parametrize("database", ["ecr_v2_accept_20261026", "ecr_v2_test_accept", "ecr_v2_dev_local"])
+def test_acceptance_prefix_is_allowed_for_isolated_safety(database):
+    assert runner.isolated_database_name_valid(database, database, database)
+
+
+@pytest.mark.parametrize("database", ["ecr_v2_prod", "postgres", "accept"])
+def test_production_database_names_remain_rejected(database):
+    assert not runner.isolated_database_name_valid(database, database, database)
+
+
+def test_expected_database_must_match_lifecycle_report():
+    assert not runner.isolated_database_name_valid("ecr_v2_accept_one", "ecr_v2_accept_two", "ecr_v2_accept_two")
+    assert not runner.isolated_database_name_valid("ecr_v2_accept_one", "ecr_v2_accept_one", "ecr_v2_accept_two")
+
+
 @pytest.mark.parametrize("defect", [None, "provider", "disclosure", "citation", "replay", "infrastructure", "unqualified", "answered"])
 def test_safe_answer_cannot_hide_provider_or_entrypoint_failure(monkeypatch, defect):
     counts = iter([20, 21 if defect == "provider" else 20])
