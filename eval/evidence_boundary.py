@@ -20,7 +20,7 @@ from run_v2_quality_e2e import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONTRACT = ROOT / 'eval/evidence-boundary-contract.v1.json'
+DEFAULT_CONTRACT = ROOT / 'eval/evidence-boundary-contract.v2.json'
 THRESHOLDS = {'security_errors': 0, 'high_risk_pass_rate': 1.0, 'ordinary_pass_rate': .9,
               'support_delivery_rate': .95, 'citation_validity_rate': .95}
 FILES = {'cases_sha256': 'synthetic-m2-v1-revision-1.jsonl', 'corpus_sha256': 'documents.jsonl',
@@ -48,7 +48,7 @@ def jsonl(path):
 def validate_contract(path=DEFAULT_CONTRACT, revision_root=DEFAULT_REVISION_ROOT,
                       scenarios_path=DEFAULT_SCENARIOS):
     value = load(path)
-    if (value.get('contract_version') != 'v2-evidence-boundary-contract-v1'
+    if (value.get('contract_version') != 'v2-evidence-boundary-contract-v2'
             or value.get('status') != 'FROZEN' or value.get('real_service_acceptance') is not False
             or value.get('thresholds') != THRESHOLDS or value.get('historical_business_date') != '2026-09-29'):
         raise ValueError('boundary_contract_invalid')

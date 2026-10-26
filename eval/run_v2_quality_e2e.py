@@ -33,7 +33,7 @@ from quality_capture import capture, secure_directory
 
 DEFAULT_REVISION_ROOT = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional")
 DEFAULT_CASES = DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.jsonl"
-DEFAULT_SCENARIOS = ROOT / "eval/quality-scenarios.v1.json"
+DEFAULT_SCENARIOS = ROOT / "eval/quality-scenarios.v2.json"
 
 
 class E2EFailure(RuntimeError):

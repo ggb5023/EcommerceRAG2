@@ -45,6 +45,7 @@ DEFAULT_CONTEXT_REVIEW = Path(
     "/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/"
     "answer-point-evidence-review-revision-1-context-v2.json"
 )
+DEFAULT_SCENARIOS = Path(__file__).resolve().parent / "quality-scenarios.v2.json"
 DEFAULT_REVISION_ROOT = Path(
     "/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional"
 )
