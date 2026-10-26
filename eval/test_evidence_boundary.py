@@ -181,6 +181,12 @@ def test_binding_rejects_tampering(tmp_path, change):
 
 V1_CONTRACT_SHA256 = '33d3a9b2f8006a6134f4698ccd3d70a10a4c5d61119bd16b7a6ac0895376eb6e'
 V1_SCENARIOS_SHA256 = 'ee1f9cf1f07503f658781e3ddd112fbe5eefe993ee0e1581e358510faa26c495'
+CASES_SHA256 = '296707d4b048142443816e1ce3d170510a0a718e9bfa0479de9fac33e80d81dc'
+
+
+def test_frozen_cases_bytes_are_pinned():
+    cases = Path(__file__).parent / 'synthetic_cases.jsonl'
+    assert hashlib.sha256(cases.read_bytes()).hexdigest() == CASES_SHA256
 
 
 def test_frozen_input_integrity_when_local_approved_inputs_available():
