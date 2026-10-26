@@ -25,6 +25,13 @@
 - attestation：sidecar 记录 agent 标识与协议版本 `delegated_agent_semantic_review_v1`，
   报告引用其 sha256。
 
+## 指标适用性
+
+`exact_substring_v1` 不适用于生成本身会重写措辞的模型：它只说明“是否原样复述期望要点”，
+不能作为答案质量指标。生成答案与期望要点词面不一致时，工具分类为
+`generation_rewrite_mismatch`（重写不匹配），不是答错；不得据此宣称质量低或为了提升该数字
+去改 prompt 要求复述要点。答案质量必须由语义评审（HTTP 轨 + agent）给出。
+
 ## 分轨口径
 
 - batch 轨道（`bailian-batch-v1`）能回答“答案要点是否覆盖”，不能回答“交付时引用是否有效”：
