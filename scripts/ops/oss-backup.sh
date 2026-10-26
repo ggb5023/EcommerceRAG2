@@ -84,8 +84,9 @@ remote_manifest() { # key dest; returns 1 when absent
 REV_STATUS=absent
 CORPUS_MANIFEST=$WORK/corpus-list.sha256
 if [ -d "$REVISION_DIR" ] && [ -n "$(find "$REVISION_DIR" -maxdepth 1 -type f -print -quit)" ]; then
+  manifest_for "$REVISION_DIR" "$WORK/corpus-body.sha256"
   { echo "# generated_at=$STAMP corpus_revision=present git=$SHORT";
-    manifest_for "$REVISION_DIR" /dev/stdout; } > "$CORPUS_MANIFEST"
+    cat "$WORK/corpus-body.sha256"; } > "$CORPUS_MANIFEST"
   REV_STATUS=present
 else
   echo "# generated_at=$STAMP corpus_revision=absent git=$SHORT" > "$CORPUS_MANIFEST"
@@ -95,7 +96,10 @@ fi
 
 corpus_changed=1
 if remote_manifest corpus/revision/current/manifest.sha256 "$TMP/remote-corpus.sha256"; then
-  if diff -q <(grep -v '^#' "$TMP/remote-corpus.sha256") <(grep -v '^#' "$CORPUS_MANIFEST") >/dev/null; then corpus_changed=0; fi
+  if diff -q <(grep -v '^#' "$TMP/remote-corpus.sha256") <(grep -v '^#' "$CORPUS_MANIFEST") >/dev/null; then
+    corpus_changed=0
+    grep -q "^# .*corpus_revision=$REV_STATUS" "$TMP/remote-corpus.sha256" || corpus_changed=1
+  fi
 fi
 if [ "$corpus_changed" = 1 ]; then
   cp "$CORPUS_MANIFEST" "$WORK/corpus/manifest.sha256"
@@ -118,7 +122,7 @@ fi
 # ---- eval tree ----
 EVAL_MANIFEST=$WORK/eval-list.sha256
 { echo "# generated_at=$STAMP git=$SHORT corpus_revision=$REV_STATUS";
-  manifest_for "$REPO/eval" /dev/stdout; } > "$EVAL_MANIFEST"
+  manifest_for "$REPO/eval" "$WORK/eval-body.sha256"; cat "$WORK/eval-body.sha256"; } > "$EVAL_MANIFEST"
 eval_changed=1
 if remote_manifest eval/current/manifest.sha256 "$TMP/remote-eval.sha256"; then
   if diff -q <(grep -v '^#' "$TMP/remote-eval.sha256") <(grep -v '^#' "$EVAL_MANIFEST") >/dev/null; then eval_changed=0; fi
