@@ -25,6 +25,16 @@
 - attestation：sidecar 记录 agent 标识与协议版本 `delegated_agent_semantic_review_v1`，
   报告引用其 sha256。
 
+## 分轨口径
+
+- batch 轨道（`bailian-batch-v1`）能回答“答案要点是否覆盖”，不能回答“交付时引用是否有效”：
+  它没有 HTTP 交付字段（citations、customer_reply、delivered context），
+  `build_human_review_sidecar.py --reviewer-kind agent` 会以
+  `agent_review_requires_per_case_http_fields` 拒绝该轨道。
+- 双 track 分数只能由 `v2-quality-e2e-v2` + `quality_gate.py` 产出；不得用 batch 指标冒充。
+- 未跑 HTTP 轨道前，报告只能写“答案要点覆盖 X%，引用有效性未评估”，并注明
+  `answer_quality_status=NOT_RUN`、评审方式 agent 但未产生逐条评审产物。
+
 ## 后果
 
 - 评测结论只能表述为 agent 代理评审结果，不能替代人工复核或真实商家验收。
