@@ -44,6 +44,7 @@
 | [0012](0012-agent-delegated-evaluation.md) | 评测评审由 agent 代理：协议、反向抽样与 attestation | 已采纳 |
 | [0013](0013-merchant-delegated-agent-review.md) | 商家侧 agent 代理审核 L1/L2/L3 与数据出域边界（仅提议） | 提议 |
 | [0014](0014-split-gate-reasons.md) | 质量门区分 failed 与 not_measured | 已采纳 |
+| [0015](0015-agent-review-owns-quality-in-development.md) | 开发阶段由 agent 评审承担质量门槛 | 已采纳 |
 
 ## 后果
 
