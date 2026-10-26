@@ -66,13 +66,13 @@ func NewFakeHandler(version, fault string) http.Handler {
 			return
 		}
 		if tool == "get_order_status" || tool == "get_logistics" {
-			if r.Header.Get("X-User-ID") != "dev-user" || resourceID != "V2-ORDER-001" {
+			if r.Header.Get("X-User-ID") != "dev-user" || (resourceID != "V2-ORDER-001" && resourceID != "DEMO-1001") {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
 		}
 		if tool == "get_stock" || tool == "get_price" {
-			if resourceID != "V2-CUP-480" && resourceID != "V2-CUP-750" && resourceID != "SKU-EAR-200" {
+			if resourceID != "V2-CUP-480" && resourceID != "V2-CUP-750" && resourceID != "SKU-EAR-200" && resourceID != "SKU-BAG-RED-20" {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
@@ -85,6 +85,11 @@ func NewFakeHandler(version, fault string) http.Handler {
 			// Independently versioned fake fact, deliberately different from
 			// the historical document snapshot. It is not merchant truth.
 			stock, price = 7, 15900
+		}
+		if resourceID == "SKU-BAG-RED-20" {
+			// Mirrors the document's 2026-09-29 snapshot price (129.00 CNY);
+			// this is a test double, not merchant truth.
+			stock, price = 12, 12900
 		}
 		values := map[string]any{
 			"get_stock":        map[string]any{"sku": resourceID, "available": stock, "as_of": "2026-10-12"},
