@@ -78,10 +78,15 @@ def test_rank_metrics_multiple_relevant_documents_and_duplicates():
     assert result['hit_rate_at_5'] == 1
 
 
+
+def _reasons(result):
+    value = result['gate_reasons']
+    return value['failed'] + value['not_measured']
+
 def test_no_review_no_semantic_claim(tmp_path):
     paths = inputs(tmp_path)
     result = MODULE.evaluate(paths[0])
-    assert result['answer_quality_status'] == 'NOT_PASSED'
+    assert result['answer_quality_status'] == 'NOT_MEASURED'
     assert result['semantic']['status'] == 'NOT_RUN'
     assert result['real_service_acceptance'] is False
 
@@ -91,8 +96,8 @@ def test_full_layered_gate_and_missing_e2e_safety(tmp_path):
     assert evaluate(paths)['answer_quality_status'] == 'PASS'
     result = MODULE.evaluate(paths[0], paths[1], capture_dir=paths[2])
     assert result['component_quality_status'] == 'PASS'
-    assert result['answer_quality_status'] == 'NOT_PASSED'
-    assert 'seven_case_safety_evidence_missing' in result['gate_reasons']
+    assert result['answer_quality_status'] == 'NOT_MEASURED'
+    assert 'seven_case_safety_evidence_missing' in _reasons(result)
 
 
 def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tmp_path):
@@ -102,9 +107,9 @@ def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tm
     save(safety, offline)
     result = MODULE.evaluate(r, review, capture_dir=directory, safety_path=safety, e2e_path=e2e)
     assert result['component_quality_status'] == 'PASS'
-    assert result['answer_quality_status'] == 'NOT_PASSED'
-    assert 'entrypoint_safety_evidence_missing' in result['gate_reasons']
-    assert 'e2e_semantic_review_missing' in result['gate_reasons']
+    assert result['answer_quality_status'] == 'NOT_MEASURED'
+    assert 'entrypoint_safety_evidence_missing' in _reasons(result)
+    assert 'e2e_semantic_review_missing' in _reasons(result)
 
 
 def test_http_semantic_scores_actual_points_and_never_exports_review_notes(tmp_path):
@@ -153,7 +158,7 @@ def test_http_safety_label_cannot_hide_missing_runtime_evidence(tmp_path, defect
     save(paths[3], safety)
     result = evaluate(paths)
     assert result['answer_quality_status'] == 'NOT_PASSED'
-    assert 'entrypoint_safety_binding_or_execution_invalid' in result['gate_reasons']
+    assert 'entrypoint_safety_binding_or_execution_invalid' in _reasons(result)
 
 
 @pytest.mark.parametrize('authorized', [False, True])
@@ -171,7 +176,7 @@ def test_delegated_review_keeps_agent_provenance_and_requires_authorization(tmp_
     if authorized:
         assert result['e2e_semantic']['reviewer_kind'] == 'agent'
     else:
-        assert 'e2e_semantic_review_invalid' in result['gate_reasons']
+        assert 'e2e_semantic_review_invalid' in _reasons(result)
 
 
 def test_ordinary_ninety_percent_allows_two_failures(tmp_path):
@@ -222,7 +227,7 @@ def test_answer_tamper_detected(tmp_path):
     raw = paths[2] / report['case_results'][0]['capture_id']
     raw.write_text('{}')
     result = evaluate(paths)
-    assert 'answer_capture_hash_mismatch' in result['gate_reasons']
+    assert 'answer_capture_hash_mismatch' in _reasons(result)
 
 
 @pytest.mark.parametrize('change', ['duplicate_case', 'missing_support', 'false_coverage', 'incomplete_contract'])
@@ -246,7 +251,7 @@ def test_safety_paid_call_blocks_gate(tmp_path):
     safety = MODULE.load_json(paths[3])
     safety['results'][0]['provider_attempt_delta'] = 1
     save(paths[3], safety)
-    assert 'safety_evidence_invalid' in evaluate(paths)['gate_reasons']
+    assert 'safety_evidence_invalid' in _reasons(evaluate(paths))
 
 
 def test_report_write_does_not_overwrite(tmp_path):

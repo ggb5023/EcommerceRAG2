@@ -211,6 +211,45 @@ def _semantic_metrics(review: Mapping, contracts: Mapping) -> dict:
     }
 
 
+def _not_measured_reasons(reasons, semantic, evidence, safety, e2e, http_semantic, *,
+                           safety_path, e2e_path, e2e_review_path):
+    missing = set()
+    if evidence.get('approved_support_delivery_rate') is None and 'approved_support_delivery_below_0.95' in reasons:
+        missing.add('approved_support_delivery_below_0.95')
+    if semantic.get('citation_validity_rate') is None and 'citation_validity_below_0.95' in reasons:
+        missing.add('citation_validity_below_0.95')
+    for name in ('semantic_review_incomplete', 'seven_case_safety_evidence_missing',
+                 'v2_e2e_evidence_missing', 'e2e_semantic_review_missing',
+                 'entrypoint_safety_evidence_missing'):
+        if name in reasons:
+            missing.add(name)
+    return missing
+
+
+def _classify_reasons(reasons, component_reason_set, semantic, evidence, safety, e2e, http_semantic, *,
+                      safety_path, e2e_path, e2e_review_path):
+    missing = _not_measured_reasons(reasons, semantic, evidence, safety, e2e, http_semantic,
+                                    safety_path=safety_path, e2e_path=e2e_path, e2e_review_path=e2e_review_path)
+    return {'failed': sorted(set(reasons) - missing), 'not_measured': sorted(missing)}
+
+
+def answer_status(reasons, component_reason_set, semantic, evidence, safety, e2e, http_semantic, *,
+                  safety_path, e2e_path, e2e_review_path):
+    missing = _not_measured_reasons(reasons, semantic, evidence, safety, e2e, http_semantic,
+                                    safety_path=safety_path, e2e_path=e2e_path, e2e_review_path=e2e_review_path)
+    component_missing = missing & component_reason_set
+    component_failed = component_reason_set - component_missing
+    failed = set(reasons) - missing
+    if failed:
+        answer = 'NOT_PASSED'
+    elif missing:
+        answer = 'NOT_MEASURED'
+    else:
+        answer = 'PASS'
+    return {'component_quality_status': 'PASS' if not component_failed else 'NOT_PASSED',
+            'answer_quality_status': answer}
+
+
 def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir: Path | None = None,
              safety_path: Path | None = None, e2e_path: Path | None = None,
              cases_path: Path | None = None, e2e_review_path: Path | None = None,
@@ -270,7 +309,7 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
         reasons.append('ordinary_case_pass_rate_below_0.90')
     if semantic.get('citation_validity_rate') is None or semantic['citation_validity_rate'] < .95:
         reasons.append('citation_validity_below_0.95')
-    component_reasons = sorted(set(reasons))
+    component_reason_set = set(reasons)
     safety = {'status': 'NOT_RUN'}
     if safety_path:
         safety = load_json(safety_path)
@@ -343,9 +382,11 @@ def evaluate(report_path: Path, review_path: Path | None = None, *, capture_dir:
             'provider_identity': report.get('provider_identity', {}), 'retrieval': retrieval,
             'evidence': evidence, 'semantic': semantic, 'safety_status': safety.get('status'),
             'e2e_status': e2e.get('status'), 'e2e_semantic': http_semantic,
-            'component_quality_status': 'PASS' if not component_reasons else 'NOT_PASSED',
-            'answer_quality_status': 'PASS' if not reasons else 'NOT_PASSED',
-            'model_quality_claim': False, 'real_service_acceptance': False, 'gate_reasons': sorted(set(reasons))}
+            'model_quality_claim': False, 'real_service_acceptance': False, 'gate_reasons': _classify_reasons(
+                reasons, component_reason_set, semantic, evidence, safety, e2e, http_semantic,
+                safety_path=safety_path, e2e_path=e2e_path, e2e_review_path=e2e_review_path),
+            **answer_status(reasons, component_reason_set, semantic, evidence, safety, e2e, http_semantic,
+                            safety_path=safety_path, e2e_path=e2e_path, e2e_review_path=e2e_review_path)}
 
 
 def review_template(report_path: Path) -> dict:

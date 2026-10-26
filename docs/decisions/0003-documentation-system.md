@@ -43,6 +43,7 @@
 | [0011](0011-rebind-frozen-contracts-after-artifact-loss.md) | 产物丢失后以 v2 重新绑定冻结契约，thresholds 不变 | 已采纳 |
 | [0012](0012-agent-delegated-evaluation.md) | 评测评审由 agent 代理：协议、反向抽样与 attestation | 已采纳 |
 | [0013](0013-merchant-delegated-agent-review.md) | 商家侧 agent 代理审核 L1/L2/L3 与数据出域边界（仅提议） | 提议 |
+| [0014](0014-split-gate-reasons.md) | 质量门区分 failed 与 not_measured | 已采纳 |
 
 ## 后果
 
