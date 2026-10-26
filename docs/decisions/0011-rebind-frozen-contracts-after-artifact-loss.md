@@ -22,6 +22,13 @@
   `run_bailian_batch.DEFAULT_SCENARIOS`），显式 `--contract` / `--scenarios` 覆盖仍然可用；
 - v1 两个文件字节保持不变，测试固定其 sha256，防止被静默改写。
 
+## 事实补充：syn-005 行哈希
+
+v1 冻结（653b84b，2026-10-13）时，`syn-005` 行记录的 `case_sha256` 与用例实际文本不符；
+该用例在 d3297bb（2026-09-30）已是当前文本，且此后未再修改（`eval/synthetic_cases.jsonl`
+的 sha256=296707d4b048142443816e1ce3d170510a0a718e9bfa0479de9fac33e80d81dc）。
+因此 v2 重算该行属于纠错，不是为了让校验通过而修改哈希；其余 52 行的哈希与 v1 一致。
+
 ## 后果
 
 - 后续 baseline 以 v2 绑定为准；v1 仅作为历史记录保留。
