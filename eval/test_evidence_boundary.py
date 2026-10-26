@@ -1,5 +1,6 @@
 """Reject forged acceptance, missing evidence and safety/result binding failures."""
 import copy
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -178,9 +179,19 @@ def test_binding_rejects_tampering(tmp_path, change):
     with pytest.raises(ValueError): run(f)
 
 
+V1_CONTRACT_SHA256 = '33d3a9b2f8006a6134f4698ccd3d70a10a4c5d61119bd16b7a6ac0895376eb6e'
+V1_SCENARIOS_SHA256 = 'ee1f9cf1f07503f658781e3ddd112fbe5eefe993ee0e1581e358510faa26c495'
+
+
 def test_frozen_input_integrity_when_local_approved_inputs_available():
     if not m.DEFAULT_CASES.exists(): pytest.skip('approved inputs intentionally outside Git')
-    assert len(m.validate_contract()['cases']) == 53
+    root = Path(__file__).parent
+    assert hashlib.sha256((root / 'evidence-boundary-contract.v1.json').read_bytes()).hexdigest() == V1_CONTRACT_SHA256
+    assert hashlib.sha256((root / 'quality-scenarios.v1.json').read_bytes()).hexdigest() == V1_SCENARIOS_SHA256
+    contract = m.validate_contract()
+    assert contract['contract_version'] == 'v2-evidence-boundary-contract-v2'
+    assert contract['supersedes'] == 'evidence-boundary-contract.v1.json'
+    assert len(contract['cases']) == 53
 
 
 @pytest.mark.parametrize('field', ['provider_attempt_before', 'provider_attempt_after', 'provider_attempt_delta', 'restricted_evidence_absent'])
