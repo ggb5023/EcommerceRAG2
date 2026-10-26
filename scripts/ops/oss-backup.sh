@@ -155,6 +155,16 @@ else
   upload "$BUNDLE" "$bundle_key"
 fi
 
+# Pointer file: name plus checksum, so restore never guesses from lexicographic order.
+LATEST=$WORK/git-latest
+printf 'bundle=%s\nsha256=%s\n' "$(basename "$bundle_key")" "$BUNDLE_HASH" > "$LATEST"
+if remote_manifest git/latest "$TMP/remote-latest" && cmp -s "$TMP/remote-latest" "$LATEST"; then
+  echo "NOOP git latest pointer unchanged"
+  skipped=$((skipped+1))
+else
+  upload "$LATEST" git/latest
+fi
+
 # ---- optional reports ----
 if [ -n "$REPORTS_DIR" ]; then
   [ -d "$REPORTS_DIR" ] || fail "reports directory missing"

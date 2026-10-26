@@ -90,12 +90,29 @@ else
 fi
 
 if [ "$RESTORE_BUNDLE" = 1 ]; then
-  key=$(oss ls "$BASE/git/" -q 2>/dev/null | grep -o 'oss://[^ ]*\.bundle' | tail -1)
-  [ -n "$key" ] || fail "no git bundle in backup"
-  name=$(basename "$key")
-  oss cp "$key" "$DEST/git/$name" -f -q >/dev/null 2>&1 || { mkdir -p "$DEST/git"; oss cp "$key" "$DEST/git/$name" -f -q; }
+  mkdir -p "$DEST/git"
+  latest=$TMP/git-latest
+  name=""; expected_sha=""
+  if oss cp "$BASE/git/latest" "$latest" -f -q >/dev/null 2>&1 && [ -s "$latest" ]; then
+    name=$(sed -n 's/^bundle=//p' "$latest" | head -1)
+    expected_sha=$(sed -n 's/^sha256=//p' "$latest" | head -1)
+    printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._-]+\.bundle$' || fail "git/latest bundle name invalid"
+    [ -n "$expected_sha" ] || fail "git/latest sha256 missing"
+    echo "POINTER git/latest bundle=$name"
+  else
+    line=$(oss ls "$BASE/git/" -q 2>/dev/null | grep '\.bundle' | sort -k1,2 | tail -1)
+    name=$(printf '%s\n' "$line" | awk '{print $NF}' | sed 's#.*/##')
+    [ -n "$name" ] || fail "no git bundle in backup"
+    echo "WARN git/latest missing; picked latest by modified time: $name"
+  fi
+  oss cp "$BASE/git/$name" "$DEST/git/$name" -f -q >/dev/null || fail "git bundle download failed"
+  actual=$(sha256sum "$DEST/git/$name" | cut -d' ' -f1)
+  if [ -n "$expected_sha" ] && [ "$actual" != "$expected_sha" ]; then fail "git bundle sha256 mismatch"; fi
   git -C "$REPO" bundle verify "$DEST/git/$name" >/dev/null || fail "git bundle verify failed"
-  echo "PASS git bundle $name"
+  commit=$(git -C "$REPO" bundle list-heads "$DEST/git/$name" | awk '$2=="refs/heads/main"{print $1; exit}')
+  [ -n "$commit" ] || commit=$(git -C "$REPO" bundle list-heads "$DEST/git/$name" | awk 'NR==1{print $1}')
+  short=$(git -C "$REPO" rev-parse --short "$commit")
+  echo "BUNDLE $name commit=$commit short=$short sha256=$actual"
 fi
 
 echo "SUMMARY restored=$DEST corpus_revision=$CORPUS_STATUS"
