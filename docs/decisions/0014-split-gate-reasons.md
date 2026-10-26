@@ -19,6 +19,10 @@ batch 轨道没有 HTTP 引用字段，引用有效性必然是 `None`；compone
   `NOT_MEASURED`；两者都无 → `PASS`。component 状态只看 component 轨的 `failed`，
   component 的未测量不再拖累 e2e 完成度判定。
 
+答案状态归属：`answer_quality_status` 只由 e2e 语义轨决定（COMPLETE 且无 failed → PASS），
+component 轨的 citation_validity / semantic_review 只计入 component_quality_status；
+not_measured 列表保留用于展示未测量指标，不再改变答案状态。
+
 ## 事实意图缺标识时的回退（行为修正）
 
 `factual`/`realtime_business` 意图在缺少 SKU/订单号时不再直接澄清：先执行语料检索；

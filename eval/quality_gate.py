@@ -240,12 +240,9 @@ def answer_status(reasons, component_reason_set, semantic, evidence, safety, e2e
     component_missing = missing & component_reason_set
     component_failed = component_reason_set - component_missing
     failed = set(reasons) - missing
-    if failed:
-        answer = 'NOT_PASSED'
-    elif missing:
-        answer = 'NOT_MEASURED'
-    else:
-        answer = 'PASS'
+    # answer_quality_status belongs to the e2e semantic track only. Component
+    # not_measured metrics are reported but never decide the answer status.
+    answer = 'PASS' if not failed and http_semantic.get('status') == 'COMPLETE' else 'NOT_PASSED'
     return {'component_quality_status': 'PASS' if not component_failed else 'NOT_PASSED',
             'answer_quality_status': answer}
 

@@ -86,7 +86,7 @@ def _reasons(result):
 def test_no_review_no_semantic_claim(tmp_path):
     paths = inputs(tmp_path)
     result = MODULE.evaluate(paths[0])
-    assert result['answer_quality_status'] == 'NOT_MEASURED'
+    assert result['answer_quality_status'] == 'NOT_PASSED'
     assert result['semantic']['status'] == 'NOT_RUN'
     assert result['real_service_acceptance'] is False
 
@@ -96,8 +96,21 @@ def test_full_layered_gate_and_missing_e2e_safety(tmp_path):
     assert evaluate(paths)['answer_quality_status'] == 'PASS'
     result = MODULE.evaluate(paths[0], paths[1], capture_dir=paths[2])
     assert result['component_quality_status'] == 'PASS'
-    assert result['answer_quality_status'] == 'NOT_MEASURED'
+    assert result['answer_quality_status'] == 'NOT_PASSED'
     assert 'seven_case_safety_evidence_missing' in _reasons(result)
+
+
+def test_answer_status_ignores_component_not_measured_when_e2e_passes(tmp_path):
+    paths = inputs(tmp_path)
+    review_path = paths[0]
+    result = MODULE.evaluate(paths[0], safety_path=paths[3], e2e_path=paths[4],
+                             e2e_review_path=review_path.parent / 'http-review.json',
+                             e2e_capture_dir=paths[2])
+    assert result['answer_quality_status'] == 'PASS'
+    assert result['e2e_semantic']['status'] == 'COMPLETE'
+    assert 'citation_validity_below_0.95' in result['gate_reasons']['not_measured']
+    assert 'semantic_review_incomplete' in result['gate_reasons']['not_measured']
+    assert result['gate_reasons']['failed'] == []
 
 
 def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tmp_path):
@@ -107,7 +120,7 @@ def test_component_approval_cannot_approve_new_http_answers_or_offline_safety(tm
     save(safety, offline)
     result = MODULE.evaluate(r, review, capture_dir=directory, safety_path=safety, e2e_path=e2e)
     assert result['component_quality_status'] == 'PASS'
-    assert result['answer_quality_status'] == 'NOT_MEASURED'
+    assert result['answer_quality_status'] == 'NOT_PASSED'
     assert 'entrypoint_safety_evidence_missing' in _reasons(result)
     assert 'e2e_semantic_review_missing' in _reasons(result)
 
