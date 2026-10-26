@@ -3,6 +3,7 @@ package admin
 import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
+	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 
 	"bufio"
 	"context"
@@ -19,13 +20,26 @@ import (
 	"strings"
 	"time"
 
-	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 )
+
+type Handler struct {
+	DB           *pgxpool.Pool
+	Session      *auth.Session
+	Authority    *auth.Authority
+	Ingest       ragv1.IngestServiceClient
+	AIConnection *grpc.ClientConn
+	Profile      string
+	SigningKey   []byte
+	// Set only from the initialized customer service's validated configuration.
+	CustomerOrigin string
+}
 
 const (
 	adminRoleObserver = "platform_observer"
@@ -52,34 +66,6 @@ type adminConfirmation struct {
 	PermissionRevision   string `json:"permission_revision"`
 	ExpectedFencingEpoch int64  `json:"expected_fencing_epoch"`
 	Reason               string `json:"reason"`
-}
-
-func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /admin/v1/session", g.adminSession)
-	mux.HandleFunc("GET /admin/v1/overview", g.adminOverview)
-	mux.HandleFunc("GET /admin/v1/access/accounts", g.adminAccounts)
-	mux.HandleFunc("GET /admin/v1/access/requests", g.adminListRequests)
-	mux.HandleFunc("POST /admin/v1/access/requests", g.adminCreateRequest)
-	mux.HandleFunc("POST /admin/v1/access/requests/{id}/decision", g.adminDecideRequest)
-	mux.HandleFunc("POST /admin/v1/staff", g.adminCreateStaff)
-	mux.HandleFunc("GET /admin/v1/access/audit", g.adminAudit)
-	mux.HandleFunc("POST /admin/v1/access/grants/{id}/revoke", g.adminRevokeGrant)
-	mux.HandleFunc("GET /admin/v1/merchant/shops", g.adminShops)
-	mux.HandleFunc("POST /admin/v1/merchant/shops/{id}/settings", g.adminShopSettings)
-	mux.HandleFunc("GET /admin/v1/merchant/sources", g.adminSources)
-	mux.HandleFunc("POST /admin/v1/merchant/sources/import", g.adminImportPackage)
-	mux.HandleFunc("GET /admin/v1/merchant/ingestion", g.adminJobs)
-	mux.HandleFunc("GET /admin/v1/merchant/ingestion/{id}", g.adminJobDetail)
-	mux.HandleFunc("POST /admin/v1/merchant/ingestion/{id}/cancel", g.adminCancelIngestJob)
-	mux.HandleFunc("POST /admin/v1/merchant/ingestion/{id}/retry", g.adminRetryIngestJob)
-	mux.HandleFunc("GET /admin/v1/merchant/reviews", g.adminReviews)
-	mux.HandleFunc("GET /admin/v1/merchant/reviews/{id}", g.adminReviewDetail)
-	mux.HandleFunc("POST /admin/v1/merchant/versions/{id}/review", g.adminReviewVersion)
-	mux.HandleFunc("POST /admin/v1/merchant/versions/{id}/publish", g.adminPublishVersion)
-	mux.HandleFunc("POST /admin/v1/merchant/versions/{id}/rollback", g.adminRollbackVersion)
-	mux.HandleFunc("POST /admin/v1/merchant/versions/{id}/revoke", g.adminRevokeVersion)
-	mux.HandleFunc("GET /admin/v1/merchant/versions", g.adminVersions)
-	mux.HandleFunc("GET /admin/v1/merchant/commands/{id}", g.adminCommandResult)
 }
 
 func (g *Handler) requireAdmin(w http.ResponseWriter, r *http.Request, roles ...string) (adminScope, bool) {
@@ -731,451 +717,11 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
-func (g *Handler) adminSources(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant, adminRoleReviewer, adminRoleObserver)
-	if !ok {
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT s.id,s.shop_id,s.type,CASE WHEN s.type='admin_manifest' THEN s.uri ELSE NULL END,s.created_at,
-		(SELECT count(*) FROM document d WHERE d.tenant_id=s.tenant_id AND d.source_id=s.id) AS documents,
-		(SELECT max(sm.created_at) FROM source_manifest sm WHERE sm.tenant_id=s.tenant_id AND sm.source_id=s.id) AS latest_import
-		FROM source s WHERE s.tenant_id=$1 AND s.shop_id=ANY($2::text[])
-		AND s.type<>'synthetic-acl' ORDER BY s.created_at DESC LIMIT 300`, g.Session.TenantID, scope.shops)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load sources")
-		return
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, docs int64
-		var shop, kind string
-		var uri *string
-		var created time.Time
-		var latest *time.Time
-		if rows.Scan(&id, &shop, &kind, &uri, &created, &docs, &latest) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load sources")
-			return
-		}
-		items = append(items, map[string]any{"source_id": strconv.FormatInt(id, 10), "shop_id": shop,
-			"type": kind, "uri": uri, "documents": docs, "created_at": created, "latest_import": latest})
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
-}
-
-func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant)
-	if !ok {
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxAdminUpload)
-	if err := r.ParseMultipartForm(maxAdminUpload); err != nil {
-		httpapi.WriteError(w, 400, "upload_too_large", "manifest package is invalid or too large")
-		return
-	}
-	shopID := strings.TrimSpace(r.FormValue("shop_id"))
-	if !contains(scope.shops, shopID) {
-		httpapi.WriteError(w, 403, "admin_scope_denied", "shop is outside the current identity scope")
-		return
-	}
-	manifest := r.FormValue("manifest")
-	if strings.TrimSpace(manifest) == "" || len(manifest) > 256*1024 {
-		httpapi.WriteError(w, 400, "invalid_manifest", "manifest is required and must be under 256 KiB")
-		return
-	}
-	paths := r.MultipartForm.Value["paths"]
-	fileHeaders := r.MultipartForm.File["files"]
-	if len(fileHeaders) == 0 || len(fileHeaders) != len(paths) || len(fileHeaders) > 100 {
-		httpapi.WriteError(w, 400, "invalid_package", "manifest files do not match package paths")
-		return
-	}
-	files := make([]*ragv1.PackageFile, 0, len(fileHeaders))
-	for index, header := range fileHeaders {
-		if header.Size > 8*1024*1024 {
-			httpapi.WriteError(w, 413, "file_too_large", "a manifest file exceeds 8 MiB")
-			return
-		}
-		file, err := header.Open()
-		if err != nil {
-			httpapi.WriteError(w, 400, "invalid_package", "an uploaded file could not be read")
-			return
-		}
-		content, readErr := io.ReadAll(io.LimitReader(file, 8*1024*1024+1))
-		_ = file.Close()
-		if readErr != nil || len(content) > 8*1024*1024 {
-			httpapi.WriteError(w, 413, "file_too_large", "a manifest file exceeds 8 MiB")
-			return
-		}
-		files = append(files, &ragv1.PackageFile{Path: paths[index], Content: content})
-	}
-	queued, err := g.queuePackage(r.Context(), manifest, files, g.Session.TenantID, g.Session.UserID, shopID)
-	if err != nil {
-		if status.Code(err) == codes.InvalidArgument {
-			httpapi.WriteError(w, 400, "invalid_package", "manifest package failed validation")
-			return
-		}
-		if status.Code(err) == codes.PermissionDenied {
-			httpapi.WriteError(w, 403, "admin_scope_denied", "submitter authorization changed")
-			return
-		}
-		if status.Code(err) == codes.AlreadyExists {
-			httpapi.WriteError(w, 409, "version_conflict", "idempotency key was reused with a different package")
-			return
-		}
-		var conflict *adminConflictError
-		if errors.As(err, &conflict) {
-			httpapi.WriteError(w, 409, "version_conflict", conflict.Error())
-			return
-		}
-		httpapi.WriteError(w, 503, "ingestion_queue_failed", "package could not be queued")
-		return
-	}
-	// The authorized Submit transaction creates the source and advances the
-	// resource permission revision itself. Return its receipt instead of calling
-	// that successful write a 403. Subsequent operations need a fresh session.
-	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(queued.JobID, 10),
-		"manifest_sha256": queued.ManifestSHA256, "package_sha256": queued.PackageSHA256,
-		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": httpapi.IsMockProfile(g.Profile)})
-}
-
-type adminConflictError struct{ message string }
-
-func (e *adminConflictError) Error() string { return e.message }
-
-func (g *Handler) adminJobs(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant, adminRoleReviewer, adminRoleObserver)
-	if !ok {
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT j.id,j.stage,j.status,s.shop_id,j.manifest_sha256,j.dataset_sha256,
-		j.fencing_epoch,j.cancel_requested,j.created_at,j.updated_at,count(i.id),
-		count(i.id) FILTER (WHERE i.status='pending'),count(i.id) FILTER (WHERE i.status='running'),
-		count(i.id) FILTER (WHERE i.status='awaiting_review'),count(i.id) FILTER (WHERE i.status='done'),
-		count(i.id) FILTER (WHERE i.status='failed') FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-		LEFT JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
-		WHERE j.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		GROUP BY j.id,s.shop_id ORDER BY j.created_at DESC LIMIT 200`, g.Session.TenantID, scope.shops)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion jobs")
-		return
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, fence, all, pending, running, review, done, failed int64
-		var stage, state, shop, manifestHash string
-		var datasetHash *string
-		var cancelRequested bool
-		var created, updated time.Time
-		if rows.Scan(&id, &stage, &state, &shop, &manifestHash, &datasetHash, &fence, &cancelRequested,
-			&created, &updated, &all, &pending, &running, &review, &done, &failed) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion jobs")
-			return
-		}
-		items = append(items, map[string]any{"job_id": strconv.FormatInt(id, 10), "stage": stage, "status": state,
-			"shop_id": shop, "manifest_sha256": manifestHash, "dataset_sha256": datasetHash,
-			"fencing_epoch": fence, "cancel_requested": cancelRequested, "item_count": all,
-			"pending": pending, "running": running, "awaiting_review": review, "done": done, "failed": failed,
-			"created_at": created, "updated_at": updated})
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
-}
-
-func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant, adminRoleReviewer, adminRoleObserver)
-	if !ok {
-		return
-	}
-	jobID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		httpapi.WriteError(w, 404, "not_found", "ingestion job not found")
-		return
-	}
-	var jobStatus, jobStage, shopID, manifestHash string
-	var datasetHash, errorCode *string
-	var fencingEpoch int64
-	var cancelRequested bool
-	var leaseExpiresAt *time.Time
-	err = g.DB.QueryRow(r.Context(), `SELECT j.status,j.stage,s.shop_id,j.manifest_sha256,j.dataset_sha256,
-		j.fencing_epoch,j.cancel_requested,j.lease_expires_at,j.error_code FROM ingest_job j
-		JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-		WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
-		g.Session.TenantID, jobID, scope.shops).Scan(&jobStatus, &jobStage, &shopID, &manifestHash,
-		&datasetHash, &fencingEpoch, &cancelRequested, &leaseExpiresAt, &errorCode)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 404, "not_found", "ingestion job not found")
-		return
-	}
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion job")
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT i.id,i.data_id,i.payload_hash,i.status,i.stage,i.retry_count,
-		i.error_code,i.cancel_requested,i.fencing_epoch,i.document_version_id::text,v.status,v.review_status,v.source_hash
-		FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-		JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
-		LEFT JOIN document_version v ON v.tenant_id=i.tenant_id AND v.id=i.document_version_id
-		WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'
-		ORDER BY i.id LIMIT 500`, g.Session.TenantID, jobID, scope.shops)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion items")
-		return
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, retries, fence int64
-		var dataID, payloadHash, state, stage string
-		var errorCode *string
-		var cancelled bool
-		var versionID, versionState, reviewState, versionHash *string
-		if rows.Scan(&id, &dataID, &payloadHash, &state, &stage, &retries, &errorCode, &cancelled,
-			&fence, &versionID, &versionState, &reviewState, &versionHash) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion items")
-			return
-		}
-		items = append(items, map[string]any{"item_id": strconv.FormatInt(id, 10), "document_id": dataID,
-			"payload_hash": payloadHash, "status": state, "stage": stage, "retry_count": retries,
-			"error_code": errorCode, "cancel_requested": cancelled, "fencing_epoch": fence,
-			"version_id": versionID, "version_status": versionState, "review_status": reviewState,
-			"version_hash": versionHash})
-	}
-	if err = rows.Err(); err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion items")
-		return
-	}
-	if len(items) == 0 {
-		var exists bool
-		if err = g.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-			WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest')`,
-			g.Session.TenantID, jobID, scope.shops).Scan(&exists); err != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not verify ingestion job")
-			return
-		}
-		if !exists {
-			httpapi.WriteError(w, 404, "not_found", "ingestion job not found")
-			return
-		}
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"job_id": strconv.FormatInt(jobID, 10), "status": jobStatus,
-		"stage": jobStage, "shop_id": shopID, "manifest_sha256": manifestHash, "dataset_sha256": datasetHash,
-		"fencing_epoch": fencingEpoch, "cancel_requested": cancelRequested, "lease_expires_at": leaseExpiresAt,
-		"error_code": errorCode, "items": items})
-}
-
-func (g *Handler) adminReviews(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleReviewer)
-	if !ok {
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT v.id,d.logical_key,d.title,s.shop_id,v.source_hash,v.status,v.Disclosure_class,
-		v.external_allowed,v.review_status,v.reviewed_hash,v.fencing_epoch,v.chunk_count,v.pipeline_version,v.quality_json,v.created_at,
-		j.id,j.stage FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		LEFT JOIN ingest_job_item i ON i.tenant_id=v.tenant_id AND i.document_version_id=v.id
-		LEFT JOIN ingest_job j ON j.tenant_id=i.tenant_id AND j.id=i.job_id
-		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		ORDER BY v.created_at DESC LIMIT 300`, g.Session.TenantID, scope.shops)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load review queue")
-		return
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id int64
-		var jobID *int64
-		var key, title, shop, hash, state, disclosure, reviewState, pipeline, stage string
-		var external bool
-		var reviewedHash *string
-		var fence int64
-		var chunks *int32
-		var created time.Time
-		var quality []byte
-		if rows.Scan(&id, &key, &title, &shop, &hash, &state, &disclosure, &external, &reviewState, &reviewedHash, &fence, &chunks, &pipeline, &quality, &created, &jobID, &stage) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load review queue")
-			return
-		}
-		items = append(items, map[string]any{"version_id": strconv.FormatInt(id, 10), "document_id": key, "title": title, "shop_id": shop,
-			"source_hash": hash, "status": state, "disclosure_class": disclosure, "external_allowed": external, "review_status": reviewState,
-			"reviewed_hash": reviewedHash, "fencing_epoch": fence, "chunk_count": chunks, "pipeline_version": pipeline,
-			"quality": json.RawMessage(quality), "created_at": created,
-			"job_id": jobID, "stage": stage})
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
-}
-
-func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleReviewer)
-	if !ok {
-		return
-	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		httpapi.WriteError(w, 404, "not_found", "version not found")
-		return
-	}
-	var data map[string]any
-	err = g.DB.QueryRow(r.Context(), `SELECT jsonb_build_object('version_id',v.id::text,'document_id',d.logical_key,'title',d.title,
-		'shop_id',s.shop_id,'source_hash',v.source_hash,'status',v.status,'disclosure_class',v.Disclosure_class,
-		'external_allowed',v.external_allowed,'review_status',v.review_status,'reviewed_hash',v.reviewed_hash,
-		'fencing_epoch',v.fencing_epoch,'chunk_count',v.chunk_count,'quality',v.quality_json,
-		'content',COALESCE((SELECT jsonb_agg(jsonb_build_object('chunk_index',c.chunk_index,'content',c.content,
-			'chunk_id','db-chunk-'||c.id::text,'heading_path',c.heading_path,'content_type',c.content_type,
-			'split_reason',c.split_reason,'source_position',c.meta_json->'source_position',
-			'char_start',c.char_start,'char_end',c.char_end,'warning',c.meta_json->'warning',
-			'table_body',c.meta_json->'table_body','table_caption',c.meta_json->'table_caption') ORDER BY c.chunk_index)
-			FROM chunk c WHERE c.tenant_id=v.tenant_id AND c.version_id=v.id),'[]'::jsonb),'path',sf.relative_path,'media_type',sf.media_type)
-		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		JOIN source_file sf ON sf.tenant_id=v.tenant_id AND sf.source_manifest_id=v.source_manifest_id AND sf.document_id=d.logical_key
-		WHERE v.tenant_id=$1 AND v.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
-		g.Session.TenantID, id, scope.shops).Scan(&data)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 404, "not_found", "version not found")
-		return
-	}
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "review material is unavailable")
-		return
-	}
-	content, err := projectReviewContent(data["content"])
-	if err != nil {
-		httpapi.WriteError(w, 503, "review_content_unavailable", "review material is unavailable")
-		return
-	}
-	data["content"] = content
-	if err = g.Authority.Refresh(r.Context()); err != nil {
-		httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
-		return
-	}
-	httpapi.WriteJSON(w, 200, data)
-}
-
-func (g *Handler) adminReviewVersion(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleReviewer)
-	if !ok {
-		return
-	}
-	var in struct {
-		Confirm          bool   `json:"confirm"`
-		Decision         string `json:"decision"`
-		Disclosure       string `json:"disclosure_class"`
-		External         bool   `json:"external_allowed"`
-		ExpectedHash     string `json:"expected_hash"`
-		ExpectedFence    int64  `json:"expected_fencing_epoch"`
-		ExpectedRevision string `json:"permission_revision"`
-		Reason           string `json:"reason"`
-	}
-	if httpapi.DecodeJSON(r, &in) != nil || !in.Confirm || !contains([]string{"approved", "rejected"}, in.Decision) || !contains([]string{"external_allowed", "internal_only", "unclassified"}, in.Disclosure) || len(strings.TrimSpace(in.Reason)) < 10 || len(in.Reason) > 2000 || in.ExpectedFence < 0 {
-		httpapi.WriteError(w, 400, "invalid_review", "review decision, classification and reason are required")
-		return
-	}
-	if in.External != (in.Disclosure == "external_allowed") || (in.Decision == "approved" && in.Disclosure == "unclassified") {
-		httpapi.WriteError(w, 400, "invalid_disclosure", "review classification is inconsistent")
-		return
-	}
-	if in.ExpectedRevision != g.Authority.CurrentRevision() {
-		httpapi.WriteError(w, 409, "confirmation_stale", "permission revision changed")
-		return
-	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id < 1 {
-		httpapi.WriteError(w, 404, "not_found", "version not found")
-		return
-	}
-	shop, _, hash, _, _, _, err := g.lockVersion(r.Context(), id, scope.shops)
-	if err != nil {
-		g.writeVersionError(w, err)
-		return
-	}
-	if hash != in.ExpectedHash {
-		httpapi.WriteError(w, 409, "version_conflict", "version hash changed")
-		return
-	}
-	g.dispatchCommand(w, r, shop, &ragv1.ExecuteCommandRequest{Action: ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_REVIEW, ResourceId: strconv.FormatInt(id, 10), ExpectedHash: in.ExpectedHash, ExpectedFencingEpoch: in.ExpectedFence, Reason: strings.TrimSpace(in.Reason), ReviewDecision: in.Decision, DisclosureClass: in.Disclosure, ExternalAllowed: in.External})
-}
-
-func (g *Handler) adminPublishVersion(w http.ResponseWriter, r *http.Request) {
-	g.adminVersionCommand(w, r, ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_PUBLISH)
-}
-func (g *Handler) adminRollbackVersion(w http.ResponseWriter, r *http.Request) {
-	g.adminVersionCommand(w, r, ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_ROLLBACK)
-}
-func (g *Handler) adminRevokeVersion(w http.ResponseWriter, r *http.Request) {
-	g.adminVersionCommand(w, r, ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_REVOKE)
-}
-
-func (g *Handler) adminVersions(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant, adminRoleReviewer, adminRoleObserver)
-	if !ok {
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT v.id,d.logical_key,d.title,s.shop_id,v.status,v.review_status,v.source_hash,v.reviewed_hash,
-		v.Disclosure_class,v.external_allowed,v.fencing_epoch,v.chunk_count,v.created_at,v.activated_at
-		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		ORDER BY v.created_at DESC LIMIT 500`, g.Session.TenantID, scope.shops)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load version history")
-		return
-	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id int64
-		var key, title, shop, state, review, hash, disclosure string
-		var reviewed *string
-		var external bool
-		var fence int64
-		var chunks *int32
-		var created time.Time
-		var active *time.Time
-		if rows.Scan(&id, &key, &title, &shop, &state, &review, &hash, &reviewed, &disclosure, &external, &fence, &chunks, &created, &active) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load version history")
-			return
-		}
-		items = append(items, map[string]any{"version_id": strconv.FormatInt(id, 10), "document_id": key, "title": title, "shop_id": shop, "status": state, "review_status": review, "source_hash": hash, "reviewed_hash": reviewed, "disclosure_class": disclosure, "external_allowed": external, "fencing_epoch": fence, "chunk_count": chunks, "created_at": created, "activated_at": active})
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
-}
-
-func (g *Handler) lockVersion(ctx context.Context, id int64, shops []string) (shop, key, hash string, fence int64, state, review string, err error) {
-	err = g.DB.QueryRow(ctx, `SELECT s.shop_id,d.logical_key,v.source_hash,v.fencing_epoch,v.status,v.review_status FROM document_version v
-		JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND v.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`, g.Session.TenantID, id, shops).Scan(&shop, &key, &hash, &fence, &state, &review)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = pgx.ErrNoRows
-	}
-	return
-}
-
-func (g *Handler) confirmVersion(w http.ResponseWriter, r *http.Request, in adminConfirmation, shop, key, hash string, fence int64) bool {
-	if in.TenantID != g.Session.Tenant || in.ShopID != shop || in.DocumentID != key || in.VersionHash != hash || in.PermissionRevision != g.Authority.CurrentRevision() || in.ExpectedFencingEpoch != fence {
-		httpapi.WriteError(w, 409, "confirmation_stale", "confirmation does not match the current authorized resource")
-		return false
-	}
-	if err := g.Authority.Refresh(r.Context()); err != nil {
-		httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
-		return false
-	}
-	return true
-}
-
 func (g *Handler) adminGrantInTx(ctx context.Context, tx pgx.Tx, role, shop string) bool {
 	var allowed bool
 	err := tx.QueryRow(ctx, `SELECT ecr_check_admin_grant($1,$2,$3,$4)`,
 		g.Session.TenantID, g.Session.UserID, role, shop).Scan(&allowed)
 	return err == nil && allowed
-}
-
-func (g *Handler) writeVersionError(w http.ResponseWriter, err error) {
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 404, "not_found", "version not found")
-	} else {
-		httpapi.WriteError(w, 503, "database_unavailable", "version status is unavailable")
-	}
 }
 
 func auditAdmin(ctx context.Context, tx pgx.Tx, tenant, user int64, action, kind, resource, version, hash string, fence int64, reason, result string, metadata map[string]any) error {
