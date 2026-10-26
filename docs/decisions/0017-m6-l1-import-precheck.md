@@ -2,61 +2,33 @@
 
 - 状态：提议，未实现
 - 日期：2026-10-27
-- 范围：P2-M6 的 L1（导入预检）。L2/L3 另文。
-- 前置：`0013` 的必要人工清单、`0015` 的开发期 agent 把关。
+- 范围：P2-M6 的 L1。L2/L3 见 0018/0016；开发期把关见 0015。
 
-## 1. 目标与非目标
+## 1. 目标与边界
 
-**目标**：商家上传资料包时，系统先解析、预检、展示问题与建议值；商家确认后才落库为
-`review_status='pending'` 的版本；未发布前可整批软撤回。预检本身只给建议，不发布、不写
-`reviewed_*`。
+商家上传资料包后，系统解析、预检、展示问题与建议值；商家点击确认后，才通过既有摄取链路落库为
+`review_status='pending'` 的版本；未发布前整批软撤回。预检只给建议，不发布，不写
+`reviewed_by/reviewed_at/reviewed_hash`。
 
-**非目标**：不做 R4 内容差异/披露冲突的完整判定（见第 8 节阻塞项），不做 L2 审核建议，
-不做 L3 巡检，不接任何付费模型；v1 预检是纯规则。
+- **agent 判定**：R1–R4 的 issue/severity/suggestion；不改发布状态。
+- **商家确认**：上传、核对、confirm、revoke。
+- **不做**：L2 建议、L3 巡检、付费模型、R4 的关键词内容差异判定。
 
-## 2. 与现有代码的差异（必须先对齐）
+## 2. 写入方与批次关联（已确认）
 
-当前 `main@6d34818` 没有名为 `importSources` 的函数。实际路径是：
+- `persistParsed` 只提交现有摄取 RPC；`document/document_version/chunk` 仍由 Python 摄取写。
+- 每个批次建一条 `source_manifest` 记录；确认后的版本通过
+  `document_version.source_manifest_id` 关联该批次，不给 `document_version` 加列、不换写入方。
+- 上传阶段若需要保存字节，走 stage-only 摄取调用（Python 写 `source_manifest/source_file`，
+  不建 document/version）；Go 只写 `import_batch/import_item`。stage-only 的 proto 细节在阶段 2
+  落地前单独确认，不改变上面的写入方。
 
-`adminImportPackage`（`go/internal/admin/admin.go:766`）
-→ 校验 multipart、manifest、路径、大小
-→ `queuePackage`（`go/internal/admin/ingestion.go:34`）
-→ `Ingest.Submit`（Python 摄取 RPC）
-→ Python 写 `source_manifest/source_file/document/document_version/chunk`。
+`parseManifest` 为纯函数：校验 manifest schema、路径、文件哈希、R1–R4 所需字段，返回
+`ParsedDocument`；不写库。`persistParsed` 只做确认后的 RPC 提交。
 
-因此：
+## 3. 迁移 0032（三张新表，不改旧表）
 
-- 阶段 1 的 `parseManifest` 只能从 `adminImportPackage` 的校验段提取，不能假设已有
-  `importSources`。
-- 阶段 1 的 `persistParsed` 若按字面“写 document/document_version”，会违反架构红线 3
-  （一张表一个写入方；Python 是摄取写者）。**建议**：`persistParsed` 只把已确认的解析结果
-  提交给现有 `Ingest.Submit`，由 Python 写表；Go 只写 `import_batch/import_item` 与审计。
-- 若确认必须由 Go 直接写 `document/document_version`，需要单独的架构豁免记录；本轮不这样做。
-
-### 2.1 阶段 1 的签名草案
-
-```go
-type ParsedDocument struct {
-    LogicalKey       string
-    Title            string
-    SourceHash       string
-    Content          string
-    EffectiveFrom    *time.Time
-    EffectiveTo      *time.Time
-    DeclaredDisclosure string
-}
-
-// 纯函数：只校验 manifest schema、路径、文件哈希并返回解析结果；不写库。
-func parseManifest(manifest string, files []*ragv1.PackageFile) ([]ParsedDocument, error)
-
-// 确认时调用：把已确认结果交给现有摄取链路；Go 不直接写 document/document_version。
-func (g *Handler) persistParsed(ctx context.Context, parsed []ParsedDocument, batchID int64) error
-```
-
-解析发生在哪一侧仍需确认：若解析留在 Python，`parseManifest` 的返回来自只读解析 RPC，
-纯函数只做校验与规则；若在 Go 解析 DOCX，需要新增依赖并偏离组件职责。
-
-## 3. 迁移 0032（只新增两张表）
+### 3.1 import_batch / import_item
 
 ```sql
 CREATE TABLE import_batch (
@@ -91,38 +63,53 @@ CREATE TABLE import_item (
 CREATE INDEX idx_import_item_batch ON import_item (batch_id, id);
 ```
 
-说明：
+`business_date` 必须显式落库，R2 与复现都不使用 `now()`。`source_hash` 是 R3 的判重键；给定列
+没有它，但不存就无法做可索引的重复检测。preview 阶段 `source_file_id/document_id` 可空，
+confirm 后回填；`reviewed_*` 三列始终不写。
 
-- `business_date` 显式落库，R2 与复现都以它为准，不用 `now()`。
-- `source_hash` 是 R3 的判重键；给定列里没有它，但不存就无法做可索引的重复检测。
-- `source_file_id/document_id` 在 preview 阶段可空：preview 不创建 document；confirm 后回填。
-- 不写 `reviewed_by/reviewed_at/reviewed_hash`；三列只在商家审核动作发生时由既有审核链路写。
+### 3.2 tenant_agent_review（append-only）
 
-## 4. 上传、预览、确认、撤回
+```sql
+CREATE TABLE tenant_agent_review (
+    id             BIGSERIAL PRIMARY KEY,
+    tenant_id      BIGINT NOT NULL REFERENCES tenant(id),
+    enabled        BOOLEAN NOT NULL,
+    policy_version TEXT NOT NULL,
+    actor_user_id  BIGINT NOT NULL REFERENCES app_user(id),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_tenant_agent_review_latest
+    ON tenant_agent_review (tenant_id, created_at DESC, id DESC);
+
+CREATE FUNCTION ecr_tenant_agent_review_append_only() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'tenant_agent_review is append-only' USING ERRCODE='55000';
+END $$;
+CREATE TRIGGER trg_tenant_agent_review_append_only
+    BEFORE UPDATE OR DELETE ON tenant_agent_review
+    FOR EACH ROW EXECUTE FUNCTION ecr_tenant_agent_review_append_only();
+```
+
+当前状态取该 tenant 最新一行；默认 false，历史全部保留。该函数不是 SECURITY DEFINER。
+`merchant_admin` 切换时写 who/when/policy_version，并写 `admin_audit`；不改 `tenant` 表。
+
+## 4. 接口
 
 ### 4.1 创建批次 + 上传
 
-`POST /admin/v1/merchant/imports`，`multipart/form-data`，复用现有约定：
+`POST /admin/v1/merchant/imports`，multipart 复用现有约定：`shop_id`、`manifest`（≤256 KiB）、
+`paths[]`+`files[]`（≤100 个、单文件 ≤8 MiB）、`business_date`。
+`agent_rules_version` 服务端固定 `v1`，客户端不得覆盖。租户开关关闭时返回
+`409 agent_review_disabled`，不创建批次。
 
-- `shop_id`：必须在当前管理员 scope 内；
-- `manifest`：YAML，≤256 KiB；
-- `paths[]` + `files[]`：数量一致，≤100 个，单文件 ≤8 MiB；
-- `business_date`：必填，`YYYY-MM-DD`；
-- `agent_rules_version`：服务端固定 `v1`，客户端不得覆盖。
-
-成功返回 `201`：
-
-```json
-{"batch_id":"123","status":"staged","item_count":20,
- "issues":[{"item_id":"...","issue_code":"missing_source","severity":"block",
-            "snippet":"...","suggested_action":"补充来源后重新上传"}]}
-```
+返回 `201`：`batch_id/status/item_count/issues[]`；issue 固定结构
+`{issue_code,severity,snippet(≤200字),suggested_action}`。
 
 ### 4.2 预览
 
-`GET /admin/v1/merchant/imports/{id}`：返回批次元数据、逐条 staging 片段
-（≤200 字）、预检问题、建议 `disclosure_class/effective_from`、确认所需的前置条件。
-预览不返回 document 链接；此时 document 尚不存在，前端不得伪造跳转。
+`GET /admin/v1/merchant/imports/{id}`：批次元数据、逐条 staging 片段、问题列表、建议
+`disclosure_class/effective_from`。预览不返回 document 链接；document 尚未创建。
 
 ### 4.3 确认
 
@@ -132,69 +119,49 @@ CREATE INDEX idx_import_item_batch ON import_item (batch_id, id);
 {"confirm":true,"reason":"已核对预检问题","expected_item_hashes":["..."]}
 ```
 
-服务端重新校验批次归属、状态、`expected_item_hashes`、租户开关；通过后由商家账号触发
-`persistParsed`，把 staging 内容提交现有摄取链路，版本以 `review_status='pending'` 落库；
-`import_batch.status='confirmed'`，回填 `import_item.document_id`。**agent 不调用此接口，
-也不写 reviewed_*。**
+服务端校验归属、状态、item hashes、租户开关；由商家账号触发 `persistParsed`，
+版本以 `review_status='pending'` 落库，`source_manifest_id` 指向该批次 manifest。
+`import_batch.status='confirmed'`，回填 `document_id`。agent 不调用此接口。
 
 ### 4.4 撤回
 
-`POST /admin/v1/merchant/imports/{id}/revoke`：仅允许 `staged`，或 `confirmed` 且该批所有版本
-仍为 pending、未 active；写入 `status='revoked'`、`revoked_at`，并软删除该批未发布版本。
-已发布版本走既有版本撤回，不用本接口。
+`POST /admin/v1/merchant/imports/{id}/revoke`：允许 `staged`，或 `confirmed` 且该批所有版本仍
+pending、未 active；写 `status='revoked'`、`revoked_at`，软删除未发布版本。
+已发布版本走既有版本撤回。
 
-## 5. 预检规则 v1（纯函数）
-
-输入：解析后的 `ParsedDocument{logical_key,title,source_hash,content,effective_from,effective_to,
-declared_disclosure}` 与 `business_date`。输出固定：
-
-```json
-{"issue_code":"missing_source","severity":"block","snippet":"...","suggested_action":"..."}
-```
+## 5. 预检规则 v1（纯字段）
 
 | 规则 | 条件 | 严重度 | suggested_action |
 | --- | --- | --- | --- |
-| `missing_source` | 标题为空，或正文没有可引用的来源/出处段 | block | 补充来源或标题后重传 |
-| `expired_content` | `effective_from < business_date`，或 `effective_to` 非空且 `< business_date` | block | 更新生效期或替换内容 |
-| `duplicate_import` | 同 tenant/shop 下 `source_hash` 已存在 | warn | 确认是否覆盖，或撤回旧批次 |
+| `missing_source` | 标题为空，或 manifest 没有 `source/license` 等可引用出处 | block | 补来源/标题后重传 |
+| `expired_content` | `effective_from < business_date`，或 `effective_to` 非空且 `< business_date` | block | 更新生效期 |
+| `duplicate_import` | 同 tenant/shop 下 `source_hash` 已存在 | warn | 确认覆盖或撤回旧批次 |
+| `missing_disclosure_basis` | 声明 `external_allowed=true` 或 `disclosure_class=public`，但缺少 `license`、`authorization.reference`、`checked_at` | block | 补授权依据后重传 |
 
-`snippet` 截断到 200 字；`precheck_detail` 存规则版本、输入 hash、命中字段，不存全文。
-纯函数测试：非法 manifest、缺文件、哈希不符三种输入都返回结构化错误，不写库。
+R4 是字段判定，不做关键词/内容差异；关键词版 `disclosure_conflict` 留 v2 定阈值。
+`snippet` 取 manifest 的 `excerpt`，缺失时取文本文件前 200 字；DOCX 必须在 manifest 提供
+`excerpt`，否则 snippet 为空并在 detail 标注 `excerpt_missing`。
 
-## 6. 前端三步向导
+## 6. fixture 与验收
 
-1. **上传**：选文件、填 `business_date`、显示租户开关状态；
-2. **预览**：左侧片段，右侧问题列表（block/warn）、建议披露等级与生效期；
-   按钮旁固定文案“agent 预检仅供参考，发布前请确认”；
-3. **确认**：商家勾选“已核对”，输入原因，提交；成功后进入现有审核队列。
+`tests/fixtures/import-batch-20/` 20 份文档，其中三份分别埋：
 
-撤回入口只在批次详情，展示“仅未发布可撤”。
+1. 缺出处 → `missing_source`；
+2. 生效期已过 → `expired_content`；
+3. 声明对外可见但删掉 `license` → `missing_disclosure_basis`。
 
-## 7. 验收与测试
+集成测试（`V2_INTEGRATION_ENV`）断言：批次创建成功、3 个 issue_code 全部命中、确认后 20 份
+`review_status='pending'` 且 `source_manifest_id` 非空、撤回后全部软删除、
+`admin_audit` 可按 batch id 查到。纯函数测试：非法 manifest、缺文件、哈希不符。
 
-- 单元：`parseManifest` 非法 schema、缺文件、哈希不符；R1/R2/R3 边界。
-- 集成（`V2_INTEGRATION_ENV`）：`tests/fixtures/import-batch-20/` 20 份文档，
-  断言批次创建、3 个 issue_code 命中、确认后 20 份 `review_status='pending'`、
-  撤回后全部软删除且 `admin_audit` 可按 batch id 查到。
-- 回归：现有 `POST /admin/v1/merchant/sources/import` 行为不变；`bash scripts/check.sh` 保持全绿。
+## 7. 前端三步向导
 
-## 8. 阻塞项（需确认后才动代码）
+上传（文件 + business_date + 开关状态）→ 预览（片段、block/warn、建议值；固定文案
+“agent 预检仅供参考，发布前请确认”）→ 确认（勾选已核对、填原因）。撤回只在批次详情，
+显示“仅未发布可撤”。
 
-1. **写入方与 staging 存储**：`persistParsed` 是否接受“提交现有摄取 RPC，由 Python 写
-   document/version”？上传字节放在哪里也需要定：`import_item.source_file_id` 要求先有
-   `source_file`，而该表目前由 Python 写。建议增加只读/暂存 RPC，由 Python 写 staging 的
-   `source_manifest/source_file`，Go 只写 `import_batch/import_item`；若要求 Go 直写，需架构豁免。
-2. **租户开关**：仓库没有 `tenant.agent_review_enabled`，而 0032 限定只新增两张表、不改旧表。
-   可选：0032 增加 `tenant_agent_review` 小表（推荐，默认 false）；或允许给 `tenant` 加列；
-   或退化为每批 opt-in（不符合“租户开关”）。
-3. **第三条 fixture**：R1–R3 无法识别“内部资料标公开”。要么 v1 增加最小
-   `disclosure_conflict` 规则（声明 external 但来源标记 internal/未授权），要么把第三条
-   fixture 改成重复导入（R3）。R4 的“内容差异大”阈值仍留到第二批。
-4. **解析位置**：预检需要正文片段；当前解析在 Python。建议新增只读 `ParsePackage` gRPC
-   （proto 变更、无 DB 写），Go 只跑规则；若坚持 Go 解析 DOCX，会引入新依赖并违反组件职责。
+## 8. 责任与状态
 
-## 9. 责任边界
-
-- **agent 判定**：R1/R2/R3 的 issue、severity、建议值；不发布、不写 reviewed_*。
-- **商家确认**：上传、核对、点击 confirm、点击 revoke；confirm 才产生 pending 版本。
-- **本阶段没跑**：未写迁移、未改 Go/Python/前端、未跑集成测试；只交方案。
+- **agent**：R1–R4 判定、建议值、snippet；不落版本、不写 reviewed_*。
+- **商家**：confirm/revoke；confirm 才产生 pending 版本。
+- **本阶段**：只更新方案，无迁移/接口/前端/集成测试运行。
