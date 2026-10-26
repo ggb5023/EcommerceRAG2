@@ -96,6 +96,8 @@ Answers are judged against delivered evidence, not lexical overlap.
   evidence delivery and applicable citation validity ≥ 95%. Failed, cancelled
   or unreviewed cases cannot pass.
 - The customer channel uses the same thresholds over its 15 cases.
+- 证据抽检必须在 chunk 全文上做关键词匹配，并对 content 重算 sha256 与 sidecar 声明比对；
+  不得基于截断文本判断匹配度。关键词按实际用词检索（文档写“已获批准”时检索“已批准”会漏判）。
 
 ## Rules
 
