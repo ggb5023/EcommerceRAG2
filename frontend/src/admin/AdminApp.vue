@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import KnowledgeImport from './KnowledgeImport.vue'
 import ShopSettings from './ShopSettings.vue'
 import AgentReviewSettings from './AgentReviewSettings.vue'
+import {versionHistoryView} from './version-history'
 import KnowledgePreview from './KnowledgePreview.vue'
 import CustomerTrial from './CustomerTrial.vue'
 import type {PreviewChunk} from './knowledge-preview'
@@ -20,6 +21,7 @@ const router = useRouter()
 const session = ref<AdminSession | null>(null)
 const data = ref<Row[]>([])
 const detail = ref<Detail | null>(null)
+const versionHistory = ref<ReturnType<typeof versionHistoryView>>([])
 const trialShops = ref<Row[]>([])
 let contentEpoch=0
 let permissionPoll:ReturnType<typeof setInterval>
@@ -151,6 +153,15 @@ function handleFailure(caught: unknown, fallback: string) {
   } else if (apiError.status >= 500 || apiError.status === 0) {
     clearRestrictedContent(false)
     unavailable.value = true
+  }
+}
+
+async function loadVersionHistory() {
+  try {
+    const result = await get<ItemResponse>('/admin/v1/merchant/versions')
+    versionHistory.value = versionHistoryView((result.items ?? []) as any[])
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : '版本历史加载失败。'
   }
 }
 
@@ -509,7 +520,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
           </div>
         </section>
 
-        <section v-else-if="page === 'reviews'" class="content-area review-layout">
+        <section v-else-if="page === 'reviews'" class="content-area review-layout"><details class="wide"><summary>历史版本（展开查看状态与发布时间）</summary><button type="button" @click="loadVersionHistory">加载历史版本</button><div class="table-wrap"><table><thead><tr><th>资料</th><th>版本</th><th>状态</th><th>审核</th><th>发布时间</th></tr></thead><tbody><tr v-for="row in versionHistory" :key="row.version_id"><td>{{row.title??row.document_id}}</td><td>{{row.version_id}}</td><td>{{row.status_label}}</td><td>{{row.review_label}}</td><td>{{row.published_at??'—'}}</td></tr></tbody></table></div></details>
           <div class="review-list"><div class="section-head"><div><h2>资料版本</h2><p>审核基于版本哈希和权限版本。</p></div></div><div v-for="row in data" :key="row.version_id" class="version-row" :class="{ selected: detail?.version_id === row.version_id }" role="button" tabindex="0" @click="loadReviewDetail(row)" @keydown.enter="loadReviewDetail(row)"><div class="version-title"><strong>{{ row.title }}</strong><span class="status" :class="`tone-${statusTone(row.status)}`">{{ statusLabel(row.status) }}</span></div><small>{{ row.document_id }} · {{ row.shop_id }} · {{ statusLabel(row.review_status) }}</small><small class="hash">{{ row.source_hash }}</small><div class="version-meta"><span>{{ row.chunk_count ?? 0 }} chunks</span><span>fence {{ row.fencing_epoch }}</span><span>{{ row.disclosure_class }}</span></div></div><p v-if="data.length === 0" class="empty">当前范围没有资料版本。</p></div>
           <div class="review-detail"><template v-if="detail"><div class="detail-head"><div><p class="eyebrow">VERSION {{ detail.version_id }}</p><h2>{{ detail.title }}</h2></div><span class="status" :class="`tone-${statusTone(detail.review_status)}`">{{ statusLabel(detail.review_status) }}</span></div><dl class="detail-grid"><div><dt>租户</dt><dd>{{ session.tenant_id }}</dd></div><div><dt>店铺</dt><dd>{{ detail.shop_id }}</dd></div><div><dt>文档</dt><dd>{{ detail.document_id }}</dd></div><div><dt>状态</dt><dd>{{ statusLabel(detail.status) }}</dd></div><div><dt>披露分类</dt><dd>{{ detail.disclosure_class }}</dd></div><div><dt>Fencing epoch</dt><dd>{{ detail.fencing_epoch }}</dd></div><div class="wide"><dt>Source hash</dt><dd class="hash">{{ detail.source_hash }}</dd></div><div class="wide"><dt>Reviewed hash</dt><dd class="hash">{{ detail.reviewed_hash ?? '尚未审核' }}</dd></div></dl>
               <KnowledgePreview :key="detail.version_id" :chunks="detail.content??[]"/>

@@ -330,7 +330,8 @@ func (g *Handler) adminImportPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var state, manifestHash string
 	var businessDate time.Time
-	if err := g.DB.QueryRow(r.Context(), `SELECT status,manifest_sha256,business_date FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifestHash, &businessDate); err != nil {
+	var revokedAt *time.Time
+	if err := g.DB.QueryRow(r.Context(), `SELECT status,manifest_sha256,business_date,revoked_at FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifestHash, &businessDate, &revokedAt); err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 		return
 	}
@@ -355,7 +356,7 @@ func (g *Handler) adminImportPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"batch_id": strconv.FormatInt(id, 10), "status": state,
 		"shop_id": shop, "business_date": businessDate.Format("2006-01-02"), "manifest_sha256": manifestHash,
-		"items": items, "document_created": false})
+		"items": items, "document_created": false, "revoked_at": revokedAt})
 }
 
 func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +423,7 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,'import.confirm','import_batch',$3,$4,'success',jsonb_build_object('job_id',$5::bigint,'rules_version',$6::text))`,
 		g.Session.TenantID, g.Session.UserID, strconv.FormatInt(id, 10), strings.TrimSpace(in.Reason), queued.JobID, importRulesVersion)
 	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"batch_id": strconv.FormatInt(id, 10), "status": "confirmed",
-		"job_id": strconv.FormatInt(queued.JobID, 10), "item_count": queued.ItemCount})
+		"job_id": strconv.FormatInt(queued.JobID, 10), "command_id": strconv.FormatInt(queued.JobID, 10), "item_count": queued.ItemCount})
 }
 
 func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
