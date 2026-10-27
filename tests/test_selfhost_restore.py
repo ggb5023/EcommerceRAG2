@@ -13,7 +13,7 @@ tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool)
 
 
 def backup(root,name='bootstrap/config.json',kind=tarfile.REGTYPE,mode=0o600):
-    for f in ['ecr_v2.dump','keycloak.dump','budget.sqlite']:(root/f).write_bytes(b'fixture')
+    for f in ['ecr_v2.dump','keycloak.dump']:(root/f).write_bytes(b'fixture')
     with tarfile.open(root/'runtime.tar.gz','w:gz') as tar:
         m=tarfile.TarInfo(name);m.uid=0;m.mode=mode;m.type=kind
         if kind==tarfile.REGTYPE:m.size=7

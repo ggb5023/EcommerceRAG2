@@ -82,7 +82,7 @@ services:
     <<: *python
     command: [-m, app.ai_process]
     env_file: ["${ECR_RUNTIME}/ai.env"]
-    volumes: ["${ECR_RUNTIME}/ai:/run/runtime:ro", "${ECR_RUNTIME}/artifacts:/var/lib/ecr/artifacts", "${ECR_BUDGET_DIR:?provide protected budget directory}:/run/budget"]
+    volumes: ["${ECR_RUNTIME}/ai:/run/runtime:ro", "${ECR_RUNTIME}/artifacts:/var/lib/ecr/artifacts"]
     depends_on:
       postgres: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}

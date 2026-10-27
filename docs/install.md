@@ -19,7 +19,6 @@ sudo python/.venv/bin/python scripts/ops/selfhost.py init \
   --directory /var/lib/ecommerce-rag/merchant \
   --origin https://shop.example.com:8443 \
   --provider-config /etc/ecommerce-rag/providers.env \
-  --budget-cny 20 \
   --tls-cert /etc/ecommerce-rag/web.crt \
   --tls-key /etc/ecommerce-rag/web.key \
   --tls-ca /etc/ecommerce-rag/web-ca.crt
