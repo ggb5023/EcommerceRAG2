@@ -56,7 +56,7 @@ func integrationValues(t *testing.T) map[string]string {
 	return values
 }
 
-func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Pool, string) {
+func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Pool, string, *Handler) {
 	t.Helper()
 	values := integrationValues(t)
 	ctx := context.Background()
@@ -106,7 +106,7 @@ func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Poo
 		Profile: "v2_langchain_mock", SigningKey: key}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	return mux, migration, gateway, alias
+	return mux, migration, gateway, alias, handler
 }
 
 func apiJSON(t *testing.T, api http.Handler, method, path string, body any, expected int) map[string]any {
@@ -159,7 +159,7 @@ func uploadBatch(t *testing.T, api http.Handler, root, manifestText string) map[
 }
 
 func TestImportBatchLifecycleIntegration(t *testing.T) {
-	api, migration, gateway, alias := integrationHandler(t)
+	api, migration, gateway, alias, handler := integrationHandler(t)
 	root := filepath.Join("..", "..", "..", "tests", "fixtures", "import-batch-20")
 	duplicateContent, _ := os.ReadFile(filepath.Join(root, "doc-03.md"))
 	duplicateHash := sha256.Sum256(duplicateContent)
@@ -250,6 +250,31 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 	if suggestionCount != 1 {
 		t.Fatalf("suggestion rows=%d", suggestionCount)
 	}
+	var versionSeven int64
+	if err = migration.QueryRow(context.Background(), `SELECT v.id FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id WHERE d.logical_key='import-doc-07' ORDER BY v.id DESC LIMIT 1`).Scan(&versionSeven); err != nil {
+		t.Fatal(err)
+	}
+	apiJSON(t, api, "POST", fmt.Sprintf("/admin/v1/merchant/versions/%d/suggestion", versionSeven), map[string]any{"business_date": "2026-10-27"}, 201)
+	filtered := apiJSON(t, api, "GET", "/admin/v1/merchant/reviews?suggestion=needs_revision", nil, 200)
+	filterItems, _ := filtered["items"].([]any)
+	if len(filterItems) != 1 {
+		t.Fatalf("suggestion filter items=%v", filterItems)
+	}
+	var operatorTenant int64
+	if err = migration.QueryRow(context.Background(), `SELECT id FROM tenant WHERE external_id=$1`, alias).Scan(&operatorTenant); err != nil {
+		t.Fatal(err)
+	}
+	var operatorID int64
+	if err = migration.QueryRow(context.Background(), `INSERT INTO app_user(tenant_id,external_id,role,shop_ids) VALUES($1,'import-operator','operator',ARRAY['shop-import']) RETURNING id`, operatorTenant).Scan(&operatorID); err != nil {
+		t.Fatal(err)
+	}
+	operatorSession := &auth.Session{TenantID: operatorTenant, UserID: operatorID, Tenant: alias, User: "import-operator", Role: "operator", Shop: "shop-import", AllowedShops: []string{"shop-import"}}
+	operatorHandler := *handler
+	operatorHandler.Session = operatorSession
+	operatorHandler.Authority = &auth.Authority{DB: gateway, Session: operatorSession, SigningKey: handler.SigningKey, RevisionMu: &sync.RWMutex{}}
+	operatorMux := http.NewServeMux()
+	operatorHandler.RegisterRoutes(operatorMux)
+	apiJSON(t, operatorMux, "POST", "/admin/v1/merchant/versions/batch-approve", map[string]any{"items": []map[string]string{{"version_id": strconv.FormatInt(versionFive, 10), "suggestion_id": first["suggestion_id"].(string)}}, "confirm": true, "reason": "operator must be denied"}, 403)
 	six := apiJSON(t, api, "POST", fmt.Sprintf("/admin/v1/merchant/versions/%d/suggestion", versionSix), map[string]any{"business_date": "2026-10-27"}, 201)
 	if _, err = migration.Exec(context.Background(), `UPDATE document_version SET source_hash=repeat('f',64) WHERE id=$1`, versionSix); err != nil {
 		t.Fatal(err)
