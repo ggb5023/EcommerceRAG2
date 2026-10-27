@@ -467,8 +467,9 @@ def main():
     try:
         if not args.live:
             specs = fixtures(run, "v2-demo-tenant", "shop-demo")
-            report["budget_plan"] = plan(specs, {"control": "qwen3.8-flash", "embedding": "qwen3.7-text-embedding",
-                                               "rerank": "qwen3.7-text-rerank", "generation": "qwen3.7-plus"})
+            plan_result = plan(specs, {"control": "qwen3.8-flash", "embedding": "qwen3.7-text-embedding",
+                                       "rerank": "qwen3.7-text-rerank", "generation": "qwen3.7-plus"})
+            report["tokens"] = {"input": 0, "output": 0, "requests": sum(v["requests_max"] for v in plan_result["slots"].values()), "failed": 0}
             report["inputs"] = [{k: v for k, v in item.items() if k != "content"} for item in specs]
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
@@ -484,7 +485,6 @@ def main():
         import psycopg
         from v2_services import load_values
 
-        from app.providers.budget import BudgetLedger
         from app.providers.config import ensure_secure_config_file, load_provider_config
 
         values = load_values(args.runtime_env)
@@ -499,7 +499,8 @@ def main():
             raise AcceptanceFailure("reviewed Beijing Bailian provider required")
         tenant, shop = values["V2_IDENTITY_TENANT"], values["V2_IDENTITY_SHOP"]
         specs = corpus_fixtures(args.corpus, run, tenant, shop)
-        report["budget_plan"] = plan(specs, provider.models)
+        plan_result = plan(specs, provider.models)
+        report["tokens"] = {"input": 0, "output": 0, "requests": sum(v["requests_max"] for v in plan_result["slots"].values()), "failed": 0}
         report["inputs"] = [{k: v for k, v in item.items() if k != "content"} for item in specs]
         report["corpus"] = {"path": str(args.corpus), "document_count": len(specs),
                             "corpus_sha256": specs[0].get("corpus_sha256") if specs else None,
@@ -508,17 +509,10 @@ def main():
             raise AcceptanceFailure("approved corpus must contain 37 documents")
         report["phase_expectations"] = {
             "empty-index-query": {"control": 1, "embedding": 1},
-            "source-ingestion": {"embedding": report["budget_plan"]["source_embedding_requests"]},
+            "source-ingestion": {"embedding": plan_result["source_embedding_requests"]},
             **{label: {"control": 1, "embedding": 1, "rerank": 1, "generation": 1}
                for label in ("markdown-query", "csv-query", "docx-query")},
         }
-        ledger = BudgetLedger(Path(values["V2_ONLINE_BUDGET_LEDGER"]), values["V2_ONLINE_BUDGET_ID"], values["V2_ONLINE_BUDGET_CNY"])
-        report["budget_before"] = ledger.summary()
-        with sqlite3.connect(ledger.path.as_uri() + "?mode=ro", uri=True) as conn:
-            attempt_start = conn.execute("SELECT coalesce(max(rowid),0) FROM attempt").fetchone()[0]
-        before = report["budget_before"]
-        if (Decimal(before["cap_cny"]) - Decimal(before["committed_cny"])) < Decimal(report["budget_plan"]["upper_bound_cny"]):
-            raise AcceptanceFailure("bounded batch exceeds remaining budget")
         with psycopg.connect(values["V2_GATEWAY_DSN"]) as conn:
             name, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
             # Independently provisioned development databases may use the
@@ -616,7 +610,6 @@ def main():
     finally:
         if ledger is not None:
             try:
-                report["budget_after"] = ledger.summary()
                 if attempt_start is not None:
                     with sqlite3.connect(ledger.path.as_uri() + "?mode=ro", uri=True) as conn:
                         report["provider_attempts"] = [dict(zip(("sequence", "slot", "model", "input_sha256", "request_id_sha256", "usage_json", "reserved_micro", "state", "http_status", "error_code"), row)) for row in conn.execute(

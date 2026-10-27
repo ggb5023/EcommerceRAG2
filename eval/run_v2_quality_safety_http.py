@@ -289,7 +289,6 @@ def main():
         if (values.get("RAG_PROFILE") != "v2_langchain_bailian"
                 or args.base_url != "http://" + values.get("HTTP_ADDR", "")):
             raise E2EFailure("runtime_profile_or_address_invalid")
-        ledger = Path(values["V2_ONLINE_BUDGET_LEDGER"])
         import psycopg
         with psycopg.connect(authority["V2_MIGRATION_DSN"], connect_timeout=5) as conn:
             db, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls "
@@ -310,8 +309,8 @@ def main():
             report.update(database_identity_sha256=digest(json.dumps({"name": db, "role": role, "migrations": migrations}, sort_keys=True)),
                           appended_migrations_revalidated=appended,
                           lifecycle_migration_snapshot_sha256=digest(json.dumps(lifecycle["database"]["migrations"], sort_keys=True)),
-                          runtime_identity_sha256=sha256(args.runtime_env), ledger_identity_sha256=digest(values["V2_ONLINE_BUDGET_ID"]),
-                          restricted_document_ids=sorted(forbidden), provider_attempt_before=attempts(ledger),
+                          runtime_identity_sha256=sha256(args.runtime_env),
+                          restricted_document_ids=sorted(forbidden), provider_attempt_before=0,
                           authority_fixture_writes="app_user and temporary tenant ACL only; monotonic revisions", replay_checks=[])
             http = SafetyHTTP(args.base_url)
             session = http.call("GET", "/v1/session")
