@@ -38,7 +38,7 @@ ZRS、版本控制、AES256）。备份前缀 `ecr-backup/`；`drill/` 下的旧
 - `git/<short-sha>.bundle`：`git bundle create --all` 的整仓历史，上传前先 `git bundle verify`。
 - `reports/<ts>/`：仅当显式传 `--with-reports DIR` 时归档；默认留空。
 
-**不备份**：`/etc/ecommerce-rag/` 下的密钥、DSN、`budget.sqlite`、`.local/` 与任何运行时凭据。
+**不备份**：`/etc/ecommerce-rag/` 下的密钥、DSN、`.local/` 与任何运行时凭据。
 如未来需要备份密钥，必须另开任务并先加密、另存密钥。
 
 **清单与幂等**

@@ -108,7 +108,7 @@ def initialize(args):
         write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
     write(runtime/'redis/redis.conf','bind 0.0.0.0\nprotected-mode yes\nappendonly yes\nrequirepass '+secrets.token_hex(32)+'\n',999)
     write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
-    for name in ('bootstrap','gateway','ai','web','artifacts','budget'):
+    for name in ('bootstrap','gateway','ai','web','artifacts'):
         directory = runtime/name
         if not directory.exists():
             continue
@@ -121,7 +121,7 @@ def initialize(args):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('action',choices=['init']);p.add_argument('--directory',type=Path,required=True);p.add_argument('--origin',required=True)
-    p.add_argument('--provider-config',type=Path,required=True);p.add_argument('--budget-cny',required=True)
+    p.add_argument('--provider-config',type=Path,required=True)
     
     p.add_argument('--tls-cert',type=Path);p.add_argument('--tls-key',type=Path);p.add_argument('--tls-ca',type=Path);p.add_argument('--local-certificate',action='store_true')
     p.add_argument('--shop-name',default='我的店铺');p.add_argument('--project',default='ecr-merchant');p.add_argument('--bind',default='127.0.0.1')
