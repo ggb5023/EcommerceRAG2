@@ -448,6 +448,8 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 		type candidate struct {
 			id             int64
 			status, review string
+			hash           string
+			fence          int64
 		}
 		candidates := make([]candidate, 0)
 		itemRows, queryErr := g.DB.Query(r.Context(), `SELECT precheck_detail,source_hash FROM import_item WHERE batch_id=$1`, id)
@@ -465,12 +467,12 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(detailJSON, &detail) != nil {
 				continue
 			}
-			var versionID int64
-			var versionState, reviewState string
-			versionErr := g.DB.QueryRow(r.Context(), `SELECT v.id,v.status,v.review_status FROM document_version v
+			var versionID, fencing int64
+			var versionState, reviewState, versionHash string
+			versionErr := g.DB.QueryRow(r.Context(), `SELECT v.id,v.status,v.review_status,v.source_hash,v.fencing_epoch FROM document_version v
 				JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 				WHERE v.tenant_id=$1 AND d.logical_key=$2 AND v.source_hash=$3
-				ORDER BY v.id DESC LIMIT 1`, g.Session.TenantID, detail.DocumentID, sourceHash).Scan(&versionID, &versionState, &reviewState)
+				ORDER BY v.id DESC LIMIT 1`, g.Session.TenantID, detail.DocumentID, sourceHash).Scan(&versionID, &versionState, &reviewState, &versionHash, &fencing)
 			if versionErr != nil {
 				// The staged version may still be processing; absence is not a published version.
 				continue
@@ -480,13 +482,14 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 				httpapi.WriteError(w, 409, "import_state_conflict", "published versions cannot be revoked with the batch")
 				return
 			}
-			candidates = append(candidates, candidate{id: versionID, status: versionState, review: reviewState})
+			candidates = append(candidates, candidate{id: versionID, status: versionState, review: reviewState, hash: versionHash, fence: fencing})
 		}
 		itemRows.Close()
 		for _, candidate := range candidates {
 			if _, execErr := g.commandClient().Execute(r.Context(), ingestclient.Actor{Tenant: g.Session.TenantID, User: g.Session.UserID, Shop: shop},
 				&ragv1.ExecuteCommandRequest{Action: ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_REVOKE,
-					ResourceId: strconv.FormatInt(candidate.id, 10), Reason: strings.TrimSpace(in.Reason)}); execErr != nil {
+					ResourceId: strconv.FormatInt(candidate.id, 10), ExpectedHash: candidate.hash,
+					ExpectedFencingEpoch: candidate.fence, Reason: strings.TrimSpace(in.Reason)}); execErr != nil {
 				httpapi.WriteError(w, 409, "command_failed", "import versions could not be revoked")
 				return
 			}
