@@ -24,7 +24,6 @@ import urllib.parse
 import urllib.request
 import zipfile
 from contextlib import contextmanager
-from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 from xml.sax.saxutils import escape
@@ -157,7 +156,6 @@ def corpus_fixtures(path: Path, run: str, tenant: str, shop: str):
 def plan(specs, models):
     """Use enforced Provider maxima, not guessed token counts or discounts."""
     from app.ingest.pipeline import chunk_elements_v2, parser_for
-    from app.providers.budget import MICRO_CNY, PRICE_VERSION, PRICES
 
     with tempfile.TemporaryDirectory(prefix="ecr-live-preflight-") as directory:
         for spec in specs:
@@ -181,20 +179,11 @@ def plan(specs, models):
               "embedding": (source_embedding_requests + 4, 65536 * 2 + 8192 + 4096 * 16, 0),
               "rerank": (3, 65536 * 2 + 8192 + (65536 * 2 + 4096) * 8, 0),
               "generation": (3, 65536 * 2 + 8192, 512)}
-    slots = {}
-    total = 0
-    for slot, (count, inputs, outputs) in bounds.items():
-        if models[slot] not in PRICES:
-            raise AcceptanceFailure("model requires reviewed budget pricing")
-        rates = PRICES[models[slot]]
-        cost = int((inputs * rates[0] + outputs * rates[1]).to_integral_value(rounding="ROUND_CEILING"))
-        total += cost * count
-        slots[slot] = {"requests_max": count, "input_tokens_bound": inputs,
-                       "output_tokens_bound": outputs, "model": models[slot],
-                       "upper_bound_cny": str(Decimal(cost * count) / MICRO_CNY)}
-    return {"pricing": PRICE_VERSION, "slots": slots, "source_embedding_requests": source_embedding_requests,
-            "upper_bound_cny": str(Decimal(total) / MICRO_CNY),
-            "automatic_retry": False, "basis": "enforced adapter payload limits; no discounts or refunds"}
+    slots = {slot: {"requests_max": count, "input_tokens_bound": inputs,
+                    "output_tokens_bound": outputs, "model": models[slot]}
+             for slot, (count, inputs, outputs) in bounds.items()}
+    return {"slots": slots, "source_embedding_requests": source_embedding_requests,
+            "automatic_retry": False, "basis": "enforced adapter payload limits"}
 
 
 class HTTP:

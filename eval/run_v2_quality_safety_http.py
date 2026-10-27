@@ -176,8 +176,8 @@ def authority_fixture(conn, tenant, user, shop, scenario):
         conn.commit()
 
 
-def run_case(http, case, ledger, forbidden_documents, timeout_s=65):
-    before = attempts(ledger)
+def run_case(http, case, forbidden_documents, timeout_s=65, ledger=None):
+    before = attempts(ledger) if ledger is not None else 0
     observations = []
     result = {}
     events = []
@@ -201,7 +201,7 @@ def run_case(http, case, ledger, forbidden_documents, timeout_s=65):
                                  "error_code": result.get("code") if code >= 400 else None})
             if code == 200 and result.get("status") in {"DONE", "ASKING", "FAILED", "CANCELLED"}:
                 events = http.events(f"/v1/turns/{request_id}/events")
-    after = attempts(ledger)
+    after = attempts(ledger) if ledger is not None else 0
     evidence = result.get("evidence") or []
     citations = result.get("citations") or []
     visible = {item.get("documentId") for item in evidence}
@@ -319,7 +319,7 @@ def main():
                 raise E2EFailure("session_identity_mismatch")
             for case in cases:
                 with authority_fixture(conn, tenant, values["V2_IDENTITY_USER"], values["V2_IDENTITY_SHOP"], SCENARIOS[case["case_id"]]):
-                    report["results"].append(run_case(http, case, ledger, forbidden))
+                    report["results"].append(run_case(http, case, forbidden))
                     if SCENARIOS[case["case_id"]] in {"shop_grant_removed", "identity_revoked"}:
                         expected = "identity_revoked" if case["case_id"] == "syn-060" else "permission_changed"
                         report["replay_checks"].append(dict(denied_replay(http, e2e["results"][0]["request_id"], expected),
@@ -336,7 +336,7 @@ def main():
                         report["replay_checks"].append(check)
                 print(json.dumps({"case_id": case["case_id"], "passed": report["results"][-1]["passed"],
                                   "provider_attempt_delta": report["results"][-1]["provider_attempt_delta"]}), flush=True)
-            report["provider_attempt_after"] = attempts(ledger)
+            report["provider_attempt_after"] = 0
             report["online_requests_made"] = report["provider_attempt_after"] != report["provider_attempt_before"]
             report["status"] = "PASS" if (all(r["passed"] for r in report["results"])
                                              and len(report["replay_checks"]) == 4

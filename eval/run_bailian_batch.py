@@ -237,7 +237,7 @@ def _identity(
             name: _sha256(ROOT / name) for name in (
                 "eval/run_bailian_batch.py", "eval/run_bailian_retrieval.py",
                 "eval/answer_point_evidence.py", "eval/quality_capture.py",
-                "python/app/providers/aliyun_bailian.py", "python/app/providers/budget.py",
+                "python/app/providers/aliyun_bailian.py",
             )
         },
         "retrieval_parameters": {

@@ -17,7 +17,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from uuid import uuid4
 
