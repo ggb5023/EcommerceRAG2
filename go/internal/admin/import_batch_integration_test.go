@@ -1,3 +1,5 @@
+// Provider profile mock is intentional: this test verifies the import batch
+// flow and database state; real provider capability is proven by the lifecycle run.
 package admin
 
 import (
