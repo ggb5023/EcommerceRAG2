@@ -147,6 +147,7 @@ func (g *Handler) adminBatchApproveSuggestions(w http.ResponseWriter, r *http.Re
 		SuggestionID string `json:"suggestion_id"`
 		OK           bool   `json:"ok"`
 		Code         string `json:"code,omitempty"`
+		Detail       string `json:"detail,omitempty"`
 	}
 	results := make([]itemResult, 0, len(in.Items))
 	for _, item := range in.Items {
@@ -172,17 +173,17 @@ func (g *Handler) adminBatchApproveSuggestions(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		if contentHash != sourceHash {
-			result.Code = "suggestion_stale"
+			result.Code, result.Detail = "suggestion_stale", "content_hash no longer matches the version source_hash"
 			results = append(results, result)
 			continue
 		}
 		if decision != "approved" {
-			result.Code = "suggestion_needs_revision"
+			result.Code, result.Detail = "suggestion_needs_revision", "suggestion is not approved"
 			results = append(results, result)
 			continue
 		}
 		if versionStatus != "ready" || reviewStatus != "pending" {
-			result.Code = "version_not_reviewable"
+			result.Code, result.Detail = "version_not_reviewable", "version is not pending/ready"
 			results = append(results, result)
 			continue
 		}
@@ -192,7 +193,7 @@ func (g *Handler) adminBatchApproveSuggestions(w http.ResponseWriter, r *http.Re
 				Reason: strings.TrimSpace(in.Reason), ReviewDecision: "approved", DisclosureClass: disclosure,
 				ExternalAllowed: disclosure == "external_allowed"})
 		if err != nil {
-			result.Code = "review_command_failed"
+			result.Code, result.Detail = "review_command_failed", "review command was rejected"
 			results = append(results, result)
 			continue
 		}
