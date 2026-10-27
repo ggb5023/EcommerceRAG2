@@ -35,16 +35,20 @@ type UploadedFile struct {
 }
 
 type ParsedDocument struct {
-	DocumentID      string
-	Title           string
-	Format          string
-	Path            string
-	SourceHash      string
-	DisclosureClass string
-	EffectiveFrom   string
-	EffectiveTo     string
-	VersionID       string
-	TempPath        string
+	DocumentID             string
+	Title                  string
+	Format                 string
+	Path                   string
+	SourceHash             string
+	DisclosureClass        string
+	EffectiveFrom          string
+	EffectiveTo            string
+	VersionID              string
+	TempPath               string
+	License                string
+	AuthorizationReference string
+	CheckedAt              string
+	Snippet                string
 }
 
 type ParsedPackage struct {
@@ -57,6 +61,7 @@ type rawManifest struct {
 	SchemaVersion   any              `yaml:"schema_version"`
 	Source          map[string]any   `yaml:"source"`
 	PipelineVersion any              `yaml:"pipeline_version"`
+	License         any              `yaml:"license"`
 	Documents       []map[string]any `yaml:"documents"`
 }
 
@@ -247,11 +252,22 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 			return nil, fmt.Errorf("documents[%d].sha256 does not match the uploaded file", index)
 		}
 		versionDigest := sha256.Sum256([]byte(sourceHash + "\x00" + pipeline + "\x00" + manifestHash))
+		license, _ := manifestString(raw.License)
+		if declaredLicense, present := spec["license"]; present {
+			license, _ = manifestString(declaredLicense)
+		}
+		authorizationReference, checkedAt := "", ""
+		if authorization, ok := spec["authorization"].(map[string]any); ok {
+			authorizationReference, _ = manifestString(authorization["reference"])
+			checkedAt, _ = manifestString(authorization["checked_at"])
+		}
+		snippet, _ := manifestString(spec["excerpt"])
 		parsed = append(parsed, ParsedDocument{
 			DocumentID: documentID, Title: strings.TrimSpace(title), Format: format, Path: relative,
 			SourceHash: sourceHash, DisclosureClass: disclosure, EffectiveFrom: effectiveFrom,
 			EffectiveTo: effectiveTo, VersionID: "v-" + hex.EncodeToString(versionDigest[:])[:20],
-			TempPath: file.TempPath,
+			TempPath: file.TempPath, License: license, AuthorizationReference: authorizationReference,
+			CheckedAt: checkedAt, Snippet: snippet,
 		})
 	}
 	if len(usedPaths) != len(uploaded) {
