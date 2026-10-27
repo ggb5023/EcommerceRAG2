@@ -5,6 +5,7 @@ import KnowledgeImport from './KnowledgeImport.vue'
 import ShopSettings from './ShopSettings.vue'
 import AgentReviewSettings from './AgentReviewSettings.vue'
 import {versionHistoryView} from './version-history'
+import {batchCounts,reasonSummary,suggestionEvidence,suggestionLabel,validBatchReason} from './review-suggestion'
 import KnowledgePreview from './KnowledgePreview.vue'
 import CustomerTrial from './CustomerTrial.vue'
 import type {PreviewChunk} from './knowledge-preview'
@@ -22,6 +23,16 @@ const session = ref<AdminSession | null>(null)
 const data = ref<Row[]>([])
 const detail = ref<Detail | null>(null)
 const versionHistory = ref<ReturnType<typeof versionHistoryView>>([])
+const suggestionFilter = ref('')
+const generateDate = ref(new Date().toISOString().slice(0,10))
+const selectedVersionIds = ref<string[]>([])
+const batchDialog = ref(false)
+const batchReason = ref('')
+const batchBusy = ref(false)
+const batchResults = ref<any[]>([])
+const batchResultCounts = ref({success:0,stale:0,failed:0})
+const suggestionProgress = ref('')
+const suggestionDetails = ref<Record<string,any>>({})
 const trialShops = ref<Row[]>([])
 let contentEpoch=0
 let permissionPoll:ReturnType<typeof setInterval>
@@ -120,7 +131,7 @@ function endpointForPage() {
     case 'shops': return `/admin/v1/merchant/shops${q}`
     case 'sources': return `/admin/v1/merchant/sources${q}`
     case 'ingestion': return `/admin/v1/merchant/ingestion${q}`
-    case 'reviews': return `/admin/v1/merchant/reviews${q}`
+    case 'reviews': return `/admin/v1/merchant/reviews${q}${suggestionFilter.value?`${q?'&':'?'}suggestion=${encodeURIComponent(suggestionFilter.value)}`:''}`
     default: return `/admin/v1/overview${q}`
   }
 }
@@ -154,6 +165,64 @@ function handleFailure(caught: unknown, fallback: string) {
     clearRestrictedContent(false)
     unavailable.value = true
   }
+}
+
+function toggleVersion(versionId: string, checked: boolean) {
+  selectedVersionIds.value = checked ? [...new Set([...selectedVersionIds.value, versionId])] : selectedVersionIds.value.filter(id => id !== versionId)
+}
+function selectedNeedsRevision() {
+  return data.value.filter(row => selectedVersionIds.value.includes(String(row.version_id)) && row.suggestion?.decision === 'needs_revision').length
+}
+async function generateSuggestion(row: Row) {
+  try {
+    await post(`/admin/v1/merchant/versions/${row.version_id}/suggestion`, { business_date: generateDate.value })
+    await loadPage()
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : '建议生成失败。'
+  }
+}
+async function generateSelected() {
+  const rows = data.value.filter(row => selectedVersionIds.value.includes(String(row.version_id)))
+  if (!rows.length) return
+  suggestionProgress.value = `0/${rows.length}`
+  for (let index = 0; index < rows.length; index += 1) {
+    try { await post(`/admin/v1/merchant/versions/${rows[index].version_id}/suggestion`, { business_date: generateDate.value }) }
+    catch { /* per-row failures stay visible via the refreshed list */ }
+    suggestionProgress.value = `${index + 1}/${rows.length}`
+  }
+  await loadPage()
+}
+function openBatchConfirm() {
+  if (!selectedVersionIds.value.length) return
+  batchResults.value = []
+  batchDialog.value = true
+}
+async function submitBatch() {
+  if (!validBatchReason(batchReason.value)) { notice.value = '确认理由需为 10–2000 字。'; return }
+  const items = data.value.filter(row => selectedVersionIds.value.includes(String(row.version_id)) && row.suggestion?.id)
+    .map(row => ({ version_id: String(row.version_id), suggestion_id: String(row.suggestion.id) }))
+  if (!items.length) { notice.value = '选中的版本没有可用的建议。'; return }
+  batchBusy.value = true
+  try {
+    const result = await post<any>('/admin/v1/merchant/versions/batch-approve', { items, confirm: true, reason: batchReason.value.trim() })
+    batchResults.value = result.results ?? []
+    batchResultCounts.value = batchCounts(batchResults.value)
+    batchDialog.value = false
+    batchReason.value = ''
+    selectedVersionIds.value = []
+    await loadPage()
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : '批量确认失败。'
+  } finally { batchBusy.value = false }
+}
+async function loadSuggestionDetail(row: Row) {
+  if (suggestionDetails.value[row.version_id]) return
+  try { suggestionDetails.value[row.version_id] = await get(`/admin/v1/merchant/reviews/${row.version_id}`) }
+  catch { /* detail remains collapsed */ }
+}
+async function regenerateStale(result: any) {
+  const row = data.value.find(item => String(item.version_id) === String(result.version_id))
+  if (row) await generateSuggestion(row)
 }
 
 async function loadVersionHistory() {
@@ -521,8 +590,21 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
         </section>
 
         <section v-else-if="page === 'reviews'" class="content-area review-layout"><details class="wide"><summary>历史版本（展开查看状态与发布时间）</summary><button type="button" @click="loadVersionHistory">加载历史版本</button><div class="table-wrap"><table><thead><tr><th>资料</th><th>版本</th><th>状态</th><th>审核</th><th>发布时间</th></tr></thead><tbody><tr v-for="row in versionHistory" :key="row.version_id"><td>{{row.title??row.document_id}}</td><td>{{row.version_id}}</td><td>{{row.status_label}}</td><td>{{row.review_label}}</td><td>{{row.published_at??'—'}}</td></tr></tbody></table></div></details>
-          <div class="review-list"><div class="section-head"><div><h2>资料版本</h2><p>审核基于版本哈希和权限版本。</p></div></div><div v-for="row in data" :key="row.version_id" class="version-row" :class="{ selected: detail?.version_id === row.version_id }" role="button" tabindex="0" @click="loadReviewDetail(row)" @keydown.enter="loadReviewDetail(row)"><div class="version-title"><strong>{{ row.title }}</strong><span class="status" :class="`tone-${statusTone(row.status)}`">{{ statusLabel(row.status) }}</span></div><small>{{ row.document_id }} · {{ row.shop_id }} · {{ statusLabel(row.review_status) }}</small><small class="hash">{{ row.source_hash }}</small><div class="version-meta"><span>{{ row.chunk_count ?? 0 }} chunks</span><span>fence {{ row.fencing_epoch }}</span><span>{{ row.disclosure_class }}</span></div></div><p v-if="data.length === 0" class="empty">当前范围没有资料版本。</p></div>
+          <div class="review-list"><div class="section-head"><div><h2>资料版本</h2><p>审核基于版本哈希和权限版本；AI 建议仅供参考。</p></div></div>
+            <div class="form-grid"><label>建议筛选<select v-model="suggestionFilter" @change="loadPage"><option value="">全部</option><option value="needs_revision">需修改</option><option value="approved">可审核</option></select></label><label>业务日期<input v-model="generateDate" type="date"></label><button type="button" class="secondary" :disabled="!selectedVersionIds.length" @click="generateSelected">批量生成建议</button><button type="button" class="primary" :disabled="!selectedVersionIds.length" @click="openBatchConfirm">批量确认（{{selectedVersionIds.length}}）</button></div>
+            <p v-if="suggestionProgress" role="status">生成进度：{{suggestionProgress}}</p>
+            <div v-for="row in data" :key="row.version_id" class="version-row" :class="{ selected: detail?.version_id === row.version_id }" role="button" tabindex="0" @click="loadReviewDetail(row)" @keydown.enter="loadReviewDetail(row)">
+              <div class="version-title"><input type="checkbox" :checked="selectedVersionIds.includes(String(row.version_id))" @click.stop @change="toggleVersion(String(row.version_id), ($event.target as HTMLInputElement).checked)"><strong>{{ row.title }}</strong><span class="status" :class="`tone-${statusTone(row.status)}`">{{ statusLabel(row.status) }}</span></div>
+              <small>{{ row.document_id }} · {{ row.shop_id }} · {{ statusLabel(row.review_status) }}</small><small class="hash">{{ row.source_hash }}</small>
+              <div class="version-meta"><span>{{ suggestionLabel(row.suggestion?.decision) }}</span><span v-if="row.suggestion">{{ reasonSummary(row.suggestion.reasons) }}</span><span>{{ row.chunk_count ?? 0 }} chunks</span></div>
+              <details v-if="row.suggestion" @click.stop @toggle="loadSuggestionDetail(row)"><summary>查看 AI 建议详情</summary>
+                <ul><li v-for="reason in row.suggestion.reasons" :key="reason.code">{{ reason.code }}：{{ reason.detail }}</li></ul>
+                <div v-for="chunk in suggestionEvidence(suggestionDetails[row.version_id]?.content, row.suggestion.evidence_chunk_ids)" :key="chunk.chunk_id"><small>{{ chunk.chunk_id }}</small><p>{{ chunk.content }}</p></div>
+              </details>
+              <button type="button" class="text-action" @click.stop="generateSuggestion(row)">生成建议</button>
+            </div><p v-if="data.length === 0" class="empty">当前范围没有资料版本。</p></div>
           <div class="review-detail"><template v-if="detail"><div class="detail-head"><div><p class="eyebrow">VERSION {{ detail.version_id }}</p><h2>{{ detail.title }}</h2></div><span class="status" :class="`tone-${statusTone(detail.review_status)}`">{{ statusLabel(detail.review_status) }}</span></div><dl class="detail-grid"><div><dt>租户</dt><dd>{{ session.tenant_id }}</dd></div><div><dt>店铺</dt><dd>{{ detail.shop_id }}</dd></div><div><dt>文档</dt><dd>{{ detail.document_id }}</dd></div><div><dt>状态</dt><dd>{{ statusLabel(detail.status) }}</dd></div><div><dt>披露分类</dt><dd>{{ detail.disclosure_class }}</dd></div><div><dt>Fencing epoch</dt><dd>{{ detail.fencing_epoch }}</dd></div><div class="wide"><dt>Source hash</dt><dd class="hash">{{ detail.source_hash }}</dd></div><div class="wide"><dt>Reviewed hash</dt><dd class="hash">{{ detail.reviewed_hash ?? '尚未审核' }}</dd></div></dl>
+              <div v-if="detail.suggestion" class="suggestion-block"><h3>AI 建议</h3><p>{{ suggestionLabel(detail.suggestion.decision) }}</p><ul><li v-for="reason in detail.suggestion.reasons" :key="reason.code">{{ reason.code }}：{{ reason.detail }}</li></ul><div v-for="chunk in suggestionEvidence(detail.content, detail.suggestion.evidence_chunk_ids)" :key="chunk.chunk_id"><small>{{ chunk.chunk_id }}</small><p>{{ chunk.content }}</p></div></div>
               <KnowledgePreview :key="detail.version_id" :chunks="detail.content??[]"/>
               <CustomerTrial v-for="shop in trialShops.filter(s=>s.shop_id===detail?.shop_id)" :key="shop.shop_id" :shop="shop"/>
               <div class="high-risk-actions"><button v-if="canReview && detail.status === 'ready' && detail.review_status === 'pending'" class="primary" @click="openDecision(detail, 'approved', 'review')">记录审核结论</button><button v-if="canReview && detail.status === 'ready' && detail.review_status === 'approved'" class="primary" @click="openVersion(detail, 'publish')">发布此版本</button><button v-if="canReview && detail.status === 'superseded' && detail.review_status === 'approved'" class="secondary" @click="openVersion(detail, 'rollback')">回退到此版本</button><button v-if="canReview && detail.status !== 'revoked'" class="danger-button" @click="openVersion(detail, 'revoke')">撤销版本</button></div>
@@ -530,8 +612,15 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
             </template><div v-else class="detail-placeholder"><span class="placeholder-mark">▤</span><strong>选择一个版本查看审核信息</strong><small>只有当前审核授权范围内的版本会出现在列表中。</small></div></div>
         </section>
       </template>
+    <div v-if="batchResults.length" class="content-area"><div class="section-head"><h2>批量确认结果</h2></div><p>成功 {{batchResultCounts.success}} · stale {{batchResultCounts.stale}} · 失败 {{batchResultCounts.failed}}</p><div class="table-wrap"><table><thead><tr><th>版本</th><th>结果</th><th>代码 / 说明</th><th>操作</th></tr></thead><tbody><tr v-for="result in batchResults" :key="result.version_id"><td>{{result.version_id}}</td><td>{{result.ok?'成功':'失败'}}</td><td>{{result.code??'—'}} {{result.detail??''}}</td><td><button v-if="result.code==='suggestion_stale'" type="button" class="text-action" @click="regenerateStale(result)">重新生成建议</button></td></tr></tbody></table></div></div>
     </main>
 
+    <div v-if="batchDialog" class="modal-backdrop" @click.self="batchDialog=false"><section class="modal" role="dialog" aria-label="批量确认审核">
+      <header><div><p class="eyebrow">MERCHANT CONFIRMATION</p><h2>确认审核</h2></div><button type="button" class="icon-action" aria-label="关闭" @click="batchDialog=false">×</button></header>
+      <p>将确认 {{selectedVersionIds.length}} 条，其中需修改建议 {{selectedNeedsRevision()}} 条。agent 建议仅供参考，确认后由你的账号记录为审核人。</p>
+      <label>确认理由<textarea v-model="batchReason" rows="3" maxlength="2000"/></label><p role="status">{{batchReason.trim().length<10?'理由至少 10 字。':''}}</p>
+      <footer><button type="button" class="secondary" @click="batchDialog=false">取消</button><button type="button" class="primary" :disabled="batchBusy||!validBatchReason(batchReason)" @click="submitBatch">确认审核</button></footer>
+    </section></div>
     <div v-if="dialog" class="modal-backdrop" @click.self="closeDialog"><section class="modal" role="dialog" aria-modal="true" :aria-label="dialog === 'version' ? '确认版本操作' : dialog === 'review' ? '确认资料审核' : dialog === 'grant_revoke' ? '确认撤销授权' : dialog === 'job' ? '确认摄取任务操作' : '提交权限决定'"><header><div><p class="eyebrow">{{ ['version','review','grant_revoke','job'].includes(dialog) ? 'HIGH RISK OPERATION' : 'ACCESS DECISION' }}</p><h2>{{ dialog === 'version' ? (dialogTarget?.operation === 'publish' ? '发布资料版本' : dialogTarget?.operation === 'rollback' ? '回退资料版本' : '撤销资料版本') : dialog === 'review' ? '确认资料审核结论' : dialog === 'grant_revoke' ? '撤销管理授权' : dialog === 'job' ? (dialogTarget?.operation === 'cancel' ? '取消摄取任务' : '重试摄取任务') : '处理权限申请' }}</h2></div><button class="icon-action" aria-label="关闭" @click="closeDialog">×</button></header>
       <div v-if="dialog === 'version' && dialogTarget" class="confirmation-facts"><div><span>Tenant</span><strong>{{ session?.tenant_id }}</strong></div><div><span>Shop</span><strong>{{ dialogTarget.shop_id }}</strong></div><div><span>Document / Version</span><strong>{{ dialogTarget.document_id }} / {{ dialogTarget.version_id }}</strong></div><div><span>Version hash</span><strong class="hash">{{ dialogTarget.source_hash }}</strong></div><div><span>披露分类 / 外部资格</span><strong>{{ dialogTarget.disclosure_class }} · {{ dialogTarget.external_allowed ? '可对外检索' : '禁止对外检索' }}</strong></div><div><span>Permission revision</span><strong>{{ session?.permission_revision }}</strong></div><div><span>Fencing epoch</span><strong>{{ dialogTarget.fencing_epoch }}</strong></div><div><span>当前审核权限</span><strong>{{ [...roles].join(', ') }}</strong></div></div>
       <div v-if="dialog === 'review' && dialogTarget" class="confirmation-facts"><div><span>Tenant / Shop</span><strong>{{ session?.tenant_id }} / {{ dialogTarget.shop_id }}</strong></div><div><span>Document / Version</span><strong>{{ dialogTarget.document_id }} / {{ dialogTarget.version_id }}</strong></div><div><span>Source hash</span><strong class="hash">{{ dialogTarget.source_hash }}</strong></div><div><span>Permission revision</span><strong>{{ session?.permission_revision }}</strong></div><div><span>Fencing epoch</span><strong>{{ dialogTarget.fencing_epoch }}</strong></div><div><span>当前审核权限</span><strong>{{ [...roles].join(', ') }}</strong></div></div>

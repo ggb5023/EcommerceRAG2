@@ -44,8 +44,8 @@
 | 23 | 重试摄取 | `POST /admin/v1/merchant/ingestion/{id}/retry` | 摄取任务弹窗 | ✅ | 单条 |  |
 | 24 | 待审列表 | `GET /admin/v1/merchant/reviews` | 版本审核页 | ✅ | 一键 |  |
 | 25 | 版本详情 | `GET /admin/v1/merchant/reviews/{id}` | 版本审核详情 | ✅ | 一键 |  |
-| 26 | 审核版本 | `POST /admin/v1/merchant/versions/{id}/review` | 版本审核弹窗 | ✅ | 单条 | 商家账号 |
-| 27 | 发布版本 | `POST /admin/v1/merchant/versions/{id}/publish` | 版本操作弹窗 | ✅ | 单条 | 商家账号 |
+| 26 | 审核版本 | `POST /admin/v1/merchant/versions/{id}/review` | 版本审核弹窗 + 批量确认 | ✅ | 批量 | 批量确认需商家填理由，agent 不代写 reviewed_* |
+| 27 | 发布版本 | `POST /admin/v1/merchant/versions/{id}/publish` | 版本操作弹窗 | ✅ | 批量 | 发布仍需商家单独点击 |
 | 28 | 回滚版本 | `POST /admin/v1/merchant/versions/{id}/rollback` | 版本操作弹窗 | ✅ | 单条 |  |
 | 29 | 撤回版本 | `POST /admin/v1/merchant/versions/{id}/revoke` | 版本操作弹窗 | ✅ | 单条 |  |
 | 30 | 版本历史 | `GET /admin/v1/merchant/versions` | 版本审核页“历史版本” | ✅ | 一键 | 展开查看状态与发布时间 |
@@ -73,4 +73,4 @@
 ## 结论
 
 当前 31 条 admin 路由 **全部有 UI**；A 级剩余缺口只有未在 31 条内的 P3 供应商选择。
-A 级除 P3 供应商选择外已 100% 可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）。供应商选择按 0019 实现后再验收。
+A 级除 P3 供应商选择外已 100% 可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。
