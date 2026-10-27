@@ -309,13 +309,14 @@ def test_provider_graph_propagates_deadline_and_cancellation_boundary():
             super().__init__(config)
             self.seen = None
 
-        async def control(self, messages, *, response_schema=None, timeout_s=None, cancel_event=None):
+        async def control(self, messages, *, response_schema=None, timeout_s=None, cancel_event=None, tenant_id=None):
             self.seen = (timeout_s, cancel_event)
             return await super().control(
                 messages,
                 response_schema=response_schema,
                 timeout_s=timeout_s,
                 cancel_event=cancel_event,
+                tenant_id=tenant_id,
             )
 
     async def run():

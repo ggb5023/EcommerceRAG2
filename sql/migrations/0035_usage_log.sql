@@ -15,7 +15,8 @@ CREATE TABLE usage_log (
 );
 CREATE INDEX idx_usage_log_tenant_time ON usage_log (tenant_id, created_at DESC);
 GRANT INSERT ON usage_log TO rag_v2_ai;
+GRANT INSERT ON usage_log TO rag_v2_ingest;
 GRANT SELECT ON usage_log TO rag_v2_gateway;
-GRANT USAGE,SELECT ON SEQUENCE usage_log_id_seq TO rag_v2_ai;
+GRANT USAGE,SELECT ON SEQUENCE usage_log_id_seq TO rag_v2_ai,rag_v2_ingest;
 INSERT INTO schema_migration(version,checksum_sha256) VALUES ('0035', :'migration_checksum');
 COMMIT;

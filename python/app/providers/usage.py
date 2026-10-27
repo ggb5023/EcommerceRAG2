@@ -15,8 +15,8 @@ class UsageRecorder:
         self.sink = sink
 
     @classmethod
-    def from_environment(cls):
-        dsn = os.environ.get("V2_USAGE_DSN") or os.environ.get("V2_AI_DSN")
+    def from_environment(cls, *, role: str = "ai"):
+        dsn = os.environ.get("V2_USAGE_DSN") or os.environ.get("V2_AI_DSN" if role == "ai" else "V2_INGEST_DSN")
         raw = os.environ.get("V2_USAGE_PROVIDER_ID")
         try:
             provider_id = int(raw) if raw else None

@@ -95,6 +95,7 @@ def build_provider_chains(
             response_schema=value.get("response_schema"),
             timeout_s=value.get("timeout_s"),
             cancel_event=value.get("cancel_event"),
+            tenant_id=value["tenant_id"],
         )
         return {
             "structured": dict(result.structured),
@@ -146,6 +147,7 @@ def build_provider_chains(
             instruct=value.get("instruct", ""),
             timeout_s=value.get("timeout_s"),
             cancel_event=value.get("cancel_event"),
+            tenant_id=value["tenant_id"],
         )
         return {
             "items": [{"index": item.index, "score": item.score} for item in result.items],
@@ -162,6 +164,7 @@ def build_provider_chains(
             response_schema=value.get("response_schema"),
             timeout_s=value.get("timeout_s"),
             cancel_event=value.get("cancel_event"),
+            tenant_id=value["tenant_id"],
         )
         return {
             "text": result.text,

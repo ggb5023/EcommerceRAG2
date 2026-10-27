@@ -201,6 +201,12 @@ class IngestWorker:
     ) -> None:
         self.database = database
         self.embedding_provider = embedding_provider or load_embedding_provider()
+        # The worker writes embedding usage with its own ingest role; avoid a
+        # second provider-side row in this process.
+        if hasattr(self.embedding_provider, "usage"):
+            self.embedding_provider.usage = None
+        from app.providers.usage import UsageRecorder
+        self.usage = UsageRecorder.from_environment(role="ingest")
         self.artifact_store = artifact_store or load_artifact_store()
         self.poll_seconds = max(0.1, poll_seconds)
         self.lease_seconds = max(5, lease_seconds)
@@ -388,7 +394,7 @@ class IngestWorker:
             )
             if lost_lease.is_set():
                 raise RuntimeError("ingest lease lost")
-            asyncio.run(self._embed(parsed, lost_lease))
+            asyncio.run(self._embed(parsed, claim, lost_lease))
             journal = JournaledStore(self.artifact_store, self.database.conn_string, claim,
                                      connect=self.database.connector)
             for document in parsed["documents"]:
@@ -420,14 +426,14 @@ class IngestWorker:
             stop_renew.set()
             renewer.join(timeout=2)
 
-    async def _embed(self, parsed, cancelled) -> None:
+    async def _embed(self, parsed, claim, cancelled) -> None:
         for document in parsed["documents"]:
             chunks = document["chunks"]
             for start in range(0, len(chunks), 16):
                 batch = chunks[start:start + 16]
                 results = await self.embedding_provider.embed(
                     [c["content"] for c in batch], text_type="document", dimensions=1024,
-                    output_type="dense&sparse", cancel_event=cancelled)
+                    output_type="dense&sparse", cancel_event=cancelled, tenant_id=claim.tenant_id)
                 if len(results) != len(batch):
                     raise ProviderError("invalid_response", "embedding shape mismatch", slot="embedding")
                 for chunk, result in zip(batch, results, strict=True):
@@ -440,6 +446,10 @@ class IngestWorker:
                     if document.get("embedding_model", result.model) != result.model:
                         raise ProviderError("invalid_response", "embedding model changed during ingestion", slot="embedding")
                     document["embedding_model"] = result.model
+                if self.usage is not None and results:
+                    self.usage.record(tenant_id=claim.tenant_id, slot="embedding", model=results[0].model,
+                        input_tokens=sum((r.usage.input_tokens or 0) for r in results if r.usage),
+                        output_tokens=sum((r.usage.output_tokens or 0) for r in results if r.usage))
 
     def _renew_loop(
         self, claim: IngestClaim, stop: threading.Event, lost: threading.Event

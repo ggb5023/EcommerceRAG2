@@ -13,3 +13,18 @@ def test_record_write_failure_is_swallowed_and_warned(caplog):
     with caplog.at_level(logging.WARNING):
         assert recorder.record(tenant_id=1,slot="embedding",model="m") is False
     assert "usage_log write failed" in caplog.text
+
+def test_provider_double_write_rows_keep_tokens_and_null_failures():
+    from types import SimpleNamespace
+    from app.providers.aliyun_bailian import AlibabaBailianProvider
+    from app.providers.contracts import ProviderUsage
+    rows=[]
+    provider=object.__new__(AlibabaBailianProvider)
+    provider.config=SimpleNamespace(models={"control":"m"})
+    from app.providers.usage import UsageRecorder
+    provider.usage=UsageRecorder(sink=rows.append)
+    provider._record_usage("control",ProviderUsage(10,2,12),200,None,7)
+    provider._record_usage("control",None,500,"upstream_error",7)
+    assert len(rows)==2
+    assert rows[0]["input_tokens"]==10 and rows[0]["output_tokens"]==2 and rows[0]["tenant_id"]==7
+    assert rows[1]["input_tokens"] is None and rows[1]["output_tokens"] is None and rows[1]["error_code"]=="upstream_error"
