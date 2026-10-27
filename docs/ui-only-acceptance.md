@@ -1,6 +1,7 @@
 # 仅 WebUI 验收标准
 
-阶段 2 验收完成：单元/集成/浏览器三层证据齐备；A 级 31/31，唯一缺口为 P3 模型供应商选择（0019 提议）。
+阶段 2 验收完成：单元/集成/浏览器三层证据齐备，**A 级 33/34**。
+`GET /admin/v1/merchant/usage` 尚无 UI，随 0021 的 token 用量界面一并实现。矩阵登记 31 条，另有 `batch-approve`、`suggestion` 两条前端已在用、本次补登记。
 
 - 日期：2026-10-27
 - 目标：商家部署完成后，A 级日常功能必须能只通过 WebUI 完成；B 级部署运维允许 CLI，但须一条命令；C 级开发/评测不属商家范围。
@@ -50,19 +51,24 @@
 | 29 | 撤回版本 | `POST /admin/v1/merchant/versions/{id}/revoke` | 版本操作弹窗 | ✅ | 单条 |  |
 | 30 | 版本历史 | `GET /admin/v1/merchant/versions` | 版本审核页“历史版本” | ✅ | 一键 | 展开查看状态与发布时间 |
 | 31 | 命令结果 | `GET /admin/v1/merchant/commands/{id}` | 导入向导任务状态轮询 | ✅ | 一键 | 显示处理中/完成/失败原因 |
+| 32 | 批量确认 | `POST /admin/v1/merchant/versions/batch-approve` | 版本审核页「批量确认」 | ✅ | 批量 | 前端已在用（`AdminApp.vue:207`），此前漏登记 |
+| 33 | 生成审核建议 | `POST /admin/v1/merchant/versions/{id}/suggestion` | 版本审核页「生成建议」 | ✅ | 单条 | 前端已在用（`AdminApp.vue:178/189`），此前漏登记 |
+| 34 | 用量查看 | `GET /admin/v1/merchant/usage` | 无 | ❌ | — | 待实现；随 0021 的 token 用量界面一并落地 |
 | — | 顾客入口 | `/v1/customer/*` | `/shop/:slug` | ✅ | 单条 | 顾客问答、引用与转人工入口 |
 
 ## 缺口清单（按优先级）
 
-1. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；这是当前唯一未关闭的 A 级相关缺口。未在 31 条 admin 路由内。
+1. **用量查看（`GET /admin/v1/merchant/usage`）**：无 UI，随 0021 的 token 用量界面实现；这是当前唯一 A 级未实现项。
+2. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；未在 34 条 admin 路由内。
 
-除该 P3 项外，31 条 admin 路由均有 UI 承载；批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
+除上述两项外，**34 条 admin 路由中 33 条已有 UI 承载**（`batch-approve` 与 `suggestion` 属矩阵补登记，前端早已在用）；
+批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
 
 ## B 级（允许 CLI，一条命令）
 
 - 安装/迁移/启动：`docker compose` 或 `bash scripts/dev/v2-local-services.sh --env ...`；
 - 备份/恢复：`scripts/ops/oss-backup.sh` / `oss-restore.sh`；
-- Provider 与预算配置：`/etc/ecommerce-rag/providers.env` 与 `provider-budget.py`。
+- Provider 与用量配置：`/etc/ecommerce-rag/providers.env` 与 `scripts/dev/provider-usage.py`（0021 之后不再有货币账本）。
   这些不要求 WebUI；若在 WebUI 暴露，必须走 0019 的密钥与审计规则。
 
 ## C 级（不属商家）
