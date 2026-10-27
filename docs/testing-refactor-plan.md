@@ -2,7 +2,7 @@
 
 - 版本：**v2**（2026-10-27 修订）
 - 仓库：`/data/app/EcommerceRAG2`
-- 分支：`m8-tenant-providers` @ `2055561`（领先 main 9 个提交，工作区干净；main == origin/main == `4be2611`）
+- 分支：`main` @ `5baa01c`（m8 已按 `--no-ff` 合入 main，起点标签 `refactor-start`；`main == origin/main`，工作区干净）
 - 执行方式：按批次推进，每批次单独提交、单独跑门禁，**停下汇报等确认**
 
 ### 修订记录

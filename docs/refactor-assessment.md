@@ -2,7 +2,18 @@
 
 版本：2026-10-27b
 适用仓库：`/data/app/EcommerceRAG2`
-当前基线：`main == origin/main == 4be2611`；进行中分支 `m8-tenant-providers`（HEAD `2055561`，领先 main 9 个提交，工作区干净）
+
+> `/data/app/EcommerceRAG2` 是写作时的部署路径，可用任意路径。
+
+**起点状态（合并后实测，2026-10-27）**
+
+| 项 | 值 |
+| --- | --- |
+| `main` == `origin/main` | `5baa01c` —— `merge: M8 usage log, tenant providers and the refactor plan set` |
+| 起点标签 | `refactor-start` → `5baa01c`（已推送 `origin`） |
+| `m8-tenant-providers` | 已合入 `main`（`--no-ff` 保留边界），12 个提交全部到位 |
+| 工作区 | 干净 |
+| 合并前基线 | `main == origin/main == 4be2611`；m8 HEAD `aa0e123`，领先 main 12 个提交 |
 
 ## 0.0 权威归属（四份文档谁说了算）
 

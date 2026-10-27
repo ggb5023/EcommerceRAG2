@@ -27,8 +27,8 @@
 ## 1. 当前仓库状态（执行前必须确认）
 
 ```
-HEAD = 2055561 (m8-tenant-providers，领先 main 9 个提交)
-main == origin/main = 4be2611
+HEAD = main @ 5baa01c（m8 已按 --no-ff 合入 main，起点标签 refactor-start）
+main == origin/main = 5baa01c
 工作区干净（git status 无输出）
 前端运行依赖：vue + vue-router（本方案要新增 6 个库，见第 4 节，需先落 0024 决策）
 前端开发依赖：vite / vitest / playwright / typescript / vue-tsc
