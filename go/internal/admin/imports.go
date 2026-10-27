@@ -478,7 +478,7 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 				// The staged version may still be processing; absence is not a published version.
 				continue
 			}
-			if versionState == "active" || reviewState == "approved" {
+			if versionState == "active" {
 				itemRows.Close()
 				httpapi.WriteError(w, 409, "import_state_conflict", "published versions cannot be revoked with the batch")
 				return
