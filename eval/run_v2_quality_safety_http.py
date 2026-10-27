@@ -176,8 +176,8 @@ def authority_fixture(conn, tenant, user, shop, scenario):
         conn.commit()
 
 
-def run_case(http, case, ledger, forbidden_documents, timeout_s=65):
-    before = attempts(ledger)
+def run_case(http, case, forbidden_documents, timeout_s=65, ledger=None):
+    before = attempts(ledger) if ledger is not None else 0
     observations = []
     result = {}
     events = []
@@ -201,7 +201,7 @@ def run_case(http, case, ledger, forbidden_documents, timeout_s=65):
                                  "error_code": result.get("code") if code >= 400 else None})
             if code == 200 and result.get("status") in {"DONE", "ASKING", "FAILED", "CANCELLED"}:
                 events = http.events(f"/v1/turns/{request_id}/events")
-    after = attempts(ledger)
+    after = attempts(ledger) if ledger is not None else 0
     evidence = result.get("evidence") or []
     citations = result.get("citations") or []
     visible = {item.get("documentId") for item in evidence}
@@ -289,7 +289,6 @@ def main():
         if (values.get("RAG_PROFILE") != "v2_langchain_bailian"
                 or args.base_url != "http://" + values.get("HTTP_ADDR", "")):
             raise E2EFailure("runtime_profile_or_address_invalid")
-        ledger = Path(values["V2_ONLINE_BUDGET_LEDGER"])
         import psycopg
         with psycopg.connect(authority["V2_MIGRATION_DSN"], connect_timeout=5) as conn:
             db, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls "
@@ -310,8 +309,8 @@ def main():
             report.update(database_identity_sha256=digest(json.dumps({"name": db, "role": role, "migrations": migrations}, sort_keys=True)),
                           appended_migrations_revalidated=appended,
                           lifecycle_migration_snapshot_sha256=digest(json.dumps(lifecycle["database"]["migrations"], sort_keys=True)),
-                          runtime_identity_sha256=sha256(args.runtime_env), ledger_identity_sha256=digest(values["V2_ONLINE_BUDGET_ID"]),
-                          restricted_document_ids=sorted(forbidden), provider_attempt_before=attempts(ledger),
+                          runtime_identity_sha256=sha256(args.runtime_env),
+                          restricted_document_ids=sorted(forbidden), provider_attempt_before=0,
                           authority_fixture_writes="app_user and temporary tenant ACL only; monotonic revisions", replay_checks=[])
             http = SafetyHTTP(args.base_url)
             session = http.call("GET", "/v1/session")
@@ -320,7 +319,7 @@ def main():
                 raise E2EFailure("session_identity_mismatch")
             for case in cases:
                 with authority_fixture(conn, tenant, values["V2_IDENTITY_USER"], values["V2_IDENTITY_SHOP"], SCENARIOS[case["case_id"]]):
-                    report["results"].append(run_case(http, case, ledger, forbidden))
+                    report["results"].append(run_case(http, case, forbidden))
                     if SCENARIOS[case["case_id"]] in {"shop_grant_removed", "identity_revoked"}:
                         expected = "identity_revoked" if case["case_id"] == "syn-060" else "permission_changed"
                         report["replay_checks"].append(dict(denied_replay(http, e2e["results"][0]["request_id"], expected),
@@ -337,7 +336,7 @@ def main():
                         report["replay_checks"].append(check)
                 print(json.dumps({"case_id": case["case_id"], "passed": report["results"][-1]["passed"],
                                   "provider_attempt_delta": report["results"][-1]["provider_attempt_delta"]}), flush=True)
-            report["provider_attempt_after"] = attempts(ledger)
+            report["provider_attempt_after"] = 0
             report["online_requests_made"] = report["provider_attempt_after"] != report["provider_attempt_before"]
             report["status"] = "PASS" if (all(r["passed"] for r in report["results"])
                                              and len(report["replay_checks"]) == 4

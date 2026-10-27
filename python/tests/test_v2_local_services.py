@@ -78,29 +78,6 @@ def test_invalid_configuration_fails_before_any_service_starts(tmp_path, invalid
         services.configure(values(tmp_path) | invalid)
 
 
-@pytest.mark.parametrize("raw_budget", ["", "0", "-1", "NaN", "Infinity", "not-a-number"])
-def test_online_profile_rejects_invalid_budget(tmp_path, raw_budget):
-    base = values(tmp_path) | {"RAG_PROFILE": "v2_langchain_bailian"}
-    with pytest.raises(services.StartupError, match="budget"):
-        services.configure(base | {"V2_ONLINE_BUDGET_CNY": raw_budget})
-
-
-def test_online_profile_accepts_positive_finite_budget(tmp_path):
-    from app.providers.budget import initialize_ledger
-    tmp_path.chmod(0o700)
-    path = tmp_path / "budget.sqlite"
-    initialize_ledger(path, "unit-test", "12.50")
-    base = values(tmp_path) | {"RAG_PROFILE": "v2_langchain_bailian"}
-    configured = services.configure(base | {"V2_ONLINE_BUDGET_CNY": "12.50",
-                                            "V2_ONLINE_BUDGET_LEDGER": str(path),
-                                            "V2_ONLINE_BUDGET_ID": "unit-test"})
-    assert configured["V2_ONLINE_BUDGET_CNY"] == "12.50"
-    assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_CNY"] == "12.50"
-    assert "V2_ONLINE_BUDGET_CNY" not in services.service_environment("gateway", configured)
-    assert services.service_environment("ai", configured)["V2_ONLINE_BUDGET_LEDGER"] == str(path)
-    assert "V2_ONLINE_BUDGET_LEDGER" not in services.service_environment("gateway", configured)
-
-
 def test_runtime_file_permissions_symlinks_and_duplicate_keys_are_rejected(tmp_path):
     path = tmp_path / "runtime.env"
     path.write_text("APP_ENV=test\nAPP_ENV=development\n")

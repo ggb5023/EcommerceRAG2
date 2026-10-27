@@ -21,7 +21,7 @@ ROOT=Path(__file__).resolve().parents[2]
 
 def checked_archive(backup):
     manifest=json.loads((backup/'manifest.json').read_text())
-    if set(manifest['hashes'])!={'ecr_v2.dump','keycloak.dump','runtime.tar.gz','budget.sqlite'}:
+    if set(manifest['hashes'])!={'ecr_v2.dump','keycloak.dump','runtime.tar.gz'}:
         raise ValueError('invalid backup inventory')
     for name,checksum in manifest['hashes'].items():
         path=backup/name
@@ -52,13 +52,8 @@ def main():
         # Inventory was checked before any mutation; only regular restricted
         # files/directories can be extracted, retaining fixed service ownership.
         tar.extractall(dest,filter='fully_trusted')
-    (dest/'budget').mkdir(mode=0o700)
-    worker=dict(line.split('=',1) for line in (dest/'worker.env').read_text().splitlines())
-    ledger=dest/'budget'/Path(worker['V2_ONLINE_BUDGET_LEDGER']).name
-    with os.fdopen(os.open(ledger,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'wb') as f:f.write((backup/'budget.sqlite').read_bytes())
-    os.chown(ledger,65532,65532);os.chown(dest/'budget',65532,65532)
     env=dict(line.split('=',1) for line in (dest/'compose.env').read_text().splitlines())
-    env.update(ECR_RUNTIME=str(dest),ECR_BUDGET_DIR=str(dest/'budget'),ECR_PROJECT=a.project)
+    env.update(ECR_RUNTIME=str(dest),ECR_PROJECT=a.project)
     (dest/'compose.env').write_text('\n'.join(k+'='+v for k,v in env.items())+'\n')
     cmd=['docker','compose','--env-file',str(dest/'compose.env'),'-f',str(ROOT/'docker/selfhost/compose.yml')]
     if a.postgres_image:

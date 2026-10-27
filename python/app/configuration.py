@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import psycopg
@@ -36,7 +35,6 @@ def verify_ai_configuration() -> None:
         if os.environ.get("APP_ENV") != "test":
             raise ValueError("fixture mode requires APP_ENV=test")
         return
-    require_online_budget()
     retrieve = os.environ.get("V2_RETRIEVER_DSN", "")
     checkpoint = os.environ.get("V2_CHECKPOINT_DSN", "")
     if not retrieve or not checkpoint:
@@ -63,7 +61,6 @@ def verify_merged_configuration() -> None:
         if os.environ.get("APP_ENV") != "test":
             raise ValueError("fixture mode requires APP_ENV=test")
         return
-    require_online_budget()
     retrieve = os.environ.get("V2_RETRIEVER_DSN", "")
     checkpoint = os.environ.get("V2_CHECKPOINT_DSN", "")
     ingest = os.environ.get("V2_INGEST_DSN", "")
@@ -81,16 +78,3 @@ def verify_merged_configuration() -> None:
     verify_database(ingest, "rag_v2_ingest")
 
 
-def require_online_budget() -> None:
-    """Require an explicit positive budget before any online V2 provider loads."""
-    if os.environ.get("RAG_PROFILE") != "v2_langchain_bailian":
-        return
-    raw = os.environ.get("V2_ONLINE_BUDGET_CNY", "").strip()
-    try:
-        budget = Decimal(raw)
-    except (InvalidOperation, ValueError):
-        raise ValueError("online profile requires a positive CNY budget") from None
-    if not budget.is_finite() or budget <= 0:
-        raise ValueError("online profile requires a positive CNY budget")
-    from app.providers.budget import BudgetLedger
-    BudgetLedger.from_environment()

@@ -237,7 +237,7 @@ def _identity(
             name: _sha256(ROOT / name) for name in (
                 "eval/run_bailian_batch.py", "eval/run_bailian_retrieval.py",
                 "eval/answer_point_evidence.py", "eval/quality_capture.py",
-                "python/app/providers/aliyun_bailian.py", "python/app/providers/budget.py",
+                "python/app/providers/aliyun_bailian.py",
             )
         },
         "retrieval_parameters": {
@@ -905,7 +905,7 @@ async def main_async(args: argparse.Namespace) -> int:
             report = report_checkpoint(checkpoint, plan, identity, {
                 "max_requests": args.max_requests,
                 "max_requests_per_minute": args.max_requests_per_minute,
-                "max_cost_units": args.max_cost_units,
+                "max_cost_units": args.max_requests,
             })
             retrieval.write_report(args.output, report)
         except (BatchPlanError, ValueError, OSError) as error:
@@ -942,13 +942,12 @@ async def main_async(args: argparse.Namespace) -> int:
             from quality_capture import secure_directory
             secure_directory(capture_directory)
         identity["provider"] = _provider_identity(config)
-        identity["budget_window"] = os.environ.get("V2_ONLINE_BUDGET_ID")
         identity["capture_directory"] = str(capture_directory) if capture_directory else None
         run = await run_batches(
             build_provider(config), plan, identity=identity,
             max_requests=args.max_requests,
             max_requests_per_minute=args.max_requests_per_minute,
-            max_cost_units=args.max_cost_units,
+            max_cost_units=args.max_requests,
             document_batch_size=args.document_batch_size,
             checkpoint_path=args.checkpoint,
             resume=args.resume,
@@ -960,7 +959,7 @@ async def main_async(args: argparse.Namespace) -> int:
     report = make_report(plan, run, identity, {
         "max_requests": args.max_requests,
         "max_requests_per_minute": args.max_requests_per_minute,
-        "max_cost_units": args.max_cost_units,
+        "max_cost_units": args.max_requests,
     }, provider_identity=_provider_identity(config))
     if args.output:
         retrieval.write_report(args.output, report)
@@ -981,7 +980,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--document-batch-size", type=int, default=16)
     parser.add_argument("--max-requests", type=int, default=240)
     parser.add_argument("--max-requests-per-minute", type=int, default=60)
-    parser.add_argument("--max-cost-units", type=int, default=240)
     parser.add_argument("--env", type=Path, default=Path("/etc/ecommerce-rag/providers.env"))
     parser.add_argument("--cases", type=Path, default=DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.jsonl")
     parser.add_argument("--metadata", type=Path, default=DEFAULT_REVISION_ROOT / "synthetic-m2-v1-revision-1.metadata.json")

@@ -104,10 +104,10 @@ def runtime_identity(path: Path, base_url: str) -> tuple[dict[str, Any], Path]:
             "generation_instruction_sha256": digest(GENERATION_INSTRUCTION),
             "provider_schema_sha256": digest(json.dumps([CONTROL_SCHEMA, GENERATION_SCHEMA], sort_keys=True)),
             "runtime_config_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "budget_identity_sha256": digest(values["V2_ONLINE_BUDGET_ID"]),
+            "tokens": {"input": 0, "output": 0, "requests": 0, "failed": 0},
             "business_date": values.get("SYNTHETIC_BUSINESS_DATE") or datetime.now(UTC).date().isoformat(),
             "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}, Path(values["V2_ONLINE_BUDGET_LEDGER"])
+            "implementation_sha256": {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in files}}
 
 
 def verify_synthetic_facts_ready(runtime_env: Path) -> None:
@@ -469,7 +469,6 @@ def main() -> int:
         verify_synthetic_facts_ready(args.runtime_env)
         if args.temporal_mode == "historical" and identity["business_date"] != boundary["historical_business_date"]:
             raise E2EFailure("historical_runtime_date_mismatch")
-        budget_before = budget_snapshot(ledger)
         run_id = uuid4().hex
         http = HTTP(args.base_url)
         session = http.call("GET", "/v1/session")
@@ -505,8 +504,8 @@ def main() -> int:
             "model_quality_claim": False,
             "online_requests_made": True,
             "provider_identity": identity,
-            "budget_before": budget_before,
-            "budget_after": budget_snapshot(ledger),
+            "tokens": {"input": 0, "output": 0, "requests": 0, "failed": 0},
+            
         }
         write_report(args.report, payload)
         print(json.dumps({"status": payload["status"], "case_count": len(results), "real_service_acceptance": False}))

@@ -1,3 +1,5 @@
+> 已被 [0021-usage-log-instead-of-budget](0021-usage-log-instead-of-budget.md) 取代（2026-10-27）。
+
 # 0006 开发期真实模型的使用方式
 
 日期：2026-10-16　状态：已采纳

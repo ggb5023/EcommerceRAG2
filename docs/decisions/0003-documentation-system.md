@@ -35,7 +35,7 @@
 | [0003](0003-documentation-system.md) | 文档体系：少而清楚，一条规则只写一处 | 已采纳 |
 | [0004](0004-retained-invariants.md) | 重构中必须保留的 11 条设计约束 | 已采纳 |
 | [0005](0005-copyable-reply-policy.md) | 可复制回复的边界：只给建议，不代发 | 已采纳 |
-| [0006](0006-provider-usage.md) | 模型用量与共享预算账本 | 已采纳 |
+| [0006](0006-provider-usage.md) | 模型用量与共享预算账本（已被 0021 取代） | 已取代 |
 | [0007](0007-offline-document-parsing.md) | 文档解析能力保持离线、不接入默认摄取链路 | 已采纳 |
 | [0008](0008-local-accounts-and-session-revocation.md) | 本地账号：argon2id、可吊销会话、Keycloak 降为可选 | 提议 |
 | [0009](0009-customer-cross-device.md) | 顾客跨设备历史：会话凭据码 vs 邮箱注册（仅比较，未实现） | 提议 |
@@ -46,10 +46,11 @@
 | [0014](0014-split-gate-reasons.md) | 质量门区分 failed 与 not_measured | 已采纳 |
 | [0015](0015-agent-review-owns-quality-in-development.md) | 开发阶段由 agent 评审承担质量门槛 | 已采纳 |
 | [0016](0016-content-inspection.md) | 内容巡检（L3）设计草案 | 提议 |
-| [0017](0017-m6-l1-import-precheck.md) | M6-L1 导入预检：数据模型与接口 | 提议 |
-| [0018](0018-m6-l2-review-suggestion.md) | M6-L2 审核建议：判据与接口 | 提议 |
-| [0019](0019-tenant-model-providers.md) | 商家自选模型供应商 | 提议 |
+| [0017](0017-m6-l1-import-precheck.md) | M6-L1 导入预检：数据模型与接口 | 已采纳 |
+| [0018](0018-m6-l2-review-suggestion.md) | M6-L2 审核建议：判据与接口 | 已采纳 |
+| [0019](0019-tenant-model-providers.md) | 商家自选模型供应商 | 已采纳（部分实现：P3-1 已落地，P3-3/4 待做） |
 | [0020](0020-ui-only-acceptance.md) | 仅 WebUI 商家验收标准 | 已采纳 |
+| [0021](0021-usage-log-instead-of-budget.md) | 用 token 用量替代货币账本 | 已采纳 |
 
 ## 后果
 

@@ -21,8 +21,7 @@ def test_plan_parses_all_formats_without_network_and_is_reproducible(monkeypatch
     assert report["status"] == "PLAN" and report["real_service_acceptance"] is False
     assert {item["format"] for item in report["inputs"]} == {"markdown", "csv", "docx"}
     assert all(item["preflight"]["chunks"] > 0 for item in report["inputs"])
-    from decimal import Decimal
-    assert Decimal(report["budget_plan"]["upper_bound_cny"]) < 6
+    assert set(report["tokens"]) == {"input", "output", "requests", "failed"}
     left = runner.fixtures("first", "tenant", "shop")
     right = runner.fixtures("second", "tenant", "shop")
     assert [item["sha256"] for item in left] == [item["sha256"] for item in right]

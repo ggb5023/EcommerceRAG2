@@ -23,7 +23,6 @@ from typing import Any, Protocol
 
 from app.facts import extract_order_entities, infer_fact_tools
 
-from .budget import BudgetLedger
 from .config import ProviderConfig
 from .contracts import (
     ControlResult,
@@ -35,6 +34,7 @@ from .contracts import (
     RerankResult,
     SparseWeight,
 )
+from .usage import UsageRecorder
 
 ALLOWED_FINISH_REASONS = frozenset(
     {"stop", "length", "tool_calls", "content_filter", "end_turn", "eos", "completed"}
@@ -433,7 +433,7 @@ class AlibabaBailianProvider:
 
     def __init__(
         self, config: ProviderConfig, transport: HTTPTransport | None = None,
-        *, test_mode: bool = False,
+        *, test_mode: bool = False, record_usage: bool = True,
     ) -> None:
         if config.profile != "aliyun-bailian":
             raise ValueError(
@@ -445,20 +445,26 @@ class AlibabaBailianProvider:
                           or not self.config.endpoint.endswith(".test")):
             raise ProviderError("config_blocked", "test mode requires an offline transport and test endpoint")
         # A real transport cannot be constructed without the durable ledger.
-        # Injected transports are explicitly marked test-only by unit tests.
-        self.ledger = None if test_mode else BudgetLedger.from_environment()
+        self.usage = UsageRecorder.from_environment(role="ai") if record_usage and not test_mode else None
+
+    def _record_usage(self, slot, usage, http_status, error_code, tenant_id):
+        if self.usage is not None:
+            self.usage.record(tenant_id=tenant_id, slot=slot, model=self.config.models[slot],
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                http_status=http_status, error_code=error_code)
 
     def _url(self, path: str) -> str:
         return self.config.endpoint.rstrip("/") + "/" + path.lstrip("/")
 
-    async def _call(self, slot, payload, *, timeout_s, cancel_event):
+    async def _call(self, slot, payload, *, timeout_s, cancel_event, tenant_id):
         """One bounded retry for transient transport failures; every attempt is charged."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + (timeout_s or self.config.timeout_s)
         for attempt in range(2):
             if _cancelled(cancel_event):
                 raise ProviderError("cancelled", "provider request cancelled", slot=slot)
-            remaining = deadline - loop.time()
+            remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise ProviderError("timeout", "provider deadline expired", slot=slot)
             try:
@@ -467,10 +473,10 @@ class AlibabaBailianProvider:
                 # unreachable. Reserve part of the same deadline for recovery;
                 # the second attempt gets only what actually remains.
                 attempt_timeout = remaining if attempt else remaining / 2
-                return await self._call_once(slot, payload, timeout_s=attempt_timeout, cancel_event=cancel_event)
+                return await self._call_once(slot, payload, timeout_s=attempt_timeout, cancel_event=cancel_event, tenant_id=tenant_id)
             except ProviderError as error:
                 transient = error.retryable and error.code in {"rate_limited", "upstream_error", "timeout"}
-                if attempt or not transient or deadline - loop.time() <= .25:
+                if attempt or not transient or deadline - asyncio.get_running_loop().time() <= .25:
                     raise
                 for _ in range(5):
                     if _cancelled(cancel_event):
@@ -485,32 +491,14 @@ class AlibabaBailianProvider:
         *,
         timeout_s: float | None,
         cancel_event: Any | None,
+        tenant_id: int | None,
     ) -> tuple[Mapping[str, Any], HTTPResponse]:
         if _cancelled(cancel_event):
             raise ProviderError("cancelled", "provider request cancelled", slot=slot)
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
             "utf-8"
         )
-        reservation = None
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + (timeout_s or self.config.timeout_s)
-        if self.ledger is not None:
-            while reservation is None:
-                delay = self.ledger.quota_delay(self.config.quota_rpm)
-                if _cancelled(cancel_event):
-                    raise ProviderError("cancelled", "provider request cancelled", slot=slot)
-                if deadline - loop.time() <= delay:
-                    raise ProviderError("timeout", "provider deadline cannot accommodate shared quota", slot=slot)
-                if delay:
-                    await asyncio.sleep(min(delay, .25))
-                    continue
-                try:
-                    reservation = self.ledger.reserve(slot, self.config.models[slot], dict(payload),
-                                                      region=self.config.region, quota_rpm=self.config.quota_rpm)
-                except ProviderError as error:
-                    if error.code != "local_rate_limited":
-                        raise
-
+        deadline = asyncio.get_running_loop().time() + (timeout_s or self.config.timeout_s)
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -526,13 +514,11 @@ class AlibabaBailianProvider:
                 self._url(self._path(slot)),
                 headers=headers,
                 body=body,
-                timeout_s=max(.001, deadline - loop.time()),
+                timeout_s=max(.001, deadline - asyncio.get_running_loop().time()),
                 cancel_event=cancel_event,
             )
         except ProviderError as error:
-            if reservation is not None:
-                self.ledger.record(reservation, data={"request_id": error.request_id},
-                                   error_code=error.code, http_status=error.status)
+            self._record_usage(slot, None, error.status, error.code, tenant_id)
             messages = {
                 "cancelled": "provider request cancelled",
                 "timeout": "provider request timed out",
@@ -549,19 +535,14 @@ class AlibabaBailianProvider:
                 request_id=error.request_id,
             ) from error
         except TimeoutError as error:
-            if reservation is not None:
-                self.ledger.record(reservation, error_code="timeout")
+            self._record_usage(slot, None, None, "timeout", tenant_id)
             raise ProviderError(
                 "timeout", "provider request timed out", slot=slot, retryable=True
             ) from error
         try:
             data = _json(response, slot)
         except ProviderError as error:
-            request_id = next((value for key, value in response.headers.items()
-                               if key.lower() in {"x-request-id", "request-id"}), None)
-            if reservation is not None:
-                self.ledger.record(reservation, data={"request_id": request_id},
-                                   error_code=error.code, http_status=response.status)
+            self._record_usage(slot, None, response.status, error.code, tenant_id)
             raise
         metadata = dict(data)
         if not metadata.get("request_id") and not metadata.get("id"):
@@ -580,12 +561,12 @@ class AlibabaBailianProvider:
                     _structured(content, slot, schema)
                 _usage(data.get("usage"), slot)
         except ProviderError as error:
-            if reservation is not None:
-                self.ledger.record(reservation, data=metadata,
-                                   http_status=response.status, error_code=error.code)
+            self._record_usage(slot, None, response.status, error.code, tenant_id)
             raise
-        if reservation is not None:
-            self.ledger.record(reservation, data=metadata, http_status=response.status)
+        usage = None
+        try: usage = _usage(data.get("usage"), slot)
+        except ProviderError: usage = None
+        self._record_usage(slot, usage, response.status, None, tenant_id)
         return data, response
 
     @staticmethod
@@ -603,6 +584,7 @@ class AlibabaBailianProvider:
         response_schema: Mapping[str, Any] | None = None,
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> ControlResult:
         payload: dict[str, Any] = {
             "model": self.config.control_model,
@@ -614,7 +596,7 @@ class AlibabaBailianProvider:
         if response_schema is not None:
             payload["response_format"] = _response_format(response_schema, "control")
         data, response = await self._call(
-            "control", payload, timeout_s=timeout_s, cancel_event=cancel_event
+            "control", payload, timeout_s=timeout_s, cancel_event=cancel_event, tenant_id=tenant_id
         )
         content, finish = _content(data, "control")
         return ControlResult(
@@ -632,6 +614,7 @@ class AlibabaBailianProvider:
         response_schema: Mapping[str, Any] | None = None,
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> GenerationResult:
         payload: dict[str, Any] = {
             "model": self.config.generation_model,
@@ -642,7 +625,7 @@ class AlibabaBailianProvider:
         if response_schema is not None:
             payload["response_format"] = _response_format(response_schema, "generation")
         data, response = await self._call(
-            "generation", payload, timeout_s=timeout_s, cancel_event=cancel_event
+            "generation", payload, timeout_s=timeout_s, cancel_event=cancel_event, tenant_id=tenant_id
         )
         content, finish = _content(data, "generation")
         structured = (
@@ -668,6 +651,7 @@ class AlibabaBailianProvider:
         output_type: str = "dense&sparse",
         instruct_version: str = "",
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> Sequence[EmbeddingResult]:
         if dimensions != 1024:
             raise ProviderError(
@@ -698,7 +682,7 @@ class AlibabaBailianProvider:
             "parameters": parameters,
         }
         data, response = await self._call(
-            "embedding", payload, timeout_s=None, cancel_event=cancel_event
+            "embedding", payload, timeout_s=None, cancel_event=cancel_event, tenant_id=tenant_id
         )
         output = data.get("output")
         rows = (
@@ -799,6 +783,7 @@ class AlibabaBailianProvider:
         instruct: str = "",
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> RerankResult:
         if (
             not isinstance(query, str)
@@ -830,7 +815,7 @@ class AlibabaBailianProvider:
             "parameters": parameters,
         }
         data, response = await self._call(
-            "rerank", payload, timeout_s=timeout_s, cancel_event=cancel_event
+            "rerank", payload, timeout_s=timeout_s, cancel_event=cancel_event, tenant_id=tenant_id
         )
         output = data.get("output")
         rows = (
@@ -901,6 +886,7 @@ class MockProvider:
         response_schema: Mapping[str, Any] | None = None,
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> ControlResult:
         _ = timeout_s
         if _cancelled(cancel_event):
@@ -944,6 +930,7 @@ class MockProvider:
         output_type: str = "dense&sparse",
         instruct_version: str = "",
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> Sequence[EmbeddingResult]:
         if dimensions != 1024:
             raise ProviderError(
@@ -1013,6 +1000,7 @@ class MockProvider:
         instruct: str = "",
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> RerankResult:
         _ = instruct, timeout_s
         if (
@@ -1073,6 +1061,7 @@ class MockProvider:
         response_schema: Mapping[str, Any] | None = None,
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> GenerationResult:
         _ = timeout_s
         checked = _messages(messages)
@@ -1119,11 +1108,11 @@ class MockProvider:
         )
 
 
-def build_provider(config: ProviderConfig) -> AlibabaBailianProvider | MockProvider:
+def build_provider(config: ProviderConfig, *, record_usage: bool = True) -> AlibabaBailianProvider | MockProvider:
     """Build exactly the selected profile; failures never auto-switch models."""
 
     if config.profile == "mock":
         return MockProvider(config)
     if config.profile == "aliyun-bailian":
-        return AlibabaBailianProvider(config)
+        return AlibabaBailianProvider(config, record_usage=record_usage)
     raise ProviderError("config_blocked", "unknown provider profile")

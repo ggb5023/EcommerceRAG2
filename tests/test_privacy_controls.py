@@ -84,6 +84,9 @@ class PrivacyControls(unittest.TestCase):
         self.assertTrue(privacy.blocked_path("docs/decisions/notes.md"))
         self.assertTrue(privacy.blocked_path("docs/decisions/0001-x/private.md"))
         self.assertTrue(privacy.blocked_path("docs/customer-report.md"))
+        # Published refactor plan set (see .gitignore whitelist).
+        for name in ("testing-refactor-plan", "backend-refactor-plan", "refactor-assessment"):
+            self.assertFalse(privacy.blocked_path(f"docs/{name}.md"))
         self.assertTrue(privacy.blocked_path(".local/dev-docs/docs/install.md"))
 
     def test_public_architecture_still_scanned_for_private_content(self):

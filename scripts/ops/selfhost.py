@@ -37,7 +37,6 @@ def command(args):
 
 
 def initialize(args):
-    from app.providers.budget import initialize_ledger
     from app.providers.config import ensure_secure_config_file, load_provider_config
     if os.geteuid()!=0:raise ValueError('root provisioning required')
     origin = urlsplit(args.origin)
@@ -53,7 +52,7 @@ def initialize(args):
     if provider.profile!='aliyun-bailian' or provider.embedding_dimensions!=1024 or provider.quota_rpm!=60:
         raise ValueError('explicit real 1024-dimensional Provider with 60 RPM required')
     runtime.mkdir(mode=0o700,parents=True)
-    for name,owner in [('gateway',65532),('ai',65532),('ingest',65532),('worker',65532),('artifacts',65532),('web',65532),('bootstrap',0),('identity',1000),('redis',999),('budget',65532)]:
+    for name,owner in [('gateway',65532),('ai',65532),('ingest',65532),('worker',65532),('artifacts',65532),('web',65532),('bootstrap',0),('identity',1000),('redis',999)]:
         p=runtime/name;p.mkdir(mode=0o700)
         if os.geteuid()==0:os.chown(p,owner,owner)
     passwords={r:secrets.token_hex(32) for r in ['rag_migration','rag_v2_gateway','rag_v2_ai','rag_v2_ingest','keycloak']}
@@ -94,22 +93,9 @@ def initialize(args):
         os.chown(runtime/'web/tls.key',65532,65532);os.chown(runtime/'web/tls.crt',65532,65532)
     else:raise ValueError('supply TLS certificate/key/CA, or explicitly use local test certificate')
     write(runtime/'gateway/web-ca.crt',(runtime/'web/web-ca.crt').read_text())
-    if args.budget_dir:
-        if not args.budget_id or not args.budget_file:raise ValueError('existing shared ledger identity required')
-        budget_dir=args.budget_dir.resolve();budget_file=args.budget_file
-        if Path(budget_file).name!=budget_file:raise ValueError('budget filename required')
-        # Preserve the existing ledger and all attempts; never copy or reset it.
-        from app.providers.budget import BudgetLedger
-        BudgetLedger(budget_dir/budget_file,args.budget_id,args.budget_cny)
-    else:
-        budget_dir=runtime/'budget';budget_file='ledger.sqlite';args.budget_id='merchant-'+secrets.token_hex(12)
-        # Runtime owner initializes its own explicitly authorized ledger.
-        if os.geteuid()==0:os.chown(budget_dir,0,0)
-        initialize_ledger(budget_dir/budget_file,args.budget_id,args.budget_cny)
-        if os.geteuid()==0:os.chown(budget_dir/budget_file,65532,65532);os.chown(budget_dir,65532,65532)
     dsn=lambda role:f'host=postgres dbname=ecr_v2 user={role} password={passwords[role]}'
     common={'APP_ENV':'production','RAG_PROFILE':'v2_langchain_bailian','V2_RPC_TLS':'mtls','V2_RPC_CA_FILE':'/run/runtime/rpc-ca.crt','V2_RPC_CERT_FILE':'/run/runtime/rpc.crt','V2_RPC_KEY_FILE':'/run/runtime/rpc.key','V2_AUTHORITY_GRPC_ADDR':'gateway:50054'}
-    paid={'V2_PROVIDER_CONFIG':'/run/runtime/providers.env','V2_ONLINE_BUDGET_CNY':args.budget_cny,'V2_ONLINE_BUDGET_LEDGER':'/run/budget/'+budget_file,'V2_ONLINE_BUDGET_ID':args.budget_id}
+    paid={'V2_PROVIDER_CONFIG':'/run/runtime/providers.env',}
     storage={'INGEST_STORAGE_PROFILE':'filesystem','INGEST_ARTIFACT_ROOT':'/var/lib/ecr/artifacts'}
     configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8443','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ai:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json','V2_IDENTITY_PROXY_URL':'http://keycloak:8080'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'WEB_ROOT':'/srv/frontend','ECR_HOSTNAME':origin.hostname,'ECR_HTTPS_PORT':str(port),'WEB_TLS_CERT':'/run/web/tls.crt','WEB_TLS_KEY':'/run/web/tls.key','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
       'ai':{**common,**paid,**storage,'V2_GRPC_ADDR':'0.0.0.0:50052','V2_INGEST_GRPC_ADDR':'0.0.0.0:50053',
@@ -121,7 +107,7 @@ def initialize(args):
     if args.identity_profile == 'oidc_browser':
         write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
     write(runtime/'redis/redis.conf','bind 0.0.0.0\nprotected-mode yes\nappendonly yes\nrequirepass '+secrets.token_hex(32)+'\n',999)
-    write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_BUDGET_DIR='+str(budget_dir),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
+    write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
     for name in ('bootstrap','gateway','ai','web','artifacts','budget'):
         directory = runtime/name
         if not directory.exists():
@@ -136,11 +122,11 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('action',choices=['init']);p.add_argument('--directory',type=Path,required=True);p.add_argument('--origin',required=True)
     p.add_argument('--provider-config',type=Path,required=True);p.add_argument('--budget-cny',required=True)
-    p.add_argument('--budget-dir',type=Path);p.add_argument('--budget-file');p.add_argument('--budget-id')
+    
     p.add_argument('--tls-cert',type=Path);p.add_argument('--tls-key',type=Path);p.add_argument('--tls-ca',type=Path);p.add_argument('--local-certificate',action='store_true')
     p.add_argument('--shop-name',default='我的店铺');p.add_argument('--project',default='ecr-merchant');p.add_argument('--bind',default='127.0.0.1')
     p.add_argument('--identity-profile',choices=['local','oidc_browser'],default='local');p.add_argument('--owner-username',default='admin')
     args=p.parse_args()
     try:initialize(args)
-    except Exception:raise SystemExit('FAIL installation preparation; check HTTPS, protected Provider, budget, empty directory and openssl') from None
+    except Exception:raise SystemExit('FAIL installation preparation; check HTTPS, protected Provider, empty directory and openssl') from None
 if __name__=='__main__':main()

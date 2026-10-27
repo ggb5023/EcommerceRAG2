@@ -43,9 +43,7 @@ CREATE TABLE provider_model (
 );
 ```
 
-`price_input/price_output` 按人民币/百万 token 计，和 `pricing.json` 的 `per=1e6` 对齐；
-价格表随 provider 走，预算窗口仍按人民币计。`provider_id` 进入每次调用的预留/观测记录，
-支持按供应商拆账；共享账本结构仍由 0006 的 `BudgetLedger` 管理。
+`provider_id` 进入每次调用的 usage 记录，支持按供应商拆分 token 用量；本工程不统计货币。
 
 ## 统一适配层
 
@@ -57,8 +55,7 @@ CREATE TABLE provider_model (
   不自动切回平台默认供应商；否则引用来源、价格与预算归属都会不一致。平台默认只在租户尚未配置时使用，
   并由部署配置显式决定。协议差异用能力标记与最小探测解决，
   不做按厂商分叉的业务逻辑。
-- 适配层统一负责：超时、重试一次、usage 解析、错误分类、provider_id 记账；现有
-  `BudgetLedger.reserve/record` 接口保持不变。
+- 适配层统一负责：超时、重试一次、usage 解析、错误分类、provider_id 记账；用量写入 `usage_log`，不统计货币。
 
 ## 密钥安全
 
