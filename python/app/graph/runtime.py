@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 
 from app.chains.provider import build_provider_chains
-from app.configuration import require_online_budget
 from app.providers import MockProvider, build_provider
 from app.providers.config import (
     CONFIG_PATH,
@@ -50,7 +49,6 @@ def load_provider_service(
     """Build a provider-backed service without logging configuration values."""
     config = load_provider_config(path)
     if config.profile == "aliyun-bailian":
-        require_online_budget()
         ensure_secure_config_file(path)
     provider = build_provider(config)
     retriever = _load_retriever(connections)

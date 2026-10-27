@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from app.configuration import require_online_budget
 from app.providers import MockProvider, build_provider
 from app.providers.config import (
     ensure_secure_config_file,
@@ -23,7 +22,6 @@ def load_embedding_provider(*, record_usage: bool = True):
             "GENERATION_MODEL": "mock-generation",
         }))
     if profile == "v2_langchain_bailian":
-        require_online_budget()
         path = os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")
         ensure_secure_config_file(path)
         return build_provider(load_provider_config(path), record_usage=record_usage)

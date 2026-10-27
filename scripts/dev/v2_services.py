@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "python"))
 SYSTEM_KEYS = {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"}
 COMMON_KEYS = {"APP_ENV", "RAG_PROFILE", "PYTHONPATH", "PYTHONUNBUFFERED", "V2_RPC_TLS", "V2_RPC_CA_FILE", "V2_RPC_CERT_FILE", "V2_RPC_KEY_FILE", "V2_AUTHORITY_GRPC_ADDR"}
 STORAGE_KEYS = {"INGEST_STORAGE_PROFILE", "INGEST_ARTIFACT_ROOT"}
-PROVIDER_KEYS = {"V2_PROVIDER_CONFIG", "V2_ONLINE_BUDGET_CNY", "V2_ONLINE_BUDGET_LEDGER", "V2_ONLINE_BUDGET_ID"}
+PROVIDER_KEYS = {"V2_PROVIDER_CONFIG"}
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
@@ -107,21 +107,6 @@ def configure(values: dict[str, str]) -> dict[str, str]:
         raise StartupError("explicit service databases and development identity are required")
     if values["RAG_PROFILE"] == "v2_langchain_bailian" and not values.get("V2_PROVIDER_CONFIG"):
         raise StartupError("online profile requires an explicit protected Provider config")
-    if values["RAG_PROFILE"] == "v2_langchain_bailian":
-        raw_budget = values.get("V2_ONLINE_BUDGET_CNY", "").strip()
-        try:
-            budget = Decimal(raw_budget)
-        except (InvalidOperation, ValueError):
-            raise StartupError("online profile requires a positive CNY budget") from None
-        if not budget.is_finite() or budget <= 0:
-            raise StartupError("online profile requires a positive CNY budget")
-        from app.providers.budget import BudgetLedger
-        from app.providers.contracts import ProviderError
-        try:
-            BudgetLedger(Path(values.get("V2_ONLINE_BUDGET_LEDGER", "")),
-                         values.get("V2_ONLINE_BUDGET_ID", ""), raw_budget)
-        except ProviderError:
-            raise StartupError("online profile requires a valid shared budget ledger") from None
     if values.get("INGEST_STORAGE_PROFILE") not in {"filesystem", "oss"}:
         raise StartupError("INGEST_STORAGE_PROFILE must be filesystem or oss")
     if values["INGEST_STORAGE_PROFILE"] == "filesystem" and not Path(values.get("INGEST_ARTIFACT_ROOT", "")).is_absolute():

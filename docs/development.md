@@ -37,7 +37,7 @@ bash scripts/dev/install-git-hooks.sh
 - 四个 DSN：`V2_GATEWAY_DSN`、`V2_RETRIEVER_DSN`、`V2_CHECKPOINT_DSN`、`V2_INGEST_DSN`；`ai` 是单进程，同时持有后三个并各开一个角色绑定连接池，`gateway` 仍然拿不到任何 Python 角色
 - 开发身份：`V2_IDENTITY_TENANT`、`V2_IDENTITY_USER`（填 `external_id`，不是自增主键）
 - `SCOPE_SIGNING_KEY_FILE`：Go 签发 scope 用的密钥文件，`0600`、内容 ≥ 32 字节
-- 在线档另需 `V2_PROVIDER_CONFIG` 与预算三项 `V2_ONLINE_BUDGET_LEDGER` / `V2_ONLINE_BUDGET_ID` / `V2_ONLINE_BUDGET_CNY`
+- 在线档另需 `V2_PROVIDER_CONFIG`；模型花费由商家平台控制，本工程只记 token 用量
 
 `V2_RPC_TLS` 留空表示进程间明文；只有显式写了取值才会走 mTLS，并需要同时给出 CA、证书和密钥三个路径。
 
@@ -60,14 +60,7 @@ cd frontend && VITE_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev -- --port
 
 systemd 单元属于机器特定状态，不进仓库（部署契约在 M5 定义）；仓库只约定启动命令与端口 5173。生产镜像由 `docker/selfhost/web.Dockerfile` 构建一套产物，Go 在 `/srv/frontend` 做单页兜底。
 
-使用真实模型时，改用 `v2_langchain_bailian` profile，并配置共享预算账本：
-
-```bash
-python/.venv/bin/python scripts/dev/provider-budget.py initialize \
-  --ledger /path/to/private/budget.sqlite --window-id <window> --cap-cny <cap>
-```
-
-所有付费调用方（ai、worker、评测）使用同一个 `V2_ONLINE_BUDGET_LEDGER`。不要为绕过额度而新建账本。
+使用真实模型时，改用 `v2_langchain_bailian` profile；用量记录到 `usage_log`，不统计货币。
 
 ## 测试分层
 

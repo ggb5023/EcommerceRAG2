@@ -55,3 +55,4 @@
 
 - 原 FACTS 中仍然有效的结论已并入 architecture 和 [0004](0004-retained-invariants.md)。
 - `scripts/check-doc-baseline.py` 改为检查新体系。
+| [0021](0021-usage-log-instead-of-budget.md) | 用 token 用量替代货币账本 | 已采纳 |

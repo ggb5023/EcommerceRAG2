@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import os
-import sqlite3
 import subprocess
 import tarfile
 from pathlib import Path
@@ -57,11 +56,6 @@ def main():
                      'bootstrap','gateway','ai','ingest','worker','identity','redis','web','artifacts'):
             path=runtime/name
             tar.add(path,arcname=path.name,filter=protect)
-    source=Path(env['ECR_BUDGET_DIR'])
-    worker=dict(line.split('=',1) for line in (runtime/'worker.env').read_text().splitlines())
-    ledger=source/Path(worker['V2_ONLINE_BUDGET_LEDGER']).name
-    backup=out/'budget.sqlite';fd=os.open(backup,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.close(fd)
-    with sqlite3.connect(ledger.as_uri()+'?mode=ro',uri=True) as live,sqlite3.connect(backup) as target:live.backup(target)
     hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in out.iterdir() if path.is_file()}
     with os.fdopen(os.open(out/'manifest.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as f:json.dump({'schema_version':1,'hashes':hashes,'databases':databases,'restore_verified':False},f,indent=2)
     print('PASS restricted backup created; independent restore verification still required')

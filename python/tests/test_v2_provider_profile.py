@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 import pytest
 
-from app.configuration import require_online_budget
 from app.rpc import rag as rag_service
 
 
@@ -167,26 +166,6 @@ def test_real_generation_emits_only_selected_supplied_citations(cited):
         result = asyncio.run(provider_generate_node(state, SimpleNamespace(generation=Generation())))
         assert result["citations"] == ([evidence[0]] if cited else [])
         assert result["can_copy"] is False
-
-
-@pytest.mark.parametrize("raw_budget", ["", "0", "-1", "NaN", "Infinity", "not-a-number"])
-def test_online_profile_rejects_invalid_budget(monkeypatch, raw_budget):
-    monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
-    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", raw_budget)
-    with pytest.raises(ValueError, match="budget"):
-        require_online_budget()
-
-
-def test_online_profile_accepts_positive_finite_budget(monkeypatch, tmp_path):
-    from app.providers.budget import initialize_ledger
-    tmp_path.chmod(0o700)
-    path = tmp_path / "budget.sqlite"
-    initialize_ledger(path, "unit-test", "12.50")
-    monkeypatch.setenv("RAG_PROFILE", "v2_langchain_bailian")
-    monkeypatch.setenv("V2_ONLINE_BUDGET_CNY", "12.50")
-    monkeypatch.setenv("V2_ONLINE_BUDGET_LEDGER", str(path))
-    monkeypatch.setenv("V2_ONLINE_BUDGET_ID", "unit-test")
-    require_online_budget()
 
 
 def test_understand_history_is_untrusted_data_and_flows_through_rpc():
