@@ -200,11 +200,7 @@ class IngestWorker:
         artifact_store: ObjectStore | None = None,
     ) -> None:
         self.database = database
-        self.embedding_provider = embedding_provider or load_embedding_provider()
-        # The worker writes embedding usage with its own ingest role; avoid a
-        # second provider-side row in this process.
-        if hasattr(self.embedding_provider, "usage"):
-            self.embedding_provider.usage = None
+        self.embedding_provider = embedding_provider or load_embedding_provider(record_usage=False)
         from app.providers.usage import UsageRecorder
         self.usage = UsageRecorder.from_environment(role="ingest")
         self.artifact_store = artifact_store or load_artifact_store()

@@ -14,7 +14,7 @@ from app.providers.config import (
 from app.storage import AlibabaOSSObjectStore, FilesystemObjectStore, load_oss_config
 
 
-def load_embedding_provider():
+def load_embedding_provider(*, record_usage: bool = True):
     profile = os.environ.get("RAG_PROFILE", "")
     if profile in {"v2_langchain_mock", "v2_langgraph_fixture"}:
         return MockProvider(validate_values({
@@ -26,7 +26,7 @@ def load_embedding_provider():
         require_online_budget()
         path = os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")
         ensure_secure_config_file(path)
-        return build_provider(load_provider_config(path))
+        return build_provider(load_provider_config(path), record_usage=record_usage)
     raise ValueError("an explicit v2 Provider profile is required")
 
 

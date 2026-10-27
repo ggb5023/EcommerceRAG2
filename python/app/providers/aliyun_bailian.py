@@ -434,7 +434,7 @@ class AlibabaBailianProvider:
 
     def __init__(
         self, config: ProviderConfig, transport: HTTPTransport | None = None,
-        *, test_mode: bool = False,
+        *, test_mode: bool = False, record_usage: bool = True,
     ) -> None:
         if config.profile != "aliyun-bailian":
             raise ValueError(
@@ -448,7 +448,7 @@ class AlibabaBailianProvider:
         # A real transport cannot be constructed without the durable ledger.
         # Injected transports are explicitly marked test-only by unit tests.
         self.ledger = None if test_mode else BudgetLedger.from_environment()
-        self.usage = None if test_mode else UsageRecorder.from_environment(role="ai")
+        self.usage = UsageRecorder.from_environment(role="ai") if record_usage and not test_mode else None
 
     def _record_usage(self, slot, usage, http_status, error_code, tenant_id):
         if self.usage is not None:
@@ -1145,11 +1145,11 @@ class MockProvider:
         )
 
 
-def build_provider(config: ProviderConfig) -> AlibabaBailianProvider | MockProvider:
+def build_provider(config: ProviderConfig, *, record_usage: bool = True) -> AlibabaBailianProvider | MockProvider:
     """Build exactly the selected profile; failures never auto-switch models."""
 
     if config.profile == "mock":
         return MockProvider(config)
     if config.profile == "aliyun-bailian":
-        return AlibabaBailianProvider(config)
+        return AlibabaBailianProvider(config, record_usage=record_usage)
     raise ProviderError("config_blocked", "unknown provider profile")
