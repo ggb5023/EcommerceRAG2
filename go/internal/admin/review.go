@@ -19,14 +19,23 @@ func (g *Handler) adminReviews(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	suggestion := strings.TrimSpace(r.URL.Query().Get("suggestion"))
+	if suggestion != "" && suggestion != "needs_revision" && suggestion != "approved" {
+		httpapi.WriteError(w, 400, "invalid_suggestion_filter", "suggestion filter is invalid")
+		return
+	}
 	rows, err := g.DB.Query(r.Context(), `SELECT v.id,d.logical_key,d.title,s.shop_id,v.source_hash,v.status,v.Disclosure_class,
 		v.external_allowed,v.review_status,v.reviewed_hash,v.fencing_epoch,v.chunk_count,v.pipeline_version,v.quality_json,v.created_at,
 		j.id,j.stage FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
 		LEFT JOIN ingest_job_item i ON i.tenant_id=v.tenant_id AND i.document_version_id=v.id
 		LEFT JOIN ingest_job j ON j.tenant_id=i.tenant_id AND j.id=i.job_id
+		LEFT JOIN LATERAL (SELECT decision FROM review_suggestion rs
+			WHERE rs.tenant_id=v.tenant_id AND rs.version_id=v.id AND rs.content_hash=v.source_hash
+			ORDER BY rs.created_at DESC,rs.id DESC LIMIT 1) sug ON true
 		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		ORDER BY v.created_at DESC LIMIT 300`, g.Session.TenantID, scope.shops)
+		AND ($3='' OR sug.decision=$3)
+		ORDER BY v.created_at DESC LIMIT 300`, g.Session.TenantID, scope.shops, suggestion)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load review queue")
 		return

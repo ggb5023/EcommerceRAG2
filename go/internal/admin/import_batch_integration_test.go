@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -225,6 +226,66 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 			t.Fatalf("pending=%d nullReviews=%d manifests=%d err=%v", pending, nullReviews, manifestCount, err)
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+	var versionFive, versionSix int64
+	var hashFive, hashSix string
+	if err = migration.QueryRow(context.Background(), `SELECT v.id,v.source_hash FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id WHERE d.logical_key='import-doc-05' ORDER BY v.id DESC LIMIT 1`).Scan(&versionFive, &hashFive); err != nil {
+		t.Fatal(err)
+	}
+	if err = migration.QueryRow(context.Background(), `SELECT v.id,v.source_hash FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id WHERE d.logical_key='import-doc-06' ORDER BY v.id DESC LIMIT 1`).Scan(&versionSix, &hashSix); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"import-doc-05", "import-doc-06"} {
+		if _, err = migration.Exec(context.Background(), `UPDATE document SET meta_json=jsonb_set(meta_json,'{authorization}', '{"basis":"license","reference":"ref","checked_at":"2026-10-01"}'::jsonb) WHERE logical_key=$1`, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := apiJSON(t, api, "POST", fmt.Sprintf("/admin/v1/merchant/versions/%d/suggestion", versionFive), map[string]any{"business_date": "2026-10-27"}, 201)
+	again := apiJSON(t, api, "POST", fmt.Sprintf("/admin/v1/merchant/versions/%d/suggestion", versionFive), map[string]any{"business_date": "2026-10-27"}, 201)
+	if first["suggestion_id"] != again["suggestion_id"] {
+		t.Fatalf("suggestion is not idempotent: %v %v", first["suggestion_id"], again["suggestion_id"])
+	}
+	var suggestionCount int
+	_ = migration.QueryRow(context.Background(), `SELECT count(*) FROM review_suggestion WHERE version_id=$1`, versionFive).Scan(&suggestionCount)
+	if suggestionCount != 1 {
+		t.Fatalf("suggestion rows=%d", suggestionCount)
+	}
+	six := apiJSON(t, api, "POST", fmt.Sprintf("/admin/v1/merchant/versions/%d/suggestion", versionSix), map[string]any{"business_date": "2026-10-27"}, 201)
+	if _, err = migration.Exec(context.Background(), `UPDATE document_version SET source_hash=repeat('f',64) WHERE id=$1`, versionSix); err != nil {
+		t.Fatal(err)
+	}
+	batch := apiJSON(t, api, "POST", "/admin/v1/merchant/versions/batch-approve", map[string]any{
+		"items": []map[string]string{{"version_id": strconv.FormatInt(versionFive, 10), "suggestion_id": first["suggestion_id"].(string)},
+			{"version_id": strconv.FormatInt(versionSix, 10), "suggestion_id": six["suggestion_id"].(string)}},
+		"confirm": true, "reason": "integration test batch approve"}, 200)
+	results, _ := batch["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("batch results=%v", batch)
+	}
+	seenOK, seenStale := false, false
+	for _, raw := range results {
+		row, _ := raw.(map[string]any)
+		if row["ok"] == true {
+			seenOK = true
+		}
+		if row["code"] == "suggestion_stale" {
+			seenStale = true
+		}
+	}
+	if !seenOK || !seenStale {
+		t.Fatalf("partial results=%v", results)
+	}
+	var reviewedBy *int64
+	var reviewedHash *string
+	_ = migration.QueryRow(context.Background(), `SELECT reviewed_by,reviewed_hash FROM document_version WHERE id=$1`, versionFive).Scan(&reviewedBy, &reviewedHash)
+	if reviewedBy == nil || reviewedHash == nil {
+		t.Fatal("merchant review did not write reviewed_*")
+	}
+	if _, err = migration.Exec(context.Background(), `UPDATE document_version SET source_hash=$1 WHERE id=$2`, hashFive, versionFive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migration.Exec(context.Background(), `UPDATE document_version SET source_hash=$1 WHERE id=$2`, hashSix, versionSix); err != nil {
+		t.Fatal(err)
 	}
 	apiJSON(t, api, "POST", "/admin/v1/merchant/imports/"+batchID+"/revoke", map[string]any{"confirm": true, "reason": "integration test revoke"}, 200)
 	var documents, versions int
