@@ -6,9 +6,9 @@
 
 ## 准备
 
-Linux、Docker Engine 与 Compose v2、Git、Python 3.12、uv、openssl。建议至少 4 核、8 GiB 内存、20 GiB 可用磁盘。克隆仓库后，在仓库根目录运行 `uv sync --project python --frozen`。应用依赖以锁文件为准。Docker 构建上下文通过 `.dockerignore` 排除私有目录、密钥、账本及已有依赖目录。
+Linux、Docker Engine 与 Compose v2、Git、Python 3.12、uv、openssl。建议至少 4 核、8 GiB 内存、20 GiB 可用磁盘。克隆仓库后，在仓库根目录运行 `uv sync --project python --frozen`。应用依赖以锁文件为准。Docker 构建上下文通过 `.dockerignore` 排除私有目录、密钥、运行数据及已有依赖目录。
 
-准备 HTTPS 域名、证书完整链、私钥、CA 链，以及独立模型账户。模型配置是拥有者可读写的普通 `0600` 文件，格式参考 [Provider 配置](../python/app/providers/config.py)：`PROVIDER_PROFILE=aliyun-bailian`，明确填写 endpoint、region、API key、control、embedding、rerank、generation 四槽位，Embedding 1024 维、60 RPM。预算单位为人民币，初始化不会赠送额度。不要在终端、Git 或截图中暴露密钥。
+准备 HTTPS 域名、证书完整链、私钥、CA 链，以及独立模型账户。模型配置是拥有者可读写的普通 `0600` 文件，格式参考 [Provider 配置](../python/app/providers/config.py)：`PROVIDER_PROFILE=aliyun-bailian`，明确填写 endpoint、region、API key、control、embedding、rerank、generation 四槽位，Embedding 1024 维、60 RPM。模型调用只按 token 记录用量（`usage_log`，见决策 0021），不统计货币，初始化不会赠送额度。不要在终端、Git 或截图中暴露密钥。
 
 ## 生成配置并启动
 
@@ -63,7 +63,7 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；
 容器内同一域名由 gateway 的网络别名解析。
 
-已有预算账本时，传入 `--budget-dir`、`--budget-file`、`--budget-id` 和对应的 `--budget-cny` 复用它，不要复制或重建。账本目录和文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
+模型调用没有货币账本（0021）：每次调用的 token 用量写入 `usage_log`，用 `scripts/dev/provider-usage.py status` 查看（读 `V2_USAGE_DSN` 或 `V2_GATEWAY_DSN`）。运行目录与文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
 
 安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后修改密码。
 

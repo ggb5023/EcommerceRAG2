@@ -43,11 +43,10 @@ retrieval baseline is skipped.
 
 ## Real-model runs
 
-All paid calls go through the shared budget ledger
-([decision 0006](../docs/decisions/0006-provider-usage.md)). Each runner needs a
-protected runtime env (`0600`), refuses an existing output path and stops on a
-new quota, authentication or budget error, keeping partial results as
-`NOT_PASSED`.
+Every call records token usage in `usage_log`; there is no currency ledger
+([decision 0021](../docs/decisions/0021-usage-log-instead-of-budget.md)). Each runner
+needs a protected runtime env (`0600`), refuses an existing output path and stops
+on an authentication or provider error, keeping partial results as `NOT_PASSED`.
 
 1. **Lifecycle** – `run_v2_live_lifecycle.py --live --runtime-env … --base-url …
    --corpus …/documents.jsonl --report …`. Needs an empty independent V2 index.

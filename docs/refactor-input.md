@@ -25,5 +25,5 @@
 
 - `scripts/check.sh` 已移除 `provider-budget.py` 路径。**已核实**：`grep -c provider-budget scripts/check.sh` = 0；
   现役脚本为 `scripts/dev/provider-usage.py`。
-- ~~`docs/development.md` 已不再描述账本~~ —— **此条不准**：实测 `docs/development.md` 仍有预算口径，
-  与其他文档一起归入总纲 R0 的清理范围（具体份数以 `check-docs-drift` 输出为准）。
+- ~~`docs/development.md` 已不再描述账本~~ —— **此条已随 R0 清理失效**：`scripts/check.sh` 已移除
+  `provider-budget` 路径，现役脚本为 `scripts/dev/provider-usage.py`；文档侧残留以总纲 R0 的实测输出为准。

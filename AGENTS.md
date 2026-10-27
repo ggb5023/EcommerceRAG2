@@ -52,7 +52,7 @@
 
 - 凭据、DSN、私钥、客户正文和完整聊天记录不进入 Git、日志或文档。秘密只从仓库外的受限配置读取。
 - 模型与第三方 token 只写在 `/etc/ecommerce-rag/providers.env`（0600）；`.env` 与运行时配置只放连接串和路径，不放凭据，两个文件的职责见[开发指南](docs/development.md#运行配置)。
-- 真实模型可以按需调用，但必须走共享预算账本；额度用完就停下，向用户申请（见[决策 0006](docs/decisions/0006-provider-usage.md)）。
+- 真实模型可以按需调用，但每次调用按 token 记入 `usage_log`；单次运行用 `--max-requests` 与 `--max-requests-per-minute` 限流，不以货币额度做门禁（见[决策 0021](docs/decisions/0021-usage-log-instead-of-budget.md)）。
 - 生产数据变更、常驻服务重启、发布推送，都必须属于当前任务并获得授权。
 
 ## 文档维护
