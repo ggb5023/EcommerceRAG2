@@ -67,9 +67,7 @@ grep -rhoE '^func Test[A-Za-z0-9_]+' --include='*_test.go' go | wc -l   # 期望
 grep -rhoE 'SELECT |INSERT INTO |UPDATE |DELETE FROM ' go/internal/<pkg>/*.go | wc -l
 ```
 
-换口径会得到不同数字（审阅报告按另一种口径给出 gateway 66 / admin 120，本机复现不出；
-按"含关键字的行数"统计则为 gateway 69 / admin 126）。**本文统一采用上面这条命令**，
-其它数字不入表。
+换口径会得到不同数字；本文只认上表这一条命令，其他口径不作为基线。
 
 **测量口径**（复核时照此执行，避免口径不一致）：
 

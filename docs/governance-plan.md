@@ -65,6 +65,11 @@ done
 
 验收：`git branch | wc -l` ≤ 3；`git tag | grep milestone` 有 m6/m7/m8。
 
+**已归档分支**（标签留档，不再复活）：
+
+- `archive/m4-local-accounts`：三条提交的补丁等价物已在 main（`71dba14` / `f265d5f` / `5dff9e2`），
+  分支放弃，标签留档。
+
 ### G-W2　决策编号分配表（2 小时）
 
 在 `docs/decisions/0003-documentation-system.md` 的"决策一览"里维护一张**预留表**：
