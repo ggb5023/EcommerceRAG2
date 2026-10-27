@@ -45,7 +45,7 @@
 | 24 | 待审列表 | `GET /admin/v1/merchant/reviews` | 版本审核页 | ✅ | 一键 |  |
 | 25 | 版本详情 | `GET /admin/v1/merchant/reviews/{id}` | 版本审核详情 | ✅ | 一键 |  |
 | 26 | 审核版本 | `POST /admin/v1/merchant/versions/{id}/review` | 版本审核弹窗 + 批量确认 | ✅ | 批量 | 批量确认需商家填理由，agent 不代写 reviewed_* |
-| 27 | 发布版本 | `POST /admin/v1/merchant/versions/{id}/publish` | 版本操作弹窗 | ✅ | 批量 | 发布仍需商家单独点击 |
+| 27 | 发布版本 | `POST /admin/v1/merchant/versions/{id}/publish` | 版本操作弹窗 | ✅ | 单条 | 发布不批量：一次一个版本，需商家在版本详情页单独点击 |
 | 28 | 回滚版本 | `POST /admin/v1/merchant/versions/{id}/rollback` | 版本操作弹窗 | ✅ | 单条 |  |
 | 29 | 撤回版本 | `POST /admin/v1/merchant/versions/{id}/revoke` | 版本操作弹窗 | ✅ | 单条 |  |
 | 30 | 版本历史 | `GET /admin/v1/merchant/versions` | 版本审核页“历史版本” | ✅ | 一键 | 展开查看状态与发布时间 |
@@ -54,10 +54,9 @@
 
 ## 缺口清单（按优先级）
 
-1. **导入批次撤回 UI（❌ #19）**：确认后未发布批次的整批撤回只能调 API。优先级高，属于 L1 收尾。
-2. **版本历史 UI（❌ #30）**：已发布/已撤回版本历史没有独立页面；审核页只显示待审队列。优先级高。
-3. **命令结果 UI（❌ #31）**：异步命令只有即时响应，无法在 UI 按 command id 查询最终结果。优先级中。
-4. **模型供应商选择（未在 31 条内，P3/0019）**：provider/provider_model、测试连接、四槽位绑定均无 UI 与后端实现；已知属 P3。
+1. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；这是当前唯一未关闭的 A 级相关缺口。未在 31 条 admin 路由内。
+
+除该 P3 项外，31 条 admin 路由均有 UI 承载；批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
 
 ## B 级（允许 CLI，一条命令）
 
