@@ -20,6 +20,22 @@ DOCUMENT = ROOT / "docs" / "data-ownership.md"
 WRITE = re.compile(r"(?i)\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_]*)")
 # Row-locking clauses ("FOR UPDATE OF x") and prose are not table writes.
 CREATE = re.compile(r"(?i)create\s+table\s+(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)")
+# Ratchet: 36 tables are written but not declared yet. Registering them lowers
+# this number; raising it is a policy change that needs a review, not a fix.
+UNDECLARED_BUDGET = 36
+# Frozen at the moment the ratchet was introduced, only used to name what moved.
+UNDECLARED_BASELINE = frozenset({
+    "chunk", "citation", "control_command", "conversation", "conversation_execution",
+    "customer_command", "customer_conversation", "customer_event", "customer_execution",
+    "customer_identity", "customer_message", "customer_reply", "customer_retrieval_trace",
+    "evidence_snapshot", "import_batch", "import_item", "ingest_artifact_object",
+    "ingest_command_result", "ingest_event", "ingest_job", "ingest_job_item",
+    "ingest_payload", "ingest_publication", "ingest_worker_heartbeat", "local_auth_event",
+    "message", "retrieval_trace", "review_suggestion", "shop", "source", "sse_event",
+    "tenant_agent_review", "tool_call_trace", "turn", "turn_idempotency",
+    "v2_asking_checkpoint",
+})
+
 ROW = re.compile(r"^\|\s*`([a-z_][a-z0-9_]*)`\s*\|(.*?)\|\s*$")
 NAME = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)`")
 
@@ -90,8 +106,10 @@ def main() -> int:
     failures: list[str] = []
     warnings: list[str] = []
     undeclared: list[str] = []
+    undeclared_names: set[str] = set()
     for table, sites in sorted(found.items()):
         if table not in tables:
+            undeclared_names.add(table)
             undeclared.append(f"{table} ({', '.join(sorted({writer for writer, _ in sites}))})")
             continue
         allowed, _ = tables[table]
@@ -108,12 +126,22 @@ def main() -> int:
             warnings.append(f"{table}: declares {writer} but no write site found (document may be stale)")
     if undeclared:
         warnings.append(f"{len(undeclared)} written tables are not declared yet: {', '.join(undeclared)}")
+    if len(undeclared_names) > UNDECLARED_BUDGET:
+        appeared = sorted(undeclared_names - UNDECLARED_BASELINE)
+        failures.append(
+            f"undeclared tables {len(undeclared_names)} exceed the budget {UNDECLARED_BUDGET}"
+            + (f"; new: {', '.join(appeared)}" if appeared else f"; declared fewer: {', '.join(sorted(UNDECLARED_BASELINE - undeclared_names)) or '-'}")
+        )
+    elif len(undeclared_names) < UNDECLARED_BUDGET:
+        warnings.append(
+            f"undeclared tables dropped to {len(undeclared_names)}; UNDECLARED_BUDGET can be lowered to {len(undeclared_names)}"
+        )
     for warning in warnings:
         print(f"WARN {warning}")
     if failures:
         for failure in failures:
             print(f"FAIL {failure}")
-        print(f"FAIL data ownership: {len(failures)} undeclared writer(s)")
+        print(f"FAIL data ownership: {len(failures)} problem(s)")
         return 1
     sites = sum(len(value) for value in found.values())
     print(f"PASS data ownership: {len(tables)} tables declared, {sites} write sites checked")
