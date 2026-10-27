@@ -516,7 +516,8 @@ def main():
         report["budget_before"] = ledger.summary()
         with sqlite3.connect(ledger.path.as_uri() + "?mode=ro", uri=True) as conn:
             attempt_start = conn.execute("SELECT coalesce(max(rowid),0) FROM attempt").fetchone()[0]
-        if Decimal(report["budget_before"]["remaining_cny"]) < Decimal(report["budget_plan"]["upper_bound_cny"]):
+        before = report["budget_before"]
+        if (Decimal(before["cap_cny"]) - Decimal(before["committed_cny"])) < Decimal(report["budget_plan"]["upper_bound_cny"]):
             raise AcceptanceFailure("bounded batch exceeds remaining budget")
         with psycopg.connect(values["V2_GATEWAY_DSN"]) as conn:
             name, role, superuser, bypass = conn.execute("SELECT current_database(),current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
