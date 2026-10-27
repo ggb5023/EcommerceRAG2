@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+var errImportUpload = errors.New("uploaded file could not be read")
 
 type adminConflictError struct{ message string }
 
@@ -75,9 +79,9 @@ func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_package", "manifest files do not match package paths")
 		return
 	}
-	files := make([]*ragv1.PackageFile, 0, len(fileHeaders))
+	uploads := make([]UploadedFile, 0, len(fileHeaders))
 	for index, header := range fileHeaders {
-		if header.Size > 8*1024*1024 {
+		if header.Size > maxImportFileSize {
 			httpapi.WriteError(w, 413, "file_too_large", "a manifest file exceeds 8 MiB")
 			return
 		}
@@ -86,16 +90,45 @@ func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 			httpapi.WriteError(w, 400, "invalid_package", "an uploaded file could not be read")
 			return
 		}
-		content, readErr := io.ReadAll(io.LimitReader(file, 8*1024*1024+1))
+		temporary, createErr := os.CreateTemp("", "ecr-import-*")
+		if createErr != nil {
+			_ = file.Close()
+			httpapi.WriteError(w, 400, "invalid_package", "an uploaded file could not be read")
+			return
+		}
+		if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
+			_ = file.Close()
+			_ = temporary.Close()
+			_ = os.Remove(temporary.Name())
+			httpapi.WriteError(w, 400, "invalid_package", "an uploaded file could not be read")
+			return
+		}
+		size, copyErr := io.Copy(temporary, io.LimitReader(file, maxImportFileSize+1))
 		_ = file.Close()
-		if readErr != nil || len(content) > 8*1024*1024 {
+		closeErr := temporary.Close()
+		if copyErr != nil || closeErr != nil || size > maxImportFileSize {
+			_ = os.Remove(temporary.Name())
 			httpapi.WriteError(w, 413, "file_too_large", "a manifest file exceeds 8 MiB")
 			return
 		}
-		files = append(files, &ragv1.PackageFile{Path: paths[index], Content: content})
+		uploads = append(uploads, UploadedFile{TempPath: temporary.Name(), DeclaredName: paths[index], DeclaredSize: header.Size})
 	}
-	queued, err := g.queuePackage(r.Context(), manifest, files, g.Session.TenantID, g.Session.UserID, shopID)
+	defer func() {
+		for _, upload := range uploads {
+			_ = os.Remove(upload.TempPath)
+		}
+	}()
+	parsed, err := parseManifest(manifest, uploads)
 	if err != nil {
+		httpapi.WriteError(w, 400, "invalid_package", "manifest package failed validation")
+		return
+	}
+	queued, err := g.persistParsed(r.Context(), ParsedPackage{Manifest: manifest, Files: uploads, Documents: parsed}, 0, shopID)
+	if err != nil {
+		if errors.Is(err, errImportUpload) {
+			httpapi.WriteError(w, 400, "invalid_package", "an uploaded file could not be read")
+			return
+		}
 		if status.Code(err) == codes.InvalidArgument {
 			httpapi.WriteError(w, 400, "invalid_package", "manifest package failed validation")
 			return
@@ -122,6 +155,24 @@ func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": strconv.FormatInt(queued.JobID, 10),
 		"manifest_sha256": queued.ManifestSHA256, "package_sha256": queued.PackageSHA256,
 		"item_count": queued.ItemCount, "status": queued.Status, "is_mock": httpapi.IsMockProfile(g.Profile)})
+}
+
+func (g *Handler) persistParsed(ctx context.Context, parsed ParsedPackage, batchID int64, shopID string) (queuedPackage, error) {
+	_ = batchID // stage 1 has no batch row; stage 2 binds the import batch here.
+	files := make([]*ragv1.PackageFile, 0, len(parsed.Files))
+	for _, upload := range parsed.Files {
+		stream, err := os.Open(upload.TempPath)
+		if err != nil {
+			return queuedPackage{}, err
+		}
+		content, readErr := io.ReadAll(io.LimitReader(stream, maxImportFileSize+1))
+		_ = stream.Close()
+		if readErr != nil || len(content) > maxImportFileSize {
+			return queuedPackage{}, errImportUpload
+		}
+		files = append(files, &ragv1.PackageFile{Path: upload.DeclaredName, Content: content})
+	}
+	return g.queuePackage(ctx, parsed.Manifest, files, g.Session.TenantID, g.Session.UserID, shopID)
 }
 
 func (g *Handler) adminJobs(w http.ResponseWriter, r *http.Request) {
