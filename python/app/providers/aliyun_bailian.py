@@ -668,6 +668,7 @@ class AlibabaBailianProvider:
         output_type: str = "dense&sparse",
         instruct_version: str = "",
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> Sequence[EmbeddingResult]:
         if dimensions != 1024:
             raise ProviderError(
@@ -944,6 +945,7 @@ class MockProvider:
         output_type: str = "dense&sparse",
         instruct_version: str = "",
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> Sequence[EmbeddingResult]:
         if dimensions != 1024:
             raise ProviderError(

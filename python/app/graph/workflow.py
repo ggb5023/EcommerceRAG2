@@ -183,6 +183,18 @@ def _cosine(left: list[float], right: list[float]) -> float:
     return numerator / (left_norm * right_norm)
 
 
+def scoped(state: GraphState, payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach the authoritative tenant/shop to every provider chain call."""
+    scope = state.get("scope") or {}
+    tenant = scope.get("tenant_id")
+    shop = scope.get("shop_id")
+    if tenant is None or isinstance(tenant, bool) or not isinstance(tenant, (int, str)) or (isinstance(tenant, str) and not tenant.strip()):
+        raise ValueError("provider chain requires tenant_id")
+    if shop is None or isinstance(shop, bool) or not isinstance(shop, str) or not shop.strip():
+        raise ValueError("provider chain requires shop_id")
+    return {**payload, "tenant_id": tenant, "shop_id": shop}
+
+
 async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) -> dict[str, Any]:
     """Retrieve through the configured persistent index or the bounded fixture."""
     if state.get("seed_evidence") is not None:
@@ -195,11 +207,11 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("request cancelled")
     query = state.get("rewritten_query", state["query"])
-    query_value = await chains.embedding.ainvoke({
+    query_value = await chains.embedding.ainvoke(scoped(state, {
         "texts": [query], "text_type": "query", "dimensions": 1024,
         "output_type": "dense&sparse", "timeout_s": state.get("provider_timeout_s"),
         "cancel_event": cancel_event,
-    })
+    }))
     query_items = _validate_embedding_batch(query_value, 1, "query")
     if chains.retriever is not None:
         retrieved = await chains.retriever.asearch(
@@ -218,11 +230,11 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
                 "candidate_count": len(retrieved),
             },
         }
-    document_value = await chains.embedding.ainvoke({
+    document_value = await chains.embedding.ainvoke(scoped(state, {
         "texts": [item["content"] for item in candidates], "text_type": "document",
         "dimensions": 1024, "output_type": "dense&sparse",
         "timeout_s": state.get("provider_timeout_s"), "cancel_event": cancel_event,
-    })
+    }))
     document_items = _validate_embedding_batch(document_value, len(candidates), "document")
     query_dense = [float(number) for number in query_items[0]["dense"]]
     for item, vector in zip(candidates, document_items):
@@ -476,12 +488,12 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
             "必须intent=clarification且clarification询问具体哪一项；不要进入检索后猜测版本。"
         )
     messages.append({"role": "user", "content": state["query"]})
-    result = await chains.control.ainvoke({
+    result = await chains.control.ainvoke(scoped(state, {
         "messages": messages,
         "response_schema": schema,
         "timeout_s": state.get("provider_timeout_s"),
         "cancel_event": cancel_event,
-    })
+    }))
     return _provider_understand_result(result, state["query"])
 
 
@@ -497,13 +509,13 @@ async def provider_rerank_node(state: GraphState, chains: ProviderChainSet) -> d
             "evidence": [dict(item) for item in fused],
             "provider_trace": {"retrieval": state.get("provider_trace", {}), "rerank": {"preserved_seed": True}},
         }
-    result = await chains.rerank.ainvoke({
+    result = await chains.rerank.ainvoke(scoped(state, {
         "query": state.get("rewritten_query", state["query"]),
         "candidates": [item["content"] for item in fused],
         "top_n": min(8, len(fused)),
         "timeout_s": state.get("provider_timeout_s"),
         "cancel_event": cancel_event,
-    })
+    }))
     if not isinstance(result, Mapping) or not isinstance(result.get("items"), list):
         raise TypeError("provider rerank output is invalid")
     ranked: list[Evidence] = []
@@ -569,8 +581,8 @@ async def provider_context_gate_node(state: GraphState, chains: ProviderChainSet
         {'role': 'user', 'content': f"Question: {state.get('rewritten_query', state['query'])}\n" +
          '\n'.join(f"[{e['id']}] document_id={e['document_id']}\n{e['content']}" for e in evidence)},
     ]
-    result = await chains.control.ainvoke({'messages': messages, 'response_schema': schema,
-        'timeout_s': state.get('provider_timeout_s'), 'cancel_event': state.get('cancel_event')})
+    result = await chains.control.ainvoke(scoped(state, {'messages': messages, 'response_schema': schema,
+        'timeout_s': state.get('provider_timeout_s'), 'cancel_event': state.get('cancel_event')}))
     ids = result.get('structured', {}).get('selected_ids')
     supplied = {e['id'] for e in evidence}
     if (not isinstance(ids, list) or any(not isinstance(i, str) for i in ids)
@@ -812,7 +824,7 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
                        request_sha256=fingerprint)
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("request cancelled")
-    result = await chains.generation.ainvoke(request)
+    result = await chains.generation.ainvoke(scoped(state, request))
     if not isinstance(result, Mapping):
         raise TypeError("provider generation output is invalid")
     structured = result.get("structured")

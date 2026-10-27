@@ -22,9 +22,6 @@ CREATE TABLE provider_model (
     provider_id   BIGINT NOT NULL REFERENCES provider(id) ON DELETE CASCADE,
     slot          TEXT NOT NULL CHECK (slot IN ('control','embedding','rerank','generation')),
     model_id      TEXT NOT NULL,
-    price_input   NUMERIC(12,6) NOT NULL CHECK (price_input >= 0),
-    price_output  NUMERIC(12,6) NOT NULL CHECK (price_output >= 0),
-    price_version TEXT NOT NULL,
     embedding_dim INTEGER CHECK (embedding_dim IS NULL OR embedding_dim > 0),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (provider_id, slot)

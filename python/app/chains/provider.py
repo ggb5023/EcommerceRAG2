@@ -50,6 +50,16 @@ def _mapping(payload: object, field: str) -> Mapping[str, Any]:
     return payload
 
 
+def require_scope(payload: Mapping[str, Any]) -> None:
+    """Every provider chain call must carry an explicit tenant and shop."""
+    tenant = payload.get("tenant_id")
+    shop = payload.get("shop_id")
+    if tenant is None or isinstance(tenant, bool) or not isinstance(tenant, (int, str)) or (isinstance(tenant, str) and not tenant.strip()):
+        raise ValueError("provider chain requires tenant_id")
+    if shop is None or isinstance(shop, bool) or not isinstance(shop, str) or not shop.strip():
+        raise ValueError("provider chain requires shop_id")
+
+
 @dataclass(frozen=True)
 class ProviderChainSet:
     """LangChain boundaries for all four AI slots."""
@@ -79,6 +89,7 @@ def build_provider_chains(
 
     async def run_control(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "control")
+        require_scope(value)
         result = await control.control(
             value.get("messages", []),
             response_schema=value.get("response_schema"),
@@ -95,6 +106,7 @@ def build_provider_chains(
 
     async def run_embedding(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "embedding")
+        require_scope(value)
         texts = value.get("texts", [])
         results = await embedding.embed(
             texts,
@@ -103,6 +115,7 @@ def build_provider_chains(
             output_type=value.get("output_type", "dense&sparse"),
             instruct_version=value.get("instruct_version", ""),
             cancel_event=value.get("cancel_event"),
+            tenant_id=value["tenant_id"],
         )
         return {
             "items": [
@@ -125,6 +138,7 @@ def build_provider_chains(
 
     async def run_rerank(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "rerank")
+        require_scope(value)
         result = await rerank.rerank(
             value.get("query", ""),
             value.get("candidates", []),
@@ -142,6 +156,7 @@ def build_provider_chains(
 
     async def run_generation(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "generation")
+        require_scope(value)
         result = await generation.generate(
             value.get("messages", []),
             response_schema=value.get("response_schema"),

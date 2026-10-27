@@ -102,6 +102,7 @@ class EmbeddingProvider(Protocol):
         output_type: Literal["dense", "sparse", "dense&sparse"] = "dense&sparse",
         instruct_version: str = "",
         cancel_event: Any | None = None,
+        tenant_id: int | None = None,
     ) -> Sequence[EmbeddingResult]: ...
 
 

@@ -41,10 +41,12 @@ async def _provider_chains_keep_metadata_and_embedding_contract():
         generation=mock_provider(),
     )
     control = await chains.control.ainvoke({
+        "tenant_id": 1, "shop_id": "test-shop",
         "messages": [{"role": "user", "content": "问题"}],
     })
     assert control["provider"]["request_id"].startswith("mock-control-")
     embedding = await chains.embedding.ainvoke({
+        "tenant_id": 1, "shop_id": "test-shop",
         "texts": ["文本"], "text_type": "document", "output_type": "dense&sparse",
     })
     assert len(embedding["items"][0]["dense"]) == 1024
@@ -146,7 +148,7 @@ def test_provider_graph_calls_embedding_with_query_and_document_contracts():
             super().__init__(config)
             self.calls = []
 
-        async def embed(self, texts, *, text_type, dimensions=1024, output_type="dense&sparse", instruct_version="", cancel_event=None):
+        async def embed(self, texts, *, text_type, dimensions=1024, output_type="dense&sparse", instruct_version="", cancel_event=None, tenant_id=None):
             self.calls.append((list(texts), text_type, dimensions, output_type))
             return await super().embed(
                 texts,
@@ -155,6 +157,7 @@ def test_provider_graph_calls_embedding_with_query_and_document_contracts():
                 output_type=output_type,
                 instruct_version=instruct_version,
                 cancel_event=cancel_event,
+                tenant_id=tenant_id,
             )
 
     async def run():
