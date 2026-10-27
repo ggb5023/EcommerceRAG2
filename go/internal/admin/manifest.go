@@ -237,6 +237,8 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 		if !ok || !manifestSHA256.MatchString(declared) {
 			return nil, fmt.Errorf("documents[%d].sha256 is invalid", index)
 		}
+		// DeclaredSHA256 is the manifest declaration, never a post-upload backfill.
+		file.DeclaredSHA256 = declared
 		sourceHash, size, err := hashUploadedFile(file)
 		if err != nil {
 			return nil, err
@@ -248,7 +250,7 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 		if file.DeclaredSize >= 0 && file.DeclaredSize != size {
 			return nil, fmt.Errorf("documents[%d].size does not match the uploaded file", index)
 		}
-		if declared != sourceHash || (file.DeclaredSHA256 != "" && file.DeclaredSHA256 != sourceHash) {
+		if file.DeclaredSHA256 != sourceHash {
 			return nil, fmt.Errorf("documents[%d].sha256 does not match the uploaded file", index)
 		}
 		versionDigest := sha256.Sum256([]byte(sourceHash + "\x00" + pipeline + "\x00" + manifestHash))
