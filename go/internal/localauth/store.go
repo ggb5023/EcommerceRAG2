@@ -384,10 +384,7 @@ func (s *Store) CompleteSetup(ctx context.Context, target SetupTarget, passwordH
 			return ErrSetupNeedsBootstrap
 		}
 		now := s.now()
-		if _, err := tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
-			must_change_password,created_at,updated_at,password_changed_at)
-			VALUES($1,$2,$3,false,$4::timestamptz,$4::timestamptz,$4::timestamptz)`,
-			target.TenantID, target.OwnerUserID, passwordHash, now); err != nil {
+		if err := CreateCredentialTx(ctx, tx, target.TenantID, target.OwnerUserID, passwordHash, false, &now); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,
@@ -446,6 +443,47 @@ func (s *Store) FindUser(ctx context.Context, username string) (User, error) {
 	return user, err
 }
 
+// AccountRecord is the minimum needed to create one operator account.
+type AccountRecord struct {
+	TenantID     int64
+	ExternalID   string
+	Role         string
+	ShopIDs      []string
+	PasswordHash string
+	MustChange   bool
+	// CreatedAt is optional. nil keeps the database clock, which is what callers
+	// that never set the credential timestamps relied on before.
+	CreatedAt *time.Time
+}
+
+// CreateAccountTx writes app_user and local_credential inside the caller's
+// transaction. The package owns both statements: callers that need them
+// atomic with their own rows (staff creation) pass their transaction instead of
+// issuing the SQL themselves. See docs/data-ownership.md.
+func CreateAccountTx(ctx context.Context, tx pgx.Tx, rec AccountRecord) (int64, error) {
+	var userID int64
+	if err := tx.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids)
+		VALUES($1,$2,$3,$4) RETURNING id`,
+		rec.TenantID, rec.ExternalID, rec.Role, rec.ShopIDs).Scan(&userID); err != nil {
+		return 0, err
+	}
+	if err := CreateCredentialTx(ctx, tx, rec.TenantID, userID, rec.PasswordHash, rec.MustChange, rec.CreatedAt); err != nil {
+		return 0, err
+	}
+	return userID, nil
+}
+
+// CreateCredentialTx writes the credential of an existing account inside the
+// caller's transaction. The package owns this statement for both /setup and
+// staff creation; nil CreatedAt keeps the database clock.
+func CreateCredentialTx(ctx context.Context, tx pgx.Tx, tenantID, userID int64, passwordHash string, mustChange bool, createdAt *time.Time) error {
+	_, err := tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
+		must_change_password,created_at,updated_at,password_changed_at)
+		VALUES($1,$2,$3,$4,COALESCE($5::timestamptz,now()),COALESCE($5::timestamptz,now()),COALESCE($5::timestamptz,now()))`,
+		tenantID, userID, passwordHash, mustChange, createdAt)
+	return err
+}
+
 // CreateOperator adds a non-owner account and its credential. Owner and admin
 // roles are refused here: the gateway role cannot write admin_role_grant, so an
 // owner created this way would own nothing.
@@ -464,15 +502,17 @@ func (s *Store) CreateOperator(ctx context.Context, tenantID int64, username, ro
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		now := s.now()
-		if err := tx.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids)
-			VALUES($1,$2,$3,(SELECT ARRAY[id] FROM shop WHERE tenant_id=$1 AND status='active' ORDER BY id LIMIT 1))
-			RETURNING id`, tenantID, username, role).Scan(&userID); err != nil {
+		var shops []string
+		if err := tx.QueryRow(ctx, `SELECT (SELECT ARRAY[id] FROM shop
+			WHERE tenant_id=$1 AND status='active' ORDER BY id LIMIT 1)`, tenantID).Scan(&shops); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO local_credential(tenant_id,user_id,password_hash,
-			must_change_password,created_at,updated_at,password_changed_at)
-			VALUES($1,$2,$3,$4,$5::timestamptz,$5::timestamptz,$5::timestamptz)`, tenantID, userID, passwordHash, mustChange, now)
+		now := s.now()
+		created, err := CreateAccountTx(ctx, tx, AccountRecord{
+			TenantID: tenantID, ExternalID: username, Role: role, ShopIDs: shops,
+			PasswordHash: passwordHash, MustChange: mustChange, CreatedAt: &now,
+		})
+		userID = created
 		return err
 	})
 	return userID, err

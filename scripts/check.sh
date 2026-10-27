@@ -10,6 +10,7 @@ python3 scripts/check/check-docs.py
 python3 scripts/check/check-openapi.py
 python3 scripts/check/check-eval-corpus.py
 python3 scripts/check/check-doc-baseline.py
+python3 scripts/check/check-ownership.py
 while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts docker eval -name '*.sh' -print0)
 test -x scripts/dev/v2-local-services.sh
 shellcheck -S warning scripts/*.sh scripts/*/*.sh eval/*.sh docker/db/*.sh docker/db/init/*.sh

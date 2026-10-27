@@ -57,14 +57,11 @@
 | `turn` / `sse_event` / … | `internal/turn`（重构后） | gateway | 0001/0010 | W2 完成后更新 |
 | `customer_*` | `internal/customer` | gateway | 0026 | 不得与 turn 互写 |
 
-验收：
+验收（分批覆盖）：当前 13 张已登记、36 张待登记，由 `scripts/check/check-ownership.py` 的
+`UNDECLARED_BUDGET` 棘轮约束——每批补登记后下调预算，**不得上调**。
 
 ```bash
-# 每个 INSERT/UPDATE 目标表都必须出现在归属表里
-grep -rhoE 'INSERT INTO [a-z_]+|UPDATE [a-z_]+ SET' go/internal --include='*.go' \
-  | grep -v _test | awk '{print $3}' | sort -u > /tmp/written.txt
-grep -oE '^\| `[a-z_]+`' docs/data-ownership.md | tr -d '|` ' | sort -u > /tmp/documented.txt
-comm -23 /tmp/written.txt /tmp/documented.txt   # 期望为空
+python3 scripts/check/check-ownership.py    # PASS；未登记表数超过预算即 fail
 ```
 
 ### D-W2　迁移从零建库测试（半天）

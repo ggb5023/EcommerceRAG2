@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -122,9 +123,29 @@ func TestStaffCreationRespectsGrantBoundary(t *testing.T) {
 		t.Fatalf("unexpected creation payload: password length %d must_change %v", len(created.Password), created.MustChange)
 	}
 	var mustChange bool
-	if err := migrator.QueryRow(ctx, `SELECT c.must_change_password FROM local_credential c
+	var credentialHash string
+	if err := migrator.QueryRow(ctx, `SELECT c.must_change_password, c.password_hash FROM local_credential c
 		JOIN app_user u ON u.tenant_id=c.tenant_id AND u.id=c.user_id
-		WHERE u.tenant_id=$1 AND u.external_id='staff-a'`, tenant).Scan(&mustChange); err != nil || !mustChange {
+		WHERE u.tenant_id=$1 AND u.external_id='staff-a'`, tenant).Scan(&mustChange, &credentialHash); err != nil || !mustChange {
 		t.Fatalf("credential must_change_password=%v err=%v", mustChange, err)
+	}
+	// Equivalence after moving the app_user/local_credential write into
+	// localauth: one transaction still leaves the account, its one-time
+	// credential and the approved grant behind, and the credential matches the
+	// password returned once to the caller.
+	if err := localauth.Verify(created.Password, credentialHash); err != nil {
+		t.Fatalf("credential does not match the returned password: %v", err)
+	}
+	var accountRole, grantRole, grantStatus, requestStatus string
+	if err := migrator.QueryRow(ctx, `SELECT u.role, g.role, g.status, r.status
+		FROM app_user u
+		JOIN local_credential c ON c.tenant_id=u.tenant_id AND c.user_id=u.id
+		JOIN admin_role_grant g ON g.tenant_id=u.tenant_id AND g.user_id=u.id
+		JOIN admin_permission_request r ON r.tenant_id=g.tenant_id AND r.requested_by=u.id AND r.role=g.role
+		WHERE u.tenant_id=$1 AND u.external_id='staff-a'`, tenant).Scan(&accountRole, &grantRole, &grantStatus, &requestStatus); err != nil {
+		t.Fatalf("staff creation rows missing: %v", err)
+	}
+	if accountRole != "operator" || grantRole != "merchant_admin" || grantStatus != "active" || requestStatus != "approved" {
+		t.Fatalf("unexpected rows: account=%s grant=%s/%s request=%s", accountRole, grantRole, grantStatus, requestStatus)
 	}
 }
