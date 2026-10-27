@@ -118,6 +118,16 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 		request(managerAPI, "GET", "/admin/v1/"+path, nil, 200)
 		request(memberAPI, "GET", "/admin/v1/"+path, nil, 403)
 	}
+	request(managerAPI, "GET", "/admin/v1/merchant/agent-review", nil, 200)
+	request(managerAPI, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": true, "policy_version": "v1", "confirm": true, "reason": "Enable model assistance for isolated test"}, 200)
+	request(managerAPI, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": false, "policy_version": "v1", "confirm": true, "reason": "Disable model assistance for isolated test"}, 200)
+	request(memberAPI, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": true, "policy_version": "v1", "confirm": true, "reason": "Unauthorized model assistance change"}, 403)
+	if _, err = migration.Exec(ctx, `UPDATE tenant_agent_review SET enabled=true WHERE tenant_id=$1`, tenant); err == nil {
+		t.Fatal("tenant_agent_review update was not rejected")
+	}
+	if _, err = migration.Exec(ctx, `DELETE FROM tenant_agent_review WHERE tenant_id=$1`, tenant); err == nil {
+		t.Fatal("tenant_agent_review delete was not rejected")
+	}
 	request(memberAPI, "GET", "/admin/v1/access/requests", nil, 200)
 	request(managerAPI, "GET", "/admin/v1/merchant/shops?shop_id=shop-b", nil, 403)
 	makeRequest := func(api http.Handler, role, scope string, shops []string, expected int) map[string]any {

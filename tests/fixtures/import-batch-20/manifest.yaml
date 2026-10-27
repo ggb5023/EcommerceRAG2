@@ -1,0 +1,149 @@
+schema_version: 1
+source:
+  id: import-batch-20
+  name: Import Batch 20
+pipeline_version: v2-import-v1
+documents:
+  - document_id: import-doc-01
+    title: Document 1
+    path: doc-01.md
+    format: markdown
+    sha256: e26912bc4ea8a3a6abed1127c586439138051c00f2645a6c2824b1db259c4d58
+    disclosure_class: internal_only
+  - document_id: import-doc-02
+    title: Document 2
+    path: doc-02.md
+    format: markdown
+    sha256: f742662c32987f2244e3f30c834db391aea0962bf7319abb4609a242821da5d9
+    license: internal
+    effective_to: 2026-01-01
+    disclosure_class: internal_only
+  - document_id: import-doc-03
+    title: Document 3
+    path: doc-03.md
+    format: markdown
+    sha256: 6c6bad5c70041e1f8a95d62a9e6fd57e01f145dbc4447f179c9d35a3028356c3
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-04
+    title: Document 4
+    path: doc-04.md
+    format: markdown
+    sha256: 93bccc5aad585d843e19e2b5d8b2fde1d26ccd31ce799bbf0714798f2aa67ec0
+    disclosure_class: external_allowed
+    authorization:
+      reference: synthetic-authorization
+      checked_at: '2026-10-01'
+    excerpt: 声明对外可见但缺少 license
+  - document_id: import-doc-05
+    title: Document 5
+    path: doc-05.md
+    format: markdown
+    sha256: 0c3a7d37005867fe83d4a98d3b9adf3c5ef77925f947de277940fe91f363e053
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-06
+    title: Document 6
+    path: doc-06.md
+    format: markdown
+    sha256: 5d82fc5ff9d7767c23b2c7c069b39f83b15cd00445f849c46366ea488c72868c
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-07
+    title: Document 7
+    path: doc-07.md
+    format: markdown
+    sha256: 5b77b44e2d01f7154938f2019808aa39f7c42116bf3f9a805aec7c557cb2011f
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-08
+    title: Document 8
+    path: doc-08.md
+    format: markdown
+    sha256: 7c91433545cefceadd3fa12ae6dc7cedd0c8b3a61c403a75d8735e379c4cf43f
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-09
+    title: Document 9
+    path: doc-09.md
+    format: markdown
+    sha256: 8ec126ba84ac12e5d7a9ad74ce47185785e94dc833f4a5d692ca18f2c5c13830
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-10
+    title: Document 10
+    path: doc-10.md
+    format: markdown
+    sha256: 8bcffd6182d4b387e4e5049bb0ba889111cab408ecce01cdd588840fa4b21ee4
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-11
+    title: Document 11
+    path: doc-11.md
+    format: markdown
+    sha256: 66f9c1ca92e3cb9a5746b3723feb76022f6958d64e5ef77cddddd53c14da4a7a
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-12
+    title: Document 12
+    path: doc-12.md
+    format: markdown
+    sha256: 3a4b8825db48956005855682763c9bbab7ee49a39c9addcb3199433db2ea19d8
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-13
+    title: Document 13
+    path: doc-13.md
+    format: markdown
+    sha256: 9160173a7a422259185a8ff2e90310a33db0cefc69766cced0a180740b949085
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-14
+    title: Document 14
+    path: doc-14.md
+    format: markdown
+    sha256: 1a2c79134f9a4d27f5ac0e98b710a572ef5e36b0220d9f75e70fb78c0cfcc510
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-15
+    title: Document 15
+    path: doc-15.md
+    format: markdown
+    sha256: 49c85d76368ced5f126e6265305db0ce1ce994a04536d1d3bce19647d9a9b442
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-16
+    title: Document 16
+    path: doc-16.md
+    format: markdown
+    sha256: b4719d5a231e5e57182749e61a9f6acacb033bb7caf7251f208d37f0f3f02b70
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-17
+    title: Document 17
+    path: doc-17.md
+    format: markdown
+    sha256: c1f8bca9779a6f0cdb137db75165aad2589b5d19e5ed5144fd104997fffa4b7f
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-18
+    title: Document 18
+    path: doc-18.md
+    format: markdown
+    sha256: 4dcb417d1ca21776eddde1e7abe2bbdc41e3940a1384ac739e2456f0f93ee819
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-19
+    title: Document 19
+    path: doc-19.md
+    format: markdown
+    sha256: c823ac3ca69347fcbb60e380f335c8764f14ffb2385009aafb1c4aadd9b57ee7
+    license: internal
+    disclosure_class: internal_only
+  - document_id: import-doc-20
+    title: Document 20
+    path: doc-20.md
+    format: markdown
+    sha256: dd0e0ee8241e7b442981ece1bc42a3e8d3f7f8990eaecb26156bd5aaa8321124
+    license: internal
+    disclosure_class: internal_only

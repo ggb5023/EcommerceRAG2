@@ -19,13 +19,48 @@ from .contracts import ProviderError
 
 PRICE_VERSION = "bailian-cn-beijing-20261012"
 # RMB per million tokens; highest published tier, no discounts/free quota.
-PRICES = {
+DEFAULT_PRICES = {
     "qwen3.8-flash": (Decimal("0.8"), Decimal("2.7")),
     "qwen3.7-plus": (Decimal(6), Decimal(24)),
     "qwen3.7-text-embedding": (Decimal("0.5"), Decimal(0)),
     "qwen3.7-text-rerank": (Decimal("0.5"), Decimal(0)),
 }
 MICRO_CNY = Decimal(1_000_000)
+PRICING_PATH = Path(__file__).with_name("pricing.json")
+
+
+def load_pricing(path: Path | None = None, *, expected_version: str = PRICE_VERSION) -> tuple[str, dict]:
+    """Load the external model cost map; missing file uses the built-in fallback.
+
+    A present file is authoritative: malformed fields or a different
+    price_version fail closed instead of silently using stale prices.
+    """
+    path = path or PRICING_PATH
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return expected_version, dict(DEFAULT_PRICES)
+    if not isinstance(raw, dict) or raw.get("price_version") != expected_version:
+        raise ValueError("pricing version mismatch")
+    if raw.get("currency") != "CNY" or raw.get("per") != 1_000_000 or not isinstance(raw.get("models"), dict):
+        raise ValueError("pricing metadata is invalid")
+    prices = {}
+    for model, rates in raw["models"].items():
+        if not isinstance(model, str) or not isinstance(rates, dict):
+            raise TypeError("pricing model is invalid")
+        try:
+            input_price, output_price = Decimal(str(rates["input"])), Decimal(str(rates["output"]))
+        except (KeyError, InvalidOperation):
+            raise ValueError("pricing rate is invalid") from None
+        if not input_price.is_finite() or not output_price.is_finite() or input_price < 0 or output_price < 0:
+            raise ValueError("pricing rate is invalid")
+        prices[model] = (input_price, output_price)
+    if not prices:
+        raise ValueError("pricing table is empty")
+    return expected_version, prices
+
+
+PRICE_VERSION, PRICES = load_pricing()
 SCHEMA = """
 CREATE TABLE window(id TEXT PRIMARY KEY, cap_micro INTEGER NOT NULL, pricing TEXT NOT NULL);
 CREATE TABLE attempt(
@@ -231,8 +266,18 @@ class BudgetLedger:
     def summary(self) -> dict:
         with self._transaction() as conn:
             self._verify(conn)
-            count, reserved = conn.execute("SELECT count(*),coalesce(sum(reserved_micro),0) FROM attempt").fetchone()
+            count, reserved, observed, unbilled = conn.execute(
+                "SELECT count(*),coalesce(sum(reserved_micro),0),coalesce(sum(observed_micro),0),"
+                "coalesce(sum(CASE WHEN observed_micro IS NULL AND state IN ('response','error') THEN 1 ELSE 0 END),0) "
+                "FROM attempt").fetchone()
+        committed = Decimal(reserved) / MICRO_CNY
+        cap = Decimal(self.cap_micro) / MICRO_CNY
         return {"window_id": self.window_id, "requests": count,
-                "cap_cny": str(Decimal(self.cap_micro) / MICRO_CNY),
-                "reserved_cny": str(Decimal(reserved) / MICRO_CNY),
-                "remaining_cny": str(Decimal(self.cap_micro - reserved) / MICRO_CNY)}
+                "cap_cny": str(cap),
+                "committed_cny": str(committed),
+                "published_cny": str(Decimal(observed) / MICRO_CNY),
+                "unbilled_requests": int(unbilled),
+                "unbilled_note": "observed usage missing; reserved upper bound still occupies the cap",
+                # Compatibility for existing readers; new gates must use committed_cny.
+                "reserved_cny": str(committed),
+                "remaining_cny": str(cap - committed)}

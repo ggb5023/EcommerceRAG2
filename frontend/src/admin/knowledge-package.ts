@@ -13,6 +13,6 @@ export async function knowledgePackage(source: string, files: File[], shop: stri
   const id=await sha256(new TextEncoder().encode(`${source}:${file.name}`))
   documents.push({document_id:`knowledge-${id.slice(0,32)}`,title:file.name,path:file.name,format,sha256:await sha256(await file.arrayBuffer()),disclosure_class:'unclassified'})
  }
- const form=new FormData();form.set('shop_id',shop);form.set('manifest',JSON.stringify({schema_version:1,source:{id:source,name:source},pipeline_version:'v2-customer-v1',documents}))
+ const form=new FormData();form.set('shop_id',shop);form.set('manifest',JSON.stringify({schema_version:1,source:{id:source,name:source},pipeline_version:'v2-customer-v1',license:'internal-generated',documents}))
  for(const f of files){form.append('paths',f.name);form.append('files',f,f.name)}return form
 }

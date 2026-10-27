@@ -48,6 +48,8 @@
 | [0016](0016-content-inspection.md) | 内容巡检（L3）设计草案 | 提议 |
 | [0017](0017-m6-l1-import-precheck.md) | M6-L1 导入预检：数据模型与接口 | 提议 |
 | [0018](0018-m6-l2-review-suggestion.md) | M6-L2 审核建议：判据与接口 | 提议 |
+| [0019](0019-tenant-model-providers.md) | 商家自选模型供应商 | 提议 |
+| [0020](0020-ui-only-acceptance.md) | 仅 WebUI 商家验收标准 | 已采纳 |
 
 ## 后果
 

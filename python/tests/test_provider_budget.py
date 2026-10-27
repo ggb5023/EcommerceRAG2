@@ -405,3 +405,32 @@ def test_invalid_provider_certificate_is_not_retryable(monkeypatch):
             headers={}, body=b'{}', timeout_s=1))
     assert error.value.code == 'tls_verification'
     assert error.value.retryable is False
+
+
+def test_summary_splits_committed_published_and_unbilled(ledger):
+    failed = reserve(ledger)
+    ledger.record(failed, error_code="timeout")
+    billed = reserve(ledger)
+    ledger.record(billed, data={"usage": {"prompt_tokens": 10, "completion_tokens": 2}}, http_status=200)
+    summary = ledger.summary()
+    assert summary["committed_cny"] == summary["reserved_cny"]
+    assert Decimal(summary["published_cny"]) > 0
+    assert summary["unbilled_requests"] == 1
+    assert Decimal(summary["remaining_cny"]) == Decimal(summary["cap_cny"]) - Decimal(summary["committed_cny"])
+
+
+def test_external_pricing_table_loads_and_rejects_version_or_shape(tmp_path):
+    from app.providers.budget import PRICE_VERSION, load_pricing
+
+    valid = {"price_version": PRICE_VERSION, "currency": "CNY", "per": 1000000,
+             "models": {"qwen3.8-flash": {"input": "0.8", "output": "2.7"}}}
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps(valid))
+    version, prices = load_pricing(path)
+    assert version == PRICE_VERSION and prices["qwen3.8-flash"][0] == Decimal("0.8")
+    path.write_text(json.dumps(dict(valid, price_version="other-version")))
+    with pytest.raises(ValueError):
+        load_pricing(path)
+    path.write_text(json.dumps(dict(valid, models={"qwen3.8-flash": {"input": "x"}})))
+    with pytest.raises((TypeError, ValueError)):
+        load_pricing(path)

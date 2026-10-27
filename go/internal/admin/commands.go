@@ -87,6 +87,17 @@ func (g *Handler) adminCommandResult(w http.ResponseWriter, r *http.Request) {
 	var shop, action string
 	err := g.DB.QueryRow(r.Context(), `SELECT shop_id,action FROM control_command WHERE tenant_id=$1 AND actor_user_id=$2 AND command_id=$3`, g.Session.TenantID, g.Session.UserID, id).Scan(&shop, &action)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if _, parseErr := strconv.ParseInt(id, 10, 64); parseErr == nil {
+			var state, stage, errorCode, shopID string
+			if jobErr := g.DB.QueryRow(r.Context(), `SELECT j.status,j.stage,COALESCE(j.error_code,''),s.shop_id
+				FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+				WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[])`, g.Session.TenantID, id, g.Session.AllowedShops).
+				Scan(&state, &stage, &errorCode, &shopID); jobErr == nil {
+				httpapi.WriteJSON(w, 200, map[string]any{"command_id": id, "command_status": state, "state": state,
+					"stage": stage, "error_code": errorCode, "shop_id": shopID})
+				return
+			}
+		}
 		httpapi.WriteError(w, 404, "not_found", "command not found")
 		return
 	}
