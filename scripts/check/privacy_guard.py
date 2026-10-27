@@ -18,10 +18,13 @@ PUBLIC_EMAIL = 'maintainers@example.invalid'
 PUBLIC_ARCHITECTURE_PATH = 'docs/architecture.md'
 PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'scripts/README.md', 'docs/product.md', 'docs/install.md', 'docs/openapi.yaml', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md', 'docs/ui-only-acceptance.md', 'docs/refactor-input.md'}
 PUBLIC_DECISION = re.compile(r'docs/decisions/[0-9]{4}-[a-z0-9-]+\.md')
+# The refactor plan set is published deliberately; keep it in sync with .gitignore.
+PUBLIC_REFACTOR_PLAN = re.compile(r'docs/(?:[a-z0-9-]+-plan|refactor-assessment)\.md')
 
 
 def public_document(name):
-    return name in PUBLIC_DOCUMENT_PATHS or PUBLIC_DECISION.fullmatch(name) is not None
+    return (name in PUBLIC_DOCUMENT_PATHS or PUBLIC_DECISION.fullmatch(name) is not None
+            or PUBLIC_REFACTOR_PLAN.fullmatch(name) is not None)
 PROJECT_RECORDS_MANIFEST = 'project-records/manifest.json'
 PATTERNS = (
     rb'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',
