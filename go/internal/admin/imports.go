@@ -49,6 +49,75 @@ func (g *Handler) agentReviewEnabled(ctx context.Context) (bool, error) {
 	return enabled, err
 }
 
+type agentReviewUpdate struct {
+	Enabled       bool   `json:"enabled"`
+	PolicyVersion string `json:"policy_version"`
+	Confirm       bool   `json:"confirm"`
+	Reason        string `json:"reason"`
+}
+
+func (g *Handler) adminAgentReviewSetting(w http.ResponseWriter, r *http.Request) {
+	if _, ok := g.requireAdmin(w, r, adminRoleMerchant); !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		var enabled bool
+		var policy, actor string
+		var updated time.Time
+		err := g.DB.QueryRow(r.Context(), `SELECT t.enabled,t.policy_version,t.created_at,COALESCE(u.external_id,u.role)
+			FROM tenant_agent_review t JOIN app_user u ON u.tenant_id=t.tenant_id AND u.id=t.actor_user_id
+			WHERE t.tenant_id=$1 ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, g.Session.TenantID).
+			Scan(&enabled, &policy, &updated, &actor)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.WriteJSON(w, 200, map[string]any{"enabled": false, "policy_version": "", "updated_at": nil, "actor": nil,
+				"description": "允许把待审内容发送给模型（默认关闭；只发送片段与规则，不发送顾客对话正文）"})
+			return
+		}
+		if err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
+			return
+		}
+		httpapi.WriteJSON(w, 200, map[string]any{"enabled": enabled, "policy_version": policy, "updated_at": updated, "actor": actor})
+	case http.MethodPut:
+		var in agentReviewUpdate
+		if httpapi.DecodeJSON(r, &in) != nil || !in.Confirm || len(strings.TrimSpace(in.Reason)) < 10 || len(in.Reason) > 2000 ||
+			len(in.PolicyVersion) == 0 || len(in.PolicyVersion) > 64 {
+			httpapi.WriteError(w, 400, "invalid_confirmation", "complete the setting confirmation and policy version")
+			return
+		}
+		for _, char := range in.PolicyVersion {
+			if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-", char) {
+				httpapi.WriteError(w, 400, "invalid_policy_version", "policy_version is invalid")
+				return
+			}
+		}
+		tx, err := g.DB.Begin(r.Context())
+		if err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
+			return
+		}
+		defer tx.Rollback(r.Context())
+		if _, err = tx.Exec(r.Context(), `INSERT INTO tenant_agent_review(tenant_id,enabled,policy_version,actor_user_id)
+			VALUES($1,$2,$3,$4)`, g.Session.TenantID, in.Enabled, in.PolicyVersion, g.Session.UserID); err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
+			return
+		}
+		if err = auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "agent_review.update", "tenant_agent_review",
+			"", in.PolicyVersion, "", 0, strings.TrimSpace(in.Reason), "success", map[string]any{"enabled": in.Enabled}); err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting audit is unavailable")
+			return
+		}
+		if err = tx.Commit(r.Context()); err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
+			return
+		}
+		httpapi.WriteJSON(w, 200, map[string]any{"enabled": in.Enabled, "policy_version": in.PolicyVersion})
+	default:
+		httpapi.WriteError(w, 405, "method_not_allowed", "method is not allowed")
+	}
+}
+
 func (g *Handler) cleanupExpiredImports(ctx context.Context, tenantID int64, shopID string) {
 	rows, err := g.DB.Query(ctx, `SELECT b.id,i.temp_path FROM import_batch b JOIN import_item i ON i.batch_id=b.id
 		WHERE b.tenant_id=$1 AND b.shop_id=$2 AND b.status='staged' AND b.expires_at < now()`, tenantID, shopID)
@@ -85,17 +154,10 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	enabled, err := g.agentReviewEnabled(r.Context())
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
-		return
-	}
-	if !enabled {
-		httpapi.WriteError(w, 409, "agent_review_disabled", "agent review is not enabled for this tenant")
-		return
-	}
+	// R1-R4 are local rules and always run. The tenant switch only gates
+	// model-assisted checks, which this version does not call.
 	r.Body = http.MaxBytesReader(w, r.Body, maxAdminUpload)
-	if err = r.ParseMultipartForm(maxAdminUpload); err != nil {
+	if err := r.ParseMultipartForm(maxAdminUpload); err != nil {
 		httpapi.WriteError(w, 400, "upload_too_large", "manifest package is invalid or too large")
 		return
 	}
@@ -306,13 +368,8 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "confirmation_required", "complete the scoped confirmation and reason")
 		return
 	}
-	enabled, err := g.agentReviewEnabled(r.Context())
-	if err != nil || !enabled {
-		httpapi.WriteError(w, 409, "agent_review_disabled", "agent review is not enabled for this tenant")
-		return
-	}
 	var state, manifest string
-	if err = g.DB.QueryRow(r.Context(), `SELECT status,manifest_yaml FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifest); err != nil || state != "staged" {
+	if err := g.DB.QueryRow(r.Context(), `SELECT status,manifest_yaml FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifest); err != nil || state != "staged" {
 		httpapi.WriteError(w, 409, "import_state_conflict", "import batch is not staged")
 		return
 	}

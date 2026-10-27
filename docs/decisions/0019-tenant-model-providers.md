@@ -23,6 +23,7 @@ CREATE TABLE provider (
     base_url           TEXT NOT NULL,
     api_key_ciphertext TEXT NOT NULL,
     key_last4          TEXT NOT NULL,
+    key_version        INTEGER NOT NULL DEFAULT 1,
     enabled            BOOLEAN NOT NULL DEFAULT false,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, name)
@@ -36,6 +37,7 @@ CREATE TABLE provider_model (
     price_input   NUMERIC(12,6) NOT NULL CHECK (price_input >= 0),
     price_output  NUMERIC(12,6) NOT NULL CHECK (price_output >= 0),
     price_version TEXT NOT NULL,
+    embedding_dim INTEGER,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (provider_id, slot)
 );
@@ -50,7 +52,10 @@ CREATE TABLE provider_model (
 - **优先只做 OpenAI 兼容协议**：`/v1/chat/completions`、`/v1/embeddings`、`/v1/rerank`
   （或兼容网关的 rerank 路径）。覆盖 OpenAI、通义兼容模式、vLLM、Ollama、大多数聚合网关。
 - **bailian 原生协议作为首个特例**：保留现有 DashScope 适配器，只对 kind=`bailian` 使用。
-- 不自建每家适配器；新供应商优先要求提供 OpenAI 兼容端点。协议差异用能力标记与最小探测解决，
+- 不自建每家适配器；新供应商优先要求提供 OpenAI 兼容端点。
+- **不静默回退**：商家配置的 provider 不可用时直接报错（`provider_unavailable`/`provider_misconfigured`），
+  不自动切回平台默认供应商；否则引用来源、价格与预算归属都会不一致。平台默认只在租户尚未配置时使用，
+  并由部署配置显式决定。协议差异用能力标记与最小探测解决，
   不做按厂商分叉的业务逻辑。
 - 适配层统一负责：超时、重试一次、usage 解析、错误分类、provider_id 记账；现有
   `BudgetLedger.reserve/record` 接口保持不变。
@@ -62,6 +67,9 @@ CREATE TABLE provider_model (
 - 接口只回 `key_last4`；创建/轮换后完整密钥只显示一次（或仅接受写入）。
 - 日志与 `admin_audit` 只记录 `provider_id`、`kind`、`slot`、`model_id`、指纹/版本，不记录明文。
 - 每次付费调用记录 `provider_id`；预算账本的 attempt 增列或旁表关联，迁移时只追加。
+- 数据出域审计：每次调用在 `admin_audit.metadata_json` 记录 `provider_id` 与 `kind`；
+  `kind=mock` 或本地部署（Ollama/vLLM）的调用标记 `no_egress=true`，云端调用标记 `no_egress=false`；
+  审计只记标识与分类，不记 prompt/响应正文或密钥。
 
 ## UI 流程
 
@@ -96,6 +104,6 @@ CREATE TABLE provider_model (
 
 ## 非目标
 
-- 不做多供应商自动故障转移；首版由商家显式选择并启用。
+- 不做多供应商自动故障转移；首版由商家显式选择并启用；供应商故障时直接报错，不静默回退。
 - 不做按 token 向商家计费/结算；只做成本可见与按 provider 拆账。
 - 不引入 LiteLLM/one-api 等常驻网关；若未来需要，另写决策记录。

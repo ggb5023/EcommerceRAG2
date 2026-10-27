@@ -53,6 +53,11 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export const get = <T>(path: string) => request<T>(path)
+export const put = <T>(path: string, body: unknown) => request<T>(path, {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
 export const post = <T>(path: string, body: unknown) => request<T>(path, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },

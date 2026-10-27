@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import KnowledgeImport from './KnowledgeImport.vue'
 import ShopSettings from './ShopSettings.vue'
+import AgentReviewSettings from './AgentReviewSettings.vue'
 import KnowledgePreview from './KnowledgePreview.vue'
 import CustomerTrial from './CustomerTrial.vue'
 import type {PreviewChunk} from './knowledge-preview'
@@ -470,7 +471,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
           <tr v-for="row in data" :key="row.id"><td>{{ formatTime(row.created_at) }}</td><td>{{ row.actor_user_id }}</td><td>{{ row.action }}</td><td>{{ row.resource_type }} · {{ row.resource_id }}</td><td><span>{{ row.resource_version ?? '—' }}</span><small class="hash">{{ row.content_hash ?? '' }}</small></td><td>{{ row.reason ?? '—' }}<small><span class="status" :class="`tone-${statusTone(row.result)}`">{{ row.result }}</span></small></td></tr>
           <tr v-if="data.length === 0"><td colspan="6" class="empty">暂无审计记录。</td></tr></tbody></table></div></section>
 
-        <section v-else-if="page === 'shops'" class="content-area"><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span><CustomerTrial :shop="row"/><ShopSettings v-if="canManage && session" :shop="row" :revision="session.permission_revision" @saved="loadPage"/></article></div></section>
+        <section v-else-if="page === 'shops'" class="content-area"><AgentReviewSettings v-if="canManage"/><div class="section-head"><div><h2>当前授权店铺</h2><p>列表内容来自服务端权限摘要和店铺接口。</p></div></div><div class="shop-grid"><article v-for="row in data" :key="row.shop_id" class="shop-row"><span class="shop-symbol">⌂</span><div><strong>{{ row.name }}</strong><small>{{ row.shop_id }}</small></div><span class="status" :class="`tone-${statusTone(row.status === 'active' ? 'healthy' : row.status)}`">{{ statusLabel(row.status) }}</span><CustomerTrial :shop="row"/><ShopSettings v-if="canManage && session" :shop="row" :revision="session.permission_revision" @saved="loadPage"/></article></div></section>
 
         <section v-else-if="page === 'sources'" class="content-area">
           <div class="section-head"><div><h2>已登记资料来源</h2><p>只显示来源元数据，不在此页面展开资料正文。</p></div></div>
