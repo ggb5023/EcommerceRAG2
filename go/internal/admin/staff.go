@@ -104,15 +104,14 @@ func (g *Handler) adminCreateStaff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID int64
-	if err = tx.QueryRow(r.Context(), `INSERT INTO app_user(tenant_id,external_id,role,shop_ids)
-		VALUES($1,$2,'operator',$3) RETURNING id`, scope.TenantID, in.Username, shops).Scan(&userID); err != nil {
+	// The account and its one-time credential are written by localauth inside
+	// this transaction; admin never issues those INSERTs itself.
+	userID, err := localauth.CreateAccountTx(r.Context(), tx, localauth.AccountRecord{
+		TenantID: scope.TenantID, ExternalID: in.Username, Role: "operator",
+		ShopIDs: shops, PasswordHash: hash, MustChange: true,
+	})
+	if err != nil {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "staff_create_failed", "could not create the account")
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO local_credential(tenant_id,user_id,password_hash,must_change_password)
-		VALUES($1,$2,$3,true)`, scope.TenantID, userID, hash); err != nil {
-		httpapi.WriteError(w, http.StatusServiceUnavailable, "staff_create_failed", "could not create the credential")
 		return
 	}
 
