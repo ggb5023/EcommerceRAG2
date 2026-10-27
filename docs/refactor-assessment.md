@@ -213,7 +213,7 @@ ECR_REQUIRE_EVAL=1 bash scripts/check.sh                              # 全绿
 
 ### R5 分支与推送纪律（立即）
 
-**证据**：**12 条分支**（m2–m7 已合并但未删、`eval-tooling` 与 `oss-backup` 停在旧提交、`docs/refinement` 为文档分支）；m8 领先 main **9 个提交**未合并。
+**证据**：**12 条分支**（m2–m7 已合并但未删、`eval-tooling` 与 `oss-backup` 停在旧提交、`docs/refinement` 为文档分支）；m8 领先 main **9 个提交**未合并。（该数字为测评时点快照，合并后的起点以文首「起点状态」表为准）
 
 **修法**
 

@@ -54,12 +54,22 @@ grep -rhoE '^func Test[A-Za-z0-9_]+' --include='*_test.go' go | wc -l   # 期望
 | `customer/ai.go:68 run` | **168** | ≤ 150 |
 | `admin/manifest.go:125 parseManifest` | **155** | ≤ 150 |
 | gateway 包 SQL 语句 | 71 | 0（进 `internal/turn/store.go`） |
-| admin 包 SQL 语句 | 126 | 0（进 `internal/admin/store*.go`） |
+| admin 包 SQL 语句 | 127 | 0（进 `internal/admin/store*.go`） |
 | 事务起点在 handler | 7 个文件 | 0 |
 | 最大 Python 函数 `provider_generate_node` | **322** | ≤ 150 |
 | 次大 `submit` / `_publish_reviewable` / `_inspect_package` / `parse` | 209 / 187 / 154 / 151 | ≤ 150 |
 | Go 测试/代码比 | 3967 / 16053（25%） | ≥ 30% |
 | 裸 `writeJSON` | 40 处 | 0（统一走 `httpapi`） |
+
+上表 SQL 语句数（gateway 71 / admin 127）的口径，复核时照此复现：
+
+```bash
+grep -rhoE 'SELECT |INSERT INTO |UPDATE |DELETE FROM ' go/internal/<pkg>/*.go | wc -l
+```
+
+换口径会得到不同数字（审阅报告按另一种口径给出 gateway 66 / admin 120，本机复现不出；
+按"含关键字的行数"统计则为 gateway 69 / admin 126）。**本文统一采用上面这条命令**，
+其它数字不入表。
 
 **测量口径**（复核时照此执行，避免口径不一致）：
 
@@ -131,7 +141,7 @@ wc -l go/internal/gateway/main.go                       # ≤ 500
 
 ### P-B　admin 持久化边界 + 单写者收口（2 天）
 
-**问题**：`admin` 126 条 SQL 写在 handler 里，事务起点散在 7 个文件；`app_user` 与 `admin_audit` 同时被 `admin` 与 `localauth` 写入（违反 0004 红线）。
+**问题**：`admin` 127 条 SQL 写在 handler 里，事务起点散在 7 个文件；`app_user` 与 `admin_audit` 同时被 `admin` 与 `localauth` 写入（违反 0004 红线）。
 
 **目标形态**：
 
