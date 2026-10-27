@@ -8,4 +8,4 @@ onMounted(load)
 </script>
 <template><section class="import-form"><h2>模型辅助开关</h2><p>允许把待审内容发送给模型（默认关闭；只发送片段与规则，不发送顾客对话正文）。R1–R4 本地预检不受此开关影响。</p>
 <p>当前：<strong>{{enabled?'已开启':'已关闭'}}</strong><span v-if="actor"> · 最后修改：{{actor}} {{updated??''}}</span></p>
-<label><input type="checkbox" v-model="enabled"> 允许发送待审片段给模型</label><label>策略版本<input v-model="policy" maxlength="64"></label><label>修改原因<textarea v-model="reason" rows="2" minlength="10" maxlength="2000"/></label><button class="primary" :disabled="busy||reason.trim().length<10">保存开关</button><p role="status">{{notice}}</p></section></template>
+<label><input type="checkbox" v-model="enabled"> 允许发送待审片段给模型</label><label>策略版本<input v-model="policy" maxlength="64"></label><label>修改原因<textarea v-model="reason" rows="2" minlength="10" maxlength="2000"/></label><button type="button" class="primary" :disabled="busy||reason.trim().length<10" @click="save">保存开关</button><p role="status">{{notice}}</p></section></template>
