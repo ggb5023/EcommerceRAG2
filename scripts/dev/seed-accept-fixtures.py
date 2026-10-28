@@ -68,7 +68,7 @@ def multipart(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes]]
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
-def corpus_package(document_id: str, workdir: Path) -> Path:
+def corpus_package(document_id: str, workdir: Path, fixture_id: str) -> Path:
     """Materialise one corpus document as an import package."""
     import hashlib
     import os
@@ -92,7 +92,7 @@ def corpus_package(document_id: str, workdir: Path) -> Path:
             "source": {"id": "answer-fixture", "name": "answer fixture"},
             "pipeline_version": "v2-import-v1",
             "documents": [{
-                "document_id": "w2-delivery", "title": "配送时效核验资料", "path": "document.md",
+                "document_id": fixture_id, "title": "配送时效核验资料", "path": "document.md",
                 "format": "markdown", "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                 # The manifest proposes internal_only; the reviewer raises the
                 # classification to external_allowed during review.
@@ -129,6 +129,8 @@ def main() -> int:
     parser.add_argument("--fixtures", type=Path, default=DEFAULT_FIXTURES)
     parser.add_argument("--from-corpus", default="", metavar="DOCUMENT_ID",
                         help="build the package from one document of the eval corpus")
+    parser.add_argument("--document-id", default="w2-delivery",
+                        help="fixture document id for corpus mode; change it after a revoke")
     parser.add_argument("--publish", action="store_true",
                         help="review as external_allowed and publish, then require an active version")
     parser.add_argument("--timeout", type=int, default=180, help="seconds to wait for the ingest worker")
@@ -142,12 +144,12 @@ def main() -> int:
 
     fixtures = args.fixtures
     if args.from_corpus:
-        fixtures = corpus_package(args.from_corpus, Path(tempfile.mkdtemp(prefix="ecr-answer-")))
+        fixtures = corpus_package(args.from_corpus, Path(tempfile.mkdtemp(prefix="ecr-answer-")), args.document_id)
         args.count = 1
         if args.publish:
             for item in active_versions(base, headers):
-                if item.get("document_id") == "w2-delivery":
-                    print(f"SKIP w2-delivery already active as version {item['version_id']} "
+                if item.get("document_id") == args.document_id:
+                    print(f"SKIP {args.document_id} already active as version {item['version_id']} "
                           f"({item.get('chunk_count')} chunk(s))")
                     return 0
 
