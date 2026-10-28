@@ -68,3 +68,8 @@ tmp/
 !/project-records/config/README.md
 !/project-records/rebuild/README.md
 !project-records/fixtures/markdown/*.md
+
+# synthetic import fixtures; content scanning still applies (privacy_guard.py:141)
+!/tests/fixtures/import-batch-20/
+!/tests/fixtures/import-batch-20/**
+
