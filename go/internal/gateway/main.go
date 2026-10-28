@@ -891,28 +891,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
-	rows, err := g.db.Query(ctx, `SELECT m.Role, COALESCE(m.content,'')
-		FROM message m JOIN turn t ON t.tenant_id=m.tenant_id AND t.id=m.turn_id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND t.status IN ('DONE','ASKING') AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4 AND e.execution_no=(SELECT max(latest.execution_no) FROM conversation_execution latest WHERE latest.tenant_id=t.tenant_id AND latest.turn_id=t.id))
-		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, g.session.TenantID, conversationID, currentTurnID, g.authority().CurrentRevision())
-	if err != nil {
-		return ""
-	}
-	defer rows.Close()
-	parts := make([]historyMessage, 0, 6)
-	for rows.Next() {
-		var role, content string
-		if rows.Scan(&role, &content) == nil && strings.TrimSpace(content) != "" {
-			parts = append(parts, historyMessage{Role: role, Content: content})
-		}
-	}
-	for left, right := 0, len(parts)-1; left < right; left, right = left+1, right-1 {
-		parts[left], parts[right] = parts[right], parts[left]
-	}
-	if rows.Err() != nil {
-		return ""
-	}
-	return boundedHistory(parts)
+	return loadHistorySummary(ctx, g.db, g.session.TenantID, g.authority().CurrentRevision(), conversationID, currentTurnID)
 }
 
 func withSnapshotQualifier(text string) string {
@@ -1000,47 +979,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 
 	history := g.historySummary(ctx, conversationID, turnID)
-	routed, err := g.rag.Understand(ctx, &ragv1.UnderstandRequest{Context: base, Query: query,
-		HistorySummary: history}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	routed, routeFailure := understandTurn(ctx, g.rag, base, query, history)
+	if routeFailure != nil {
+		finish(routeFailure.state, routeFailure.code, "")
 		return
 	}
-	if routed == nil {
-		finish("FAILED", "invalid_routing_response", "")
-		return
-	}
-	routeKnowledgeQuestion(routed, query)
-	resolveHistoryReference(routed, query, history)
-	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
-	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
-	factResourceID := ""
-	snapshotFallback := false
-	if orderToolsRequired && productToolsRequired {
-		routed.Intent, routed.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
-		routed.RequiredFactTools = nil
-	} else if orderToolsRequired {
-		orderID, valid := routedOrderResource(routed, query)
-		if !valid {
-			routed.Intent = "clarification"
-			routed.Clarification = "请提供有效订单号后再查询订单或物流状态。"
-			routed.Confidence = 0.2
-			routed.RequiredFactTools = nil
-			snapshotFallback = true
-		} else {
-			factResourceID = orderID
-		}
-	} else if productToolsRequired {
-		sku, valid := routedProductResource(routed, query, history)
-		if !valid {
-			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
-			routed.RequiredFactTools = nil
-			snapshotFallback = true
-		} else {
-			factResourceID = sku
-		}
-	}
+	factResourceID, snapshotFallback := resolveFactIntent(routed, query, history)
 	if !ensureScopeAuthorized() {
 		return
 	}
