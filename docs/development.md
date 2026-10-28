@@ -109,6 +109,16 @@ python3 scripts/dev/seed-accept-fixtures.py --token "$ADMIN_TOKEN"    # 或有 t
 - 结束断言：`GET /admin/v1/merchant/reviews` 里 `review_status=pending` 的条数 ≥ N，否则非 0 退出；
 - 幂等：队列里已有足够 pending 时直接 `SKIP` 并 exit 0，可重复运行。
 
+需要**可回答的资料**时（顾客/员工链路要命中引用），用同一个脚本的 corpus + publish 模式，它是唯一入口：
+
+```bash
+python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-v1 --publish
+```
+
+- 用 `ECR_EVAL_DOCUMENTS`（默认评测语料的 `documents.jsonl`）里的一份文档建包，导入 → confirm → 审核为 `external_allowed` → 发布；
+- 文档 id 固定为 `w2-delivery`，**已有 active 版本时直接 `SKIP`**；
+- 结束断言：`GET /admin/v1/merchant/versions` 里存在 `status=active` 且 `chunk_count>0` 的版本。
+
 ## 当前环境状态
 
 环境变更后更新这一节；不要只写在对话或临时文件里。
@@ -120,6 +130,7 @@ python3 scripts/dev/seed-accept-fixtures.py --token "$ADMIN_TOKEN"    # 或有 t
   1 条 superseded）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
 - 顾客通道已启用：`shop-demo` 的 `customer_chat_enabled=true`、`public_slug=shop-demo`。
 - 已发布资料：`w2-delivery`（来自评测语料的配送事实，`external_allowed`），顾客提问可命中引用。
+- `SYNTHETIC_BUSINESS_DATE=2026-09-29` 已固定（评测口径），prompt 里的业务日期不再随当天漂移，`smoke-answer.sh` 的 `answer_sha256` 因此可复现。
 - 顾客通道**拒绝 mock 输出**（`part.IsMock` 即转人工），所以离线档下顾客链路恒为 `provider_failed_search`；
   离线档的行为基线用员工通道 `scripts/dev/smoke-answer.sh` 取，顾客链路基线用 `scripts/dev/smoke-turn.sh` 取。
 

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -66,6 +68,50 @@ def multipart(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes]]
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
+def corpus_package(document_id: str, workdir: Path) -> Path:
+    """Materialise one corpus document as an import package."""
+    import hashlib
+    import os
+
+    root = Path(os.environ.get(
+        "ECR_EVAL_DOCUMENTS",
+        "/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/documents.jsonl",
+    ))
+    if not root.is_file():
+        sys.exit(f"eval corpus is unavailable: {root}")
+    for line in root.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("document_id") != document_id:
+            continue
+        text = "\n\n".join(chunk["content"] for chunk in record.get("chunks") or [])
+        workdir.mkdir(parents=True, exist_ok=True)
+        target = workdir / "document.md"
+        target.write_text(text + "\n", encoding="utf-8")
+        manifest = {
+            "schema_version": 1,
+            "source": {"id": "answer-fixture", "name": "answer fixture"},
+            "pipeline_version": "v2-import-v1",
+            "documents": [{
+                "document_id": "w2-delivery", "title": "配送时效核验资料", "path": "document.md",
+                "format": "markdown", "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                # The manifest proposes internal_only; the reviewer raises the
+                # classification to external_allowed during review.
+                "license": "internal", "disclosure_class": "internal_only",
+            }],
+        }
+        (workdir / "manifest.yaml").write_text(yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        return workdir
+    sys.exit(f"corpus document not found: {document_id}")
+
+
+def active_versions(base: str, headers: dict[str, str]) -> list[dict]:
+    status, payload = call(base, "/admin/v1/merchant/versions", headers)
+    if status != 200:
+        sys.exit(f"versions unavailable: {status} {payload}")
+    return [item for item in payload.get("items", [])
+            if item.get("status") == "active" and (item.get("chunk_count") or 0) > 0]
+
+
 def pending_count(base: str, headers: dict[str, str]) -> int:
     status, payload = call(base, "/admin/v1/merchant/reviews", headers)
     if status != 200:
@@ -81,6 +127,10 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=2)
     parser.add_argument("--shop", default="", help="shop_id, defaults to the first shop in scope")
     parser.add_argument("--fixtures", type=Path, default=DEFAULT_FIXTURES)
+    parser.add_argument("--from-corpus", default="", metavar="DOCUMENT_ID",
+                        help="build the package from one document of the eval corpus")
+    parser.add_argument("--publish", action="store_true",
+                        help="review as external_allowed and publish, then require an active version")
     parser.add_argument("--timeout", type=int, default=180, help="seconds to wait for the ingest worker")
     args = parser.parse_args()
     base = args.base_url.rstrip("/")
@@ -90,7 +140,18 @@ def main() -> int:
     if args.cookies:
         headers["Cookie"] = args.cookies
 
-    manifest_path = args.fixtures / "manifest.yaml"
+    fixtures = args.fixtures
+    if args.from_corpus:
+        fixtures = corpus_package(args.from_corpus, Path(tempfile.mkdtemp(prefix="ecr-answer-")))
+        args.count = 1
+        if args.publish:
+            for item in active_versions(base, headers):
+                if item.get("document_id") == "w2-delivery":
+                    print(f"SKIP w2-delivery already active as version {item['version_id']} "
+                          f"({item.get('chunk_count')} chunk(s))")
+                    return 0
+
+    manifest_path = fixtures / "manifest.yaml"
     if not manifest_path.is_file():
         return fail(f"fixture manifest missing: {manifest_path}")
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -98,8 +159,8 @@ def main() -> int:
     if len(documents) < args.count:
         return fail(f"fixture has {len(documents)} documents, --count wants {args.count}")
 
-    existing = pending_count(base, headers)
-    if existing >= args.count:
+    existing = 0 if args.from_corpus else pending_count(base, headers)
+    if not args.from_corpus and existing >= args.count:
         print(f"SKIP {existing} pending version(s) already in the review queue (wanted {args.count})")
         return 0
 
@@ -115,11 +176,12 @@ def main() -> int:
     manifest_text = yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False)
     files = []
     for document in selected:
-        path = args.fixtures / document["path"]
+        path = fixtures / document["path"]
         if not path.is_file():
             return fail(f"fixture file missing: {path}")
         files.append(("files", document["path"], path.read_bytes()))
-    fields = [("shop_id", shop), ("manifest", manifest_text), ("business_date", date.today().isoformat())]
+    fields = [("shop_id", shop), ("manifest", manifest_text),
+              ("business_date", os.environ.get("SYNTHETIC_BUSINESS_DATE") or date.today().isoformat())]
     fields += [("paths", document["path"]) for document in selected]
     body, content_type = multipart(fields, files)
 
@@ -140,10 +202,62 @@ def main() -> int:
     while time.time() < deadline:
         pending = pending_count(base, headers)
         if pending >= args.count:
-            print(f"PASS pending versions in the review queue: {pending} (wanted {args.count})")
+            break
+        time.sleep(3)
+    else:
+        return fail(f"review queue still has {pending} pending version(s), wanted {args.count}")
+    print(f"PASS pending versions in the review queue: {pending} (wanted {args.count})")
+    if not args.publish:
+        return 0
+    return publish_pending(base, headers, {document["document_id"] for document in selected}, args.timeout)
+
+
+def publish_pending(base: str, headers: dict[str, str], document_ids: set[str], timeout: int) -> int:
+    """Review every pending version of the given documents as external and publish it."""
+    status, reviews = call(base, "/admin/v1/merchant/reviews", headers)
+    if status != 200:
+        return fail(f"reviews unavailable: {status} {reviews}")
+    targets = [item for item in reviews.get("items", [])
+               if item.get("document_id") in document_ids and item.get("review_status") == "pending"]
+    if not targets:
+        return fail(f"no pending version for {sorted(document_ids)}")
+    status, session = call(base, "/admin/v1/session", headers)
+    if status != 200:
+        return fail(f"session unavailable: {status} {session}")
+    revision = session["permission_revision"]
+    for item in targets:
+        version = item["version_id"]
+        review = {
+            "confirm": True, "decision": "approved", "disclosure_class": "external_allowed",
+            "external_allowed": True, "expected_hash": item["source_hash"],
+            "expected_fencing_epoch": item["fencing_epoch"], "permission_revision": revision,
+            "reason": REASON,
+        }
+        status, reviewed = call(base, f"/admin/v1/merchant/versions/{version}/review", headers,
+                                json.dumps(review).encode(), "application/json")
+        if status not in (200, 202):
+            return fail(f"review failed for version {version}: {status} {reviewed}")
+        publish = {
+            "confirm": True, "tenant_id": session["tenant_id"], "shop_id": session["shop_id"],
+            "document_id": item["document_id"], "version_hash": item["source_hash"],
+            "permission_revision": revision, "expected_fencing_epoch": item["fencing_epoch"],
+            "reason": REASON,
+        }
+        status, published = call(base, f"/admin/v1/merchant/versions/{version}/publish", headers,
+                                 json.dumps(publish).encode(), "application/json")
+        if status not in (200, 202):
+            return fail(f"publish failed for version {version}: {status} {published}")
+        print(f"PUBLISHED version={version} document={item['document_id']}")
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        active = [item for item in active_versions(base, headers) if item.get("document_id") in document_ids]
+        if active:
+            print(f"PASS active version(s): " + ", ".join(
+                f"{item['version_id']}(chunks={item.get('chunk_count')})" for item in active))
             return 0
         time.sleep(3)
-    return fail(f"review queue still has {pending} pending version(s), wanted {args.count}")
+    return fail("no active version with chunks after publish")
 
 
 def fail(message: str) -> int:
