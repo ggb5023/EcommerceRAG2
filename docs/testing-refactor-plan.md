@@ -170,7 +170,7 @@ V2_INTEGRATION_ENV=/etc/ecommerce-rag/test-integration.env pytest
   窄屏改为 `grid-template-columns: minmax(0,1fr)` 并允许店铺行换行；8 条管理路由在 390px 下
   `scrollWidth` 全部回到 390。修完用例继续走到下一步，**仍缺一份"可审核版本"数据**才可能全绿。
 - `e2e-workspace` 不是断言过时也不是产品缺陷：它断言 `session.profile == v2_langchain_mock` 且
-  `is_mock == true`，而本机 dev 栈跑的是 `RAG_PROFILE=v2_langchain_bailian`。断言保留，
+  `is_mock == true`，而记录本条时的 dev 栈跑的是在线档（当前档位见[开发指南](development.md#当前环境状态)）。断言保留，
   由批次 3 的"按用例声明前置"把它映射为 UNCONFIGURED（缺离线 mock 栈），不改断言值。
 - 因此更正分类：**1 项真实缺陷（已修）+ 13 项缺前置**。
 

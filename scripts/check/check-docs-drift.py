@@ -128,7 +128,8 @@ def main() -> int:
         # One document may define every variant on purpose (a tri-state flag, a
         # per-case env mapping); decision 0025 treats that as the authoritative
         # definition, so it is neither drift nor noise.
-        canonical = any(len(docs) == len(owners) for docs in values.values()) and len(values) >= 2
+        universal = set.intersection(*values.values())
+        canonical = bool(universal) and len(values) >= 2
         if canonical:
             continue
         if len(values) >= 2:
