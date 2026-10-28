@@ -105,3 +105,11 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 		log.Printf("finish execution transaction failed")
 	}
 }
+
+// newTurnSink binds the persistence helpers to one execution so the orchestrator
+// only sees two closures: write an event and finish the turn.
+func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string)) {
+	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
+	finish := func(state, code, answer string) { finishTurn(ctx, db, ident, state, code, answer, mock) }
+	return write, finish
+}

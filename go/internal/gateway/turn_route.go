@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -109,4 +111,73 @@ func resolveFactIntent(routed *ragv1.UnderstandResponse, query, history string) 
 		return sku, false
 	}
 	return "", false
+}
+
+// turnGuard centralises the two authorization checks every stage needs. It writes
+// the terminal state through the caller's finish closure.
+type turnGuard struct {
+	ctx       context.Context
+	authority *auth.Authority
+	finish    func(state, code, answer string)
+}
+
+// authorized refreshes the authorization snapshot; a failure finishes the turn.
+func (guard turnGuard) authorized() bool {
+	if guard.ctx.Err() != nil {
+		state, code := grpcFailure(guard.ctx, guard.ctx.Err())
+		guard.finish(state, code, "")
+		return false
+	}
+	if err := guard.authority.Refresh(guard.ctx); err != nil {
+		guard.finish("FAILED", auth.FailureCode(err), "")
+		return false
+	}
+	return true
+}
+
+// scopeAuthorized also requires the permission revision to be unchanged.
+func (guard turnGuard) scopeAuthorized(scope *ragv1.RequestContext) bool {
+	if !guard.authorized() {
+		return false
+	}
+	if guard.authority.CurrentRevision() != scope.PermissionRevision {
+		guard.finish("FAILED", "permission_changed", "")
+		return false
+	}
+	return true
+}
+
+// clarificationDecision is the pure routing outcome for an ambiguous question.
+type clarificationDecision struct {
+	needed bool
+	text   string
+}
+
+// decideClarification reports whether the routed turn must stop and ask the user
+// to be more specific. It is pure: it reads the routed response only.
+func decideClarification(routed *ragv1.UnderstandResponse, snapshotFallback bool) clarificationDecision {
+	if snapshotFallback {
+		return clarificationDecision{}
+	}
+	if !(routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
+		return clarificationDecision{}
+	}
+	text := routed.Clarification
+	if text == "" {
+		text = "请补充更多问题细节。"
+	}
+	return clarificationDecision{needed: true, text: text}
+}
+
+// resumeParentCheckpoint continues an unfinished ASKING checkpoint of the parent
+// turn. It is best-effort: any rejection fails the turn with the mapped code.
+func resumeParentCheckpoint(ctx context.Context, client ragv1.RagServiceClient, scope *ragv1.RequestContext) *stageFailure {
+	resumed, err := client.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{Context: scope, PendingKind: "ASKING"}, grpc.WaitForReady(true))
+	if err != nil {
+		return grpcStageFailure(ctx, err)
+	}
+	if resumed == nil || !resumed.Accepted {
+		return &stageFailure{state: "FAILED", code: "checkpoint_resume_failed"}
+	}
+	return nil
 }

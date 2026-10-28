@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -114,3 +115,42 @@ func persistCitation(ctx context.Context, db *pgxpool.Pool, tenantID, executionI
 		VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, tenantID, executionID, citation.Id, int(citation.Rank))
 	return err
 }
+
+// runGenerationStage streams the answer and applies the snapshot qualifier. Hooks
+// keep the delta and citation side effects out of the orchestrator.
+func runGenerationStage(ctx context.Context, client ragv1.RagServiceClient, db *pgxpool.Pool, tenantID, executionID int64,
+	request *ragv1.GenerateRequest, mock, snapshotFallback bool, accepted []*ragv1.Evidence,
+	authorized func() bool, check func(*ragv1.Evidence) (bool, error),
+	writeEvent func(string, any) error) (answer string, failure *stageFailure, aborted bool) {
+	hooks := generationHooks{
+		onDelta: func(text string) *stageFailure {
+			if err := writeEvent("delta", map[string]any{"type": "delta", "text": text}); err != nil {
+				return &stageFailure{state: "FAILED", code: "persistence_failed"}
+			}
+			return nil
+		},
+		onCitation: func(citation *ragv1.Evidence) *stageFailure {
+			allowed, err := check(citation)
+			if err != nil {
+				return &stageFailure{state: "FAILED", code: authFailureCode(err)}
+			}
+			if !allowed || !validateCitation(citation, accepted) {
+				return &stageFailure{state: "FAILED", code: "invalid_citation"}
+			}
+			if citation.DisclosureClass == "external_allowed" && citation.CustomerEligible {
+				if err := persistCitation(ctx, db, tenantID, executionID, citation); err != nil {
+					return &stageFailure{state: "FAILED", code: "persistence_failed"}
+				}
+			}
+			return nil
+		},
+	}
+	generated, generateFailure, generateAborted := generateAnswer(ctx, client, request, mock, authorized, hooks)
+	if generateAborted || generateFailure != nil {
+		return "", generateFailure, generateAborted
+	}
+	return finalAnswer(generated, snapshotFallback), nil, false
+}
+
+// authFailureCode maps an authorization error to its stable failure code.
+func authFailureCode(err error) string { return auth.FailureCode(err) }

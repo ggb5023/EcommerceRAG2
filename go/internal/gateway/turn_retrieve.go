@@ -140,3 +140,34 @@ func grpcStageFailure(ctx context.Context, err error) *stageFailure {
 	state, code := grpcFailure(ctx, err)
 	return &stageFailure{state: state, code: code}
 }
+
+// runRetrievalStage turns one query into authorized, persisted evidence rows.
+// The evidence event is emitted by the caller, after the snapshot fallback check.
+func runRetrievalStage(ctx context.Context, client ragv1.RagServiceClient, db *pgxpool.Pool, tenantID, executionID int64,
+	scope *ragv1.RequestContext, query string, mock bool,
+	authorized func() bool, check func(*ragv1.Evidence) (bool, error)) (evidence []*ragv1.Evidence, failure *stageFailure, aborted bool) {
+	raw, searchFailure, searchAborted := retrieveEvidence(ctx, client, scope, query, mock, authorized)
+	if searchAborted {
+		return nil, nil, true
+	}
+	if searchFailure != nil {
+		return nil, searchFailure, false
+	}
+	grants, grantFailure := authorizeEvidence(check, raw)
+	if grantFailure != nil {
+		return nil, grantFailure, false
+	}
+	evidence, filterErr := filterEvidence(raw, grants, true)
+	if filterErr != nil {
+		return nil, &stageFailure{state: "FAILED", code: "evidence_contract_violated"}, false
+	}
+	if validateEvidenceRanks(evidence) != nil {
+		return nil, &stageFailure{state: "FAILED", code: "invalid_evidence_labels"}, false
+	}
+	if persistAborted, persistFailure := persistEvidence(ctx, db, tenantID, executionID, evidence, authorized); persistAborted {
+		return nil, nil, true
+	} else if persistFailure != nil {
+		return nil, persistFailure, false
+	}
+	return evidence, nil, false
+}

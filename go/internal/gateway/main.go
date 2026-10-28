@@ -913,25 +913,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
 		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
 	}
-	writeEvent := func(kind string, payload any) error {
-		return writeTurnEvent(g.db, ident, kind, payload)
-	}
-	finish := func(state, code, answer string) {
-		finishTurn(ctx, g.db, ident, state, code, answer, mockOutput)
-	}
-	ensureAuthorized := func() bool {
-		if ctx.Err() != nil {
-			state, code := grpcFailure(ctx, ctx.Err())
-			finish(state, code, "")
-			return false
-		}
-		if err := g.authority().Refresh(ctx); err != nil {
-			finish("FAILED", auth.FailureCode(err), "")
-			return false
-		}
-		return true
-	}
-	if !ensureAuthorized() {
+	writeEvent, finish := newTurnSink(ctx, g.db, ident, mockOutput)
+	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
+	if !guard.authorized() {
 		return
 	}
 	if requestPolicyDenied(query) {
@@ -944,32 +928,15 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", auth.FailureCode(err), "")
 		return
 	}
-	ensureScopeAuthorized := func() bool {
-		if !ensureAuthorized() {
-			return false
-		}
-		if g.authority().CurrentRevision() != base.PermissionRevision {
-			finish("FAILED", "permission_changed", "")
-			return false
-		}
-		return true
-	}
+	ensureScopeAuthorized := func() bool { return guard.scopeAuthorized(base) }
 	if parentTurnID != 0 && isV2Profile(g.profile) {
 		parentScope, scopeErr := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
 		if scopeErr != nil {
 			finish("FAILED", auth.FailureCode(scopeErr), "")
 			return
 		}
-		resumed, resumeErr := g.rag.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{
-			Context: parentScope, PendingKind: "ASKING",
-		}, grpc.WaitForReady(true))
-		if resumeErr != nil || resumed == nil || !resumed.Accepted {
-			if resumeErr != nil {
-				state, code := grpcFailure(ctx, resumeErr)
-				finish(state, code, "")
-			} else {
-				finish("FAILED", "checkpoint_resume_failed", "")
-			}
+		if resumeFailure := resumeParentCheckpoint(ctx, g.rag, parentScope); resumeFailure != nil {
+			finish(resumeFailure.state, resumeFailure.code, "")
 			return
 		}
 	}
@@ -984,75 +951,38 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	factResolution, factErr := lookupFacts(factProvider{provider: g.facts}, factInput{ctx: ctx, scope: base, names: routed.RequiredFactTools, resourceID: factResourceID})
-	factResults := factResolution.facts
-	if factErr != nil {
-		for _, toolName := range routed.RequiredFactTools {
-			_ = recordToolCall(context.Background(), g.db, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr), true)
-		}
-		finish("FAILED", facts.FailureCode(factErr), "")
+	factResults, factFailure, factAborted := runFactStage(ctx, factProvider{provider: g.facts}, g.db,
+		g.session.TenantID, requestID, routed.RequiredFactTools, factResourceID, base,
+		ensureScopeAuthorized, writeEvent)
+	if factAborted {
 		return
 	}
-	for _, fact := range factResults {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		valueHash := sha256.Sum256([]byte(fact.ValueJson))
-		if err := writeEvent("fact_read", map[string]any{
-			"type": "fact_read", "tool_name": fact.ToolName, "resource_id": fact.ResourceId,
-			"observed_at": fact.ObservedAt, "value_sha256": hex.EncodeToString(valueHash[:]), "is_mock": fact.IsMock,
-		}); err != nil {
-			finish("FAILED", "fact_evidence_persistence_failed", "")
-			return
-		}
-		_ = recordToolCall(ctx, g.db, g.session.TenantID, requestID, fact.ToolName, "ok", false)
+	if factFailure != nil {
+		finish(factFailure.state, factFailure.code, "")
+		return
 	}
-	if !snapshotFallback && (routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
+	if decision := decideClarification(routed, snapshotFallback); decision.needed {
 		if !ensureScopeAuthorized() {
 			return
-		}
-		clarification := routed.Clarification
-		if clarification == "" {
-			clarification = "请补充更多问题细节。"
 		}
 		if checkpointFailure := saveAskingCheckpoint(ctx, g.rag, g.profile, base); checkpointFailure != nil {
 			finish(checkpointFailure.state, checkpointFailure.code, "")
 			return
 		}
-		finish("ASKING", "", clarification)
+		finish("ASKING", "", decision.text)
 		return
 	}
 	if !ensureScopeAuthorized() {
 		return
 	}
-	rawEvidence, searchFailure, aborted := retrieveEvidence(ctx, g.rag, base, routed.RewrittenQuery, mockOutput, ensureScopeAuthorized)
-	if aborted {
+	evidence, retrievalFailure, retrievalAborted := runRetrievalStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+		base, routed.RewrittenQuery, mockOutput, ensureScopeAuthorized,
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) })
+	if retrievalAborted {
 		return
 	}
-	if searchFailure != nil {
-		finish(searchFailure.state, searchFailure.code, "")
-		return
-	}
-	grants, grantFailure := authorizeEvidence(func(item *ragv1.Evidence) (bool, error) {
-		return g.authority().EvidenceAllowed(ctx, item)
-	}, rawEvidence)
-	if grantFailure != nil {
-		finish(grantFailure.state, grantFailure.code, "")
-		return
-	}
-	evidence, filterErr := filterEvidence(rawEvidence, grants, true)
-	if filterErr != nil {
-		finish("FAILED", "evidence_contract_violated", "")
-		return
-	}
-	if validateEvidenceRanks(evidence) != nil {
-		finish("FAILED", "invalid_evidence_labels", "")
-		return
-	}
-	if evidenceAborted, persistFailure := persistEvidence(ctx, g.db, g.session.TenantID, executionID, evidence, ensureScopeAuthorized); evidenceAborted {
-		return
-	} else if persistFailure != nil {
-		finish(persistFailure.state, persistFailure.code, "")
+	if retrievalFailure != nil {
+		finish(retrievalFailure.state, retrievalFailure.code, "")
 		return
 	}
 	if snapshotFallback && len(evidence) == 0 {
@@ -1072,32 +1002,11 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	generated, generateFailure, generateAborted := generateAnswer(ctx, g.rag, &ragv1.GenerateRequest{
-		Context: base, Query: query, Evidence: evidence, Facts: factResults,
-		ResponsePurpose: "customer_reply", HistorySummary: history,
-	}, mockOutput, ensureScopeAuthorized, generationHooks{
-		onDelta: func(text string) *stageFailure {
-			if err := writeEvent("delta", map[string]any{"type": "delta", "text": text}); err != nil {
-				return &stageFailure{state: "FAILED", code: "persistence_failed"}
-			}
-			return nil
-		},
-		onCitation: func(citation *ragv1.Evidence) *stageFailure {
-			allowed, authErr := g.authority().EvidenceAllowed(ctx, citation)
-			if authErr != nil {
-				return &stageFailure{state: "FAILED", code: auth.FailureCode(authErr)}
-			}
-			if !allowed || !validateCitation(citation, evidence) {
-				return &stageFailure{state: "FAILED", code: "invalid_citation"}
-			}
-			if citation.DisclosureClass == "external_allowed" && citation.CustomerEligible {
-				if err := persistCitation(ctx, g.db, g.session.TenantID, executionID, citation); err != nil {
-					return &stageFailure{state: "FAILED", code: "persistence_failed"}
-				}
-			}
-			return nil
-		},
-	})
+	answer, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
+			ResponsePurpose: "customer_reply", HistorySummary: history},
+		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent)
 	if generateAborted {
 		return
 	}
@@ -1105,11 +1014,10 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(generateFailure.state, generateFailure.code, "")
 		return
 	}
-	text := finalAnswer(generated, snapshotFallback)
 	if !ensureScopeAuthorized() {
 		return
 	}
-	finish("DONE", "", text)
+	finish("DONE", "", answer)
 }
 
 // authorizationCacheKey is the stable shape required for any future result
