@@ -25,6 +25,8 @@
    阶段失败（换新 document id 则正常，根因待查）。
    修法方向：按错误类型映射（403 / 500 / 409），并在响应里带 cause code；撤回后重导入的语义需单独定
    （允许新版本？要求换 id？）。
+10. 上游 `Evidence` 可能返回重复 id；当前不去重，会重复落库与重复引用。去重是有价值的行为改进，但需独立决策：
+    确认上游是否会重复、去重后引用计数如何算、是否需要按 (id, version) 而非仅 id 去重。不要在重构提交里顺便加。
 
 ## 已完成（仅供参考，无需再处理）
 
@@ -32,3 +34,4 @@
   现役脚本为 `scripts/dev/provider-usage.py`。
 - ~~`docs/development.md` 已不再描述账本~~ —— **此条已随 R0 清理失效**：`scripts/check.sh` 已移除
   `provider-budget` 路径，现役脚本为 `scripts/dev/provider-usage.py`；文档侧残留以总纲 R0 的实测输出为准。
+
