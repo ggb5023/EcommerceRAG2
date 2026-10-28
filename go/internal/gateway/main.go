@@ -1146,102 +1146,47 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply", HistorySummary: history}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	generated, generateFailure, generateAborted := generateAnswer(ctx, g.rag, &ragv1.GenerateRequest{
+		Context: base, Query: query, Evidence: evidence, Facts: factResults,
+		ResponsePurpose: "customer_reply", HistorySummary: history,
+	}, mockOutput, ensureScopeAuthorized, generationHooks{
+		onDelta: func(text string) *stageFailure {
+			if err := writeEvent("delta", map[string]any{"type": "delta", "text": text}); err != nil {
+				return &stageFailure{state: "FAILED", code: "persistence_failed"}
+			}
+			return nil
+		},
+		onCitation: func(citation *ragv1.Evidence) *stageFailure {
+			allowed, authErr := g.authority().EvidenceAllowed(ctx, citation)
+			if authErr != nil {
+				return &stageFailure{state: "FAILED", code: auth.FailureCode(authErr)}
+			}
+			if !allowed || !validateCitation(citation, evidence) {
+				return &stageFailure{state: "FAILED", code: "invalid_citation"}
+			}
+			if citation.DisclosureClass == "external_allowed" && citation.CustomerEligible {
+				if err := persistCitation(ctx, g.db, g.session.TenantID, executionID, citation); err != nil {
+					return &stageFailure{state: "FAILED", code: "persistence_failed"}
+				}
+			}
+			return nil
+		},
+	})
+	if generateAborted {
 		return
 	}
-	var answer strings.Builder
-	isMock := mockOutput
-	sawProfileMarker := false
-	for {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		part, recvErr := gen.Recv()
-		if recvErr != nil {
-			if recvErr == context.Canceled || recvErr == context.DeadlineExceeded || status.Code(recvErr) == codes.Canceled || status.Code(recvErr) == codes.DeadlineExceeded {
-				state, code := grpcFailure(ctx, recvErr)
-				finish(state, code, "")
-				return
-			}
-			if recvErr == context.Canceled {
-				finish("CANCELLED", "cancelled", "")
-			} else {
-				finish("FAILED", "rag_generate_failed", "")
-			}
-			return
-		}
-		if !ensureScopeAuthorized() {
-			return
-		}
-		switch value := part.Event.(type) {
-		case *ragv1.GenerateResponse_Delta:
-			answer.WriteString(value.Delta)
-			if err = writeEvent("delta", map[string]any{"type": "delta", "text": value.Delta}); err != nil {
-				finish("FAILED", "persistence_failed", "")
-				return
-			}
-		case *ragv1.GenerateResponse_Citation:
-			allowed, authErr := g.authority().EvidenceAllowed(ctx, value.Citation)
-			if authErr != nil {
-				finish("FAILED", auth.FailureCode(authErr), "")
-				return
-			}
-			canonical := false
-			for _, original := range evidence {
-				if evidenceEqual(original, value.Citation) {
-					canonical = true
-					break
-				}
-			}
-			if !allowed || !canonical {
-				finish("FAILED", "invalid_citation", "")
-				return
-			}
-			if value.Citation.DisclosureClass == "external_allowed" && value.Citation.CustomerEligible {
-				_, err = g.db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
-					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.TenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
-				if err != nil {
-					finish("FAILED", "persistence_failed", "")
-					return
-				}
-			}
-		case *ragv1.GenerateResponse_IsMock:
-			sawProfileMarker = true
-			isMock = value.IsMock
-			if isMock != mockOutput {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-		case *ragv1.GenerateResponse_ErrorCode:
-			finish("FAILED", value.ErrorCode, "")
-			return
-		case *ragv1.GenerateResponse_Done:
-			if !value.Done {
-				continue
-			}
-			if !mockOutput && !sawProfileMarker {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-			if isMock != mockOutput {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-			text := answer.String()
-			if snapshotFallback {
-				text = withSnapshotQualifier(text)
-			}
-			if !ensureScopeAuthorized() {
-				return
-			}
-
-			finish("DONE", "", text)
-			return
-		}
+	if generateFailure != nil {
+		finish(generateFailure.state, generateFailure.code, "")
+		return
 	}
+	text := generated.answer
+	if snapshotFallback {
+		text = withSnapshotQualifier(text)
+	}
+	if !ensureScopeAuthorized() {
+		return
+	}
+	finish("DONE", "", text)
 }
 
 // authorizationCacheKey is the stable shape required for any future result
