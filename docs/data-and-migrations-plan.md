@@ -24,6 +24,7 @@
 ### D1 表归属没有权威文档（必修）
 
 - 现象：`app_user` / `admin_audit` 在 `admin` 与 `localauth` 两处 INSERT（生产代码，非测试），0004 红线事实上失效
+  现状：W1 已收口到 `localauth`，见 [数据归属](data-ownership.md)。
 - 风险：新功能随手再开第三个写入方，没人能发现
 - 判定：这不是"代码问题"，是"缺一张表"的问题
 
@@ -52,8 +53,9 @@
 
 | 表 | 唯一写入方 | 读取方 | 依据迁移 | 备注 |
 | --- | --- | --- | --- | --- |
-| `app_user` | `internal/admin` | gateway/localauth | 0001/0005/0030 | localauth 改为调用 admin store |
-| `admin_audit` | `internal/admin` | admin | 0010 | 同上 |
+| `app_user` | `localauth` | gateway（admin 经 localauth 接口） | 0001/0005/0030 | admin 改为调用 `localauth.CreateAccountTx`（W1 已落地：唯一 INSERT 在 `localauth/store.go`；反向依赖会成环） |
+| `local_credential` | `localauth` | `localauth` | 0030 | 与账号同事务写入，只有 `CreateCredentialTx` 一条语句 |
+| `admin_audit` | `admin`、`localauth`、`ingestclient` | admin | 0010/0022 | 审计是横切关注点，三处写入都在 gateway 进程内，由 `check-ownership.py` 钉住集合 |
 | `turn` / `sse_event` / … | `internal/turn`（重构后） | gateway | 0001/0010 | W2 完成后更新 |
 | `customer_*` | `internal/customer` | gateway | 0026 | 不得与 turn 互写 |
 
