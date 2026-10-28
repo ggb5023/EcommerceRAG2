@@ -50,6 +50,10 @@ bash scripts/dev/install-git-hooks.sh
 1. 由数据库管理员预先创建独立数据库、服务角色和扩展；应用不执行 DDL。
 2. 迁移：`python/.venv/bin/python scripts/ops/v2-migrate.py --env /path/to/migration.env`。迁移用户必须是非超级用户、无 `BYPASSRLS`。
 3. 启动后端：`bash scripts/dev/v2-local-services.sh --env /path/to/runtime.env`。配置文件权限为 `0600`，放在仓库外。默认模型 profile 是离线的 `v2_langchain_mock`，不产生费用。
+4. 开发库自检：网关起不来、日志只有 `development identity unavailable` 时，先查开发库里的 `schema_migration`
+   行数是否等于 `sql/migrations/*.sql` 的数量。0 张表说明库被重建过却没跑迁移，按第 2 步重跑即可
+   （正常输出 `PASS <n> migration checksums`）；迁移自带 `v2-demo-tenant` 与 `dev-user` 开发身份，
+   不需要额外种子。库在、表没了属于静默失效，别先怀疑身份配置。
 4. 启动前端：在 `frontend/` 运行 `npm run dev`，用 `VITE_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口；`/v1` 与 `/admin/v1` 走同一个代理目标。
 
 `frontend/` 是唯一入口，`/chat`、`/support`、`/shop/:slug`、`/admin/*` 都在同一个 origin 下；浏览器仍然只访问 Go，前端不做授权判断。开发机常驻启动用一条命令：
