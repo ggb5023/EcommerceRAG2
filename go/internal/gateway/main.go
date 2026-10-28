@@ -890,10 +890,6 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		"events_url": "/v1/turns/" + requestID + "/events"})
 }
 
-func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
-	return loadHistorySummary(ctx, g.db, g.session.TenantID, g.authority().CurrentRevision(), conversationID, currentTurnID)
-}
-
 func withSnapshotQualifier(text string) string {
 	trimmed := strings.TrimSpace(text)
 	if strings.Contains(trimmed, "快照") || strings.Contains(trimmed, "不能保证") {
@@ -978,7 +974,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 	}
 
-	history := g.historySummary(ctx, conversationID, turnID)
+	history := loadHistorySummary(ctx, g.db, g.session.TenantID, g.authority().CurrentRevision(), conversationID, turnID)
 	routed, routeFailure := understandTurn(ctx, g.rag, base, query, history)
 	if routeFailure != nil {
 		finish(routeFailure.state, routeFailure.code, "")
@@ -988,7 +984,8 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools, factResourceID)
+	factResolution, factErr := lookupFacts(factProvider{provider: g.facts}, factInput{ctx: ctx, scope: base, names: routed.RequiredFactTools, resourceID: factResourceID})
+	factResults := factResolution.facts
 	if factErr != nil {
 		for _, toolName := range routed.RequiredFactTools {
 			_ = recordToolCall(context.Background(), g.db, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr), true)
@@ -1018,19 +1015,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		if clarification == "" {
 			clarification = "请补充更多问题细节。"
 		}
-		if isV2Profile(g.profile) {
-			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{
-				Context: base, PendingKind: "ASKING",
-			})
-			if saveErr != nil {
-				state, code := grpcFailure(ctx, saveErr)
-				finish(state, code, "")
-				return
-			}
-			if saved == nil || !saved.Accepted {
-				finish("FAILED", "checkpoint_save_failed", "")
-				return
-			}
+		if checkpointFailure := saveAskingCheckpoint(ctx, g.rag, g.profile, base); checkpointFailure != nil {
+			finish(checkpointFailure.state, checkpointFailure.code, "")
+			return
 		}
 		finish("ASKING", "", clarification)
 		return
@@ -1069,17 +1056,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		return
 	}
 	if snapshotFallback && len(evidence) == 0 {
-		if isV2Profile(g.profile) {
-			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{Context: base, PendingKind: "ASKING"})
-			if saveErr != nil {
-				state, code := grpcFailure(ctx, saveErr)
-				finish(state, code, "")
-				return
-			}
-			if saved == nil || !saved.Accepted {
-				finish("FAILED", "checkpoint_save_failed", "")
-				return
-			}
+		if checkpointFailure := saveAskingCheckpoint(ctx, g.rag, g.profile, base); checkpointFailure != nil {
+			finish(checkpointFailure.state, checkpointFailure.code, "")
+			return
 		}
 		finish("ASKING", "", routed.Clarification)
 		return
