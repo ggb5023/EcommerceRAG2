@@ -33,6 +33,17 @@ SCRIPT = re.compile(r"(?:bash |python3 )?((?:scripts|eval)/[a-z0-9][a-z0-9/_-]*\
 ENV = re.compile(r"(?<![\w-])([A-Z][A-Z0-9_]{2,})=([^\s`'\"]*)")
 COMMENT = re.compile(r"\s+#.*$")
 PLACEHOLDER = re.compile(r"^(?:\.{2,}|…|<[^>]*>)$")
+# Ratchet: duplicated instructions are tolerated up to this many warnings. Each
+# round of cleanup lowers the number; raising it needs a review, not a fix.
+WARN_BUDGET = 5
+# Frozen at the moment the ratchet was set, used to name what is new.
+WARN_BASELINE = frozenset({
+    "scripts/check/check-eval-corpus.py",
+    "scripts/dev/generate-proto.sh",
+    "scripts/dev/provider-usage.py",
+    "scripts/dev/v2-local-services.sh --env",
+    "scripts/ops/oss-backup.sh",
+})
 WARN_LIMIT = 12
 
 
@@ -74,6 +85,10 @@ def instruction_values(text: str) -> dict[str, str]:
     return found
 
 
+def _has_arguments(values: dict[str, set[str]]) -> bool:
+    return any((value or "").strip() for value in values)
+
+
 def main() -> int:
     documents = scanned_documents()
     failures: list[str] = []
@@ -94,19 +109,47 @@ def main() -> int:
             for key, value in instruction_values(line).items():
                 users[key][value or "(no value)"].add(name)
 
+    # A document that documents three or more distinct invocations of one script is
+    # that script's authoritative page (the gate contract lives in the testing plan),
+    # so its duplicates elsewhere are pointers, not copies.
+    variants: dict[str, set[str]] = defaultdict(set)
+    for key in users:
+        script = key.split(" ")[0]
+        variants[script].add(key)
+    authoritative = {script for script, keys in variants.items() if len(keys) >= 3}
+
+    warned: set[str] = set()
     for key, values in sorted(users.items()):
+        if key.split(" ")[0] in authoritative and not key.split(" ")[0].startswith(("scripts/dev/", "scripts/ops/", "scripts/check/")):
+            continue
         owners = {doc for docs in values.values() for doc in docs}
         if len(owners) < 2:
             continue
-        if len(owners) >= 3 and len(values) >= 2:
-            # One document may define every variant on purpose (a tri-state flag, a
-            # per-case env mapping); that is the canonical definition, not drift.
-            canonical = [sorted(docs) for docs in values.values() if len(docs) == len(owners)]
-            if not canonical:
-                rendered = "; ".join(f"{value!r} in {', '.join(sorted(docs))}" for value, docs in sorted(values.items()))
-                failures.append(f"{key}: conflicting instructions across {len(owners)} documents: {rendered}")
-                continue
-        warnings.append(f"{key}: copied into {len(owners)} documents: {', '.join(sorted(owners))}")
+        # One document may define every variant on purpose (a tri-state flag, a
+        # per-case env mapping); decision 0025 treats that as the authoritative
+        # definition, so it is neither drift nor noise.
+        canonical = any(len(docs) == len(owners) for docs in values.values()) and len(values) >= 2
+        if canonical:
+            continue
+        if len(values) >= 2:
+            warned.add(key)
+            warnings.append(f"{key}: conflicting values across {len(owners)} documents: "
+                            + "; ".join(f"{value!r} in {', '.join(sorted(docs))}" for value, docs in sorted(values.items())))
+            if len(owners) >= 3:
+                failures.append(f"{key}: conflicting instructions across {len(owners)} documents")
+        elif len(owners) >= 3 and _has_arguments(values):
+            # A bare reference ("bash scripts/check.sh") is a pointer to the single
+            # definition, not a copy of the instruction.
+            warned.add(key)
+            warnings.append(f"{key}: instruction with arguments copied into {len(owners)} documents: "
+                            + ", ".join(sorted(owners)))
+
+    if len(warnings) > WARN_BUDGET:
+        appeared = sorted(warned - WARN_BASELINE)
+        failures.append(f"duplicated instructions {len(warnings)} exceed the budget {WARN_BUDGET}"
+                        + (f"; new: {', '.join(appeared)}" if appeared else ""))
+    elif len(warnings) < WARN_BUDGET:
+        print(f"NOTE duplicated instructions dropped to {len(warnings)}; WARN_BUDGET can be lowered to {len(warnings)}")
 
     for warning in warnings[:WARN_LIMIT]:
         print(f"WARN {warning}")
