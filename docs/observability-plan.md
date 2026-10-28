@@ -77,6 +77,7 @@ grep -c 'x-request-id' python/app/rpc/*.py go/internal/gateway/*.go   # 期望 �
 ### M-W3　错误码映射表（2 小时）
 
 产出 `docs/error-taxonomy.md`：一行一个错误码，含 HTTP 状态、内部原因、是否可重试、用户可见文案、审计 `result` 取值。
+**状态：骨架已建（21 行），随新增错误码持续补行**；`ingestion_queue_failed` 标注"原因未细分，待修"（见 `docs/refactor-input.md` 第 9 条）。
 
 覆盖现有：`invalid_credentials`、`account_locked`、`rate_limited`、`account_revoked`、`password_change_required`、
 `csrf_invalid`、`role_not_grantable`、`setup_already_completed`、`setup_requires_bootstrap` 等。

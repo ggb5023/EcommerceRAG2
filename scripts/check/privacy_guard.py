@@ -16,7 +16,7 @@ SECRET_SCANNER = Scanner()
 PUBLIC_NAME = 'EcommerceRAG Maintainers'
 PUBLIC_EMAIL = 'maintainers@example.invalid'
 PUBLIC_ARCHITECTURE_PATH = 'docs/architecture.md'
-PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'scripts/README.md', 'docs/product.md', 'docs/install.md', 'docs/openapi.yaml', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md', 'docs/ui-only-acceptance.md', 'docs/refactor-input.md', 'docs/data-ownership.md'}
+PUBLIC_DOCUMENT_PATHS = {PUBLIC_ARCHITECTURE_PATH, 'scripts/README.md', 'docs/product.md', 'docs/install.md', 'docs/openapi.yaml', 'docs/knowledge.md', 'docs/support.md', 'docs/backup.md', 'docs/development.md', 'docs/publication.md', 'docs/ui-only-acceptance.md', 'docs/refactor-input.md', 'docs/data-ownership.md', 'docs/error-taxonomy.md'}
 PUBLIC_DECISION = re.compile(r'docs/decisions/[0-9]{4}-[a-z0-9-]+\.md')
 # The refactor plan set is published deliberately; keep it in sync with .gitignore.
 PUBLIC_REFACTOR_PLAN = re.compile(r'docs/(?:[a-z0-9-]+-plan|refactor-assessment)\.md')
