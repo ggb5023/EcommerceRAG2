@@ -93,6 +93,33 @@ systemd 单元属于机器特定状态，不进仓库（部署契约在 M5 定�
 
 本地账号登录用例 `frontend/tests/login.browser.mjs` 需要 `V2_IDENTITY_PROFILE=local` 的栈，并先用 CLI `reset-password` 把目标账号置为首次改密状态；通过 `LOGIN_USER`、`LOGIN_PASSWORD`、`LOGIN_NEW_PASSWORD` 传入账号与密码。
 
+### e2e 前置准备
+
+`frontend/tests/admin.browser.mjs` 需要审核队列里至少有一份待审版本，否则会停在
+`no reviewable version available`。用下面这条脚本补齐，它**只走管理 HTTP 接口**（创建导入批次 → 确认 → 轮询审核队列），
+不写任何 SQL：
+
+```bash
+python3 scripts/dev/seed-accept-fixtures.py --count 2                 # 本机 dev 档：开发身份直接可用
+python3 scripts/dev/seed-accept-fixtures.py --cookies "session=..."   # 其他环境：复用现有 admin 会话
+python3 scripts/dev/seed-accept-fixtures.py --token "$ADMIN_TOKEN"    # 或有 token 时
+```
+
+- 文档取 `tests/fixtures/import-batch-20/` 的前 N 份，不新造内容；
+- 结束断言：`GET /admin/v1/merchant/reviews` 里 `review_status=pending` 的条数 ≥ N，否则非 0 退出；
+- 幂等：队列里已有足够 pending 时直接 `SKIP` 并 exit 0，可重复运行。
+
+## 当前环境状态
+
+环境变更后更新这一节；不要只写在对话或临时文件里。
+
+- dev 栈：`127.0.0.1:8080`（gateway，含 ai 的 50052/50053）与 `127.0.0.1:5173`（vite），
+  `RAG_PROFILE=v2_langchain_bailian`（**在线档**）。
+- dev 库 `ecr_v2_dev_local`：35 条迁移全部应用；实测 `documents=5`、`document_version=2`
+  （2 条 pending，由 `seed-accept-fixtures.py` 产生）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
+- 已知差异：`frontend/tests/workspace.browser.mjs` 断言 `v2_langchain_mock` 与 `is_mock`，
+  与在线档不符，在该档下必然红；它需要离线 mock 栈（批次 3 的独立栈）。
+
 ## 改契约和数据库
 
 - **Proto**：改 `proto/rag/v1/rag.proto` → `bash scripts/dev/generate-proto.sh` → `bash scripts/check/check-proto.sh`（buf lint、build、breaking）。不手改生成文件。
