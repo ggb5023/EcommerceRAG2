@@ -135,6 +135,10 @@ cd frontend && node tests/v2-restart.browser.mjs        # 6 步（恢复语义�
 wc -l go/internal/gateway/main.go                       # ≤ 500
 ```
 
+**阶段函数验收（[决策 0025](decisions/0025-code-level-rules.md) R2）**：每个拆出的阶段函数行数 **≤80**、
+只触碰一类工作（SQL / 模型调用 / 序列化 / 纯判断），触碰两类以上必须再拆；
+汇报时给出每个函数的行数与触碰类别统计。
+
 **回滚**：`git revert` 单提交即可——包与调用方在同一提交内切换。
 
 ### P-B　admin 持久化边界 + 单写者收口（2 天）
