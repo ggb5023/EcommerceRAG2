@@ -14,6 +14,7 @@
 | v3 | 批次 1 验收补两条硬条款：新旧 `check.sh` 对照（旧脚本无参数解析，`--all` 会被静默忽略，基线按无参数全量记录）与检查项差集（新增项列出、消失项为空，按实际执行项比对） |
 | v4 | 明确差集口径：对照清单为纯条目文件，按 `id` 比对；每项固定打印 `[<layer>] <id> <命令摘要>` |
 | v5 | `--all` 改为严格语义（有 `UNCONFIGURED` 即 exit 1 + `STRICT` 行），新增 `--allow-unconfigured` 显式放宽 |
+| v6 | 记录 e2e 层当前状态（12 项缺前置、2 项真实缺陷，批次 3 前恒红）；批次 3 补 e2e 前置声明、独立栈、`--cov` 实装、`db-env-health` |
 
 ---
 
@@ -147,6 +148,20 @@ V2_INTEGRATION_ENV=/etc/ecommerce-rag/test-integration.env pytest
 约束：不得触碰 dev 栈（8080 / 5173）与 ecr_v2_dev_local
 任一用例失败 → 该层 fail，打印报告目录；其余用例继续跑完再退出
 ```
+
+**e2e 层当前状态（2026-10-28）**
+
+`--e2e` 共 14 项，当前 **0 通过**，分两类，互不阻塞：
+
+- **12 项缺前置**（批次 3 补齐后才会真跑）：依赖独立栈 26081/26063、独立 Vite 5174、
+  独立 accept 库、受保护报告目录或合成账号。它们在用例入口就显式拒绝执行
+  （`protected synthetic accounts required`、`explicit protected offline V2 runtime required`、
+  `ERR_CONNECTION_REFUSED http://127.0.0.1:5174/...` 等），不是产品回归。
+- **2 项是真实缺陷**：`e2e-admin`（`/admin/merchant/shops` 在 390px 下横向溢出 3px）、
+  `e2e-workspace`（`strictEqual` 期望与实际不符）。二者单独提 `fix:` 提交修，不阻塞 T1 合并。
+
+因此 **批次 3 完成前 `--e2e` 恒为红，属预期**；默认层与 `--db` 不受影响，
+`--all` 会因此 exit 1（严格语义），发布前跑 `--all` 时必须先补齐前置或显式记录豁免。
 
 ### 3.3 跳过项显形（G2）
 
@@ -306,7 +321,25 @@ count=$(grep -rho 'waitForTimeout' frontend/tests/*.browser.mjs | wc -l)
 
 替换固定等待时同步下调上限；替换完成后上限固定为 0。
 
-### 5.3 每日全量
+### 5.3 e2e 前置声明与独立栈
+
+- 每个 `frontend/tests/*.browser.mjs` 在文件头声明所需前置（env 键、端口、目录），
+  `check.sh --e2e` 读取声明：缺失 → `UNCONFIGURED` 并打印**缺哪一项**，不进入用例。
+- 起独立栈：mock 26081 / 26063 + 独立 Vite 5174 + 独立 accept 库，不得触碰 dev 栈与 `ecr_v2_dev_local`。
+- 目标：`e2e-v2-lifecycle`、`e2e-login` 至少真跑通；其余用例按声明逐步补齐。
+
+### 5.4 覆盖率实装
+
+`--cov` 从"仅保留参数位"改为真实采集：Go `-coverprofile`、Python `--cov=app`、前端 `vitest --coverage`，
+产物落 `.local/coverage/`，按批次 2 的基线规则比对。
+
+### 5.5 db-env-health（环境静默失效的探针）
+
+`--db` 层新增一条只读检查：确认开发库/测试库的 `schema_migration` 行数与 `sql/migrations/*.sql`
+数量一致、关键表存在。0 张表的库会让网关在启动时静默失败（`development identity unavailable`），
+这类"环境静默失效"必须在门禁里显形，而不是靠人发现。
+
+### 5.6 每日全量
 
 机器侧 `/etc/cron.d/ecr-test-nightly`（不进仓库）：
 
