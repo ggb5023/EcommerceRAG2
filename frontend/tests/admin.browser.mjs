@@ -139,7 +139,7 @@ try {
   await forbiddenDialog.locator('textarea').fill('Browser fail-closed authorization check.')
   await forbiddenDialog.getByRole('checkbox').check()
   await forbiddenDialog.getByRole('button', { name: '确认并记录审计' }).click()
-  await page.getByText('没有可用的管理会话').waitFor()
+  await page.getByText('当前账号无访问权限').waitFor()
   assert.equal(await page.locator('.content-area').count(), 0, '403 must clear restricted page content')
   await page.unroute('**/admin/v1/merchant/versions/*/revoke')
 
