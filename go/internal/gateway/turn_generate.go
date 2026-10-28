@@ -88,6 +88,15 @@ func generateAnswer(ctx context.Context, client ragv1.RagServiceClient, request 
 	}
 }
 
+// finalAnswer applies the snapshot qualifier to a finished answer. Pure.
+func finalAnswer(result *generationResult, snapshotFallback bool) string {
+	text := result.answer
+	if snapshotFallback {
+		text = withSnapshotQualifier(text)
+	}
+	return text
+}
+
 // validateCitation reports whether the cited evidence is one of the accepted
 // candidates. It is pure: it only compares protobuf messages.
 func validateCitation(citation *ragv1.Evidence, accepted []*ragv1.Evidence) bool {

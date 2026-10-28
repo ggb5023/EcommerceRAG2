@@ -1044,8 +1044,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools, factResourceID)
 	if factErr != nil {
 		for _, toolName := range routed.RequiredFactTools {
-			_, _ = g.db.Exec(context.Background(), `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-				VALUES($1,$2,$3,$4,true)`, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr))
+			_ = recordToolCall(context.Background(), g.db, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr), true)
 		}
 		finish("FAILED", facts.FailureCode(factErr), "")
 		return
@@ -1062,8 +1061,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			finish("FAILED", "fact_evidence_persistence_failed", "")
 			return
 		}
-		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
+		_ = recordToolCall(ctx, g.db, g.session.TenantID, requestID, fact.ToolName, "ok", false)
 	}
 	if !snapshotFallback && (routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
 		if !ensureScopeAuthorized() {
@@ -1101,14 +1099,12 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(searchFailure.state, searchFailure.code, "")
 		return
 	}
-	grants := make([]evidenceGrant, len(rawEvidence))
-	for index, item := range rawEvidence {
-		allowed, authErr := g.authority().EvidenceAllowed(ctx, item)
-		if authErr != nil {
-			finish("FAILED", auth.FailureCode(authErr), "")
-			return
-		}
-		grants[index] = evidenceGrant{allowed: allowed}
+	grants, grantFailure := authorizeEvidence(func(item *ragv1.Evidence) (bool, error) {
+		return g.authority().EvidenceAllowed(ctx, item)
+	}, rawEvidence)
+	if grantFailure != nil {
+		finish(grantFailure.state, grantFailure.code, "")
+		return
 	}
 	evidence, filterErr := filterEvidence(rawEvidence, grants, true)
 	if filterErr != nil {
@@ -1183,10 +1179,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(generateFailure.state, generateFailure.code, "")
 		return
 	}
-	text := generated.answer
-	if snapshotFallback {
-		text = withSnapshotQualifier(text)
-	}
+	text := finalAnswer(generated, snapshotFallback)
 	if !ensureScopeAuthorized() {
 		return
 	}

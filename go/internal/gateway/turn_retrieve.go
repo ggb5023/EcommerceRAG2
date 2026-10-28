@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -73,6 +74,20 @@ func retrieveEvidence(ctx context.Context, client ragv1.RagServiceClient, scope 
 		}
 	}
 	return raw, nil, false
+}
+
+// authorizeEvidence asks the authorization layer about every candidate. It is the
+// only place that turns raw evidence into grants; the filter stays pure.
+func authorizeEvidence(check func(*ragv1.Evidence) (bool, error), raw []*ragv1.Evidence) ([]evidenceGrant, *stageFailure) {
+	grants := make([]evidenceGrant, len(raw))
+	for index, item := range raw {
+		allowed, err := check(item)
+		if err != nil {
+			return nil, &stageFailure{state: "FAILED", code: auth.FailureCode(err)}
+		}
+		grants[index] = evidenceGrant{allowed: allowed}
+	}
+	return grants, nil
 }
 
 // filterEvidence applies the customer-facing rules to raw candidates. It is pure:

@@ -61,6 +61,14 @@ func writeTurnEvent(db *pgxpool.Pool, ident turnEventIdentity, kind string, payl
 	return tx.Commit(eventCtx)
 }
 
+// recordToolCall appends one tool_call_trace row. A failed trace write never
+// fails the turn: the caller ignores the error, exactly as the inline version did.
+func recordToolCall(ctx context.Context, db *pgxpool.Pool, tenantID int64, requestID, toolName, status string, degraded bool) error {
+	_, err := db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
+		VALUES($1,$2,$3,$4,$5)`, tenantID, requestID, toolName, status, degraded)
+	return err
+}
+
 // finishTurn writes the terminal state unless the execution already ended.
 // Cancellation wins over the requested state, exactly as the inline version did.
 func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer string, mock bool) {
