@@ -56,6 +56,23 @@ func understandTurn(ctx context.Context, client ragv1.RagServiceClient, scope *r
 	return routed, nil
 }
 
+// saveAskingCheckpoint persists the ASKING checkpoint before a clarification is
+// returned. It returns a stage failure instead of finishing the turn itself.
+func saveAskingCheckpoint(ctx context.Context, client ragv1.RagServiceClient, profile string,
+	scope *ragv1.RequestContext) *stageFailure {
+	if !isV2Profile(profile) {
+		return nil
+	}
+	saved, err := client.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{Context: scope, PendingKind: "ASKING"})
+	if err != nil {
+		return grpcStageFailure(ctx, err)
+	}
+	if saved == nil || !saved.Accepted {
+		return &stageFailure{state: "FAILED", code: "checkpoint_save_failed"}
+	}
+	return nil
+}
+
 // resolveFactIntent decides which authorized fact tool the turn needs and which
 // resource it addresses. It is pure: the decision only reads the routed response
 // and the query/history text.
