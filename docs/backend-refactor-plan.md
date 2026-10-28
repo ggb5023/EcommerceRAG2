@@ -10,7 +10,8 @@
 >
 > **v3 相对 v2 的改动**（全部来自实测复核）：
 > 1. 基线数字改为 **AST 实测口径**，并附可复现的测量命令（v1 的 Python 数字是错误统计，已作废）
-> 2. `gateway/main.go` 目标与总纲对齐为 **≤ 500 行**（v2 写的 300 与 `Main()` 247 行冲突）
+> 2. `gateway/main.go` 目标口径：**P-A 范围 ≤ 800 行**（`Main` + 装配 + 路由表 + 轮次 HTTP 适配层）；
+>    **≤ 500 行需要把 handler 实现一起搬走，属 P-B**。v2 写的 300 与 `Main()` 247 行冲突，不再使用。
 > 3. P-A 增加一条提交：拆分 `Main()` 的装配、路由与生命周期
 > 4. P-B 增加两条提交：`customer/ai.go:run`(168) 与 `admin/manifest.go:parseManifest`(155) 收到 ≤150
 > 5. 测试基线写死具体数字（Go 98 个测试函数；Python 350 passed / 28 skipped）
@@ -47,7 +48,7 @@ grep -rhoE '^func Test[A-Za-z0-9_]+' --include='*_test.go' go | wc -l   # 期望
 
 | 指标 | 当前值 | 目标值 |
 | --- | --- | --- |
-| `gateway/main.go` 行数 | ~1706 | **≤ 500**（与总纲一致） |
+| `gateway/main.go` 行数 | ~1706 | **≤ 800**（P-A 范围：装配 + 路由表 + 轮次适配层；≤ 500 需连 handler 一起搬，属 P-B） |
 | 最大 Go 函数 `runTurn`（`gateway/main.go:1058`） | **413** | ≤ 150 |
 | 次大 `Main`（`gateway/main.go:146`） | **247** | ≤ 80（拆成 build/routes/lifecycle） |
 | `createTurn` / `resumeTurn` | 184 / 155 | ≤ 150（HTTP 适配层 ≤ 40） |
@@ -106,7 +107,7 @@ internal/turn/
   store_integration_test.go  幂等、并发、租约（-tags integration）
 
 gateway/
-  main.go        ≤ 500 行：只留 main() 与装配调用
+  main.go        ≤ 800 行：main() + 装配 + 路由表 + 轮次 HTTP 适配层（≤ 500 属 P-B）
   wire.go        buildDeps()  ≤ 80 行
   routes.go      registerRoutes() ≤ 80 行
   lifecycle.go   runServer()  ≤ 80 行
@@ -132,7 +133,7 @@ cd go && gofmt -l internal/turn internal/gateway && go vet ./... && go test ./..
 cd .. && bash scripts/check.sh
 cd frontend && node tests/v2-lifecycle.browser.mjs      # 13 步
 cd frontend && node tests/v2-restart.browser.mjs        # 6 步（恢复语义）
-wc -l go/internal/gateway/main.go                       # ≤ 500
+wc -l go/internal/gateway/main.go                       # ≤ 800（P-A）
 ```
 
 **阶段函数验收（[决策 0025](decisions/0025-code-level-rules.md) R2）**：每个拆出的阶段函数行数 **≤80**、
@@ -241,7 +242,7 @@ PY
 | 规则 | 阈值 |
 | --- | --- |
 | `go/internal/**`（排除 `pb/`、`*_test.go`）单函数行数 | ≤ 150 |
-| `go/internal/gateway/main.go` 行数 | ≤ 500 |
+| `go/internal/gateway/main.go` 行数 | ≤ 800（P-A；≤ 500 属 P-B） |
 | `python/app/**` 单函数行数 | ≤ 150 |
 | `eval/*.py` runner 行数 | ≤ 300 |
 | `go/internal/{admin,gateway}` 中 SQL 语句 | 0 |

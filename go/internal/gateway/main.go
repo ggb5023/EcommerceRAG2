@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/edge"
@@ -264,30 +263,9 @@ func Main() {
 
 func (g *gateway) businessRoutes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", g.health)
-	mux.HandleFunc("POST /internal/authorization/validate", g.validateScopeHTTP)
-	mux.HandleFunc("GET /v1/session", g.getSession)
-	mux.HandleFunc("GET /v1/conversations", g.listConversations)
-	mux.HandleFunc("POST /v1/conversations", g.createConversation)
-	mux.HandleFunc("GET /v1/conversations/{id}", g.getConversation)
-	mux.HandleFunc("POST /v1/conversations/{id}/turns", g.createTurn)
-	mux.HandleFunc("POST /v1/turns/{id}/resume", g.resumeTurn)
-	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
-	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
-	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
-	if g.customer != nil {
-		mux.HandleFunc("/v1/support/", func(w http.ResponseWriter, r *http.Request) {
-			if !g.requireWriteRole(w) {
-				return
-			}
-			g.customer.StaffRoutes(customer.Staff{Tenant: g.session.TenantID, User: g.session.UserID, Shops: g.session.AllowedShops, Role: g.session.Role, SessionHash: customer.StaffSessionHash(r), Check: g.authority().Refresh}).ServeHTTP(w, r)
-		})
-	}
-	customerOrigin := ""
-	if g.customer != nil {
-		customerOrigin = g.customer.Config.Origin
-	}
-	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey, CustomerOrigin: customerOrigin}).RegisterRoutes(mux)
+	g.registerHealthRoutes(mux)
+	g.registerCustomerRoutes(mux)
+	g.registerAdminRoutes(mux)
 	return mux
 }
 
