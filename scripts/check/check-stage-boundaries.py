@@ -32,6 +32,7 @@ RUN_TURN_AMENDMENTS = (
     ("2026-10-28", 226, 229, "facts 段拆出时调用点增加（3d-1b）"),
     ("2026-10-28", 229, 209, "澄清块提前拆出（3d-2 的一部分）"),
 )
+ENTRY_LAYER = {"turn_handlers.go"}
 ORCHESTRATOR = "go/internal/gateway/main.go"
 ORCHESTRATOR_FUNC = "runTurn"
 FORBIDDEN_PARAM = re.compile(r"\*http\.Request\b")
@@ -117,7 +118,10 @@ def orchestrator_problems() -> list[str]:
 
 def main() -> int:
     files = sorted(GATEWAY.glob("turn_*.go"))
-    files = [path for path in files if not path.name.endswith("_test.go")]
+    # turn_handlers.go is the HTTP entry layer: it is the one place allowed to take
+    # *http.Request and the gateway struct, because it converts a request into
+    # plain data for the stage files below it (decision 0026 §4).
+    files = [path for path in files if not path.name.endswith("_test.go") and path.name not in ENTRY_LAYER]
     if not files:
         print("SKIP stage boundaries: no go/internal/gateway/turn_*.go yet")
         return 0
