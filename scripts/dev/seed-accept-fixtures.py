@@ -112,6 +112,20 @@ def active_versions(base: str, headers: dict[str, str]) -> list[dict]:
             if item.get("status") == "active" and (item.get("chunk_count") or 0) > 0]
 
 
+def business_date() -> tuple[str, str]:
+    """Prefer the date the services were started with, so prompts stay reproducible."""
+    from_env = os.environ.get("SYNTHETIC_BUSINESS_DATE", "").strip()
+    if from_env:
+        return from_env, "SYNTHETIC_BUSINESS_DATE"
+    runtime = Path(os.environ.get("ECR_RUNTIME_ENV", "/etc/ecommerce-rag/dev.env"))
+    if runtime.is_file():
+        for line in runtime.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.strip().partition("=")
+            if key == "SYNTHETIC_BUSINESS_DATE" and value.strip():
+                return value.strip().strip("'\""), str(runtime)
+    return date.today().isoformat(), "today"
+
+
 def pending_count(base: str, headers: dict[str, str]) -> int:
     status, payload = call(base, "/admin/v1/merchant/reviews", headers)
     if status != 200:
@@ -135,6 +149,8 @@ def main() -> int:
                         help="review as external_allowed and publish, then require an active version")
     parser.add_argument("--timeout", type=int, default=180, help="seconds to wait for the ingest worker")
     args = parser.parse_args()
+    used_date, date_source = business_date()
+    print(f"BUSINESS_DATE {used_date} ({date_source})")
     base = args.base_url.rstrip("/")
     headers = {}
     if args.token:
@@ -182,8 +198,7 @@ def main() -> int:
         if not path.is_file():
             return fail(f"fixture file missing: {path}")
         files.append(("files", document["path"], path.read_bytes()))
-    fields = [("shop_id", shop), ("manifest", manifest_text),
-              ("business_date", os.environ.get("SYNTHETIC_BUSINESS_DATE") or date.today().isoformat())]
+    fields = [("shop_id", shop), ("manifest", manifest_text), ("business_date", used_date)]
     fields += [("paths", document["path"]) for document in selected]
     body, content_type = multipart(fields, files)
 

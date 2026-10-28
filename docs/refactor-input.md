@@ -20,6 +20,11 @@
    仅是测试注入点，不影响生产路径，但属于历史命名残留（0021 之后不再有账本），建议重构时清掉。
 8. `docs/ui-only-acceptance.md` 的矩阵已扩充为 34 条（31 条原有 + 2 条补登记 + 1 条 usage 标 ❌）；
    `GET /admin/v1/merchant/usage` 尚无 UI，随 0021 的用量界面实现。
+9. `adminConfirmImport` / `persistParsed` 把 `IngestAuthorizationError` 与迁移不完整这两类不可重试错误统一映射成
+   503 `ingestion_queue_failed`，与"临时排队失败"混淆；另：某文档的 active 版本被 revoke 后，同名再导入在 confirm
+   阶段失败（换新 document id 则正常，根因待查）。
+   修法方向：按错误类型映射（403 / 500 / 409），并在响应里带 cause code；撤回后重导入的语义需单独定
+   （允许新版本？要求换 id？）。
 
 ## 已完成（仅供参考，无需再处理）
 
