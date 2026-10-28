@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -71,7 +72,8 @@ def run(python: Path) -> dict[str, object]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--python", type=Path, default=ROOT / "python/.venv/bin/python")
+    default_env = Path(os.environ.get("UV_PROJECT_ENVIRONMENT") or ROOT / "python/.venv")
+    parser.add_argument("--python", type=Path, default=default_env / "bin/python")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:

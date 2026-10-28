@@ -2,6 +2,13 @@
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
+# A clean checkout can reuse the main repository's virtualenv instead of building
+# a new one from the index:
+#   UV_PROJECT_ENVIRONMENT=/path/to/repo/python/.venv bash scripts/check.sh
+if [ -n "${UV_PROJECT_ENVIRONMENT:-}" ]; then
+  export UV_PROJECT_ENVIRONMENT
+  echo "using UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT"
+fi
 
 usage() {
   cat <<'EOF'
@@ -104,12 +111,12 @@ run fast shellcheck "shellcheck -S warning scripts/*.sh scripts/*/*.sh eval/*.sh
 run fast go-test "cd go && go test -p 2 ./..."
 run fast go-vet "cd go && go vet ./..."
 run fast python-sync "cd python && uv sync --frozen"
-run fast python-tests "cd python && uv run pytest -q"
-run fast python-lint "cd python && uv run ruff check app ../eval ../scripts/check/artifact-cleanup-fault-smoke.py ../scripts/dev/v2_services.py"
-run fast python-imports "cd python && uv run python -c 'from app.providers.contracts import EmbeddingResult; from app.ai_process import build_ai_process; from app.rpc.server import build_server'"
-run fast provider-smoke "cd python && uv run python ../scripts/check/provider-smoke.py --response-fixture ../scripts/check/provider-smoke-fixture.json"
-run fast artifact-storage-smoke "cd python && uv run python ../scripts/check/artifact-storage-smoke.py"
-run fast artifact-cleanup-smoke "cd python && uv run python ../scripts/check/artifact-cleanup-fault-smoke.py"
+run fast python-tests "cd python && uv run --frozen pytest -q"
+run fast python-lint "cd python && uv run --frozen ruff check app ../eval ../scripts/check/artifact-cleanup-fault-smoke.py ../scripts/dev/v2_services.py"
+run fast python-imports "cd python && uv run --frozen python -c 'from app.providers.contracts import EmbeddingResult; from app.ai_process import build_ai_process; from app.rpc.server import build_server'"
+run fast provider-smoke "cd python && uv run --frozen python ../scripts/check/provider-smoke.py --response-fixture ../scripts/check/provider-smoke-fixture.json"
+run fast artifact-storage-smoke "cd python && uv run --frozen python ../scripts/check/artifact-storage-smoke.py"
+run fast artifact-cleanup-smoke "cd python && uv run --frozen python ../scripts/check/artifact-cleanup-fault-smoke.py"
 run fast buf-lint "buf lint"
 run fast buf-build "buf build -o /dev/null"
 run fast buf-breaking "buf breaking --against .git#branch=main"

@@ -109,6 +109,19 @@ python3 scripts/dev/seed-accept-fixtures.py --token "$ADMIN_TOKEN"    # 或有 t
 - 结束断言：`GET /admin/v1/merchant/reviews` 里 `review_status=pending` 的条数 ≥ N，否则非 0 退出；
 - 幂等：队列里已有足够 pending 时直接 `SKIP` 并 exit 0，可重复运行。
 
+## 干净目录验证
+
+验证"没有未跟踪文件也能跑通"时，不要在新目录里重建虚拟环境（会从索引全量拉包，几十分钟）。
+复用主仓库的 venv：
+
+```bash
+cd /tmp/<clean-checkout>
+UV_PROJECT_ENVIRONMENT=<主仓库>/python/.venv bash scripts/check.sh
+```
+
+`scripts/check.sh` 会把这个变量透传给 `uv sync` 与 `uv run`，并在开头打印实际使用的环境路径。
+node 依赖仍需一次 `cd frontend && npm ci`。
+
 ## 当前环境状态
 
 环境变更后更新这一节；不要只写在对话或临时文件里。

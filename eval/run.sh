@@ -6,12 +6,14 @@
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
-py=python/.venv/bin/python
+# Reuse an external virtualenv when one is provided (clean-checkout checks).
+py="${UV_PROJECT_ENVIRONMENT:-$repo/python/.venv}/bin/python"
+case "$py" in /*) ;; *) py="$repo/$py" ;; esac
 revision=${ECR_EVAL_REVISION:-/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional}
 
 case "${1:-offline}" in
   offline)
-    (cd eval && "../$py" -m pytest -q -p no:cacheprovider .)
+    (cd eval && "$py" -m pytest -q -p no:cacheprovider .)
     "$py" eval/validate_eval.py >/dev/null && echo "PASS frozen 60-case set"
     "$py" eval/run_mock_retrieval.py >/dev/null && echo "PASS mock retrieval classification"
     "$py" eval/run_v2_live_lifecycle.py >/dev/null && echo "PASS live lifecycle PLAN (no requests)"
