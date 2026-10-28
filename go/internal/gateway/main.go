@@ -151,6 +151,9 @@ func Main() {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
+	if err := validateDeploymentForm(os.Getenv("WEB_ROOT"), addr, os.Getenv("V2_CUSTOMER_PROXY_HOST")); err != nil {
+		log.Fatal(err.Error())
+	}
 	owner, err := g.acquireExecutionOwner(ctx)
 	if err != nil {
 		log.Fatal("Gateway execution ownership unavailable")
