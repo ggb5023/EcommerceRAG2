@@ -23,6 +23,15 @@ GATEWAY = ROOT / "go" / "internal" / "gateway"
 
 FUNC = re.compile(r"^func\s+(?:\(([^)]*)\)\s*)?([A-Za-z0-9_]+)\s*\(", re.MULTILINE)
 FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
+# runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
+# to the stage files (decision 0025 R2 / P-A acceptance).
+ORCHESTRATOR = "go/internal/gateway/main.go"
+ORCHESTRATOR_FUNC = "runTurn"
+ORCHESTRATOR_FORBIDDEN = {
+    "SQL": re.compile(r"\b(?:SELECT|INSERT INTO|UPDATE|DELETE FROM)\b"),
+    "SSE write": re.compile(r"fmt\.Fprintf\(w,"),
+    "answer qualifier": re.compile(r"withSnapshotQualifier"),
+}
 FORBIDDEN_FIELD = re.compile(r"(?<![\w.])g\.[A-Za-z_]")
 
 
@@ -58,6 +67,25 @@ def function_blocks(source: str):
         yield match.group(2), (match.group(1) or ""), signature, source[body_start:body_end + 1], line
 
 
+def orchestrator_problems() -> list[str]:
+    path = ROOT / ORCHESTRATOR
+    if not path.is_file():
+        return []
+    source = path.read_text(encoding="utf-8")
+    pattern = re.compile(r"^func \(g \*gateway\) " + ORCHESTRATOR_FUNC + r"\(", re.MULTILINE)
+    match = pattern.search(source)
+    if not match:
+        return []
+    end = source.find("\n}\n", match.start())
+    body = source[match.start():end if end != -1 else len(source)]
+    problems = []
+    for label, forbidden in ORCHESTRATOR_FORBIDDEN.items():
+        found = forbidden.search(body)
+        if found:
+            problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} still contains {label} ({found.group(0)!r})")
+    return problems
+
+
 def main() -> int:
     files = sorted(GATEWAY.glob("turn_*.go"))
     files = [path for path in files if not path.name.endswith("_test.go")]
@@ -78,6 +106,7 @@ def main() -> int:
             field = FORBIDDEN_FIELD.search(body)
             if field:
                 problems.append(f"{relative}:{line} {name}: touches gateway fields via g.")
+    problems.extend(orchestrator_problems())
     if problems:
         for problem in problems:
             print(f"FAIL {problem}")
