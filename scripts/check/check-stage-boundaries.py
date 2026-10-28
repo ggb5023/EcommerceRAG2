@@ -25,8 +25,13 @@ FUNC = re.compile(r"^func\s+(?:\(([^)]*)\)\s*)?([A-Za-z0-9_]+)\s*\(", re.MULTILI
 FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
 # runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
 # to the stage files (decision 0025 R2 / P-A acceptance).
-# Only decreasing: lower this after every split. Raising it needs a review.
-RUN_TURN_BUDGET = 209
+# Base allowance. Lower it after every split; a raise is only accepted when the
+# exact from→to step is recorded in RUN_TURN_AMENDMENTS.
+RUN_TURN_BUDGET = 117
+RUN_TURN_AMENDMENTS = (
+    ("2026-10-28", 226, 229, "facts 段拆出时调用点增加（3d-1b）"),
+    ("2026-10-28", 229, 209, "澄清块提前拆出（3d-2 的一部分）"),
+)
 ORCHESTRATOR = "go/internal/gateway/main.go"
 ORCHESTRATOR_FUNC = "runTurn"
 FORBIDDEN_PARAM = re.compile(r"\*http\.Request\b")
@@ -68,6 +73,15 @@ def function_blocks(source: str):
             body_end += 1
         line = source.count("\n", 0, match.start()) + 1
         yield match.group(2), (match.group(1) or ""), signature, source[body_start:body_end + 1], line
+
+
+def permitted_budget() -> tuple[int, str]:
+    """A raise is allowed only when the exact from→to step has an amendment."""
+    permitted, reason = RUN_TURN_BUDGET, ""
+    for _date, previous, raised, why in RUN_TURN_AMENDMENTS:
+        if previous == RUN_TURN_BUDGET and raised > permitted:
+            permitted, reason = raised, why
+    return permitted, reason
 
 
 def orchestrator_lines() -> int:
@@ -125,8 +139,14 @@ def main() -> int:
                 problems.append(f"{relative}:{line} {name}: touches gateway fields via g.")
     problems.extend(orchestrator_problems())
     run_turn = orchestrator_lines()
-    if run_turn > RUN_TURN_BUDGET:
-        problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} is {run_turn} lines, budget is {RUN_TURN_BUDGET}")
+    permitted, reason = permitted_budget()
+    if run_turn > permitted:
+        problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} is {run_turn} lines, budget is {RUN_TURN_BUDGET}"
+                        + (f" (recorded raise to {permitted}: {reason})" if permitted > RUN_TURN_BUDGET else ""))
+    elif run_turn > RUN_TURN_BUDGET:
+        print(f"NOTE {ORCHESTRATOR_FUNC} uses a recorded raise to {permitted}: {reason}")
+    elif run_turn < RUN_TURN_BUDGET:
+        print(f"NOTE {ORCHESTRATOR_FUNC} dropped to {run_turn}; RUN_TURN_BUDGET can be lowered to {run_turn}")
     if problems:
         for problem in problems:
             print(f"FAIL {problem}")

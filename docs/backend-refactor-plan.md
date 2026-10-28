@@ -142,6 +142,8 @@ wc -l go/internal/gateway/main.go                       # ≤ 500
 **SQL、Prompt、SSE 帧一律不得出现在 `runTurn` 内**。
 每个 `refactor` 提交必须能回答：**删除这次改动后，系统行为是否逐字节相同？**
 若不同，它不是 refactor，必须拆成独立提交并走决策。
+`runTurn` 行数由 `check-stage-boundaries.py` 的棘轮约束：`RUN_TURN_BUDGET` 只许降；
+确需上升时必须在 `RUN_TURN_AMENDMENTS` 里补一条「日期 + 从→到 + 原因」，无记录的上升直接失败。
 
 **回滚**：`git revert` 单提交即可——包与调用方在同一提交内切换。
 
