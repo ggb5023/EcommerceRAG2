@@ -2,20 +2,16 @@ package gateway
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/edge"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
 	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
-	"github.com/ggb5023/EcommerceRAG/go/internal/transport"
 	"io"
 	"log"
 	"math"
@@ -144,150 +140,41 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func Main() {
-	if env := os.Getenv("APP_ENV"); env == "selfhost" || env == "production" {
-		profile := os.Getenv("V2_IDENTITY_PROFILE")
-		if (profile != "oidc_browser" && profile != "local") || os.Getenv("V2_RPC_TLS") != "mtls" || os.Getenv("V2_CUSTOMER_ORIGIN") == "" || os.Getenv("V2_FACTS_BASE_URL") != "" || os.Getenv("RAG_PROFILE") != "v2_langchain_bailian" {
-			log.Fatal("selfhost requires local or browser identity, mTLS, customer origin and real Provider; facts are disabled")
-		}
-	} else if os.Getenv("APP_ENV") != "development" && os.Getenv("APP_ENV") != "test" {
-		log.Fatal("an identity adapter is required; development/test adapter is explicit")
-	}
-	profile := os.Getenv("RAG_PROFILE")
-	if !isV2Profile(profile) {
-		log.Fatal("an explicit V2 RAG_PROFILE is required")
-	}
-	dsn, ragAddr, ingestAddr := os.Getenv("V2_GATEWAY_DSN"), os.Getenv("V2_GRPC_ADDR"), os.Getenv("V2_INGEST_GRPC_ADDR")
-	if dsn == "" || ragAddr == "" || ingestAddr == "" {
-		log.Fatal("explicit Gateway database, AI RPC and ingestion RPC configurations are required")
-	}
+	runtime, closeAll := buildGateway()
+	defer closeAll()
+	mountRoutes(runtime)
+	serve(runtime)
+}
+
+// gatewayRuntime carries the values the mount and serve phases need.
+type gatewayRuntime struct {
+	ctx     context.Context
+	g       *gateway
+	browser *identity.Browser
+	addr    string
+	handler http.Handler
+	secure  bool
+}
+
+// buildGateway wires the dependencies and starts everything that must outlive a
+// request: execution ownership, the customer channel, the authority RPC and its
+// watchdog. The returned function closes them in reverse order.
+func buildGateway() (*gatewayRuntime, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	db, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		log.Fatal("database pool configuration failed")
-	}
-	defer db.Close()
-	var database, role string
-	var superuser bool
-	if err = db.QueryRow(ctx, `SELECT current_database(),current_user,rolsuper FROM pg_roles WHERE rolname=current_user`).Scan(&database, &role, &superuser); err != nil || superuser || role != "rag_v2_gateway" || !strings.Contains(database, "v2") {
-		log.Fatal("Gateway requires its restricted role and independent V2 database")
-	}
-	var session mockSession
-	var adapter IdentityAdapter
-	var browser *identity.Browser
-	var localStore *localauth.Store
-	var localToken string
-	switch os.Getenv("V2_IDENTITY_PROFILE") {
-	case "", "development":
-		session, err = (developmentIdentityAdapter{db: db}).Resolve(ctx)
-		if err != nil {
-			log.Fatal("development identity unavailable")
-		}
-	case "local":
-		store := localauth.NewStore(db)
-		adapter = localIdentityAdapter{store: store}
-		localStore = store
-		localToken = randomToken()
-	case "oidc", "oidc_browser":
-		config, configErr := identity.LoadConfig(os.Getenv("V2_OIDC_CONFIG_FILE"))
-		if configErr != nil {
-			log.Fatal("protected OIDC configuration unavailable")
-		}
-		provider, providerErr := identity.New(ctx, config)
-		if providerErr != nil {
-			log.Fatal("OIDC discovery unavailable")
-		}
-		oidcAdapter := oidcIdentityAdapter{provider: provider, db: db}
-		adapter = oidcAdapter
-		if os.Getenv("V2_IDENTITY_PROFILE") == "oidc_browser" {
-			browser, err = identity.NewBrowser(provider, func(ctx context.Context, principal identity.Principal) error {
-				_, _, failure := oidcAdapter.resolvePrincipal(ctx, principal)
-				if failure == nil {
-					return nil
-				}
-				if status.Code(failure) == codes.Unavailable {
-					return identity.ErrUnavailable
-				}
-				return identity.ErrRevoked
-			})
-			if err != nil {
-				log.Fatal("browser identity configuration unavailable")
-			}
-			if config.AuthorizationSource == "database" {
-				browser.BindAuthority = func(ctx context.Context, p identity.Principal) (identity.Principal, error) {
-					session, _, err := oidcAdapter.resolvePrincipal(ctx, p)
-					if err != nil {
-						return p, identity.ErrRevoked
-					}
-					p.Claims.Role = session.Role
-					p.Claims.Shops = slices.Clone(session.AllowedShops)
-					p.Claims.Revision = session.PermissionRevision
-					return p, nil
-				}
-			}
-			adapter = browserIdentityAdapter{browser: browser, adapter: oidcAdapter}
-		}
-	default:
-		log.Fatal("an explicit supported identity profile is required")
-	}
-	rpcCredentials, err := transport.ClientCredentials()
-	if err != nil {
-		log.Fatal("internal RPC credentials unavailable")
-	}
-	conn, err := grpc.NewClient(ragAddr, grpc.WithTransportCredentials(rpcCredentials))
-	if err != nil {
-		log.Fatal("AI RPC configuration failed")
-	}
-	defer conn.Close()
-	ingestConn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(rpcCredentials))
-	if err != nil {
-		log.Fatal("ingest RPC configuration failed")
-	}
-	defer ingestConn.Close()
-	factsProvider := facts.Provider(facts.UnavailableProvider{})
-	if base := strings.TrimSpace(os.Getenv("V2_FACTS_BASE_URL")); base != "" {
-		version := strings.TrimSpace(os.Getenv("V2_FACTS_VERSION"))
-		if version == "" {
-			version = "v1"
-		}
-		factsProvider = facts.HTTPProvider{BaseURL: base, Version: version}
-	}
-	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter, browser: browser}
-	g.signingKey, err = auth.LoadSigningKey()
-	if err != nil {
-		log.Fatal("restricted scope signing key is unavailable")
-	}
-	if localStore != nil {
-		g.localAuth = &localauth.Handler{
-			Store:           localStore,
-			Limiter:         localauth.NewLimiter(nil),
-			Key:             g.signingKey,
-			Origins:         []string{os.Getenv("V2_CUSTOMER_ORIGIN")},
-			Secure:          func(r *http.Request) bool { return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" },
-			LockoutAttempts: 5,
-			LockoutFor:      15 * time.Minute,
-		}
-		g.localSetup = &localauth.Setup{Store: localStore, Token: localToken, TokenIssued: time.Now()}
-		// The one-time install token is printed once at startup; it is never
-		// written to the database or returned by an API.
-		log.Printf("SETUP_TOKEN=%s", localToken)
-	}
-	if adapter == nil {
-		if err = g.authority().Refresh(ctx); err != nil {
-			log.Fatal("identity scope rejected")
-		}
-	} else {
-		g.scopeIdentities = &scopeIdentityRegistry{}
-	}
+	g, db, profile, browser, closeWired := wireDependencies(ctx)
+	runtime := &gatewayRuntime{ctx: ctx, g: g, browser: browser}
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"
+	}
+	runtime.addr = addr
+	if err := validateDeploymentForm(os.Getenv("WEB_ROOT"), addr, os.Getenv("V2_CUSTOMER_PROXY_HOST")); err != nil {
+		log.Fatal(err.Error())
 	}
 	owner, err := g.acquireExecutionOwner(ctx)
 	if err != nil {
 		log.Fatal("Gateway execution ownership unavailable")
 	}
-	defer owner.Close(context.Background())
 	if origin := os.Getenv("V2_CUSTOMER_ORIGIN"); origin != "" {
 		config := customer.Config{Origin: origin, AllowLoopbackHTTP: os.Getenv("V2_CUSTOMER_LOOPBACK_HTTP") == "1"}
 		for key, target := range map[string]*int{"V2_CUSTOMER_VISITOR_RPM": &config.VisitorRPM, "V2_CUSTOMER_IP_RPM": &config.IPRPM} {
@@ -315,9 +202,6 @@ func Main() {
 	if err != nil {
 		log.Fatal("authority RPC initialization failed")
 	}
-	if authorityRPC != nil {
-		defer authorityRPC.Stop()
-	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -328,6 +212,20 @@ func Main() {
 			}
 		}
 	}()
+	cleanup := func() {
+		if authorityRPC != nil {
+			authorityRPC.Stop()
+		}
+		owner.Close(context.Background())
+		closeWired()
+		cancel()
+	}
+	return runtime, cleanup
+}
+
+// mountRoutes builds the handler chain, adding the built-in edge for D1.
+func mountRoutes(runtime *gatewayRuntime) {
+	g := runtime.g
 	handler := g.Routes()
 	secure := false
 	if root := strings.TrimSpace(os.Getenv("WEB_ROOT")); root != "" {
@@ -347,7 +245,7 @@ func Main() {
 			authority = net.JoinHostPort(host, port)
 		}
 		var identityProxy http.Handler
-		if browser != nil {
+		if runtime.browser != nil {
 			target := strings.TrimSpace(os.Getenv("V2_IDENTITY_PROXY_URL"))
 			if target == "" {
 				target = "http://keycloak:8080"
@@ -357,24 +255,31 @@ func Main() {
 		handler = edge.Routes(handler, identityProxy, edge.SPA(root, ""), authority)
 		secure = true
 	}
-	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
+	runtime.handler = handler
+	runtime.secure = secure
+}
+
+// serve binds the listener, recovers interrupted executions and serves.
+func serve(runtime *gatewayRuntime) {
+	g := runtime.g
+	server := &http.Server{Addr: runtime.addr, Handler: runtime.handler, ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
-	if secure {
+	if runtime.secure {
 		server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	}
-	listener, err := net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", runtime.addr)
 	if err != nil {
 		log.Fatal("Gateway bind failed")
 	}
-	if recovered, recoveryErr := g.recoverInterruptedExecutions(ctx); recoveryErr != nil {
+	if recovered, recoveryErr := g.recoverInterruptedExecutions(runtime.ctx); recoveryErr != nil {
 		_ = listener.Close()
 		log.Fatal("Gateway interrupted execution recovery failed")
 	} else if recovered > 0 {
 		log.Printf("Gateway recovered %d interrupted executions", recovered)
 	}
 	g.ready.Store(true)
-	log.Printf("V2 Gateway listening on %s", addr)
-	if secure {
+	log.Printf("V2 Gateway listening on %s", runtime.addr)
+	if runtime.secure {
 		cert, key := os.Getenv("WEB_TLS_CERT"), os.Getenv("WEB_TLS_KEY")
 		if cert == "" {
 			cert = "/run/web/tls.crt"
@@ -393,122 +298,10 @@ func Main() {
 
 func (g *gateway) businessRoutes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", g.health)
-	mux.HandleFunc("POST /internal/authorization/validate", g.validateScopeHTTP)
-	mux.HandleFunc("GET /v1/session", g.getSession)
-	mux.HandleFunc("GET /v1/conversations", g.listConversations)
-	mux.HandleFunc("POST /v1/conversations", g.createConversation)
-	mux.HandleFunc("GET /v1/conversations/{id}", g.getConversation)
-	mux.HandleFunc("POST /v1/conversations/{id}/turns", g.createTurn)
-	mux.HandleFunc("POST /v1/turns/{id}/resume", g.resumeTurn)
-	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
-	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
-	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
-	if g.customer != nil {
-		mux.HandleFunc("/v1/support/", func(w http.ResponseWriter, r *http.Request) {
-			if !g.requireWriteRole(w) {
-				return
-			}
-			g.customer.StaffRoutes(customer.Staff{Tenant: g.session.TenantID, User: g.session.UserID, Shops: g.session.AllowedShops, Role: g.session.Role, SessionHash: customer.StaffSessionHash(r), Check: g.authority().Refresh}).ServeHTTP(w, r)
-		})
-	}
-	customerOrigin := ""
-	if g.customer != nil {
-		customerOrigin = g.customer.Config.Origin
-	}
-	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey, CustomerOrigin: customerOrigin}).RegisterRoutes(mux)
+	g.registerHealthRoutes(mux)
+	g.registerCustomerRoutes(mux)
+	g.registerAdminRoutes(mux)
 	return mux
-}
-
-func (g *gateway) Routes() http.Handler {
-	mux := g.businessRoutes()
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if g.db != nil && r.URL.Path != "/internal/authorization/validate" && !g.ready.Load() {
-			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
-			return
-		}
-		if r.URL.Path == "/setup" && g.localSetup != nil {
-			g.localSetup.Handle(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
-			if g.localAuth != nil {
-				g.localAuth.Handle(w, r)
-				return
-			}
-			if g.browser != nil {
-				if r.Method == "POST" && r.URL.Path == "/v1/auth/logout" && g.customer != nil && g.browser.ValidateWrite(r) == nil {
-					_ = g.customer.ReleaseSession(r.Context(), customer.StaffSessionHash(r))
-				}
-				g.browser.Handle(w, r)
-				return
-			}
-			if r.Method == "GET" && r.URL.Path == "/v1/auth/session" {
-				w.Header().Set("Cache-Control", "no-store")
-				writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "authenticated": g.identity == nil})
-				return
-			}
-			http.NotFound(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/v1/customer/") {
-			if g.customer == nil {
-				http.NotFound(w, r)
-				return
-			}
-			g.customer.Routes().ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path != "/healthz" && r.URL.Path != "/internal/authorization/validate" {
-			if g.browser != nil {
-				if err := g.browser.ValidateWrite(r); err != nil {
-					code := http.StatusForbidden
-					if errors.Is(err, identity.ErrInvalid) {
-						code = http.StatusUnauthorized
-					}
-					writeError(w, code, "browser_request_rejected", "browser request rejected")
-					return
-				}
-			}
-			if g.localAuth != nil {
-				if err := g.localAuth.ValidateWrite(r); err != nil {
-					code := http.StatusForbidden
-					if errors.Is(err, localauth.ErrSessionInvalid) {
-						code = http.StatusUnauthorized
-					}
-					writeError(w, code, "local_request_rejected", "request rejected")
-					return
-				}
-			}
-			if g.identity != nil {
-				session, check, err := g.identity.Resolve(r)
-				if err != nil {
-					code := http.StatusUnauthorized
-					if status.Code(err) == codes.PermissionDenied {
-						code = http.StatusForbidden
-					} else if status.Code(err) == codes.Unavailable {
-						code = http.StatusServiceUnavailable
-					}
-					writeError(w, code, "identity_rejected", "identity rejected")
-					return
-				}
-				if session.MustChangePassword {
-					writeError(w, http.StatusForbidden, "password_change_required", "password change required")
-					return
-				}
-				requestGateway := g.scoped(session, check)
-				if !requestGateway.authorizeHTTP(w, r) {
-					return
-				}
-				requestGateway.businessRoutes().ServeHTTP(w, r)
-				return
-			}
-			if !g.authorizeHTTP(w, r) {
-				return
-			}
-		}
-		mux.ServeHTTP(w, r)
-	})
 }
 
 func (g *gateway) health(w http.ResponseWriter, r *http.Request) {
@@ -603,446 +396,9 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "title": in.Title, "shop_id": g.session.Shop, "messages": []any{}})
 }
 
-func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, 404, "not_found", "conversation not found")
-		return
-	}
-	var title string
-	err = g.db.QueryRow(r.Context(), `SELECT COALESCE(title,'') FROM conversation
-		WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND id=$4`,
-		g.session.TenantID, g.session.UserID, g.session.Shop, id).Scan(&title)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "conversation not found")
-		return
-	}
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load conversation")
-		return
-	}
-	if !g.authorizeConversationHistory(w, r, id) {
-		return
-	}
-	rows, err := g.db.Query(r.Context(), `SELECT m.Role, COALESCE(m.content,''), t.request_id,t.id,COALESCE((SELECT MAX(e.execution_no) FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id),1)
-		FROM turn t JOIN message m ON m.tenant_id=t.tenant_id AND m.turn_id=t.id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no,m.created_at`, g.session.TenantID, id)
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load messages")
-		return
-	}
-	defer rows.Close()
-	messages := make([]map[string]any, 0)
-	for rows.Next() {
-		var role, content, requestID string
-		var turnID int64
-		var executionNo int
-		if err := rows.Scan(&role, &content, &requestID, &turnID, &executionNo); err != nil {
-			writeError(w, 503, "database_unavailable", "could not load messages")
-			return
-		}
-		messages = append(messages, map[string]any{"role": role, "content": content, "request_id": requestID, "turn_id": strconv.FormatInt(turnID, 10), "execution_no": executionNo, "mock": role == "assistant"})
-	}
-	if err = rows.Err(); err != nil {
-		writeError(w, 503, "database_unavailable", "could not load messages")
-		return
-	}
-	rows.Close()
-	var latestRequest string
-	err = g.db.QueryRow(r.Context(), `SELECT e.request_id FROM turn t JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no DESC,e.execution_no DESC LIMIT 1`, g.session.TenantID, id).Scan(&latestRequest)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 503, "database_unavailable", "could not load execution")
-		return
-	}
-	result := map[string]any{"id": r.PathValue("id"), "title": title, "messages": messages}
-	if latestRequest != "" {
-		last, loadErr := g.executionResult(r.Context(), latestRequest)
-		if loadErr != nil {
-			writeError(w, 503, "database_unavailable", "could not load execution")
-			return
-		}
-		result["last_turn"] = last
-		result["evidence"] = last["evidence"]
-		result["citations"] = last["citations"]
-		result["lastReply"] = last["answer"]
-		result["lastReplyCopyable"] = false
-	}
-	if err := g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
-		return
-	}
-	writeJSON(w, 200, result)
-}
-
-func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
-	if !g.requireWriteRole(w) {
-		return
-	}
-	conversationID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, 404, "not_found", "conversation not found")
-		return
-	}
-	var in struct {
-		Text         string `json:"text"`
-		Query        string `json:"query"`
-		ParentTurnID string `json:"parent_turn_id"`
-	}
-	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, 400, "invalid_json", "invalid request body")
-		return
-	}
-	query := strings.TrimSpace(in.Text)
-	if query == "" {
-		query = strings.TrimSpace(in.Query)
-	}
-	if query == "" {
-		writeError(w, 400, "invalid_query", "query is required")
-		return
-	}
-	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" {
-		writeError(w, 400, "idempotency_key_required", "Idempotency-Key is required")
-		return
-	}
-	canonicalPayload, _ := json.Marshal(map[string]string{"query": query, "parent_turn_id": strings.TrimSpace(in.ParentTurnID)})
-	hash := sha256.Sum256(canonicalPayload)
-	payloadHash := hex.EncodeToString(hash[:])
-	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not start turn")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var shopID string
-	err = tx.QueryRow(r.Context(), `SELECT shop_id FROM conversation
-		WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`,
-		g.session.TenantID, g.session.UserID, conversationID).Scan(&shopID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "conversation not found")
-		return
-	}
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not lock conversation")
-		return
-	}
-	if shopID != g.session.Shop {
-		writeError(w, 403, "forbidden", "shop is outside the current session")
-		return
-	}
-	if !g.authorizeConversationHistory(w, r, conversationID) {
-		return
-	}
-	var parentTurnID *int64
-	var parentExecutionID int64
-	if strings.TrimSpace(in.ParentTurnID) != "" {
-		var parentID int64
-		parentID, err = strconv.ParseInt(strings.TrimSpace(in.ParentTurnID), 10, 64)
-		if err != nil {
-			err = tx.QueryRow(r.Context(), `SELECT id FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND request_id=$3`,
-				g.session.TenantID, conversationID, strings.TrimSpace(in.ParentTurnID)).Scan(&parentID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, 400, "invalid_parent_turn", "parent turn is invalid")
-				return
-			}
-		}
-		var parentStatus string
-		err = tx.QueryRow(r.Context(), `SELECT status FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`,
-			g.session.TenantID, conversationID, parentID).Scan(&parentStatus)
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, 404, "parent_turn_not_found", "parent turn not found")
-			return
-		}
-		if err != nil {
-			writeError(w, 503, "database_unavailable", "could not load parent turn")
-			return
-		}
-		if parentStatus != "ASKING" {
-			writeError(w, 409, "parent_turn_not_asking", "parent turn is not awaiting clarification")
-			return
-		}
-		err = tx.QueryRow(r.Context(), `SELECT e.id FROM conversation_execution e
-			WHERE e.tenant_id=$1 AND e.turn_id=$2 ORDER BY e.execution_no DESC LIMIT 1`,
-			g.session.TenantID, parentID).Scan(&parentExecutionID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
-			return
-		}
-		if err != nil {
-			writeError(w, 503, "database_unavailable", "could not load parent execution")
-			return
-		}
-		parentTurnID = &parentID
-	}
-	var oldHash, oldRequest, oldStatus string
-	var oldTurnID int64
-	var oldExecutionNo int
-	err = tx.QueryRow(r.Context(), `SELECT i.payload_hash,e.request_id,e.status,t.id,e.execution_no FROM turn_idempotency i
-		JOIN turn t ON t.tenant_id=i.tenant_id AND t.id=i.turn_id
-		JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
-			AND ((i.execution_id IS NOT NULL AND e.id=i.execution_id)
-				OR (i.execution_id IS NULL AND e.execution_no=1))
-		WHERE i.tenant_id=$1 AND i.conversation_id=$2 AND i.idempotency_key=$3`,
-		g.session.TenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
-	if err == nil {
-		if oldHash != payloadHash {
-			writeError(w, 409, "idempotency_conflict", "idempotency key was used with a different query")
-			return
-		}
-		writeJSON(w, 200, map[string]any{"id": oldRequest, "request_id": oldRequest, "status": oldStatus, "turn_id": strconv.FormatInt(oldTurnID, 10), "execution_no": oldExecutionNo, "conversation_id": strconv.FormatInt(conversationID, 10),
-			"events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
-		return
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 503, "database_unavailable", "could not check idempotency")
-		return
-	}
-	var active bool
-	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM turn WHERE tenant_id=$1
-		AND conversation_id=$2 AND status IN ('PENDING','EXECUTING','CANCEL_REQUESTED'))`,
-		g.session.TenantID, conversationID).Scan(&active)
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not check active turn")
-		return
-	}
-	if active {
-		writeError(w, 409, "turn_in_progress", "conversation already has an active turn")
-		return
-	}
-	requestID := newRequestID()
-	var turnID, turnNo, executionID int64
-	err = tx.QueryRow(r.Context(), `SELECT COALESCE(MAX(turn_no),0)+1 FROM turn
-		WHERE tenant_id=$1 AND conversation_id=$2`, g.session.TenantID, conversationID).Scan(&turnNo)
-	if err == nil {
-		err = tx.QueryRow(r.Context(), `INSERT INTO turn(tenant_id,conversation_id,turn_no,request_id,user_query,status,parent_turn_id)
-			VALUES($1,$2,$3,$4,$5,'EXECUTING',$6) RETURNING id`, g.session.TenantID,
-			conversationID, turnNo, requestID, query, parentTurnID).Scan(&turnID)
-	}
-	deadline := time.Now().Add(turnTimeout)
-	if err == nil {
-		err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
-			VALUES($1,$2,1,$3,'EXECUTING',$6,$4,$5) RETURNING id`,
-			g.session.TenantID, turnID, requestID, deadline, g.authority().CurrentRevision(), isMockProfile(g.profile)).Scan(&executionID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
-			VALUES($1,$2,$3,$4,$5,$6)`, g.session.TenantID, conversationID, key, payloadHash, turnID, executionID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
-	}
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not persist turn")
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, 503, "database_unavailable", "could not commit turn")
-		return
-	}
-	_, _ = g.db.Exec(r.Context(), `UPDATE conversation SET title=CASE WHEN title IS NULL OR title IN ('','新会话') THEN $3 ELSE title END
-		WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, conversationID, first24(query))
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	registry := g.executionRegistryOwner()
-	registry.mu.Lock()
-	registry.cancels[requestID] = cancel
-	registry.mu.Unlock()
-	go func() {
-		var parentID, parentExecution int64
-		if parentTurnID != nil {
-			parentID = *parentTurnID
-			parentExecution = parentExecutionID
-		}
-		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, parentID, parentExecution, 1)
-	}()
-	writeJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
-		"turn_id": strconv.FormatInt(turnID, 10), "execution_no": 1, "conversation_id": strconv.FormatInt(conversationID, 10),
-		"is_mock": isMockProfile(g.profile), "events_url": "/v1/turns/" + requestID + "/events"})
-}
-
 // resumeTurn continues the existing v2 ASKING turn with a new execution.
 // The original turn and checkpoint thread remain stable; only Go creates the
 // new request/execution identity and Python consumes the minimal checkpoint.
-func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
-	if !g.requireWriteRole(w) {
-		return
-	}
-	if err := g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
-		return
-	}
-	if !isV2Profile(g.profile) {
-		writeError(w, http.StatusConflict, "checkpoint_resume_unavailable", "checkpoint resume is available only for the v2 graph profile")
-		return
-	}
-	turnID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "turn not found")
-		return
-	}
-	var in struct {
-		Text   string `json:"text"`
-		Answer string `json:"answer"`
-	}
-	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
-		return
-	}
-	query := strings.TrimSpace(in.Text)
-	if query == "" {
-		query = strings.TrimSpace(in.Answer)
-	}
-	if query == "" {
-		writeError(w, http.StatusBadRequest, "invalid_query", "answer is required")
-		return
-	}
-	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" {
-		writeError(w, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required")
-		return
-	}
-	canonicalPayload, _ := json.Marshal(map[string]string{"answer": query})
-	hash := sha256.Sum256(canonicalPayload)
-	payloadHash := hex.EncodeToString(hash[:])
-	storageKey := "resume:" + key
-	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not start resume")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var conversationID int64
-	var shopID, turnStatus string
-	err = tx.QueryRow(r.Context(), `SELECT t.conversation_id,c.shop_id,t.status
-		FROM turn t JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE t.tenant_id=$1 AND t.id=$2 AND c.user_id=$3 FOR UPDATE OF t,c`,
-		g.session.TenantID, turnID, g.session.UserID).Scan(&conversationID, &shopID, &turnStatus)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "not_found", "turn not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not lock turn")
-		return
-	}
-	if shopID != g.session.Shop {
-		writeError(w, http.StatusForbidden, "forbidden", "turn is outside the current session")
-		return
-	}
-	if !g.authorizeConversationHistory(w, r, conversationID) {
-		return
-	}
-	var oldHash string
-	var oldTurnID, oldExecutionID int64
-	err = tx.QueryRow(r.Context(), `SELECT payload_hash,turn_id,COALESCE(execution_id,
-		(SELECT e.id FROM conversation_execution e
-		 WHERE e.tenant_id=turn_idempotency.tenant_id AND e.turn_id=turn_idempotency.turn_id
-		 ORDER BY e.execution_no ASC LIMIT 1))
-		FROM turn_idempotency
-		WHERE tenant_id=$1 AND conversation_id=$2 AND idempotency_key=$3`,
-		g.session.TenantID, conversationID, storageKey).Scan(&oldHash, &oldTurnID, &oldExecutionID)
-	if err == nil {
-		if oldHash != payloadHash || oldTurnID != turnID {
-			writeError(w, http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different resume")
-			return
-		}
-		var oldRequest, oldStatus string
-		var oldExecutionNo int64
-		err = tx.QueryRow(r.Context(), `SELECT request_id,status,execution_no FROM conversation_execution
-			WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, oldExecutionID).Scan(&oldRequest, &oldStatus, &oldExecutionNo)
-		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load resumed execution")
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"id": oldRequest, "request_id": oldRequest,
-			"status": oldStatus, "turn_id": strconv.FormatInt(turnID, 10), "execution_no": oldExecutionNo,
-			"conversation_id": strconv.FormatInt(conversationID, 10), "events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
-		return
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not check resume idempotency")
-		return
-	}
-	if turnStatus != "ASKING" {
-		writeError(w, http.StatusConflict, "turn_not_asking", "turn is not awaiting clarification")
-		return
-	}
-	var askingExecutionID int64
-	var askingExecutionNo int64
-	err = tx.QueryRow(r.Context(), `SELECT id,execution_no FROM conversation_execution
-		WHERE tenant_id=$1 AND turn_id=$2 AND status='ASKING'
-		ORDER BY execution_no DESC LIMIT 1 FOR UPDATE`, g.session.TenantID, turnID).Scan(&askingExecutionID, &askingExecutionNo)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusConflict, "parent_checkpoint_missing", "turn has no pending checkpoint execution")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load checkpoint execution")
-		return
-	}
-	requestID := newRequestID()
-	executionNo := askingExecutionNo + 1
-	deadline := time.Now().Add(turnTimeout)
-	var executionID int64
-	err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
-			VALUES($1,$2,$3,$4,'EXECUTING',$7,$5,$6) RETURNING id`,
-		g.session.TenantID, turnID, executionNo, requestID, deadline, g.authority().CurrentRevision(), isMockProfile(g.profile)).Scan(&executionID)
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
-			VALUES($1,$2,$3,$4,$5,$6)`, g.session.TenantID, conversationID, storageKey, payloadHash, turnID, executionID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
-	}
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not persist resume")
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not commit resume")
-		return
-	}
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	registry := g.executionRegistryOwner()
-	registry.mu.Lock()
-	registry.cancels[requestID] = cancel
-	registry.mu.Unlock()
-	go func() {
-		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, turnID, askingExecutionID, executionNo)
-	}()
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": requestID, "request_id": requestID,
-		"status": "EXECUTING", "turn_id": strconv.FormatInt(turnID, 10), "execution_no": executionNo,
-		"conversation_id": strconv.FormatInt(conversationID, 10), "is_mock": isMockProfile(g.profile),
-		"events_url": "/v1/turns/" + requestID + "/events"})
-}
-
-func (g *gateway) historySummary(ctx context.Context, conversationID, currentTurnID int64) string {
-	rows, err := g.db.Query(ctx, `SELECT m.Role, COALESCE(m.content,'')
-		FROM message m JOIN turn t ON t.tenant_id=m.tenant_id AND t.id=m.turn_id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND t.status IN ('DONE','ASKING') AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4 AND e.execution_no=(SELECT max(latest.execution_no) FROM conversation_execution latest WHERE latest.tenant_id=t.tenant_id AND latest.turn_id=t.id))
-		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, g.session.TenantID, conversationID, currentTurnID, g.authority().CurrentRevision())
-	if err != nil {
-		return ""
-	}
-	defer rows.Close()
-	parts := make([]historyMessage, 0, 6)
-	for rows.Next() {
-		var role, content string
-		if rows.Scan(&role, &content) == nil && strings.TrimSpace(content) != "" {
-			parts = append(parts, historyMessage{Role: role, Content: content})
-		}
-	}
-	for left, right := 0, len(parts)-1; left < right; left, right = left+1, right-1 {
-		parts[left], parts[right] = parts[right], parts[left]
-	}
-	if rows.Err() != nil {
-		return ""
-	}
-	return boundedHistory(parts)
-}
 
 func withSnapshotQualifier(text string) string {
 	trimmed := strings.TrimSpace(text)
@@ -1063,89 +419,13 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		delete(registry.cancels, requestID)
 		registry.mu.Unlock()
 	}()
-	writeEvent := func(kind string, payload any) error {
-		eventCtx, eventCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer eventCancel()
-		tx, err := g.db.Begin(eventCtx)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback(eventCtx)
-		var current string
-		if err = tx.QueryRow(eventCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current); err != nil {
-			return err
-		}
-		if terminal(current) {
-			return errors.New("execution already terminated")
-		}
-		var sequence int64
-		if err = tx.QueryRow(eventCtx, `SELECT COALESCE(MAX(sequence),0)+1 FROM sse_event WHERE tenant_id=$1 AND execution_id=$2`, g.session.TenantID, executionID).Scan(&sequence); err != nil {
-			return err
-		}
-		if object, ok := payload.(map[string]any); ok {
-			object["seq"] = sequence
-			object["request_id"] = requestID
-			object["turn_id"] = strconv.FormatInt(turnID, 10)
-			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
-			object["execution_no"] = executionNo
-		}
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(eventCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.TenantID, executionID, sequence, kind, string(body))
-		if err != nil {
-			return err
-		}
-		return tx.Commit(eventCtx)
+	ident := turnEventIdentity{
+		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
+		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
 	}
-	finish := func(state, code, answer string) {
-		finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer finishCancel()
-		tx, err := g.db.Begin(finishCtx)
-		if err != nil {
-			log.Printf("finish transaction unavailable")
-			return
-		}
-		defer tx.Rollback(finishCtx)
-		var current string
-		err = tx.QueryRow(finishCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current)
-		if err != nil || terminal(current) {
-			return
-		}
-		if current == "CANCEL_REQUESTED" || errors.Is(ctx.Err(), context.Canceled) {
-			state = "CANCELLED"
-			code = "cancelled"
-			answer = ""
-		}
-		if state == "DONE" && ctx.Err() != nil {
-			state, code = grpcFailure(ctx, ctx.Err())
-			answer = ""
-		}
-		err = persistExecutionTerminal(finishCtx, tx, executionIdentity{
-			tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
-			conversationID: conversationID, executionNo: executionNo, requestID: requestID, mock: mockOutput,
-		}, state, code, answer)
-		if err == nil {
-			err = tx.Commit(finishCtx)
-		}
-		if err != nil {
-			log.Printf("finish execution transaction failed")
-		}
-	}
-	ensureAuthorized := func() bool {
-		if ctx.Err() != nil {
-			state, code := grpcFailure(ctx, ctx.Err())
-			finish(state, code, "")
-			return false
-		}
-		if err := g.authority().Refresh(ctx); err != nil {
-			finish("FAILED", auth.FailureCode(err), "")
-			return false
-		}
-		return true
-	}
-	if !ensureAuthorized() {
+	writeEvent, finish := newTurnSink(ctx, g.db, ident, mockOutput)
+	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
+	if !guard.authorized() {
 		return
 	}
 	if requestPolicyDenied(query) {
@@ -1158,206 +438,67 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish("FAILED", auth.FailureCode(err), "")
 		return
 	}
-	ensureScopeAuthorized := func() bool {
-		if !ensureAuthorized() {
-			return false
-		}
-		if g.authority().CurrentRevision() != base.PermissionRevision {
-			finish("FAILED", "permission_changed", "")
-			return false
-		}
-		return true
-	}
+	ensureScopeAuthorized := func() bool { return guard.scopeAuthorized(base) }
 	if parentTurnID != 0 && isV2Profile(g.profile) {
 		parentScope, scopeErr := g.authority().IssueScopeForTurn(ctx, requestID, conversationID, parentTurnID, parentExecutionID)
 		if scopeErr != nil {
 			finish("FAILED", auth.FailureCode(scopeErr), "")
 			return
 		}
-		resumed, resumeErr := g.rag.ResumeCheckpoint(ctx, &ragv1.ResumeCheckpointRequest{
-			Context: parentScope, PendingKind: "ASKING",
-		}, grpc.WaitForReady(true))
-		if resumeErr != nil || resumed == nil || !resumed.Accepted {
-			if resumeErr != nil {
-				state, code := grpcFailure(ctx, resumeErr)
-				finish(state, code, "")
-			} else {
-				finish("FAILED", "checkpoint_resume_failed", "")
-			}
+		if resumeFailure := resumeParentCheckpoint(ctx, g.rag, parentScope); resumeFailure != nil {
+			finish(resumeFailure.state, resumeFailure.code, "")
 			return
 		}
 	}
 
-	history := g.historySummary(ctx, conversationID, turnID)
-	routed, err := g.rag.Understand(ctx, &ragv1.UnderstandRequest{Context: base, Query: query,
-		HistorySummary: history}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	history := loadHistorySummary(ctx, g.db, g.session.TenantID, g.authority().CurrentRevision(), conversationID, turnID)
+	routed, routeFailure := understandTurn(ctx, g.rag, base, query, history)
+	if routeFailure != nil {
+		finish(routeFailure.state, routeFailure.code, "")
 		return
 	}
-	if routed == nil {
-		finish("FAILED", "invalid_routing_response", "")
-		return
-	}
-	routeKnowledgeQuestion(routed, query)
-	resolveHistoryReference(routed, query, history)
-	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
-	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
-	factResourceID := ""
-	snapshotFallback := false
-	if orderToolsRequired && productToolsRequired {
-		routed.Intent, routed.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
-		routed.RequiredFactTools = nil
-	} else if orderToolsRequired {
-		orderID, valid := routedOrderResource(routed, query)
-		if !valid {
-			routed.Intent = "clarification"
-			routed.Clarification = "请提供有效订单号后再查询订单或物流状态。"
-			routed.Confidence = 0.2
-			routed.RequiredFactTools = nil
-			snapshotFallback = true
-		} else {
-			factResourceID = orderID
-		}
-	} else if productToolsRequired {
-		sku, valid := routedProductResource(routed, query, history)
-		if !valid {
-			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
-			routed.RequiredFactTools = nil
-			snapshotFallback = true
-		} else {
-			factResourceID = sku
-		}
-	}
+	factResourceID, snapshotFallback := resolveFactIntent(routed, query, history)
 	if !ensureScopeAuthorized() {
 		return
 	}
-	factResults, factErr := facts.Lookup(ctx, g.facts, base, routed.RequiredFactTools, factResourceID)
-	if factErr != nil {
-		for _, toolName := range routed.RequiredFactTools {
-			_, _ = g.db.Exec(context.Background(), `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-				VALUES($1,$2,$3,$4,true)`, g.session.TenantID, requestID, toolName, facts.FailureCode(factErr))
-		}
-		finish("FAILED", facts.FailureCode(factErr), "")
+	factResults, factFailure, factAborted := runFactStage(ctx, factProvider{provider: g.facts}, g.db,
+		g.session.TenantID, requestID, routed.RequiredFactTools, factResourceID, base,
+		ensureScopeAuthorized, writeEvent)
+	if factAborted {
 		return
 	}
-	for _, fact := range factResults {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		valueHash := sha256.Sum256([]byte(fact.ValueJson))
-		if err := writeEvent("fact_read", map[string]any{
-			"type": "fact_read", "tool_name": fact.ToolName, "resource_id": fact.ResourceId,
-			"observed_at": fact.ObservedAt, "value_sha256": hex.EncodeToString(valueHash[:]), "is_mock": fact.IsMock,
-		}); err != nil {
-			finish("FAILED", "fact_evidence_persistence_failed", "")
-			return
-		}
-		_, _ = g.db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-			VALUES($1,$2,$3,'ok',false)`, g.session.TenantID, requestID, fact.ToolName)
+	if factFailure != nil {
+		finish(factFailure.state, factFailure.code, "")
+		return
 	}
-	if !snapshotFallback && (routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
+	if decision := decideClarification(routed, snapshotFallback); decision.needed {
 		if !ensureScopeAuthorized() {
 			return
 		}
-		clarification := routed.Clarification
-		if clarification == "" {
-			clarification = "请补充更多问题细节。"
+		if checkpointFailure := saveAskingCheckpoint(ctx, g.rag, g.profile, base); checkpointFailure != nil {
+			finish(checkpointFailure.state, checkpointFailure.code, "")
+			return
 		}
-		if isV2Profile(g.profile) {
-			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{
-				Context: base, PendingKind: "ASKING",
-			})
-			if saveErr != nil {
-				state, code := grpcFailure(ctx, saveErr)
-				finish(state, code, "")
-				return
-			}
-			if saved == nil || !saved.Accepted {
-				finish("FAILED", "checkpoint_save_failed", "")
-				return
-			}
-		}
-		finish("ASKING", "", clarification)
+		finish("ASKING", "", decision.text)
 		return
 	}
 	if !ensureScopeAuthorized() {
 		return
 	}
-	search, err := g.rag.Search(ctx, &ragv1.SearchRequest{Context: base, Query: routed.RewrittenQuery, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	evidence, retrievalFailure, retrievalAborted := runRetrievalStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+		base, routed.RewrittenQuery, mockOutput, ensureScopeAuthorized,
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) })
+	if retrievalAborted {
 		return
 	}
-	evidence := make([]*ragv1.Evidence, 0)
-	for {
-		part, recvErr := search.Recv()
-		if errors.Is(recvErr, context.Canceled) || errors.Is(recvErr, context.DeadlineExceeded) {
-			state, code := grpcFailure(ctx, recvErr)
-			finish(state, code, "")
-			return
-		}
-		if recvErr != nil {
-			if status.Code(recvErr) == codes.Canceled || status.Code(recvErr) == codes.DeadlineExceeded {
-				state, code := grpcFailure(ctx, recvErr)
-				finish(state, code, "")
-				return
-			}
-			finish("FAILED", "rag_search_failed", "")
-			return
-		}
-		if part.IsMock != mockOutput {
-			finish("FAILED", "provider_profile_mismatch", "")
-			return
-		}
-		if !ensureScopeAuthorized() {
-			return
-		}
-		for _, item := range part.Evidence {
-			allowed, authErr := g.authority().EvidenceAllowed(ctx, item)
-			if authErr != nil {
-				finish("FAILED", auth.FailureCode(authErr), "")
-				return
-			}
-			if !allowed || item.DisclosureClass != "external_allowed" || !item.CustomerEligible {
-				continue
-			}
-			evidence = append(evidence, item)
-		}
-		if part.Complete {
-			break
-		}
-	}
-	if validateEvidenceRanks(evidence) != nil {
-		finish("FAILED", "invalid_evidence_labels", "")
+	if retrievalFailure != nil {
+		finish(retrievalFailure.state, retrievalFailure.code, "")
 		return
-	}
-	for _, item := range evidence {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		if _, err = g.db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,execution_id,evidence_id) DO NOTHING`,
-			g.session.TenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
-			item.Content, item.DisclosureClass, item.CustomerEligible, item.Rank, item.ShopId); err != nil {
-			finish("FAILED", "persistence_failed", "")
-			return
-		}
 	}
 	if snapshotFallback && len(evidence) == 0 {
-		if isV2Profile(g.profile) {
-			saved, saveErr := g.rag.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{Context: base, PendingKind: "ASKING"})
-			if saveErr != nil {
-				state, code := grpcFailure(ctx, saveErr)
-				finish(state, code, "")
-				return
-			}
-			if saved == nil || !saved.Accepted {
-				finish("FAILED", "checkpoint_save_failed", "")
-				return
-			}
+		if checkpointFailure := saveAskingCheckpoint(ctx, g.rag, g.profile, base); checkpointFailure != nil {
+			finish(checkpointFailure.state, checkpointFailure.code, "")
+			return
 		}
 		finish("ASKING", "", routed.Clarification)
 		return
@@ -1371,102 +512,22 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	gen, err := g.rag.Generate(ctx, &ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults, ResponsePurpose: "customer_reply", HistorySummary: history}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	answer, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
+			ResponsePurpose: "customer_reply", HistorySummary: history},
+		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent)
+	if generateAborted {
 		return
 	}
-	var answer strings.Builder
-	isMock := mockOutput
-	sawProfileMarker := false
-	for {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		part, recvErr := gen.Recv()
-		if recvErr != nil {
-			if recvErr == context.Canceled || recvErr == context.DeadlineExceeded || status.Code(recvErr) == codes.Canceled || status.Code(recvErr) == codes.DeadlineExceeded {
-				state, code := grpcFailure(ctx, recvErr)
-				finish(state, code, "")
-				return
-			}
-			if recvErr == context.Canceled {
-				finish("CANCELLED", "cancelled", "")
-			} else {
-				finish("FAILED", "rag_generate_failed", "")
-			}
-			return
-		}
-		if !ensureScopeAuthorized() {
-			return
-		}
-		switch value := part.Event.(type) {
-		case *ragv1.GenerateResponse_Delta:
-			answer.WriteString(value.Delta)
-			if err = writeEvent("delta", map[string]any{"type": "delta", "text": value.Delta}); err != nil {
-				finish("FAILED", "persistence_failed", "")
-				return
-			}
-		case *ragv1.GenerateResponse_Citation:
-			allowed, authErr := g.authority().EvidenceAllowed(ctx, value.Citation)
-			if authErr != nil {
-				finish("FAILED", auth.FailureCode(authErr), "")
-				return
-			}
-			canonical := false
-			for _, original := range evidence {
-				if evidenceEqual(original, value.Citation) {
-					canonical = true
-					break
-				}
-			}
-			if !allowed || !canonical {
-				finish("FAILED", "invalid_citation", "")
-				return
-			}
-			if value.Citation.DisclosureClass == "external_allowed" && value.Citation.CustomerEligible {
-				_, err = g.db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
-					VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, g.session.TenantID, executionID, value.Citation.Id, int(value.Citation.Rank))
-				if err != nil {
-					finish("FAILED", "persistence_failed", "")
-					return
-				}
-			}
-		case *ragv1.GenerateResponse_IsMock:
-			sawProfileMarker = true
-			isMock = value.IsMock
-			if isMock != mockOutput {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-		case *ragv1.GenerateResponse_ErrorCode:
-			finish("FAILED", value.ErrorCode, "")
-			return
-		case *ragv1.GenerateResponse_Done:
-			if !value.Done {
-				continue
-			}
-			if !mockOutput && !sawProfileMarker {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-			if isMock != mockOutput {
-				finish("FAILED", "provider_profile_mismatch", "")
-				return
-			}
-			text := answer.String()
-			if snapshotFallback {
-				text = withSnapshotQualifier(text)
-			}
-			if !ensureScopeAuthorized() {
-				return
-			}
-
-			finish("DONE", "", text)
-			return
-		}
+	if generateFailure != nil {
+		finish(generateFailure.state, generateFailure.code, "")
+		return
 	}
+	if !ensureScopeAuthorized() {
+		return
+	}
+	finish("DONE", "", answer)
 }
 
 // authorizationCacheKey is the stable shape required for any future result
@@ -1495,146 +556,6 @@ func (g *gateway) getTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, result)
-}
-
-func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
-	requestID := r.PathValue("id")
-	if !g.authorizeExecution(w, r, requestID) {
-		return
-	}
-	var executionID int64
-	var deadline time.Time
-	err := g.db.QueryRow(r.Context(), `SELECT e.id,e.deadline_at FROM conversation_execution e
-		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
-		JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4`,
-		g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&executionID, &deadline)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "turn not found")
-		return
-	}
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load events")
-		return
-	}
-	lastID, _ := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
-	if header := r.URL.Query().Get("last_event_id"); header != "" && lastID == 0 {
-		lastID, _ = strconv.ParseInt(header, 10, 64)
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, _ := w.(http.Flusher)
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := g.authority().Refresh(r.Context()); err != nil {
-			if flusher != nil {
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(err), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(err)})
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
-				flusher.Flush()
-			}
-			return
-		}
-		rows, queryErr := g.db.Query(r.Context(), `SELECT sequence,event_type,data_json::text FROM sse_event
-			WHERE tenant_id=$1 AND execution_id=$2 AND sequence>$3 ORDER BY sequence`, g.session.TenantID, executionID, lastID)
-		if queryErr != nil {
-			return
-		}
-		count := 0
-		for rows.Next() {
-			var seq int64
-			var kind, data string
-			if rows.Scan(&seq, &kind, &data) != nil {
-				rows.Close()
-				return
-			}
-			if authErr := g.authority().Refresh(r.Context()); authErr != nil {
-				rows.Close()
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(authErr), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(authErr)})
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
-				if flusher != nil {
-					flusher.Flush()
-				}
-				return
-			}
-			fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", seq, kind, data)
-			lastID, count = seq, count+1
-		}
-		rows.Close()
-		if flusher != nil && count > 0 {
-			flusher.Flush()
-		}
-		var state string
-		if err := g.db.QueryRow(r.Context(), `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID).Scan(&state); err != nil {
-			return
-		}
-		if terminal(state) && count == 0 {
-			return
-		}
-		if !deadline.IsZero() && time.Now().After(deadline.Add(5*time.Second)) {
-			return
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-ticker.C:
-			if count == 0 {
-				fmt.Fprint(w, ": keep-alive\n\n")
-				if flusher != nil {
-					flusher.Flush()
-				}
-			}
-		}
-	}
-}
-
-func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
-	if !g.requireWriteRole(w) {
-		return
-	}
-	requestID := r.PathValue("id")
-	if !g.authorizeExecution(w, r, requestID) {
-		return
-	}
-	tx, err := g.db.Begin(r.Context())
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not cancel turn")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var state string
-	var executionID, turnID int64
-	err = tx.QueryRow(r.Context(), `SELECT e.status,e.id,e.turn_id FROM conversation_execution e
-		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`, g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&state, &executionID, &turnID)
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not cancel turn")
-		return
-	}
-	if terminal(state) {
-		writeJSON(w, 200, map[string]any{"request_id": requestID, "status": state})
-		return
-	}
-	_, err = tx.Exec(r.Context(), `UPDATE conversation_execution SET cancel_requested=true,status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID)
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID)
-	}
-	if err == nil {
-		err = tx.Commit(r.Context())
-	}
-	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not persist cancellation")
-		return
-	}
-	registry := g.executionRegistryOwner()
-	registry.mu.Lock()
-	stop := registry.cancels[requestID]
-	registry.mu.Unlock()
-	if stop != nil {
-		stop()
-	}
-	writeJSON(w, 200, map[string]any{"request_id": requestID, "status": "CANCEL_REQUESTED"})
 }
 
 func grpcFailure(ctx context.Context, err error) (string, string) {

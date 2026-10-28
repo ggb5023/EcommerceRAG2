@@ -20,6 +20,18 @@
    仅是测试注入点，不影响生产路径，但属于历史命名残留（0021 之后不再有账本），建议重构时清掉。
 8. `docs/ui-only-acceptance.md` 的矩阵已扩充为 34 条（31 条原有 + 2 条补登记 + 1 条 usage 标 ❌）；
    `GET /admin/v1/merchant/usage` 尚无 UI，随 0021 的用量界面实现。
+9. `adminConfirmImport` / `persistParsed` 把 `IngestAuthorizationError` 与迁移不完整这两类不可重试错误统一映射成
+   503 `ingestion_queue_failed`，与"临时排队失败"混淆；另：某文档的 active 版本被 revoke 后，同名再导入在 confirm
+   阶段失败（换新 document id 则正常，根因待查）。
+   修法方向：按错误类型映射（403 / 500 / 409），并在响应里带 cause code；撤回后重导入的语义需单独定
+   （允许新版本？要求换 id？）。
+10. 上游 `Evidence` 可能返回重复 id；当前不去重，会重复落库与重复引用。去重是有价值的行为改进，但需独立决策：
+    确认上游是否会重复、去重后引用计数如何算、是否需要按 (id, version) 而非仅 id 去重。不要在重构提交里顺便加。
+11. `resolveFactIntent` 会修改传入的 `routed`（`Intent` / `Clarification` / `RequiredFactTools`）。
+    纯函数改入参是隐患：调用方难以判断哪些字段被写过。重构后再评估改为返回值；本轮保持原行为，不在此处变更语义。
+12. `turnGuard` 持有 `finish` 闭包：授权失败可以直接终结轮次，而不是把错误返回给编排层。
+    这是既有行为（当前保持），但它让阶段之外多出一条终结路径；重构后评估是否改为返回错误、
+    由 `runTurn` 统一决定终结。
 
 ## 已完成（仅供参考，无需再处理）
 
@@ -27,3 +39,4 @@
   现役脚本为 `scripts/dev/provider-usage.py`。
 - ~~`docs/development.md` 已不再描述账本~~ —— **此条已随 R0 清理失效**：`scripts/check.sh` 已移除
   `provider-budget` 路径，现役脚本为 `scripts/dev/provider-usage.py`；文档侧残留以总纲 R0 的实测输出为准。
+

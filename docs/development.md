@@ -122,16 +122,33 @@ UV_PROJECT_ENVIRONMENT=<主仓库>/python/.venv bash scripts/check.sh
 `scripts/check.sh` 会把这个变量透传给 `uv sync` 与 `uv run`，并在开头打印实际使用的环境路径。
 node 依赖仍需一次 `cd frontend && npm ci`。
 
+需要**可回答的资料**时（顾客/员工链路要命中引用），用同一个脚本的 corpus + publish 模式，它是唯一入口：
+
+```bash
+python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-v1 --publish
+```
+
+- 用 `ECR_EVAL_DOCUMENTS`（默认评测语料的 `documents.jsonl`）里的一份文档建包，导入 → confirm → 审核为 `external_allowed` → 发布；
+- 文档 id 默认 `w2-delivery`，可用 `--document-id` 改；**同名文档已有 active 版本时直接 `SKIP`**；
+  注意：某文档的 active 版本被 revoke 之后，同名再导入会排队失败（`ingestion_queue_failed`），
+  需要换一个 `--document-id` 重新播种。
+- 结束断言：`GET /admin/v1/merchant/versions` 里存在 `status=active` 且 `chunk_count>0` 的版本。
+
 ## 当前环境状态
 
 环境变更后更新这一节；不要只写在对话或临时文件里。
 
-- dev 栈：`127.0.0.1:8080`（gateway，含 ai 的 50052/50053）与 `127.0.0.1:5173`（vite），
-  `RAG_PROFILE=v2_langchain_bailian`（**在线档**）。
-- dev 库 `ecr_v2_dev_local`：35 条迁移全部应用；实测 `documents=5`、`document_version=2`
-  （2 条 pending，由 `seed-accept-fixtures.py` 产生）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
-- 已知差异：`frontend/tests/workspace.browser.mjs` 断言 `v2_langchain_mock` 与 `is_mock`，
-  与在线档不符，在该档下必然红；它需要离线 mock 栈（批次 3 的独立栈）。
+- dev 栈：`127.0.0.1:8080`（gateway，含 ai 的 50052/50053）与 `127.0.0.1:5173`（vite）。
+- 当前 `RAG_PROFILE=v2_langchain_mock`（**离线档**，2026-10-28 由在线档切来，用于 W2 行为对照）；
+  在线档需要把 `/etc/ecommerce-rag/dev.env` 的 `RAG_PROFILE` 改回 `v2_langchain_bailian` 再重启。
+- dev 库 `ecr_v2_dev_local`：35 条迁移；`documents=6`、`document_version=4`（1 条 active、2 条 pending 待审、
+  1 条 superseded）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
+- 顾客通道已启用：`shop-demo` 的 `customer_chat_enabled=true`、`public_slug=shop-demo`。
+- 已发布资料：`w2-delivery-b`（来自评测语料的配送事实，`external_allowed`，version 5），员工链路可命中 1 条引用；
+  旧的 `w2-delivery`（version 4）已 revoke。
+- `SYNTHETIC_BUSINESS_DATE=2026-09-29` 已固定（评测口径），prompt 里的业务日期不再随当天漂移，`smoke-answer.sh` 的 `answer_sha256` 因此可复现。
+- 顾客通道**拒绝 mock 输出**（`part.IsMock` 即转人工），所以离线档下顾客链路恒为 `provider_failed_search`；
+  离线档的行为基线用员工通道 `scripts/dev/smoke-answer.sh` 取，顾客链路基线用 `scripts/dev/smoke-turn.sh` 取。
 
 ## 改契约和数据库
 

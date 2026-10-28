@@ -23,6 +23,24 @@ GATEWAY = ROOT / "go" / "internal" / "gateway"
 
 FUNC = re.compile(r"^func\s+(?:\(([^)]*)\)\s*)?([A-Za-z0-9_]+)\s*\(", re.MULTILINE)
 FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
+# runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
+# to the stage files (decision 0025 R2 / P-A acceptance).
+# Base allowance. Lower it after every split; a raise is only accepted when the
+# exact from→to step is recorded in RUN_TURN_AMENDMENTS.
+RUN_TURN_BUDGET = 117
+RUN_TURN_AMENDMENTS = (
+    ("2026-10-28", 226, 229, "facts 段拆出时调用点增加（3d-1b）"),
+    ("2026-10-28", 229, 209, "澄清块提前拆出（3d-2 的一部分）"),
+)
+ENTRY_LAYER = {"turn_handlers.go"}
+ORCHESTRATOR = "go/internal/gateway/main.go"
+ORCHESTRATOR_FUNC = "runTurn"
+FORBIDDEN_PARAM = re.compile(r"\*http\.Request\b")
+ORCHESTRATOR_FORBIDDEN = {
+    "SQL": re.compile(r"\b(?:SELECT|INSERT INTO|UPDATE|DELETE FROM)\b"),
+    "SSE write": re.compile(r"fmt\.Fprintf\(w,"),
+    "answer qualifier": re.compile(r"withSnapshotQualifier"),
+}
 FORBIDDEN_FIELD = re.compile(r"(?<![\w.])g\.[A-Za-z_]")
 
 
@@ -58,9 +76,52 @@ def function_blocks(source: str):
         yield match.group(2), (match.group(1) or ""), signature, source[body_start:body_end + 1], line
 
 
+def permitted_budget() -> tuple[int, str]:
+    """A raise is allowed only when the exact from→to step has an amendment."""
+    permitted, reason = RUN_TURN_BUDGET, ""
+    for _date, previous, raised, why in RUN_TURN_AMENDMENTS:
+        if previous == RUN_TURN_BUDGET and raised > permitted:
+            permitted, reason = raised, why
+    return permitted, reason
+
+
+def orchestrator_lines() -> int:
+    path = ROOT / ORCHESTRATOR
+    if not path.is_file():
+        return 0
+    source = path.read_text(encoding="utf-8")
+    match = re.search(r"^func \(g \*gateway\) " + ORCHESTRATOR_FUNC + r"\(", source, re.MULTILINE)
+    if not match:
+        return 0
+    end = source.find("\n}\n", match.start())
+    return source[match.start():end if end != -1 else len(source)].count("\n") + 1
+
+
+def orchestrator_problems() -> list[str]:
+    path = ROOT / ORCHESTRATOR
+    if not path.is_file():
+        return []
+    source = path.read_text(encoding="utf-8")
+    pattern = re.compile(r"^func \(g \*gateway\) " + ORCHESTRATOR_FUNC + r"\(", re.MULTILINE)
+    match = pattern.search(source)
+    if not match:
+        return []
+    end = source.find("\n}\n", match.start())
+    body = source[match.start():end if end != -1 else len(source)]
+    problems = []
+    for label, forbidden in ORCHESTRATOR_FORBIDDEN.items():
+        found = forbidden.search(body)
+        if found:
+            problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} still contains {label} ({found.group(0)!r})")
+    return problems
+
+
 def main() -> int:
     files = sorted(GATEWAY.glob("turn_*.go"))
-    files = [path for path in files if not path.name.endswith("_test.go")]
+    # turn_handlers.go is the HTTP entry layer: it is the one place allowed to take
+    # *http.Request and the gateway struct, because it converts a request into
+    # plain data for the stage files below it (decision 0026 §4).
+    files = [path for path in files if not path.name.endswith("_test.go") and path.name not in ENTRY_LAYER]
     if not files:
         print("SKIP stage boundaries: no go/internal/gateway/turn_*.go yet")
         return 0
@@ -72,18 +133,31 @@ def main() -> int:
             if name.startswith("Test"):
                 continue
             checked += 1
+            if FORBIDDEN_PARAM.search(signature):
+                problems.append(f"{relative}:{line} {name}: signature carries *http.Request (pass request data instead)")
             for label, text in (("signature", signature), ("receiver", receiver)):
                 for found in FORBIDDEN_TYPE.finditer(text):
                     problems.append(f"{relative}:{line} {name}: {label} carries {found.group(0)}")
             field = FORBIDDEN_FIELD.search(body)
             if field:
                 problems.append(f"{relative}:{line} {name}: touches gateway fields via g.")
+    problems.extend(orchestrator_problems())
+    run_turn = orchestrator_lines()
+    permitted, reason = permitted_budget()
+    if run_turn > permitted:
+        problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} is {run_turn} lines, budget is {RUN_TURN_BUDGET}"
+                        + (f" (recorded raise to {permitted}: {reason})" if permitted > RUN_TURN_BUDGET else ""))
+    elif run_turn > RUN_TURN_BUDGET:
+        print(f"NOTE {ORCHESTRATOR_FUNC} uses a recorded raise to {permitted}: {reason}")
+    elif run_turn < RUN_TURN_BUDGET:
+        print(f"NOTE {ORCHESTRATOR_FUNC} dropped to {run_turn}; RUN_TURN_BUDGET can be lowered to {run_turn}")
     if problems:
         for problem in problems:
             print(f"FAIL {problem}")
         print(f"FAIL stage boundaries: {len(problems)} violation(s)")
         return 1
-    print(f"PASS stage boundaries: {checked} stage function(s) in {len(files)} file(s)")
+    print(f"PASS stage boundaries: {checked} stage function(s) in {len(files)} file(s); "
+          f"{ORCHESTRATOR_FUNC} {orchestrator_lines()}/{RUN_TURN_BUDGET} lines")
     return 0
 
 
