@@ -21,6 +21,15 @@ type stageFailure struct {
 
 func (f *stageFailure) Error() string { return f.code }
 
+// errStageContract reports a broken contract between the orchestrator and a
+// stage. It is a programming error, never a user error, so the caller fails the
+// turn closed instead of continuing with partial data (invariant #9).
+type errStageContract struct {
+	detail string
+}
+
+func (e errStageContract) Error() string { return "stage contract violated: " + e.detail }
+
 // evidenceGrant records what the authorization layer decided about one candidate.
 // It is materialised outside the pure filter because deciding it needs the
 // database: document scope, resource disclosure class and the active version.
@@ -69,13 +78,16 @@ func retrieveEvidence(ctx context.Context, client ragv1.RagServiceClient, scope 
 // filterEvidence applies the customer-facing rules to raw candidates. It is pure:
 // no database, no context, no client. The document scope, resource disclosure
 // class and active-version checks arrive pre-computed in grants.
-func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustomerEligible bool) []*ragv1.Evidence {
+func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustomerEligible bool) ([]*ragv1.Evidence, error) {
 	keep := make([]*ragv1.Evidence, 0, len(raw))
 	for index, item := range raw {
 		if item == nil {
-			continue
+			return nil, errStageContract{detail: "nil evidence item"}
 		}
-		if index >= len(grants) || !grants[index].allowed {
+		if index >= len(grants) {
+			return nil, errStageContract{detail: "grant index mismatch"}
+		}
+		if !grants[index].allowed {
 			continue
 		}
 		if item.GetDisclosureClass() != "external_allowed" {
@@ -86,7 +98,7 @@ func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustom
 		}
 		keep = append(keep, item)
 	}
-	return keep
+	return keep, nil
 }
 
 // persistEvidence writes the accepted evidence rows for one execution. It checks

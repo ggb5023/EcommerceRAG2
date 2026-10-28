@@ -1110,7 +1110,11 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		}
 		grants[index] = evidenceGrant{allowed: allowed}
 	}
-	evidence := filterEvidence(rawEvidence, grants, true)
+	evidence, filterErr := filterEvidence(rawEvidence, grants, true)
+	if filterErr != nil {
+		finish("FAILED", "evidence_contract_violated", "")
+		return
+	}
 	if validateEvidenceRanks(evidence) != nil {
 		finish("FAILED", "invalid_evidence_labels", "")
 		return

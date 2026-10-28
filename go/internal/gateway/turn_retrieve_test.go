@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"testing"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -35,11 +36,11 @@ func equalIDs(got []*ragv1.Evidence, want ...string) bool {
 func TestFilterEvidencePermission(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("allowed"), evidence("denied")}
 	grants := []evidenceGrant{{allowed: true}, {allowed: false}}
-	if got := filterEvidence(raw, grants, true); !equalIDs(got, "allowed") {
+	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "allowed") {
 		t.Fatalf("permission filter kept %v, want [allowed]", ids(got))
 	}
 	// Missing grants count as denied.
-	if got := filterEvidence(raw, []evidenceGrant{{allowed: true}}, true); !equalIDs(got, "allowed") {
+	if got, err := filterEvidence(raw, []evidenceGrant{{allowed: true}}, true); err == nil || got != nil {
 		t.Fatalf("short grants kept %v, want [allowed]", ids(got))
 	}
 }
@@ -49,7 +50,7 @@ func TestFilterEvidenceDisclosureClass(t *testing.T) {
 	internal.DisclosureClass = "internal_only"
 	raw := []*ragv1.Evidence{evidence("external"), internal}
 	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
-	if got := filterEvidence(raw, grants, true); !equalIDs(got, "external") {
+	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "external") {
 		t.Fatalf("disclosure filter kept %v, want [external]", ids(got))
 	}
 }
@@ -59,21 +60,43 @@ func TestFilterEvidenceCustomerEligibility(t *testing.T) {
 	ineligible.CustomerEligible = false
 	raw := []*ragv1.Evidence{evidence("eligible"), ineligible}
 	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
-	if got := filterEvidence(raw, grants, true); !equalIDs(got, "eligible") {
+	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "eligible") {
 		t.Fatalf("eligibility filter kept %v, want [eligible]", ids(got))
 	}
-	if got := filterEvidence(raw, grants, false); !equalIDs(got, "eligible", "ineligible") {
+	if got, err := filterEvidence(raw, grants, false); err != nil || !equalIDs(got, "eligible", "ineligible") {
 		t.Fatalf("without the eligibility rule kept %v", ids(got))
 	}
 }
 
-func TestFilterEvidenceEmptyAndNil(t *testing.T) {
-	if got := filterEvidence(nil, nil, true); len(got) != 0 {
-		t.Fatalf("nil input produced %v", ids(got))
+func TestFilterEvidenceEmpty(t *testing.T) {
+	if got, err := filterEvidence(nil, nil, true); err != nil || len(got) != 0 {
+		t.Fatalf("nil input produced %v, err=%v", ids(got), err)
 	}
+}
+
+// A broken contract fails the turn closed instead of silently dropping evidence.
+func TestFilterEvidenceRejectsNilItem(t *testing.T) {
 	raw := []*ragv1.Evidence{nil, evidence("x")}
-	grants := []evidenceGrant{{allowed: false}, {allowed: true}}
-	if got := filterEvidence(raw, grants, true); !equalIDs(got, "x") {
-		t.Fatalf("nil entry handling kept %v, want [x]", ids(got))
+	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
+	got, err := filterEvidence(raw, grants, true)
+	if err == nil || got != nil {
+		t.Fatalf("nil item must return an error and no evidence, got %v err=%v", ids(got), err)
+	}
+	var contract errStageContract
+	if !errors.As(err, &contract) || contract.detail != "nil evidence item" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFilterEvidenceRejectsGrantMismatch(t *testing.T) {
+	raw := []*ragv1.Evidence{evidence("a"), evidence("b")}
+	grants := []evidenceGrant{{allowed: true}}
+	got, err := filterEvidence(raw, grants, true)
+	if err == nil || got != nil {
+		t.Fatalf("missing grant must return an error and no evidence, got %v err=%v", ids(got), err)
+	}
+	var contract errStageContract
+	if !errors.As(err, &contract) || contract.detail != "grant index mismatch" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
