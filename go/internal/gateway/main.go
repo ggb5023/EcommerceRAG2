@@ -1389,19 +1389,12 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 	if header := r.URL.Query().Get("last_event_id"); header != "" && lastID == 0 {
 		lastID, _ = strconv.ParseInt(header, 10, 64)
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, _ := w.(http.Flusher)
+	stream := newSSEStream(w)
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		if err := g.authority().Refresh(r.Context()); err != nil {
-			if flusher != nil {
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(err), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(err)})
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
-				flusher.Flush()
-			}
+			stream.errorFrameWhenFlushable(auth.FailureCode(err), "authorization failed", requestID, authorizationHTTPStatus(err))
 			return
 		}
 		rows, queryErr := g.db.Query(r.Context(), `SELECT sequence,event_type,data_json::text FROM sse_event
@@ -1419,19 +1412,15 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 			}
 			if authErr := g.authority().Refresh(r.Context()); authErr != nil {
 				rows.Close()
-				payload, _ := json.Marshal(map[string]any{"type": "error", "code": auth.FailureCode(authErr), "message": "authorization failed", "request_id": requestID, "http_status": authorizationHTTPStatus(authErr)})
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
-				if flusher != nil {
-					flusher.Flush()
-				}
+				stream.errorFrame(auth.FailureCode(authErr), "authorization failed", requestID, authorizationHTTPStatus(authErr))
 				return
 			}
-			fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", seq, kind, data)
+			stream.frame(seq, kind, data)
 			lastID, count = seq, count+1
 		}
 		rows.Close()
-		if flusher != nil && count > 0 {
-			flusher.Flush()
+		if count > 0 {
+			stream.flush()
 		}
 		var state string
 		if err := g.db.QueryRow(r.Context(), `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID).Scan(&state); err != nil {
@@ -1448,10 +1437,7 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			if count == 0 {
-				fmt.Fprint(w, ": keep-alive\n\n")
-				if flusher != nil {
-					flusher.Flush()
-				}
+				stream.keepAlive()
 			}
 		}
 	}
