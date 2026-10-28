@@ -24,6 +24,14 @@
 | `fact_evidence_persistence_failed` | — | 是 | 事实查询结果未能保存 | `gateway/main.go:runTurn` |
 | `rag_generate_failed` | — | 是 | 生成失败，请稍后重试 | `gateway/turn_generate.go:generateAnswer` |
 | `provider_profile_mismatch` | — | 否 | 服务配置异常 | `gateway/turn_generate.go:generateAnswer`、`turn_retrieve.go:retrieveEvidence` |
+| `fact_tool_not_allowed` | — | 否 | 该问题需要人工确认 | `facts/facts.go:FailureCode`（模型请求了未授权工具） |
+| `fact_provider_unavailable` | — | 是 | 事实查询暂不可用 | `facts/facts.go:FailureCode` |
+| `fact_provider_unauthorized` | — | 否 | 事实查询无授权 | `facts/facts.go:FailureCode` |
+| `fact_provider_rate_limited` | — | 是 | 查询过于频繁，请稍后重试 | `facts/facts.go:FailureCode` |
+| `fact_provider_timeout` | — | 是 | 事实查询超时 | `facts/facts.go:FailureCode` |
+| `fact_provider_canceled` | — | 是 | 已取消 | `facts/facts.go:FailureCode` |
+| `fact_provider_invalid_response` | — | 是 | 事实查询返回异常 | `facts/facts.go:FailureCode` |
+| `fact_tool_failed` | — | 是 | 事实查询失败 | `facts/facts.go:FailureCode` |
 | `checkpoint_save_failed` | — | 是 | 请稍后重试 | `gateway/main.go:runTurn`（澄清/快照回退保存检查点） |
 | `checkpoint_resume_failed` | — | 是 | 请稍后重试 | `gateway/main.go:runTurn`（父轮次续跑失败） |
 | `cancelled` | — | 是 | 已取消 | `gateway/turn_generate.go:generateAnswer`、`turn_persist.go:finishTurn` |
