@@ -26,7 +26,7 @@ FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
 # runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
 # to the stage files (decision 0025 R2 / P-A acceptance).
 # Only decreasing: lower this after every split. Raising it needs a review.
-RUN_TURN_BUDGET = 226
+RUN_TURN_BUDGET = 209
 ORCHESTRATOR = "go/internal/gateway/main.go"
 ORCHESTRATOR_FUNC = "runTurn"
 FORBIDDEN_PARAM = re.compile(r"\*http\.Request\b")
