@@ -25,8 +25,11 @@ FUNC = re.compile(r"^func\s+(?:\(([^)]*)\)\s*)?([A-Za-z0-9_]+)\s*\(", re.MULTILI
 FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
 # runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
 # to the stage files (decision 0025 R2 / P-A acceptance).
+# Only decreasing: lower this after every split. Raising it needs a review.
+RUN_TURN_BUDGET = 262
 ORCHESTRATOR = "go/internal/gateway/main.go"
 ORCHESTRATOR_FUNC = "runTurn"
+FORBIDDEN_PARAM = re.compile(r"\*http\.Request\b")
 ORCHESTRATOR_FORBIDDEN = {
     "SQL": re.compile(r"\b(?:SELECT|INSERT INTO|UPDATE|DELETE FROM)\b"),
     "SSE write": re.compile(r"fmt\.Fprintf\(w,"),
@@ -67,6 +70,18 @@ def function_blocks(source: str):
         yield match.group(2), (match.group(1) or ""), signature, source[body_start:body_end + 1], line
 
 
+def orchestrator_lines() -> int:
+    path = ROOT / ORCHESTRATOR
+    if not path.is_file():
+        return 0
+    source = path.read_text(encoding="utf-8")
+    match = re.search(r"^func \(g \*gateway\) " + ORCHESTRATOR_FUNC + r"\(", source, re.MULTILINE)
+    if not match:
+        return 0
+    end = source.find("\n}\n", match.start())
+    return source[match.start():end if end != -1 else len(source)].count("\n") + 1
+
+
 def orchestrator_problems() -> list[str]:
     path = ROOT / ORCHESTRATOR
     if not path.is_file():
@@ -100,6 +115,8 @@ def main() -> int:
             if name.startswith("Test"):
                 continue
             checked += 1
+            if FORBIDDEN_PARAM.search(signature):
+                problems.append(f"{relative}:{line} {name}: signature carries *http.Request (pass request data instead)")
             for label, text in (("signature", signature), ("receiver", receiver)):
                 for found in FORBIDDEN_TYPE.finditer(text):
                     problems.append(f"{relative}:{line} {name}: {label} carries {found.group(0)}")
@@ -107,12 +124,16 @@ def main() -> int:
             if field:
                 problems.append(f"{relative}:{line} {name}: touches gateway fields via g.")
     problems.extend(orchestrator_problems())
+    run_turn = orchestrator_lines()
+    if run_turn > RUN_TURN_BUDGET:
+        problems.append(f"{ORCHESTRATOR}: {ORCHESTRATOR_FUNC} is {run_turn} lines, budget is {RUN_TURN_BUDGET}")
     if problems:
         for problem in problems:
             print(f"FAIL {problem}")
         print(f"FAIL stage boundaries: {len(problems)} violation(s)")
         return 1
-    print(f"PASS stage boundaries: {checked} stage function(s) in {len(files)} file(s)")
+    print(f"PASS stage boundaries: {checked} stage function(s) in {len(files)} file(s); "
+          f"{ORCHESTRATOR_FUNC} {orchestrator_lines()}/{RUN_TURN_BUDGET} lines")
     return 0
 
 
