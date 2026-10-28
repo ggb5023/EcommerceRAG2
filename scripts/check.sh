@@ -5,29 +5,36 @@ cd "$repo"
 
 usage() {
   cat <<'EOF'
-usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov]
+usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigured]
 
   (no flag)  fast layer only: static checks, unit tests and builds
   --db       fast layer plus the real-database layer (needs the integration env files)
   --e2e      fast layer plus the browser layer (needs the dev stack and Chromium)
   --all      fast layer plus both of the above
   --cov      reserved for coverage collection (batch 2); accepted, nothing collected yet
+  --allow-unconfigured
+             only with --all: accept items that could not run instead of failing the gate
 
 Every check prints one stable line: [<layer>] <id> <command summary>.
 The last three lines are always PASSED <n> / UNCONFIGURED <n> / FAILED <n>.
-Unknown flags exit 2; a failing check exits 1; missing integration environments never fail.
+--all is strict: any UNCONFIGURED item makes it exit 1 unless --allow-unconfigured is given.
+A plain run, --db or --e2e alone never fail because something is unconfigured.
+Unknown flags exit 2; a failing check exits 1.
 EOF
 }
 
 DB=0
 E2E=0
 COV=0
+ALL=0
+ALLOW_UNCONFIGURED=0
 for arg in "$@"; do
   case "$arg" in
     --db) DB=1 ;;
     --e2e) E2E=1 ;;
-    --all) DB=1; E2E=1 ;;
+    --all) DB=1; E2E=1; ALL=1 ;;
     --cov) COV=1 ;;
+    --allow-unconfigured) ALLOW_UNCONFIGURED=1 ;;
     -h | --help) usage; exit 0 ;;
     *)
       printf 'unknown argument: %s\n\n' "$arg" >&2
@@ -206,6 +213,10 @@ echo "PASSED $passed"
 echo "UNCONFIGURED $unconfigured"
 echo "FAILED $failed"
 if [ "$failed" -gt 0 ]; then
+  exit 1
+fi
+if [ "$ALL" -eq 1 ] && [ "$unconfigured" -gt 0 ] && [ "$ALLOW_UNCONFIGURED" -eq 0 ]; then
+  echo "STRICT: $unconfigured item(s) could not run; use --allow-unconfigured to accept this"
   exit 1
 fi
 exit 0
