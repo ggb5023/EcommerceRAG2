@@ -246,6 +246,8 @@ time bash scripts/check.sh --all  # ≤ 6 min，exit 0
   （`awk '{print $2}'` 后 `sort`），不按命令行字符串——循环与变量替换会让字符串比较产生假阳性。
 - `comm -23` 是消失项（必须为空），`comm -13` 是新增项（逐条写命令 + 一行说明）。
 - `id` 一旦发布不得改名；改名按"消失 + 新增"处理，必须逐条说明理由。
+- **基线变更必须留 amendment 记录**（`.local/gate/before-checks-amendments.txt` 一行一条：
+  日期 + 增减项 + 依据）；无记录的增减视为违反本条款。
 
 **`--all` 的严格语义**
 
