@@ -1093,66 +1093,33 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	search, err := g.rag.Search(ctx, &ragv1.SearchRequest{Context: base, Query: routed.RewrittenQuery, ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
-	if err != nil {
-		state, code := grpcFailure(ctx, err)
-		finish(state, code, "")
+	rawEvidence, searchFailure, aborted := retrieveEvidence(ctx, g.rag, base, routed.RewrittenQuery, mockOutput, ensureScopeAuthorized)
+	if aborted {
 		return
 	}
-	evidence := make([]*ragv1.Evidence, 0)
-	for {
-		part, recvErr := search.Recv()
-		if errors.Is(recvErr, context.Canceled) || errors.Is(recvErr, context.DeadlineExceeded) {
-			state, code := grpcFailure(ctx, recvErr)
-			finish(state, code, "")
-			return
-		}
-		if recvErr != nil {
-			if status.Code(recvErr) == codes.Canceled || status.Code(recvErr) == codes.DeadlineExceeded {
-				state, code := grpcFailure(ctx, recvErr)
-				finish(state, code, "")
-				return
-			}
-			finish("FAILED", "rag_search_failed", "")
-			return
-		}
-		if part.IsMock != mockOutput {
-			finish("FAILED", "provider_profile_mismatch", "")
-			return
-		}
-		if !ensureScopeAuthorized() {
-			return
-		}
-		for _, item := range part.Evidence {
-			allowed, authErr := g.authority().EvidenceAllowed(ctx, item)
-			if authErr != nil {
-				finish("FAILED", auth.FailureCode(authErr), "")
-				return
-			}
-			if !allowed || item.DisclosureClass != "external_allowed" || !item.CustomerEligible {
-				continue
-			}
-			evidence = append(evidence, item)
-		}
-		if part.Complete {
-			break
-		}
+	if searchFailure != nil {
+		finish(searchFailure.state, searchFailure.code, "")
+		return
 	}
+	grants := make([]evidenceGrant, len(rawEvidence))
+	for index, item := range rawEvidence {
+		allowed, authErr := g.authority().EvidenceAllowed(ctx, item)
+		if authErr != nil {
+			finish("FAILED", auth.FailureCode(authErr), "")
+			return
+		}
+		grants[index] = evidenceGrant{allowed: allowed}
+	}
+	evidence := filterEvidence(rawEvidence, grants, true)
 	if validateEvidenceRanks(evidence) != nil {
 		finish("FAILED", "invalid_evidence_labels", "")
 		return
 	}
-	for _, item := range evidence {
-		if !ensureScopeAuthorized() {
-			return
-		}
-		if _, err = g.db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,execution_id,evidence_id) DO NOTHING`,
-			g.session.TenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
-			item.Content, item.DisclosureClass, item.CustomerEligible, item.Rank, item.ShopId); err != nil {
-			finish("FAILED", "persistence_failed", "")
-			return
-		}
+	if evidenceAborted, persistFailure := persistEvidence(ctx, g.db, g.session.TenantID, executionID, evidence, ensureScopeAuthorized); evidenceAborted {
+		return
+	} else if persistFailure != nil {
+		finish(persistFailure.state, persistFailure.code, "")
+		return
 	}
 	if snapshotFallback && len(evidence) == 0 {
 		if isV2Profile(g.profile) {
