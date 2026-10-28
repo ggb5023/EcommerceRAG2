@@ -71,7 +71,6 @@ func retrieveEvidence(ctx context.Context, client ragv1.RagServiceClient, scope 
 // class and active-version checks arrive pre-computed in grants.
 func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustomerEligible bool) []*ragv1.Evidence {
 	keep := make([]*ragv1.Evidence, 0, len(raw))
-	seen := make(map[string]bool, len(raw))
 	for index, item := range raw {
 		if item == nil {
 			continue
@@ -85,10 +84,6 @@ func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustom
 		if requireCustomerEligible && !item.GetCustomerEligible() {
 			continue
 		}
-		if item.GetId() != "" && seen[item.GetId()] {
-			continue
-		}
-		seen[item.GetId()] = true
 		keep = append(keep, item)
 	}
 	return keep

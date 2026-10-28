@@ -67,14 +67,6 @@ func TestFilterEvidenceCustomerEligibility(t *testing.T) {
 	}
 }
 
-func TestFilterEvidenceDeduplicatesByID(t *testing.T) {
-	raw := []*ragv1.Evidence{evidence("a"), evidence("a"), evidence("b")}
-	grants := []evidenceGrant{{allowed: true}, {allowed: true}, {allowed: true}}
-	if got := filterEvidence(raw, grants, true); !equalIDs(got, "a", "b") {
-		t.Fatalf("dedup kept %v, want [a b]", ids(got))
-	}
-}
-
 func TestFilterEvidenceEmptyAndNil(t *testing.T) {
 	if got := filterEvidence(nil, nil, true); len(got) != 0 {
 		t.Fatalf("nil input produced %v", ids(got))
