@@ -931,75 +931,15 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		delete(registry.cancels, requestID)
 		registry.mu.Unlock()
 	}()
+	ident := turnEventIdentity{
+		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
+		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
+	}
 	writeEvent := func(kind string, payload any) error {
-		eventCtx, eventCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer eventCancel()
-		tx, err := g.db.Begin(eventCtx)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback(eventCtx)
-		var current string
-		if err = tx.QueryRow(eventCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current); err != nil {
-			return err
-		}
-		if terminal(current) {
-			return errors.New("execution already terminated")
-		}
-		var sequence int64
-		if err = tx.QueryRow(eventCtx, `SELECT COALESCE(MAX(sequence),0)+1 FROM sse_event WHERE tenant_id=$1 AND execution_id=$2`, g.session.TenantID, executionID).Scan(&sequence); err != nil {
-			return err
-		}
-		if object, ok := payload.(map[string]any); ok {
-			object["seq"] = sequence
-			object["request_id"] = requestID
-			object["turn_id"] = strconv.FormatInt(turnID, 10)
-			object["conversation_id"] = strconv.FormatInt(conversationID, 10)
-			object["execution_no"] = executionNo
-		}
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(eventCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, g.session.TenantID, executionID, sequence, kind, string(body))
-		if err != nil {
-			return err
-		}
-		return tx.Commit(eventCtx)
+		return writeTurnEvent(g.db, ident, kind, payload)
 	}
 	finish := func(state, code, answer string) {
-		finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer finishCancel()
-		tx, err := g.db.Begin(finishCtx)
-		if err != nil {
-			log.Printf("finish transaction unavailable")
-			return
-		}
-		defer tx.Rollback(finishCtx)
-		var current string
-		err = tx.QueryRow(finishCtx, `SELECT status FROM conversation_execution WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, g.session.TenantID, executionID).Scan(&current)
-		if err != nil || terminal(current) {
-			return
-		}
-		if current == "CANCEL_REQUESTED" || errors.Is(ctx.Err(), context.Canceled) {
-			state = "CANCELLED"
-			code = "cancelled"
-			answer = ""
-		}
-		if state == "DONE" && ctx.Err() != nil {
-			state, code = grpcFailure(ctx, ctx.Err())
-			answer = ""
-		}
-		err = persistExecutionTerminal(finishCtx, tx, executionIdentity{
-			tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
-			conversationID: conversationID, executionNo: executionNo, requestID: requestID, mock: mockOutput,
-		}, state, code, answer)
-		if err == nil {
-			err = tx.Commit(finishCtx)
-		}
-		if err != nil {
-			log.Printf("finish execution transaction failed")
-		}
+		finishTurn(ctx, g.db, ident, state, code, answer, mockOutput)
 	}
 	ensureAuthorized := func() bool {
 		if ctx.Err() != nil {
