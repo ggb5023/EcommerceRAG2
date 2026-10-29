@@ -68,7 +68,7 @@ async function upload(days) {
   const job = await response.json()
   for (let attempt = 0; attempt < 100; attempt++) {
     const status = await admin.request.get(workspace + '/admin/v1/merchant/ingestion/' + job.job_id)
-    assert.equal(status.status(), 200)
+    assert.equal(status.status(), 200, `job detail ${job.job_id}: ${await status.text()}`)
     const current = await status.json()
     if (current.status === 'awaiting_review') {
       const item = current.items.find(item => item.document_id === documentId)

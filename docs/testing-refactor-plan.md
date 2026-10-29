@@ -339,6 +339,9 @@ count=$(grep -rho 'waitForTimeout' frontend/tests/*.browser.mjs | wc -l)
 - 每个 `frontend/tests/*.browser.mjs` 在文件头声明所需前置（env 键、端口、目录），
   `check.sh --e2e` 读取声明：缺失 → `UNCONFIGURED` 并打印**缺哪一项**，不进入用例。
 - 起独立栈：mock 26081 / 26063 + 独立 Vite 5174 + 独立 accept 库，不得触碰 dev 栈与 `ecr_v2_dev_local`。
+- **注记（2026-10-29）**：在此之前，隔离栈的 Vite 未覆盖 `VITE_API_PROXY_TARGET`，默认指向 dev 网关（8080）；
+  因此该日期前的 e2e 结果均打在 dev 库上，**不能作为隔离栈的证据**。修复后需重新采集全部 e2e 结论。
+
 - **e2e 前置台账**（缺任何一项 → 该用例 `UNCONFIGURED`，不进入用例）：
 
 | e2e 用例 | 需要的前置 | 缺失时的行为 | 当前状态 |
