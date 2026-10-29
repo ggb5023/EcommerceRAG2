@@ -34,7 +34,7 @@ STORE_SQL_BASELINE = 75
 HANDLER_SQL_ALLOWANCE = {
     "admin.go": 0,
     "imports.go": 0,
-    "import.go": 8,
+    "import.go": 0,
     "review_suggestion_handlers.go": 0,
     "review.go": 0,
     "staff.go": 0,

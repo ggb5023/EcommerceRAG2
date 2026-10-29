@@ -322,3 +322,229 @@ func (s *Store) RecordImportRevokeAudit(ctx context.Context, db *pgxpool.Pool, t
 
 // int64Text renders a batch id for a text column.
 func int64Text(value int64) string { return strconv.FormatInt(value, 10) }
+
+// ClaimBatchForConfirm moves a staged batch into 'confirming'. The status guard is
+// the claim: only one caller can win it, so two concurrent confirms cannot both
+// queue a job.
+func (s *Store) ClaimBatchForConfirm(ctx context.Context, db *pgxpool.Pool, tenantID int64, shop string, batchID int64) (int64, error) {
+	tag, err := db.Exec(ctx, `UPDATE import_batch SET status='confirming', confirm_started_at=now()
+		WHERE tenant_id=$1 AND shop_id=$2 AND id=$3 AND status='staged'`, tenantID, shop, batchID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// MarkConfirmQueueFailed settles a claimed batch as failed and records the cause.
+func (s *Store) MarkConfirmQueueFailed(ctx context.Context, db *pgxpool.Pool, tenantID, actorID, batchID int64,
+	cause, rulesVersion string) error {
+	tag, err := db.Exec(ctx, `UPDATE import_batch SET status='confirm_failed', confirm_started_at=NULL
+		WHERE tenant_id=$1 AND id=$2 AND status='confirming'`, tenantID, batchID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	_, err = db.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
+		VALUES($1,$2,'import.confirm','import_batch',$3,'confirm_queue_failed','failed',jsonb_build_object('cause',$4::text,'rules_version',$5::text))`,
+		tenantID, actorID, int64Text(batchID), cause, rulesVersion)
+	return err
+}
+
+// SettleConfirmSuccess records the queued job. The status guard rejects a batch
+// that was reclaimed by the timeout sweep while the queue call was in flight.
+func (s *Store) SettleConfirmSuccess(ctx context.Context, db *pgxpool.Pool, jobID, tenantID, batchID int64) (int64, error) {
+	tag, err := db.Exec(ctx, `UPDATE import_batch SET status='confirmed', ingest_job_id=$1, confirm_started_at=NULL
+		WHERE tenant_id=$2 AND id=$3 AND status='confirming'`, jobID, tenantID, batchID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ReclaimTimedOutConfirms returns batches stuck in 'confirming' to 'staged'.
+// Both columns move in one statement so the CHECK constraint always holds.
+func (s *Store) ReclaimTimedOutConfirms(ctx context.Context, db *pgxpool.Pool, tenantID int64, actorID int64) (int64, error) {
+	rows, err := db.Query(ctx, `UPDATE import_batch SET status='staged', confirm_started_at=NULL
+		WHERE tenant_id=$1 AND status='confirming' AND confirm_started_at < now() - interval '10 minutes'
+		RETURNING id`, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	reclaimed := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			reclaimed = append(reclaimed, id)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range reclaimed {
+		_, _ = db.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
+			VALUES($1,$2,'import.confirm','import_batch',$3,'confirm_timeout','failed',jsonb_build_object('rules_version',$4::text))`,
+			tenantID, actorID, int64Text(id), importRulesVersion)
+	}
+	return int64(len(reclaimed)), nil
+}
+
+// Sources listing for the merchant console.
+type SourceRow struct {
+	ID           int64
+	ShopID       string
+	Type         string
+	URI          *string
+	CreatedAt    time.Time
+	Documents    int64
+	LatestImport *time.Time
+}
+
+// Sources lists the non-synthetic sources of the caller's shops.
+func (s *Store) Sources(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string) ([]SourceRow, error) {
+	rows, err := db.Query(ctx, `SELECT s.id,s.shop_id,s.type,CASE WHEN s.type='admin_manifest' THEN s.uri ELSE NULL END,s.created_at,
+		(SELECT count(*) FROM document d WHERE d.tenant_id=s.tenant_id AND d.source_id=s.id) AS documents,
+		(SELECT max(sm.created_at) FROM source_manifest sm WHERE sm.tenant_id=s.tenant_id AND sm.source_id=s.id) AS latest_import
+		FROM source s WHERE s.tenant_id=$1 AND s.shop_id=ANY($2::text[])
+		AND s.type<>'synthetic-acl' ORDER BY s.created_at DESC LIMIT 300`, tenantID, shops)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]SourceRow, 0)
+	for rows.Next() {
+		var row SourceRow
+		if err := rows.Scan(&row.ID, &row.ShopID, &row.Type, &row.URI, &row.CreatedAt, &row.Documents,
+			&row.LatestImport); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
+
+// JobRow is one ingestion job summary.
+type JobRow struct {
+	ID              int64
+	Stage           string
+	Status          string
+	ShopID          string
+	ManifestHash    string
+	DatasetHash     string
+	FencingEpoch    int64
+	CancelRequested bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Items           int64
+	Pending         int64
+	Running         int64
+	Awaiting        int64
+	Done            int64
+	Failed          int64
+}
+
+// Jobs lists ingestion jobs for the caller's shops.
+func (s *Store) Jobs(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string) ([]JobRow, error) {
+	rows, err := db.Query(ctx, `SELECT j.id,j.stage,j.status,s.shop_id,j.manifest_sha256,j.dataset_sha256,
+		j.fencing_epoch,j.cancel_requested,j.created_at,j.updated_at,count(i.id),
+		count(i.id) FILTER (WHERE i.status='pending'),count(i.id) FILTER (WHERE i.status='running'),
+		count(i.id) FILTER (WHERE i.status='awaiting_review'),count(i.id) FILTER (WHERE i.status='done'),
+		count(i.id) FILTER (WHERE i.status='failed') FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+		LEFT JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
+		WHERE j.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
+		GROUP BY j.id,s.shop_id ORDER BY j.created_at DESC LIMIT 200`, tenantID, shops)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]JobRow, 0)
+	for rows.Next() {
+		var row JobRow
+		if err := rows.Scan(&row.ID, &row.Stage, &row.Status, &row.ShopID, &row.ManifestHash, &row.DatasetHash,
+			&row.FencingEpoch, &row.CancelRequested, &row.CreatedAt, &row.UpdatedAt, &row.Items, &row.Pending,
+			&row.Running, &row.Awaiting, &row.Done, &row.Failed); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
+
+// JobDetailRow is one ingestion job with its lease state.
+type JobDetailRow struct {
+	Status          string
+	Stage           string
+	ShopID          string
+	ManifestHash    string
+	DatasetHash     string
+	FencingEpoch    int64
+	CancelRequested bool
+	LeaseExpiresAt  *time.Time
+	ErrorCode       *string
+}
+
+// JobDetail loads one ingestion job inside the caller's shops.
+func (s *Store) JobDetail(ctx context.Context, db *pgxpool.Pool, tenantID, jobID int64, shops []string) (JobDetailRow, error) {
+	var row JobDetailRow
+	err := db.QueryRow(ctx, `SELECT j.status,j.stage,s.shop_id,j.manifest_sha256,j.dataset_sha256,
+		j.fencing_epoch,j.cancel_requested,j.lease_expires_at,j.error_code FROM ingest_job j
+		JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+		WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
+		tenantID, jobID, shops).Scan(&row.Status, &row.Stage, &row.ShopID, &row.ManifestHash, &row.DatasetHash,
+		&row.FencingEpoch, &row.CancelRequested, &row.LeaseExpiresAt, &row.ErrorCode)
+	return row, err
+}
+
+// JobItemRow is one item of an ingestion job.
+type JobItemRow struct {
+	ID                int64
+	DataID            string
+	PayloadHash       string
+	Status            string
+	Stage             string
+	RetryCount        int32
+	ErrorCode         *string
+	CancelRequested   bool
+	FencingEpoch      int64
+	DocumentVersionID string
+	VersionStatus     *string
+	ReviewStatus      *string
+	SourceHash        *string
+}
+
+// JobItems lists the items of one ingestion job.
+func (s *Store) JobItems(ctx context.Context, db *pgxpool.Pool, tenantID, jobID int64, shops []string) ([]JobItemRow, error) {
+	rows, err := db.Query(ctx, `SELECT i.id,i.data_id,i.payload_hash,i.status,i.stage,i.retry_count,
+		i.error_code,i.cancel_requested,i.fencing_epoch,i.document_version_id::text,v.status,v.review_status,v.source_hash
+		FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+		JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
+		LEFT JOIN document_version v ON v.tenant_id=i.tenant_id AND v.id=i.document_version_id
+		WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'
+		ORDER BY i.id LIMIT 500`, tenantID, jobID, shops)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]JobItemRow, 0)
+	for rows.Next() {
+		var row JobItemRow
+		if err := rows.Scan(&row.ID, &row.DataID, &row.PayloadHash, &row.Status, &row.Stage, &row.RetryCount,
+			&row.ErrorCode, &row.CancelRequested, &row.FencingEpoch, &row.DocumentVersionID,
+			&row.VersionStatus, &row.ReviewStatus, &row.SourceHash); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
+
+// JobExists reports whether a job is visible inside the caller's shops.
+func (s *Store) JobExists(ctx context.Context, db *pgxpool.Pool, tenantID, jobID int64, shops []string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+			WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest')`,
+		tenantID, jobID, shops).Scan(&exists)
+	return exists, err
+}

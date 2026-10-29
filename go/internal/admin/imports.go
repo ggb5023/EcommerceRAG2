@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -124,6 +125,9 @@ func (g *Handler) cleanupExpiredImports(ctx context.Context, tenantID int64, sho
 				_ = os.Remove(path)
 			}
 		}
+	}
+	if _, err = adminStore.ReclaimTimedOutConfirms(ctx, g.DB, tenantID, 0); err != nil {
+		return
 	}
 }
 
@@ -358,14 +362,33 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 409, "import_state_conflict", "import batch has no staged documents")
 		return
 	}
-	queued, err := g.persistParsed(r.Context(), ParsedPackage{Manifest: manifest, Files: files, Documents: documents}, id, shop)
-	if err != nil {
-		writeQueueFailure(w, err)
-		return
-	}
-	err = adminStore.MarkBatchConfirmed(r.Context(), g.DB, queued.JobID, g.Session.TenantID, id)
+	claimed, err := adminStore.ClaimBatchForConfirm(r.Context(), g.DB, g.Session.TenantID, shop, id)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch confirmation is unavailable")
+		return
+	}
+	if claimed == 0 {
+		httpapi.WriteError(w, 409, "batch_already_confirming", "import batch is already being confirmed")
+		return
+	}
+	queued, err := g.persistParsed(r.Context(), ParsedPackage{Manifest: manifest, Files: files, Documents: documents}, id, shop)
+	if err != nil {
+		if settleErr := adminStore.MarkConfirmQueueFailed(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
+			queueCauseOf(err), importRulesVersion); settleErr != nil {
+			log.Printf("confirm failure settlement failed")
+		}
+		// Non-retryable causes keep their own code (403/409/500); a transient queue
+		// failure is reported as confirm_queue_failed so the caller can retry.
+		statusCode, code, message, cause := queueFailureResponse(err)
+		if code == "ingest_queue_failed" {
+			code = "confirm_queue_failed"
+		}
+		httpapi.WriteErrorCause(w, statusCode, code, message, cause)
+		return
+	}
+	settled, err := adminStore.SettleConfirmSuccess(r.Context(), g.DB, queued.JobID, g.Session.TenantID, id)
+	if err != nil || settled == 0 {
+		httpapi.WriteError(w, 500, "confirm_settle_failed", "import batch confirmation could not be settled")
 		return
 	}
 	_ = adminStore.RecordImportConfirmAudit(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
