@@ -261,6 +261,22 @@ if [ "$E2E" -eq 1 ]; then
   fi
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)
+    if [ "$name" = "login" ]; then
+      # The login flow needs the local-account identity, which is a separate stack.
+      local_ports=${ECR_LOCAL_PORTS_FILE:-/tmp/ecr-isolated-local/ports.json}
+      local_env="$(dirname "$local_ports")/browser.env"
+      if [ ! -f "$local_ports" ] || [ ! -f "$local_env" ]; then
+        skip e2e "e2e-login" "run scripts/dev/isolated-stack.sh --identity local --ports 26091" "cd frontend && node tests/login.browser.mjs"
+        continue
+      fi
+      WORKSPACE_URL=$e2e_workspace
+      ECR_BROWSER_ENV=$local_env
+      LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$local_env" | head -1)
+      LOGIN_USER=$(sed -n "s/^LOGIN_USER=//p" "$local_env" | head -1)
+      export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
+      run e2e "e2e-login" "cd frontend && node tests/login.browser.mjs"
+      continue
+    fi
     if [ -n "$e2e_reason" ]; then
       skip e2e "e2e-$name" "$e2e_reason" "cd frontend && node tests/$name.browser.mjs"
     else

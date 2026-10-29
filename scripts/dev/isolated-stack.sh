@@ -9,8 +9,9 @@
 # from --ports so the stack never collides with the dev stack.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-root=${ECR_ISOLATED_ROOT:-/tmp/ecr-isolated}
-ports_file="$root/ports.json"
+identity=development
+root=""            # resolved after the flags are parsed
+ports_file=""
 python="$repo/python/.venv/bin/python"
 
 usage() { sed -n '2,9p' "${BASH_SOURCE[0]}" >&2; exit 2; }
@@ -54,7 +55,30 @@ PY
   echo "PASS isolated stack stopped"
 }
 
-[[ "${1:-}" == "stop" ]] && { stop_stack; exit 0; }
+if [[ "${1:-}" == "stop" ]]; then
+  shift
+  stop_all=0
+  stop_identity=development
+  stop_root=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all) stop_all=1; shift ;;
+      --identity) stop_identity=$2; shift 2 ;;
+      --root) stop_root=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  if [[ $stop_all -eq 1 ]]; then
+    for dir in /tmp/ecr-isolated /tmp/ecr-isolated-local; do
+      ECR_ISOLATED_ROOT=$dir stop_stack
+    done
+    exit 0
+  fi
+  root=${stop_root:-/tmp/ecr-isolated}
+  [[ $stop_identity == local ]] && root=${stop_root:-/tmp/ecr-isolated-local}
+  ECR_ISOLATED_ROOT=$root stop_stack
+  exit 0
+fi
 
 db_env=/etc/ecommerce-rag/test-integration.env
 template=/etc/ecommerce-rag/eval-runtime.env
@@ -66,11 +90,21 @@ while [[ $# -gt 0 ]]; do
     --db) db_env=$2; shift 2 ;;
     --template) template=$2; shift 2 ;;
     --ports) base=$2; shift 2 ;;
+    --identity) identity=$2; shift 2 ;;
     --with-vite) with_vite=1; shift ;;
     --keep) keep=1; shift ;;
     *) usage ;;
   esac
 done
+case "$identity" in
+  development) default_base=26081; default_root=/tmp/ecr-isolated ;;
+  local) default_base=26091; default_root=/tmp/ecr-isolated-local ;;
+  *) echo "FAIL --identity must be development or local" >&2; exit 2 ;;
+esac
+[[ "$base" == 26081 && "$identity" == local ]] && base=$default_base
+root=${ECR_ISOLATED_ROOT:-$default_root}
+ports_file="$root/ports.json"
+
 for file in "$db_env" "$template"; do
   [[ -r "$file" ]] || { echo "FAIL cannot read $file" >&2; exit 2; }
 done
@@ -93,8 +127,8 @@ vite_port=$((base + 3))
 
 # Build the merged runtime configuration: template options, DSNs from --db,
 # ports from --ports. Secrets stay in $root/runtime.env (0600).
-"$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" <<'PY'
-import pathlib, sys
+STACK_IDENTITY="$identity" "$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" <<'PY'
+import os, pathlib, sys
 db_env, template, target = (pathlib.Path(arg) for arg in sys.argv[1:4])
 repo = pathlib.Path(sys.argv[8])
 sys.path.insert(0, str(repo / "scripts" / "dev"))
@@ -131,6 +165,11 @@ if target_db:
                 values[key] = base_path + "/" + target_db + (("?" + query) if query else "")
 
 values["RAG_PROFILE"] = "v2_langchain_mock"
+if os.environ.get("STACK_IDENTITY") == "local":
+    # Local accounts need the local identity profile; development injects dev-user.
+    # local accounts still need the tenant the supervisor resolves against.
+    values["V2_IDENTITY_PROFILE"] = "local"
+    values.pop("V2_IDENTITY_USER", None)
 values["HTTP_ADDR"] = f"127.0.0.1:{gateway_port}"
 values["V2_GRPC_ADDR"] = f"127.0.0.1:{rag_port}"
 values["V2_INGEST_GRPC_ADDR"] = f"127.0.0.1:{ingest_port}"
@@ -161,7 +200,7 @@ chmod 600 "$browser_env"
 
 log="$root/stack.log"
 : > "$log"
-V2_SERVICE_LOG_DIR="$root/logs" setsid nohup bash "$repo/scripts/dev/v2-local-services.sh" --env "$root/runtime.env" >>"$log" 2>&1 &
+STACK_IDENTITY="$identity" V2_SERVICE_LOG_DIR="$root/logs" setsid nohup bash "$repo/scripts/dev/v2-local-services.sh" --env "$root/runtime.env" >>"$log" 2>&1 &
 supervisor=$!
 echo "$supervisor" > "$root/supervisor.pid"
 
@@ -177,7 +216,11 @@ fail() {
 deadline=$(( $(date +%s) + 120 ))
 gateway_ready() {
   curl -sS -o /dev/null -m 1 "http://127.0.0.1:$gateway_port/healthz" 2>/dev/null &&
-    [ "$(curl -sS -o /dev/null -w '%{http_code}' -m 2 "http://127.0.0.1:$gateway_port/v1/session" 2>/dev/null)" = "200" ]
+    # 401/403 mean "answering, but anonymous" — expected on the local identity.
+    case "$(curl -sS -o /dev/null -w '%{http_code}' -m 2 "http://127.0.0.1:$gateway_port/v1/session" 2>/dev/null)" in
+      200 | 401 | 403) : ;;
+      *) return 1 ;;
+    esac
 }
 until gateway_ready; do
   kill -0 "$supervisor" 2>/dev/null || fail "supervisor exited before the gateway became ready"
@@ -226,7 +269,7 @@ state = {
 open(target, "w").write(json.dumps(state, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "PASS isolated stack ready"
+echo "PASS isolated stack ready identity=$identity gateway=$gateway_port ports=$ports_file"
 "$python" - "$ports_file" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
