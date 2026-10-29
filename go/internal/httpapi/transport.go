@@ -35,3 +35,9 @@ func WriteJSON(w http.ResponseWriter, statusCode int, value any) {
 func WriteError(w http.ResponseWriter, statusCode int, code, message string) {
 	WriteJSON(w, statusCode, Error{Code: code, Message: message})
 }
+
+// WriteErrorCause adds a coarse cause identifier. Callers must pass an error
+// class, never a message: reasons can carry DSNs, SQL or file paths.
+func WriteErrorCause(w http.ResponseWriter, statusCode int, code, message, cause string) {
+	WriteJSON(w, statusCode, map[string]any{"code": code, "message": message, "cause": cause})
+}

@@ -41,10 +41,15 @@
 | `provider_failed_control` | — | 是 | 理解服务暂不可用，已转人工 | `customer/ai.go:run`（stage=control） |
 | `customer_requested` | — | 否 | 已转人工客服 | `customer/ai.go:run`（顾客要求转人工） |
 | `unsupported_request` | — | 否 | 当前问题需要人工确认 | `customer/ai.go:run`（需要实时订单/物流事实） |
-| `ingestion_queue_failed` | 503 | **原因未细分，待修** | 资料排队失败，请稍后重试 | `admin/imports.go:adminConfirmImport`、`admin/import.go`（把授权错误、迁移不完整、撤回后重导入混为一谈，见 `docs/refactor-input.md` 第 9 条） |
+| `ingest_not_authorized` | 403 | 否 | 没有资料导入权限 | `admin/queue_failure.go:queueFailureResponse`（gRPC `PERMISSION_DENIED`，含 `IngestAuthorizationError`），cause=`permission_denied` |
+| `ingest_schema_incomplete` | 500 | 否 | 资料服务未就绪，请联系管理员 | `admin/queue_failure.go:queueFailureResponse`（gRPC `FAILED_PRECONDITION`，由 Python `IngestSchemaIncompleteError` 映射），cause=`migration_incomplete` |
+| `ingest_queue_failed` | 503 / 500 | 是 | 资料排队失败，请稍后重试 | `admin/queue_failure.go:queueFailureResponse`（`UNAVAILABLE` → 503，其余 → 500），cause=出错类别（gRPC 码名或 Go 类型名，**不含 message**） |
+| `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `admin/import.go:adminImport`、`admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
 
 ## 维护规则
 
 - 新增错误码：先在本表登记（同一提交），再写代码。
 - 改语义（HTTP 状态、可重试、文案）：同一提交改本表。
 - 表中"原因未细分"的码不得再增加：先拆码，再使用。
+- 带 `cause` 的错误码只允许放**类别标识**（gRPC 码名、Go 类型名或固定短标识）；message、SQL、DSN、路径、凭据一律不进响应体。
+- 映射只读 gRPC 码，不读 message：Python 侧用不同的码表达类别（`PERMISSION_DENIED` / `FAILED_PRECONDITION` / `ALREADY_EXISTS` / `UNAVAILABLE`）。

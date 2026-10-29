@@ -133,20 +133,11 @@ func (g *Handler) adminImportPackage(w http.ResponseWriter, r *http.Request) {
 			httpapi.WriteError(w, 400, "invalid_package", "manifest package failed validation")
 			return
 		}
-		if status.Code(err) == codes.PermissionDenied {
-			httpapi.WriteError(w, 403, "admin_scope_denied", "submitter authorization changed")
-			return
-		}
 		if status.Code(err) == codes.AlreadyExists {
 			httpapi.WriteError(w, 409, "version_conflict", "idempotency key was reused with a different package")
 			return
 		}
-		var conflict *adminConflictError
-		if errors.As(err, &conflict) {
-			httpapi.WriteError(w, 409, "version_conflict", conflict.Error())
-			return
-		}
-		httpapi.WriteError(w, 503, "ingestion_queue_failed", "package could not be queued")
+		writeQueueFailure(w, err)
 		return
 	}
 	// The authorized Submit transaction creates the source and advances the
