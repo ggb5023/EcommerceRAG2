@@ -718,34 +718,18 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Handler) adminGrantInTx(ctx context.Context, tx pgx.Tx, role, shop string) bool {
-	var allowed bool
-	err := tx.QueryRow(ctx, `SELECT ecr_check_admin_grant($1,$2,$3,$4)`,
-		g.Session.TenantID, g.Session.UserID, role, shop).Scan(&allowed)
+	allowed, err := adminStore.IssueAdminGrant(ctx, tx, GrantRequest{
+		TenantID: g.Session.TenantID, UserID: g.Session.UserID, Role: role, Shop: shop,
+	})
 	return err == nil && allowed
 }
 
 func auditAdmin(ctx context.Context, tx pgx.Tx, tenant, user int64, action, kind, resource, version, hash string, fence int64, reason, result string, metadata map[string]any) error {
-	encoded, err := json.Marshal(metadata)
-	if err != nil {
-		return err
-	}
-	var versionValue, hashValue, reasonValue any
-	if version != "" {
-		versionValue = version
-	}
-	if hash != "" {
-		hashValue = hash
-	}
-	if reason != "" {
-		reasonValue = reason
-	}
-	var fenceValue any
-	if fence > 0 {
-		fenceValue = fence
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,resource_version,content_hash,fencing_epoch,reason,result,metadata_json)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`, tenant, user, action, kind, resource, versionValue, hashValue, fenceValue, reasonValue, result, encoded)
-	return err
+	return adminStore.AppendAudit(ctx, tx, AuditEntry{
+		TenantID: tenant, UserID: user, Action: action, ResourceType: kind, ResourceID: resource,
+		ResourceVersion: version, ContentHash: hash, FencingEpoch: fence, Reason: reason,
+		Result: result, Metadata: metadata,
+	})
 }
 
 func validAdminRequest(role, scope string, shops []string, reason string, allowed []string) bool {
