@@ -24,6 +24,11 @@ class RetrievalSchemaError(RuntimeError):
     """Raised when the migration-managed retrieval schema is unavailable."""
 
 
+# Temporary weight for the sparse branch; the rationale and the A/B plan live in
+# docs/decisions/0029-sparse-retrieval.md. Do not tune it without that record.
+SPARSE_RRF_WEIGHT = 0.7
+
+
 @dataclass(frozen=True)
 class RetrievalRow:
     """A normalized evidence row returned by the persistent retriever."""
@@ -46,7 +51,7 @@ class RetrievalRow:
     @property
     def rrf_score(self) -> float:
         dense = 1 / (60 + self.dense_rank) if self.dense_rank else 0.0
-        sparse = 0.7 / (60 + self.sparse_rank) if self.sparse_rank else 0.0
+        sparse = SPARSE_RRF_WEIGHT / (60 + self.sparse_rank) if self.sparse_rank else 0.0
         return dense + sparse
 
     def as_evidence(self) -> dict[str, Any]:
