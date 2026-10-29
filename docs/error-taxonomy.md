@@ -5,6 +5,9 @@
 一行一个错误码。**骨架已建，随新增码持续补行**：新增 `finish(...)` / `WriteError(...)` 的错误码时必须同时补一行，
 否则视为未完成（见 [决策 0025](decisions/0025-code-level-rules.md) 的 R1——同一件事只写在一处，本表是唯一出处）。
 
+**术语约定**：本表的 `cause` 只放类别标识；HTTP 状态由 gRPC 码决定，不由 message 决定。
+新增错误码时必须同时补：**gRPC 码 → HTTP 状态 → code → cause** 的完整一行。
+
 列含义：
 
 - **HTTP**：对外响应状态；`—` 表示只写进 SSE 事件或执行记录的 reason_code，不单独产生 HTTP 错误。
