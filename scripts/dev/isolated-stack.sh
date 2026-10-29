@@ -147,11 +147,14 @@ target.chmod(0o600)
 PY
 
 # The browser specs need the stack's database and a fixed local password.
+login_user=stack-login
+login_password=${ECR_BROWSER_LOGIN_PASSWORD:-stack-login-Passw0rd!}
 browser_env="$root/browser.env"
 migration_dsn=$(sed -n "s/^V2_MIGRATION_DSN=//p" "$db_env" | head -1 | tr -d "\"'")
 {
   printf 'V2_MIGRATION_DSN=%s\n' "$migration_dsn"
-  printf 'LOGIN_PASSWORD=%s\n' "${ECR_BROWSER_LOGIN_PASSWORD:-stack-login-Passw0rd!}"
+  printf 'LOGIN_PASSWORD=%s\n' "$login_password"
+  printf 'LOGIN_USER=%s\n' "$login_user"
   printf 'WORKSPACE_URL=http://127.0.0.1:%s\n' "$vite_port"
 } > "$browser_env"
 chmod 600 "$browser_env"
@@ -186,6 +189,14 @@ until (echo > "/dev/tcp/127.0.0.1/$ingest_port") 2>/dev/null; do
   [[ $(date +%s) -lt $deadline ]] || fail "ingest RPC did not become ready on port $ingest_port"
   sleep 1
 done
+
+# Seed the login account the browser spec needs: an operator that must change its
+# password on first login. Re-running is harmless (the CLI reports the conflict).
+if go -C "$repo/go" run ./cmd/local-account create --env "$root/runtime.env" --user "$login_user" <<< "$login_password" >/dev/null 2>&1; then
+  echo "PASS seeded login account $login_user"
+else
+  echo "PASS login account $login_user already present"
+fi
 
 vite_pid=0
 if [[ $with_vite -eq 1 ]]; then
