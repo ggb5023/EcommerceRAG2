@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // PermissionRequest is one row of admin_permission_request to create.
@@ -59,24 +58,22 @@ func (s *Store) CreatePermissionRequest(ctx context.Context, tx pgx.Tx, request 
 // An approval issues the grant through ecr_issue_admin_grant, which changes the
 // request state and writes the grant in one statement; the state change and the
 // grant therefore stay in the same transaction and in the original order.
-func (s *Store) DecidePermissionRequest(ctx context.Context, tx pgx.Tx, decision PermissionDecision) (int64, error) {
+//
+// The statements run through Exec, so no row count is returned. If a caller ever
+// needs one, switch the call to QueryRow and read the function result.
+func (s *Store) DecidePermissionRequest(ctx context.Context, tx pgx.Tx, decision PermissionDecision) error {
 	if tx == nil {
-		return 0, ErrStoreNeedsTransaction
+		return ErrStoreNeedsTransaction
 	}
-	var tag pgconn.CommandTag
-	var err error
 	if decision.Decision == "approved" {
-		tag, err = tx.Exec(ctx, `SELECT ecr_issue_admin_grant($1,$2,$3,$4,$5,$6,$7,$8)`,
+		_, err := tx.Exec(ctx, `SELECT ecr_issue_admin_grant($1,$2,$3,$4,$5,$6,$7,$8)`,
 			decision.TenantID, decision.TargetUser, decision.Role, decision.ScopeKind,
 			decision.ShopIDs, decision.ActorID, decision.RequestID, decision.Reason)
-	} else {
-		tag, err = tx.Exec(ctx, `SELECT ecr_decide_admin_request($1,$2,$3,$4,$5)`,
-			decision.TenantID, decision.RequestID, decision.ActorID, decision.Decision, decision.Reason)
+		return err
 	}
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+	_, err := tx.Exec(ctx, `SELECT ecr_decide_admin_request($1,$2,$3,$4,$5)`,
+		decision.TenantID, decision.RequestID, decision.ActorID, decision.Decision, decision.Reason)
+	return err
 }
 
 // WriteAgentReviewSetting appends one tenant_agent_review row.

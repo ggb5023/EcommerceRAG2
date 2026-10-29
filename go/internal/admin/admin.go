@@ -87,14 +87,7 @@ func (g *Handler) requireAdmin(w http.ResponseWriter, r *http.Request, roles ...
 		return adminScope{}, false
 	}
 	for _, role := range roles {
-		var scopeKind string
-		var shops []string
-		err := g.DB.QueryRow(r.Context(), `SELECT scope_kind,shop_ids FROM admin_role_grant
-			WHERE tenant_id=$1 AND user_id=$2 AND role=$3 AND status='active'
-			AND EXISTS(SELECT 1 FROM app_user u JOIN tenant t ON t.id=u.tenant_id
-				WHERE u.tenant_id=$1 AND u.id=$2 AND u.revoked_at IS NULL AND t.status='active')
-			ORDER BY CASE scope_kind WHEN 'tenant' THEN 0 ELSE 1 END LIMIT 1`,
-			g.Session.TenantID, g.Session.UserID, role).Scan(&scopeKind, &shops)
+		scopeKind, shops, err := adminStore.RoleGrantScope(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, role)
 		if err == nil && (scopeKind == "tenant" || contains(shops, shopID)) {
 			if err = g.Authority.Refresh(r.Context()); err != nil {
 				httpapi.WriteError(w, auth.HTTPStatus(err), auth.FailureCode(err), "authorization failed")
@@ -135,16 +128,8 @@ func (g *Handler) permissionRequestScope(w http.ResponseWriter, r *http.Request)
 		httpapi.WriteError(w, http.StatusForbidden, "admin_scope_denied", "shop is outside the current identity scope")
 		return adminScope{}, false, false
 	}
-	var scopeKind string
-	var shops []string
-	err := g.DB.QueryRow(r.Context(), `SELECT scope_kind,shop_ids FROM admin_role_grant
-		WHERE tenant_id=$1 AND user_id=$2 AND role=ANY($3::text[]) AND status='active'
-		AND EXISTS(SELECT 1 FROM app_user u JOIN tenant t ON t.id=u.tenant_id
-			WHERE u.tenant_id=$1 AND u.id=$2 AND u.revoked_at IS NULL AND t.status='active')
-		AND (scope_kind='tenant' OR $4=ANY(shop_ids))
-		ORDER BY CASE role WHEN 'access_admin' THEN 0 ELSE 1 END,
-			CASE scope_kind WHEN 'tenant' THEN 0 ELSE 1 END LIMIT 1`,
-		g.Session.TenantID, g.Session.UserID, []string{adminRoleAccess, adminRoleMerchant}, shopID).Scan(&scopeKind, &shops)
+	scopeKind, shops, err := adminStore.RequestDecisionScope(r.Context(), g.DB, g.Session.TenantID,
+		g.Session.UserID, shopID, []string{adminRoleAccess, adminRoleMerchant})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return adminScope{TenantID: g.Session.TenantID, UserID: g.Session.UserID}, false, true
 	}
@@ -173,55 +158,23 @@ func (g *Handler) adminSession(w http.ResponseWriter, r *http.Request) {
 	if _, ok := g.requireAdmin(w, r, adminRoleObserver, adminRoleAccess, adminRoleMerchant, adminRoleReviewer); !ok {
 		return
 	}
-	roles := make([]string, 0)
-	rows, err := g.DB.Query(r.Context(), `SELECT role FROM admin_role_grant WHERE tenant_id=$1 AND user_id=$2
-		AND status='active' ORDER BY role`, g.Session.TenantID, g.Session.UserID)
+	roles, err := adminStore.ActiveRoleGrants(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID)
 	if err != nil {
 		httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative session")
 		return
 	}
-	for rows.Next() {
-		var role string
-		if rows.Scan(&role) != nil {
-			rows.Close()
-			httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative session")
-			return
-		}
-		roles = append(roles, role)
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative session")
-		return
-	}
-	rows.Close()
-	catalog := make([]map[string]any, 0)
-	catalogRows, err := g.DB.Query(r.Context(), `SELECT role_key,storage_role,display_name,catalog_version,enabled,requestable
-		FROM admin_role_catalog ORDER BY role_key`)
+	entries, err := adminStore.RoleCatalog(r.Context(), g.DB)
 	if err != nil {
 		httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative role catalog")
 		return
 	}
-	for catalogRows.Next() {
-		var roleKey, displayName, catalogVersion string
-		var storageRole *string
-		var enabled, requestable bool
-		if err = catalogRows.Scan(&roleKey, &storageRole, &displayName, &catalogVersion, &enabled, &requestable); err != nil {
-			catalogRows.Close()
-			httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative role catalog")
-			return
-		}
+	catalog := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
 		catalog = append(catalog, map[string]any{
-			"role_key": roleKey, "storage_role": storageRole, "display_name": displayName,
-			"catalog_version": catalogVersion, "enabled": enabled, "requestable": requestable,
+			"role_key": entry.RoleKey, "storage_role": entry.StorageRole, "display_name": entry.DisplayName,
+			"catalog_version": entry.CatalogVersion, "enabled": entry.Enabled, "requestable": entry.Requestable,
 		})
 	}
-	if err = catalogRows.Err(); err != nil {
-		catalogRows.Close()
-		httpapi.WriteError(w, 503, "authorization_unavailable", "could not load administrative role catalog")
-		return
-	}
-	catalogRows.Close()
 	httpapi.WriteJSON(w, 200, map[string]any{"tenant_id": g.Session.Tenant, "user_id": g.Session.User,
 		"runtime_role": g.Session.Role, "shop_id": g.Session.Shop, "allowed_shop_ids": g.Session.AllowedShops,
 		"permission_revision": g.Authority.CurrentRevision(), "admin_roles": roles,
@@ -262,20 +215,13 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		components["redis"] = map[string]any{"status": redisState}
 	}
-	var workerRows, activeWorkers, degradedWorkers int64
-	var workerHeartbeat *time.Time
-	var workerErrorCode *string
-	err := g.DB.QueryRow(ctx, `SELECT count(*),
-		count(*) FILTER (WHERE heartbeat_at>=now()-interval '30 seconds' AND status='working'),
-		max(heartbeat_at),
-		count(*) FILTER (WHERE heartbeat_at>=now()-interval '30 seconds' AND status='degraded'),
-		max(last_error_code) FILTER (WHERE heartbeat_at>=now()-interval '30 seconds' AND status='degraded')
-		FROM ingest_worker_heartbeat`).Scan(&workerRows, &activeWorkers, &workerHeartbeat,
-		&degradedWorkers, &workerErrorCode)
+	worker, err := adminStore.IngestWorkerStatus(ctx, g.DB)
 	if err != nil {
 		httpapi.WriteError(w, 503, "status_unavailable", "could not load ingestion worker status")
 		return
 	}
+	workerRows, activeWorkers := worker.Rows, worker.ActiveWorkers
+	workerHeartbeat, degradedWorkers, workerErrorCode := worker.HeartbeatAt, worker.DegradedWorkers, worker.LastErrorCode
 	workerStatus := "not_configured"
 	workerDetail := "no ingestion worker heartbeat has been recorded"
 	if workerRows > 0 {
@@ -292,66 +238,33 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	components["worker"] = map[string]any{"status": workerStatus, "detail": workerDetail,
 		"active_jobs": activeWorkers, "heartbeat_at": workerHeartbeat, "last_error_code": workerErrorCode}
-	var migrationVersion string
-	if err := g.DB.QueryRow(ctx, `SELECT COALESCE(max(version),'none') FROM schema_migration`).Scan(&migrationVersion); err != nil {
+	migrationVersion, legacyMigrations, migrationErr := adminStore.MigrationState(ctx, g.DB)
+	if migrationErr != nil {
 		httpapi.WriteError(w, 503, "status_unavailable", "could not load migration status")
 		return
 	}
-	var legacyMigrations int64
-	if err := g.DB.QueryRow(ctx, `SELECT count(*) FROM schema_migration WHERE checksum_sha256 IS NULL`).Scan(&legacyMigrations); err != nil {
-		httpapi.WriteError(w, 503, "status_unavailable", "could not load migration integrity status")
-		return
-	}
-	var jobs, pending, failed, total, errorsLast, executionsLast int64
-	err = g.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE j.status IN ('pending','running','awaiting_review')),
-		count(*) FILTER (WHERE j.status='failed') FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-		WHERE j.tenant_id=$1 AND s.shop_id=ANY($2::text[])`, g.Session.TenantID, scope.shops).
-		Scan(&jobs, &pending, &failed)
+	jobs, pending, failed, err := adminStore.IngestJobCounts(ctx, g.DB, g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "status_unavailable", "could not load ingestion status")
 		return
 	}
-	err = g.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE e.status IN ('FAILED','failed')) FROM conversation_execution e
-		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
-		JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND c.shop_id=ANY($2::text[]) AND e.created_at >= now()-interval '15 minutes'`,
-		g.Session.TenantID, scope.shops).Scan(&total, &errorsLast)
+	executionsLast, errorsLast, err := adminStore.RecentExecutionErrors(ctx, g.DB, g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "status_unavailable", "could not load error rate")
 		return
 	}
-	versionRows, err := g.DB.Query(ctx, `SELECT v.status,count(*) FROM document_version v
-		JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		GROUP BY v.status`, g.Session.TenantID, scope.shops)
+	versionCounts, err := adminStore.VersionStatusCounts(ctx, g.DB, g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "status_unavailable", "could not load version status")
 		return
 	}
-	versionCounts := make(map[string]int64)
 	var versionTotal, activeVersions int64
-	for versionRows.Next() {
-		var state string
-		var count int64
-		if versionRows.Scan(&state, &count) != nil {
-			versionRows.Close()
-			httpapi.WriteError(w, 503, "status_unavailable", "could not load version status")
-			return
-		}
-		versionCounts[state] = count
+	for state, count := range versionCounts {
 		versionTotal += count
 		if state == "active" {
 			activeVersions = count
 		}
 	}
-	if err = versionRows.Err(); err != nil {
-		versionRows.Close()
-		httpapi.WriteError(w, 503, "status_unavailable", "could not load version status")
-		return
-	}
-	versionRows.Close()
-	executionsLast = total
 	errorRate := float64(0)
 	if executionsLast > 0 {
 		errorRate = float64(errorsLast) / float64(executionsLast)
@@ -417,31 +330,17 @@ func (g *Handler) adminAccounts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT u.id,u.external_id,COALESCE(NULLIF(u.display_name,''),u.external_id),u.Role,COALESCE(u.shop_ids,ARRAY[]::text[]),
-		u.permission_revision,u.revoked_at,COALESCE(jsonb_agg(jsonb_build_object('id',gr.id::text,'role',gr.Role,
-		'scope_kind',gr.scope_kind,'shop_ids',gr.shop_ids,'status',gr.status)) FILTER (WHERE gr.id IS NOT NULL),'[]'::jsonb)
-		FROM app_user u LEFT JOIN admin_role_grant gr ON gr.tenant_id=u.tenant_id AND gr.user_id=u.id
-		WHERE u.tenant_id=$1 AND ($3::boolean OR COALESCE(u.shop_ids,ARRAY[]::text[]) && $2::text[])
-		GROUP BY u.id ORDER BY u.id LIMIT 500`, g.Session.TenantID, scope.shops, scope.tenantWide)
+	accounts, err := adminStore.Accounts(r.Context(), g.DB, g.Session.TenantID, scope.shops, scope.tenantWide)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load account summaries")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id int64
-		var externalID, displayName, role, revision string
-		var shops []string
-		var grants []byte
-		var revoked *time.Time
-		if rows.Scan(&id, &externalID, &displayName, &role, &shops, &revision, &revoked, &grants) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load account summaries")
-			return
-		}
-		items = append(items, map[string]any{"user_id": strconv.FormatInt(id, 10), "external_id": externalID,
-			"display_name": displayName, "runtime_role": role, "shop_ids": shops,
-			"permission_revision": revision, "revoked": revoked != nil, "grants": json.RawMessage(grants)})
+	items := make([]map[string]any, 0, len(accounts))
+	for _, account := range accounts {
+		items = append(items, map[string]any{"user_id": strconv.FormatInt(account.ID, 10), "external_id": account.ExternalID,
+			"display_name": account.DisplayName, "runtime_role": account.Role, "shop_ids": account.ShopIDs,
+			"permission_revision": account.PermissionRevision, "revoked": account.RevokedAt != nil,
+			"grants": json.RawMessage(account.Grants)})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -452,37 +351,20 @@ func (g *Handler) adminListRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
-	rows, err := g.DB.Query(r.Context(), `SELECT q.id,q.requested_by,COALESCE(u.display_name,u.external_id),q.Role,q.scope_kind,
-		q.shop_ids,q.reason,q.status,q.reviewed_by,q.reviewed_at,q.decision_reason,q.created_at,q.payload_hash
-		FROM admin_permission_request q JOIN app_user u ON u.tenant_id=q.tenant_id AND u.id=q.requested_by
-		WHERE q.tenant_id=$1 AND ($2='' OR q.status=$2)
-		AND (($5::boolean AND (($4::boolean AND q.scope_kind='tenant') OR (q.scope_kind='shops' AND q.shop_ids && $3::text[])))
-			OR (NOT $5::boolean AND q.requested_by=$6))
-		ORDER BY q.created_at DESC LIMIT 200`, g.Session.TenantID, statusFilter, scope.shops,
-		scope.tenantWide, canManageRequests, g.Session.UserID)
+	requests, err := adminStore.PermissionRequests(r.Context(), g.DB, g.Session.TenantID, statusFilter,
+		scope.shops, scope.tenantWide, canManageRequests, g.Session.UserID)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load permission requests")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, requester int64
-		var reviewer *int64
-		var reviewedAt *time.Time
-		var displayName, role, scopeKind, reason, state, hash string
-		var decision *string
-		var shops []string
-		var createdAt time.Time
-		if rows.Scan(&id, &requester, &displayName, &role, &scopeKind, &shops, &reason, &state,
-			&reviewer, &reviewedAt, &decision, &createdAt, &hash) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load permission requests")
-			return
-		}
-		items = append(items, map[string]any{"id": strconv.FormatInt(id, 10), "requested_by": strconv.FormatInt(requester, 10),
-			"requester_name": displayName, "role": role, "scope_kind": scopeKind, "shop_ids": shops,
-			"reason": reason, "status": state, "reviewed_by": reviewer, "reviewed_at": reviewedAt,
-			"decision_reason": decision, "created_at": createdAt, "payload_hash": hash})
+	items := make([]map[string]any, 0, len(requests))
+	for _, request := range requests {
+		items = append(items, map[string]any{"id": strconv.FormatInt(request.ID, 10),
+			"requested_by": strconv.FormatInt(request.RequestedBy, 10), "requester_name": request.RequesterName,
+			"role": request.Role, "scope_kind": request.ScopeKind, "shop_ids": request.ShopIDs,
+			"reason": request.Reason, "status": request.Status, "reviewed_by": request.ReviewedBy,
+			"reviewed_at": request.ReviewedAt, "decision_reason": request.DecisionReason,
+			"created_at": request.CreatedAt, "payload_hash": request.PayloadHash})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -502,9 +384,8 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_request", "permission request is invalid")
 		return
 	}
-	var requestable bool
-	if err := g.DB.QueryRow(r.Context(), `SELECT requestable FROM admin_role_catalog
-		WHERE storage_role=$1 AND enabled`, in.Role).Scan(&requestable); errors.Is(err, pgx.ErrNoRows) {
+	requestable, catalogErr := adminStore.RoleCatalogRequestable(r.Context(), g.DB, in.Role)
+	if err := catalogErr; errors.Is(err, pgx.ErrNoRows) {
 		httpapi.WriteError(w, 400, "role_not_requestable", "the requested administrative role is not available")
 		return
 	} else if err != nil {
@@ -572,12 +453,8 @@ func (g *Handler) adminDecideRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var targetUser int64
-	var role, scopeKind string
-	var shops []string
-	err = tx.QueryRow(r.Context(), `SELECT requested_by,role,scope_kind,shop_ids FROM admin_permission_request
-		WHERE tenant_id=$1 AND id=$2 AND status='pending' AND requested_by<>$3`,
-		g.Session.TenantID, requestID, g.Session.UserID).Scan(&targetUser, &role, &scopeKind, &shops)
+	target, err := adminStore.PendingPermissionRequest(r.Context(), tx, g.Session.TenantID, requestID, g.Session.UserID)
+	targetUser, role, scopeKind, shops := target.RequestedBy, target.Role, target.ScopeKind, target.ShopIDs
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.WriteError(w, 409, "request_conflict", "request is unavailable or already decided")
 		return
@@ -590,7 +467,7 @@ func (g *Handler) adminDecideRequest(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 403, "admin_scope_denied", "request scope is outside the current administrative grant")
 		return
 	}
-	if _, err = adminStore.DecidePermissionRequest(r.Context(), tx, PermissionDecision{
+	if err = adminStore.DecidePermissionRequest(r.Context(), tx, PermissionDecision{
 		TenantID: g.Session.TenantID, RequestID: requestID, ActorID: g.Session.UserID,
 		Decision: in.Decision, Reason: strings.TrimSpace(in.Reason),
 		TargetUser: targetUser, Role: role, ScopeKind: scopeKind, ShopIDs: shops,
@@ -617,32 +494,19 @@ func (g *Handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT id,actor_user_id,action,resource_type,resource_id,resource_version,
-		content_hash,fencing_epoch,reason,result,metadata_json,created_at FROM admin_audit
-		WHERE tenant_id=$1 AND (metadata_json->>'shop_id'=ANY($2::text[])
-			OR COALESCE(metadata_json->'shop_ids','[]'::jsonb) ?| $2::text[] OR $3::boolean)
-		ORDER BY created_at DESC,id DESC LIMIT 200`, g.Session.TenantID, scope.shops, scope.tenantWide)
+	records, err := adminStore.AuditRecords(r.Context(), g.DB, g.Session.TenantID, scope.shops, scope.tenantWide)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load audit records")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, actor int64
-		var action, kind, resourceID, result string
-		var version, hash, reason *string
-		var fence *int64
-		var metadata []byte
-		var created time.Time
-		if rows.Scan(&id, &actor, &action, &kind, &resourceID, &version, &hash, &fence, &reason, &result, &metadata, &created) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load audit records")
-			return
-		}
-		items = append(items, map[string]any{"id": strconv.FormatInt(id, 10), "actor_user_id": strconv.FormatInt(actor, 10),
-			"action": action, "resource_type": kind, "resource_id": resourceID, "resource_version": version,
-			"content_hash": hash, "fencing_epoch": fence, "reason": reason, "result": result,
-			"metadata": json.RawMessage(metadata), "created_at": created})
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, map[string]any{"id": strconv.FormatInt(record.ID, 10),
+			"actor_user_id": strconv.FormatInt(record.ActorUserID, 10), "action": record.Action,
+			"resource_type": record.ResourceType, "resource_id": record.ResourceID,
+			"resource_version": record.ResourceVersion, "content_hash": record.ContentHash,
+			"fencing_epoch": record.FencingEpoch, "reason": record.Reason, "result": record.Result,
+			"metadata": json.RawMessage(record.Metadata), "created_at": record.CreatedAt})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -664,7 +528,7 @@ func (g *Handler) adminRevokeGrant(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 404, "not_found", "grant not found")
 		return
 	}
-	_, err = g.DB.Exec(r.Context(), `SELECT ecr_revoke_admin_grant($1,$2,$3,$4)`, g.Session.TenantID, id, g.Session.UserID, strings.TrimSpace(in.Reason))
+	err = adminStore.RevokeGrant(r.Context(), g.DB, g.Session.TenantID, id, g.Session.UserID, strings.TrimSpace(in.Reason))
 	if err != nil {
 		httpapi.WriteError(w, databaseDecisionStatus(err), "grant_revoke_failed", "grant could not be revoked")
 		return
@@ -677,31 +541,20 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT id,name,status,COALESCE(public_slug,''),welcome_message,customer_chat_enabled FROM shop WHERE tenant_id=$1 AND id=ANY($2::text[]) ORDER BY id`,
-		g.Session.TenantID, scope.shops)
+	shops, err := adminStore.Shops(r.Context(), g.DB, g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id, name, state, slug, welcome string
-		var enabled bool
-		if rows.Scan(&id, &name, &state, &slug, &welcome, &enabled) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
-			return
-		}
-		items = append(items, map[string]any{"shop_id": id, "name": name, "status": state, "public_slug": slug, "welcome_message": welcome, "customer_chat_enabled": enabled,
-			"customer_chat_url": customerChatURL(g.CustomerOrigin, slug, enabled && state == "active")})
-	}
-	if rows.Err() != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not load shops")
-		return
+	items := make([]map[string]any, 0, len(shops))
+	for _, shop := range shops {
+		items = append(items, map[string]any{"shop_id": shop.ID, "name": shop.Name, "status": shop.Status,
+			"public_slug": shop.PublicSlug, "welcome_message": shop.WelcomeMessage,
+			"customer_chat_enabled": shop.CustomerChatEnabled,
+			"customer_chat_url":     customerChatURL(g.CustomerOrigin, shop.PublicSlug, shop.CustomerChatEnabled && shop.Status == "active")})
 	}
 	// Reuse customer authorization; a published internal or ACL-blocked document
 	// must never be advertised as available for a customer trial.
-	rows.Close()
 	for _, item := range items {
 		documents, err := auth.CustomerDocuments(r.Context(), g.DB, g.Session.TenantID, item["shop_id"].(string))
 		if err != nil {
