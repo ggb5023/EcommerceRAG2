@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -158,4 +159,18 @@ func (s *Store) Shops(ctx context.Context, db *pgxpool.Pool, tenantID int64, sho
 		items = append(items, row)
 	}
 	return items, rows.Err()
+}
+
+// UpdateShopSettings rewrites the merchant-facing channel settings of one shop.
+// It returns the affected row count so the caller keeps its conflict check.
+func (s *Store) UpdateShopSettings(ctx context.Context, tx pgx.Tx, tenantID int64, shopID, name, slug, welcome string, enabled bool) (int64, error) {
+	if tx == nil {
+		return 0, ErrStoreNeedsTransaction
+	}
+	result, err := tx.Exec(ctx, `UPDATE shop SET name=$3,public_slug=$4,welcome_message=$5,customer_chat_enabled=$6 WHERE tenant_id=$1 AND id=$2`,
+		tenantID, shopID, name, slug, welcome, enabled)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

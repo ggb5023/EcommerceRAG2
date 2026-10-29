@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -119,6 +118,3 @@ func (s *Store) RevokeGrant(ctx context.Context, db *pgxpool.Pool, tenantID, gra
 	_, err := db.Exec(ctx, `SELECT ecr_revoke_admin_grant($1,$2,$3,$4)`, tenantID, grantID, actorID, reason)
 	return err
 }
-
-// ErrNoPendingRequest marks a request that is already decided or invisible.
-var ErrNoPendingRequest = errors.New("permission request is unavailable")

@@ -37,11 +37,11 @@ HANDLER_SQL_ALLOWANCE = {
     "import.go": 8,
     "review_suggestion_handlers.go": 6,
     "review.go": 5,
-    "staff.go": 3,
-    "commands.go": 3,
+    "staff.go": 0,
+    "commands.go": 0,
     "version.go": 2,
-    "usage.go": 1,
-    "shop_settings.go": 1,
+    "usage.go": 0,
+    "shop_settings.go": 0,
 }
 SQL = re.compile(r"\b(?:SELECT|INSERT INTO|UPDATE|DELETE FROM)\b")
 
