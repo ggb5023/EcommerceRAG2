@@ -41,8 +41,7 @@ type importConfirmation struct {
 }
 
 func (g *Handler) agentReviewEnabled(ctx context.Context) (bool, error) {
-	var enabled bool
-	err := g.DB.QueryRow(ctx, `SELECT enabled FROM tenant_agent_review WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`, g.Session.TenantID).Scan(&enabled)
+	enabled, err := adminStore.AgentReviewEnabled(ctx, g.DB, g.Session.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -62,13 +61,8 @@ func (g *Handler) adminAgentReviewSetting(w http.ResponseWriter, r *http.Request
 	}
 	switch r.Method {
 	case http.MethodGet:
-		var enabled bool
-		var policy, actor string
-		var updated time.Time
-		err := g.DB.QueryRow(r.Context(), `SELECT t.enabled,t.policy_version,t.created_at,COALESCE(u.external_id,u.role)
-			FROM tenant_agent_review t JOIN app_user u ON u.tenant_id=t.tenant_id AND u.id=t.actor_user_id
-			WHERE t.tenant_id=$1 ORDER BY t.created_at DESC,t.id DESC LIMIT 1`, g.Session.TenantID).
-			Scan(&enabled, &policy, &updated, &actor)
+		setting, err := adminStore.LatestAgentReviewSetting(r.Context(), g.DB, g.Session.TenantID)
+		enabled, policy, updated, actor := setting.Enabled, setting.Policy, setting.Updated, setting.Actor
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.WriteJSON(w, 200, map[string]any{"enabled": false, "policy_version": "", "updated_at": nil, "actor": nil,
 				"description": "允许把待审内容发送给模型（默认关闭；只发送片段与规则，不发送顾客对话正文）"})
@@ -120,30 +114,13 @@ func (g *Handler) adminAgentReviewSetting(w http.ResponseWriter, r *http.Request
 }
 
 func (g *Handler) cleanupExpiredImports(ctx context.Context, tenantID int64, shopID string) {
-	rows, err := g.DB.Query(ctx, `SELECT b.id,i.temp_path FROM import_batch b JOIN import_item i ON i.batch_id=b.id
-		WHERE b.tenant_id=$1 AND b.shop_id=$2 AND b.status='staged' AND b.expires_at < now()`, tenantID, shopID)
+	batches, err := adminStore.ExpiredStagedBatches(ctx, g.DB, tenantID, shopID)
 	if err != nil {
 		return
 	}
-	type expired struct {
-		id    int64
-		paths []string
-	}
-	batches := map[int64]*expired{}
-	for rows.Next() {
-		var id int64
-		var path string
-		if rows.Scan(&id, &path) == nil {
-			if batches[id] == nil {
-				batches[id] = &expired{id: id}
-			}
-			batches[id].paths = append(batches[id].paths, path)
-		}
-	}
-	rows.Close()
-	for _, batch := range batches {
-		if _, err = g.DB.Exec(ctx, `UPDATE import_batch SET status='expired' WHERE tenant_id=$1 AND shop_id=$2 AND id=$3 AND status='staged'`, tenantID, shopID, batch.id); err == nil {
-			for _, path := range batch.paths {
+	for batchID, paths := range batches {
+		if err = adminStore.MarkBatchExpiredForShop(ctx, g.DB, tenantID, shopID, batchID); err == nil {
+			for _, path := range paths {
 				_ = os.Remove(path)
 			}
 		}
@@ -228,20 +205,7 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 	for _, doc := range parsed {
 		hashes = append(hashes, doc.SourceHash)
 	}
-	existing := map[string]bool{}
-	rows, queryErr := g.DB.Query(r.Context(), `SELECT DISTINCT v.source_hash FROM document_version v
-		JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND s.shop_id=$2 AND v.source_hash=ANY($3)`, g.Session.TenantID, shopID, hashes)
-	if queryErr == nil {
-		for rows.Next() {
-			var hash string
-			if rows.Scan(&hash) == nil {
-				existing[hash] = true
-			}
-		}
-		rows.Close()
-	}
+	existing := adminStore.ExistingSourceHashes(r.Context(), g.DB, g.Session.TenantID, shopID, hashes)
 	issues := precheckDocuments(parsed, businessDate, existing)
 	manifestDigest := sha256.Sum256([]byte(manifest))
 	blocks, warnings := issueCounts(issues)
@@ -252,10 +216,11 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var batchID int64
-	err = tx.QueryRow(r.Context(), `INSERT INTO import_batch(tenant_id,shop_id,created_by,business_date,agent_rules_version,agent_model_id,manifest_yaml,manifest_sha256)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, g.Session.TenantID, shopID, g.Session.UserID,
-		businessDateText, importRulesVersion, importAgentModel, manifest, hex.EncodeToString(manifestDigest[:])).Scan(&batchID)
+	batchID, err := adminStore.InsertImportBatch(r.Context(), tx, ImportBatchRecord{
+		TenantID: g.Session.TenantID, ShopID: shopID, CreatedBy: g.Session.UserID, BusinessDate: businessDateText,
+		RulesVersion: importRulesVersion, AgentModelID: importAgentModel, ManifestYAML: manifest,
+		ManifestHash: hex.EncodeToString(manifestDigest[:]),
+	})
 	if err != nil {
 		removeUploads()
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch is unavailable")
@@ -272,8 +237,8 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 		if doc.EffectiveFrom != "" {
 			effective = doc.EffectiveFrom
 		}
-		if _, err = tx.Exec(r.Context(), `INSERT INTO import_item(batch_id,source_hash,temp_path,suggested_disclosure_class,suggested_effective_from,precheck_result,precheck_detail)
-			VALUES($1,$2,$3,$4,$5,$6,$7)`, batchID, doc.SourceHash, doc.TempPath, doc.DisclosureClass, effective, precheckJSON, detailJSON); err != nil {
+		if err = adminStore.InsertImportItem(r.Context(), tx, batchID, doc.SourceHash, doc.TempPath, doc.DisclosureClass,
+			effective, precheckJSON, detailJSON); err != nil {
 			removeUploads()
 			httpapi.WriteError(w, 503, "database_unavailable", "import batch is unavailable")
 			return
@@ -305,9 +270,8 @@ func (g *Handler) importBatchScope(w http.ResponseWriter, r *http.Request) (int6
 		httpapi.WriteError(w, 404, "not_found", "import batch not found")
 		return 0, "", false
 	}
-	var shop, state string
-	var expires time.Time
-	err = g.DB.QueryRow(r.Context(), `SELECT shop_id,status,expires_at FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&shop, &state, &expires)
+	scopeRow, err := adminStore.ImportBatchScope(r.Context(), g.DB, g.Session.TenantID, id)
+	shop, state, expires := scopeRow.ShopID, scopeRow.Status, scopeRow.ExpiresAt
 	if errors.Is(err, pgx.ErrNoRows) || !contains(scope.shops, shop) {
 		httpapi.WriteError(w, 404, "not_found", "import batch not found")
 		return 0, "", false
@@ -317,7 +281,7 @@ func (g *Handler) importBatchScope(w http.ResponseWriter, r *http.Request) (int6
 		return 0, "", false
 	}
 	if state == "staged" && expires.Before(time.Now()) {
-		_, _ = g.DB.Exec(r.Context(), `UPDATE import_batch SET status='expired' WHERE tenant_id=$1 AND id=$2 AND status='staged'`, g.Session.TenantID, id)
+		_ = adminStore.MarkBatchExpired(r.Context(), g.DB, g.Session.TenantID, id)
 		httpapi.WriteError(w, 409, "import_expired", "import batch has expired")
 		return 0, "", false
 	}
@@ -329,31 +293,22 @@ func (g *Handler) adminImportPreview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var state, manifestHash string
-	var businessDate time.Time
-	var revokedAt *time.Time
-	if err := g.DB.QueryRow(r.Context(), `SELECT status,manifest_sha256,business_date,revoked_at FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifestHash, &businessDate, &revokedAt); err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
-		return
-	}
-	rows, err := g.DB.Query(r.Context(), `SELECT id,source_hash,suggested_disclosure_class,precheck_result,precheck_detail,
-		COALESCE(suggested_effective_from::text,''),temp_path FROM import_item WHERE batch_id=$1 ORDER BY id`, id)
+	meta, err := adminStore.BatchPreviewMetadata(r.Context(), g.DB, g.Session.TenantID, id)
+	state, manifestHash, businessDate, revokedAt := meta.Status, meta.ManifestHash, meta.BusinessDate, meta.RevokedAt
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var itemID int64
-		var hash, disclosure, effective, tempPath string
-		var precheck, detail []byte
-		if rows.Scan(&itemID, &hash, &disclosure, &precheck, &detail, &effective, &tempPath) != nil {
-			continue
-		}
-		items = append(items, map[string]any{"item_id": strconv.FormatInt(itemID, 10), "source_hash": hash,
-			"suggested_disclosure_class": disclosure, "suggested_effective_from": effective,
-			"precheck_result": json.RawMessage(precheck), "precheck_detail": json.RawMessage(detail), "staged": true})
+	rows, err := adminStore.BatchItems(r.Context(), g.DB, id)
+	if err != nil {
+		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
+		return
+	}
+	items := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, map[string]any{"item_id": strconv.FormatInt(row.ID, 10), "source_hash": row.SourceHash,
+			"suggested_disclosure_class": row.Disclosure, "suggested_effective_from": row.EffectiveFrom,
+			"precheck_result": json.RawMessage(row.Precheck), "precheck_detail": json.RawMessage(row.Detail), "staged": true})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"batch_id": strconv.FormatInt(id, 10), "status": state,
 		"shop_id": shop, "business_date": businessDate.Format("2006-01-02"), "manifest_sha256": manifestHash,
@@ -370,33 +325,27 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "confirmation_required", "complete the scoped confirmation and reason")
 		return
 	}
-	var state, manifest string
-	if err := g.DB.QueryRow(r.Context(), `SELECT status,manifest_yaml FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state, &manifest); err != nil || state != "staged" {
+	state, manifest, confirmErr := adminStore.BatchConfirmState(r.Context(), g.DB, g.Session.TenantID, id)
+	if confirmErr != nil || state != "staged" {
 		httpapi.WriteError(w, 409, "import_state_conflict", "import batch is not staged")
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT temp_path,precheck_detail FROM import_item WHERE batch_id=$1 ORDER BY id`, id)
+	staged, err := adminStore.BatchStagedFiles(r.Context(), g.DB, id)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 		return
 	}
 	files := make([]UploadedFile, 0)
 	documents := make([]ParsedDocument, 0)
-	for rows.Next() {
-		var tempPath string
-		var detailJSON []byte
-		if rows.Scan(&tempPath, &detailJSON) != nil {
-			continue
-		}
+	for _, stagedFile := range staged {
+		tempPath, detailJSON := stagedFile.TempPath, stagedFile.Detail
 		var detail importStagedDetail
 		if json.Unmarshal(detailJSON, &detail) != nil {
-			rows.Close()
 			httpapi.WriteError(w, 409, "import_state_conflict", "import staging is invalid")
 			return
 		}
 		info, statErr := os.Stat(tempPath)
 		if statErr != nil {
-			rows.Close()
 			httpapi.WriteError(w, 409, "import_expired", "import staging has expired")
 			return
 		}
@@ -405,7 +354,6 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 			SourceHash: detail.SourceHash, DisclosureClass: detail.DisclosureClass, EffectiveFrom: detail.EffectiveFrom,
 			EffectiveTo: detail.EffectiveTo, VersionID: detail.VersionID, TempPath: tempPath})
 	}
-	rows.Close()
 	if len(documents) == 0 {
 		httpapi.WriteError(w, 409, "import_state_conflict", "import batch has no staged documents")
 		return
@@ -415,14 +363,13 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 		writeQueueFailure(w, err)
 		return
 	}
-	_, err = g.DB.Exec(r.Context(), `UPDATE import_batch SET status='confirmed',ingest_job_id=$1 WHERE tenant_id=$2 AND id=$3 AND status='staged'`, queued.JobID, g.Session.TenantID, id)
+	err = adminStore.MarkBatchConfirmed(r.Context(), g.DB, queued.JobID, g.Session.TenantID, id)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch confirmation is unavailable")
 		return
 	}
-	_, _ = g.DB.Exec(r.Context(), `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
-		VALUES($1,$2,'import.confirm','import_batch',$3,$4,'success',jsonb_build_object('job_id',$5::bigint,'rules_version',$6::text))`,
-		g.Session.TenantID, g.Session.UserID, strconv.FormatInt(id, 10), strings.TrimSpace(in.Reason), queued.JobID, importRulesVersion)
+	_ = adminStore.RecordImportConfirmAudit(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
+		strings.TrimSpace(in.Reason), queued.JobID, importRulesVersion)
 	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"batch_id": strconv.FormatInt(id, 10), "status": "confirmed",
 		"job_id": strconv.FormatInt(queued.JobID, 10), "command_id": strconv.FormatInt(queued.JobID, 10), "item_count": queued.ItemCount})
 }
@@ -437,8 +384,8 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "confirmation_required", "complete the scoped confirmation and reason")
 		return
 	}
-	var state string
-	if err := g.DB.QueryRow(r.Context(), `SELECT status FROM import_batch WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id).Scan(&state); err != nil {
+	state, err := adminStore.BatchStatus(r.Context(), g.DB, g.Session.TenantID, id)
+	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 		return
 	}
@@ -454,39 +401,27 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 			fence          int64
 		}
 		candidates := make([]candidate, 0)
-		itemRows, queryErr := g.DB.Query(r.Context(), `SELECT precheck_detail,source_hash FROM import_item WHERE batch_id=$1`, id)
+		itemRows, queryErr := adminStore.BatchRevokeItems(r.Context(), g.DB, id)
 		if queryErr != nil {
 			httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 			return
 		}
-		for itemRows.Next() {
-			var detailJSON []byte
-			var sourceHash string
-			if itemRows.Scan(&detailJSON, &sourceHash) != nil {
-				continue
-			}
+		for _, itemRow := range itemRows {
 			var detail importStagedDetail
-			if json.Unmarshal(detailJSON, &detail) != nil {
+			if json.Unmarshal(itemRow.Detail, &detail) != nil {
 				continue
 			}
-			var versionID, fencing int64
-			var versionState, reviewState, versionHash string
-			versionErr := g.DB.QueryRow(r.Context(), `SELECT v.id,v.status,v.review_status,v.source_hash,v.fencing_epoch FROM document_version v
-				JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-				WHERE v.tenant_id=$1 AND d.logical_key=$2 AND v.source_hash=$3
-				ORDER BY v.id DESC LIMIT 1`, g.Session.TenantID, detail.DocumentID, sourceHash).Scan(&versionID, &versionState, &reviewState, &versionHash, &fencing)
+			version, versionErr := adminStore.VersionForRevoke(r.Context(), g.DB, g.Session.TenantID, detail.DocumentID, itemRow.SourceHash)
 			if versionErr != nil {
 				// The staged version may still be processing; absence is not a published version.
 				continue
 			}
-			if versionState == "active" {
-				itemRows.Close()
+			if version.Status == "active" {
 				httpapi.WriteError(w, 409, "import_state_conflict", "published versions cannot be revoked with the batch")
 				return
 			}
-			candidates = append(candidates, candidate{id: versionID, status: versionState, review: reviewState, hash: versionHash, fence: fencing})
+			candidates = append(candidates, candidate{id: version.ID, status: version.Status, review: version.ReviewStatus, hash: version.SourceHash, fence: version.FencingEpoch})
 		}
-		itemRows.Close()
 		for _, candidate := range candidates {
 			if _, execErr := g.commandClient().Execute(r.Context(), ingestclient.Actor{Tenant: g.Session.TenantID, User: g.Session.UserID, Shop: shop},
 				&ragv1.ExecuteCommandRequest{Action: ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_REVOKE,
@@ -497,26 +432,15 @@ func (g *Handler) adminRevokeImport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	tempRows, _ := g.DB.Query(r.Context(), `SELECT temp_path FROM import_item WHERE batch_id=$1`, id)
-	var tempPaths []string
-	if tempRows != nil {
-		for tempRows.Next() {
-			var path string
-			if tempRows.Scan(&path) == nil {
-				tempPaths = append(tempPaths, path)
-			}
-		}
-		tempRows.Close()
-	}
-	if _, err := g.DB.Exec(r.Context(), `UPDATE import_batch SET status='revoked',revoked_at=now() WHERE tenant_id=$1 AND id=$2`, g.Session.TenantID, id); err != nil {
+	tempPaths := adminStore.BatchTempPaths(r.Context(), g.DB, id)
+	if err := adminStore.MarkBatchRevoked(r.Context(), g.DB, g.Session.TenantID, id); err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch revoke is unavailable")
 		return
 	}
 	for _, path := range tempPaths {
 		_ = os.Remove(path)
 	}
-	_, _ = g.DB.Exec(r.Context(), `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
-		VALUES($1,$2,'import.revoke','import_batch',$3,$4,'success',jsonb_build_object('rules_version',$5::text))`,
-		g.Session.TenantID, g.Session.UserID, strconv.FormatInt(id, 10), strings.TrimSpace(in.Reason), importRulesVersion)
+	_ = adminStore.RecordImportRevokeAudit(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
+		strings.TrimSpace(in.Reason), importRulesVersion)
 	httpapi.WriteJSON(w, 200, map[string]any{"batch_id": strconv.FormatInt(id, 10), "status": "revoked", "shop_id": shop})
 }

@@ -33,7 +33,7 @@ STORE_SQL_BASELINE = 75
 # own entry; the target is all zeros. An entry may never grow.
 HANDLER_SQL_ALLOWANCE = {
     "admin.go": 0,
-    "imports.go": 21,
+    "imports.go": 0,
     "import.go": 8,
     "review_suggestion_handlers.go": 0,
     "review.go": 0,
