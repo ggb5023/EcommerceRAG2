@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
@@ -30,40 +29,28 @@ func (g *Handler) adminVersions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT v.id,d.logical_key,d.title,s.shop_id,v.status,v.review_status,v.source_hash,v.reviewed_hash,
-		v.Disclosure_class,v.external_allowed,v.fencing_epoch,v.chunk_count,v.created_at,v.activated_at
-		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		ORDER BY v.created_at DESC LIMIT 500`, g.Session.TenantID, scope.shops)
+	rows, err := adminStore.Versions(r.Context(), g.DB, g.Session.TenantID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load version history")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id int64
-		var key, title, shop, state, review, hash, disclosure string
-		var reviewed *string
-		var external bool
-		var fence int64
-		var chunks *int32
-		var created time.Time
-		var active *time.Time
-		if rows.Scan(&id, &key, &title, &shop, &state, &review, &hash, &reviewed, &disclosure, &external, &fence, &chunks, &created, &active) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load version history")
-			return
-		}
-		items = append(items, map[string]any{"version_id": strconv.FormatInt(id, 10), "document_id": key, "title": title, "shop_id": shop, "status": state, "review_status": review, "source_hash": hash, "reviewed_hash": reviewed, "disclosure_class": disclosure, "external_allowed": external, "fencing_epoch": fence, "chunk_count": chunks, "created_at": created, "activated_at": active})
+	items := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, map[string]any{"version_id": strconv.FormatInt(row.VersionID, 10),
+			"document_id": row.DocumentID, "title": row.Title, "shop_id": row.ShopID, "status": row.Status,
+			"review_status": row.ReviewStatus, "source_hash": row.SourceHash, "reviewed_hash": row.ReviewedHash,
+			"disclosure_class": row.DisclosureClass, "external_allowed": row.ExternalAllowed,
+			"fencing_epoch": row.FencingEpoch, "chunk_count": row.ChunkCount, "created_at": row.CreatedAt,
+			"activated_at": row.ActivatedAt})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
 func (g *Handler) lockVersion(ctx context.Context, id int64, shops []string) (shop, key, hash string, fence int64, state, review string, err error) {
-	err = g.DB.QueryRow(ctx, `SELECT s.shop_id,d.logical_key,v.source_hash,v.fencing_epoch,v.status,v.review_status FROM document_version v
-		JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND v.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`, g.Session.TenantID, id, shops).Scan(&shop, &key, &hash, &fence, &state, &review)
+	var scopeRow VersionScopeRow
+	scopeRow, err = adminStore.VersionScope(ctx, g.DB, g.Session.TenantID, id, shops)
+	shop, key, hash, fence, state, review = scopeRow.ShopID, scopeRow.DocumentID, scopeRow.SourceHash,
+		scopeRow.FencingEpoch, scopeRow.Status, scopeRow.ReviewStatus
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = pgx.ErrNoRows
 	}
