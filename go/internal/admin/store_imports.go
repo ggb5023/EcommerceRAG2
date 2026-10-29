@@ -480,7 +480,7 @@ type JobDetailRow struct {
 	Stage           string
 	ShopID          string
 	ManifestHash    string
-	DatasetHash     string
+	DatasetHash     *string
 	FencingEpoch    int64
 	CancelRequested bool
 	LeaseExpiresAt  *time.Time
