@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +59,13 @@ func integrationValues(t *testing.T) map[string]string {
 
 func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Pool, string, *Handler) {
 	t.Helper()
+	return integrationHandlerWithIngest(t, true)
+}
+
+// integrationHandlerWithIngest builds the handler; the ingest endpoint is only
+// required by tests that actually queue a job through it.
+func integrationHandlerWithIngest(t *testing.T, requireIngest bool) (http.Handler, *pgxpool.Pool, *pgxpool.Pool, string, *Handler) {
+	t.Helper()
 	values := integrationValues(t)
 	ctx := context.Background()
 	migration, err := pgxpool.New(ctx, values["V2_MIGRATION_DSN"])
@@ -97,7 +105,24 @@ func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Poo
 		t.Fatal("scope signing key unavailable")
 	}
 	authority := &auth.Authority{DB: gateway, Session: session, SigningKey: key, RevisionMu: &sync.RWMutex{}}
-	conn, err := grpc.NewClient(values["V2_INGEST_GRPC_ADDR"], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ingestAddr := strings.TrimSpace(os.Getenv("V2_INTEGRATION_INGEST_ADDR"))
+	if ingestAddr == "" {
+		ingestAddr = strings.TrimSpace(values["V2_INGEST_GRPC_ADDR"])
+	}
+	if ingestAddr == "" && requireIngest {
+		t.Skip("ingest endpoint unavailable: not configured")
+	}
+	if ingestAddr == "" {
+		ingestAddr = "127.0.0.1:1"
+	}
+	if requireIngest {
+		probe, probeErr := net.DialTimeout("tcp", ingestAddr, 2*time.Second)
+		if probeErr != nil {
+			t.Skipf("ingest endpoint unavailable: %s", ingestAddr)
+		}
+		_ = probe.Close()
+	}
+	conn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,4 +391,28 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 	_ = gateway
 	_ = sha256.Sum256
 	_ = hex.EncodeToString
+}
+
+func readManifest(t *testing.T, root string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "manifest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// apiStatus performs a request and returns the raw status and body.
+func apiStatus(t *testing.T, api http.Handler, method, path string, body any) (int, string) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		reader = bytes.NewReader(raw)
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	api.ServeHTTP(recorder, request)
+	return recorder.Code, recorder.Body.String()
 }

@@ -37,28 +37,14 @@ func (g *Handler) adminUsage(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_range", "range must be session, today or all")
 		return
 	}
-	query := `SELECT slot,model,coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),count(*),
-		count(*) FILTER (WHERE error_code IS NOT NULL) FROM usage_log WHERE tenant_id=$1`
-	args := []any{g.Session.TenantID}
-	if since != nil {
-		query += " AND created_at >= $2"
-		args = append(args, *since)
-	}
-	query += " GROUP BY slot,model ORDER BY slot,model"
-	rows, err := g.DB.Query(r.Context(), query, args...)
+	rows, err := adminStore.UsageSlots(r.Context(), g.DB, g.Session.TenantID, since)
 	if err != nil {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "usage_unavailable", "usage unavailable")
 		return
 	}
-	defer rows.Close()
 	bySlot, byModel := []usageRow{}, []usageRow{}
 	var input, output, calls, failed int64
-	for rows.Next() {
-		var row usageRow
-		if err := rows.Scan(&row.Slot, &row.Model, &row.InputTokens, &row.OutputTokens, &row.Calls, &row.FailedCalls); err != nil {
-			httpapi.WriteError(w, http.StatusServiceUnavailable, "usage_unavailable", "usage unavailable")
-			return
-		}
+	for _, row := range rows {
 		input += row.InputTokens
 		output += row.OutputTokens
 		calls += row.Calls
@@ -79,10 +65,6 @@ func (g *Handler) adminUsage(w http.ResponseWriter, r *http.Request) {
 		byModel[j].OutputTokens += row.OutputTokens
 		byModel[j].Calls += row.Calls
 		byModel[j].FailedCalls += row.FailedCalls
-	}
-	if err := rows.Err(); err != nil {
-		httpapi.WriteError(w, http.StatusServiceUnavailable, "usage_unavailable", "usage unavailable")
-		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"input_tokens": input, "output_tokens": output, "calls": calls, "failed_calls": failed, "by_slot": bySlot, "by_model": byModel})
 }

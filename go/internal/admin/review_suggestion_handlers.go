@@ -57,18 +57,14 @@ func (g *Handler) adminCreateReviewSuggestion(w http.ResponseWriter, r *http.Req
 		httpapi.WriteError(w, 400, "invalid_business_date", "business_date must be an ISO date")
 		return
 	}
-	var sourceHash, disclosure, versionStatus, reviewStatus, shop string
-	var meta []byte
-	err = g.DB.QueryRow(r.Context(), `SELECT v.source_hash,v.disclosure_class,v.status,v.review_status,
-		d.meta_json,s.shop_id FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		WHERE v.tenant_id=$1 AND v.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
-		g.Session.TenantID, id, scope.shops).Scan(&sourceHash, &disclosure, &versionStatus, &reviewStatus, &meta, &shop)
+	material, err := adminStore.ReviewMaterial(r.Context(), g.DB, g.Session.TenantID, id, scope.shops)
+	sourceHash, disclosure := material.SourceHash, material.Disclosure
+	meta := material.Meta
 	if err != nil {
 		httpapi.WriteError(w, 404, "not_found", "version not found")
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT 'db-chunk-'||id,chunk_hash,effective_from,effective_to FROM chunk WHERE tenant_id=$1 AND version_id=$2 ORDER BY chunk_index`, g.Session.TenantID, id)
+	rows, err := adminStore.VersionChunks(r.Context(), g.DB, g.Session.TenantID, id)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "review material is unavailable")
 		return
@@ -76,25 +72,21 @@ func (g *Handler) adminCreateReviewSuggestion(w http.ResponseWriter, r *http.Req
 	chunks := make([]ReviewChunk, 0)
 	evidence := make([]ReviewEvidence, 0)
 	var effectiveFrom, effectiveTo *time.Time
-	for rows.Next() {
-		var chunkID, hash string
-		var chunkFrom, chunkTo *time.Time
-		if rows.Scan(&chunkID, &hash, &chunkFrom, &chunkTo) == nil {
-			chunks = append(chunks, ReviewChunk{ID: chunkID, Hash: hash, DisclosureClass: disclosure})
-			evidence = append(evidence, ReviewEvidence{ChunkID: chunkID, Hash: hash})
-			if chunkFrom != nil && (effectiveFrom == nil || chunkFrom.Before(*effectiveFrom)) {
-				effectiveFrom = chunkFrom
-			}
-			if chunkTo == nil {
-				effectiveTo = nil
-			} else if effectiveTo != nil && chunkTo.After(*effectiveTo) {
-				effectiveTo = chunkTo
-			} else if effectiveTo == nil && chunkFrom != nil {
-				effectiveTo = chunkTo
-			}
+	for _, row := range rows {
+		chunkID, hash, chunkFrom, chunkTo := row.ChunkID, row.ChunkHash, row.EffectiveFrom, row.EffectiveTo
+		chunks = append(chunks, ReviewChunk{ID: chunkID, Hash: hash, DisclosureClass: disclosure})
+		evidence = append(evidence, ReviewEvidence{ChunkID: chunkID, Hash: hash})
+		if chunkFrom != nil && (effectiveFrom == nil || chunkFrom.Before(*effectiveFrom)) {
+			effectiveFrom = chunkFrom
+		}
+		if chunkTo == nil {
+			effectiveTo = nil
+		} else if effectiveTo != nil && chunkTo.After(*effectiveTo) {
+			effectiveTo = chunkTo
+		} else if effectiveTo == nil && chunkFrom != nil {
+			effectiveTo = chunkTo
 		}
 	}
-	rows.Close()
 	var authorization ReviewAuthorization
 	var metadata map[string]any
 	_ = json.Unmarshal(meta, &metadata)
@@ -111,17 +103,14 @@ func (g *Handler) adminCreateReviewSuggestion(w http.ResponseWriter, r *http.Req
 		"chunks": chunks, "authorization": authorization, "rules_version": reviewSuggestionRulesVersion})
 	attestation := hashJSON(map[string]any{"input": inputHash, "decision": result.Decision, "reasons": result.Reasons,
 		"evidence": result.EvidenceChunkIDs, "model": "local-rules-v1"})
-	var suggestionID int64
-	var created time.Time
-	err = g.DB.QueryRow(r.Context(), `INSERT INTO review_suggestion(tenant_id,version_id,content_hash,business_date,
-		agent_rules_version,decision,reasons,evidence_chunk_ids,agent_model_id,agent_attestation_sha256,agent_input_sha256)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,'local-rules-v1',$9,$10)
-		ON CONFLICT (tenant_id,version_id,content_hash,agent_rules_version) DO NOTHING
-		RETURNING id,created_at`, g.Session.TenantID, id, sourceHash, in.BusinessDate, reviewSuggestionRulesVersion,
-		result.Decision, reasons, result.EvidenceChunkIDs, attestation, inputHash).Scan(&suggestionID, &created)
+	suggestionID, created, err := adminStore.InsertSuggestion(r.Context(), g.DB, SuggestionRecord{
+		TenantID: g.Session.TenantID, VersionID: id, ContentHash: sourceHash, BusinessDate: in.BusinessDate,
+		RulesVersion: reviewSuggestionRulesVersion, Decision: result.Decision, Reasons: reasons,
+		EvidenceChunks: result.EvidenceChunkIDs, Attestation: attestation, InputHash: inputHash,
+	})
 	if err == pgx.ErrNoRows {
-		err = g.DB.QueryRow(r.Context(), `SELECT id,created_at FROM review_suggestion WHERE tenant_id=$1 AND version_id=$2
-			AND content_hash=$3 AND agent_rules_version=$4`, g.Session.TenantID, id, sourceHash, reviewSuggestionRulesVersion).Scan(&suggestionID, &created)
+		suggestionID, created, err = adminStore.SuggestionByHash(r.Context(), g.DB, g.Session.TenantID, id,
+			sourceHash, reviewSuggestionRulesVersion)
 	}
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "review suggestion is unavailable")
@@ -159,14 +148,10 @@ func (g *Handler) adminBatchApproveSuggestions(w http.ResponseWriter, r *http.Re
 			results = append(results, result)
 			continue
 		}
-		var contentHash, decision, sourceHash, versionStatus, reviewStatus, disclosure, shop string
-		var fence int64
-		err := g.DB.QueryRow(r.Context(), `SELECT rs.content_hash,rs.decision,v.source_hash,v.status,v.review_status,v.disclosure_class,v.fencing_epoch,s.shop_id
-			FROM review_suggestion rs JOIN document_version v ON v.tenant_id=rs.tenant_id AND v.id=rs.version_id
-			JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-			JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-			WHERE rs.tenant_id=$1 AND rs.id=$2 AND rs.version_id=$3 AND s.shop_id=ANY($4::text[])`,
-			g.Session.TenantID, suggestionID, versionID, scope.shops).Scan(&contentHash, &decision, &sourceHash, &versionStatus, &reviewStatus, &disclosure, &fence, &shop)
+		target, err := adminStore.BatchSuggestionTarget(r.Context(), g.DB, g.Session.TenantID, suggestionID, versionID, scope.shops)
+		contentHash, decision, sourceHash, versionStatus, reviewStatus, disclosure, fence, shop :=
+			target.ContentHash, target.Decision, target.SourceHash, target.VersionStatus, target.ReviewStatus,
+			target.Disclosure, target.FencingEpoch, target.ShopID
 		if err != nil {
 			result.Code = "suggestion_not_found"
 			results = append(results, result)
@@ -206,14 +191,13 @@ func (g *Handler) adminBatchApproveSuggestions(w http.ResponseWriter, r *http.Re
 			allOK = false
 		}
 	}
-	if _, err := g.DB.Exec(r.Context(), `INSERT INTO admin_audit(tenant_id,actor_user_id,action,resource_type,resource_id,reason,result,metadata_json)
-		VALUES($1,$2,'review_suggestion.batch_approve','review_suggestion',$3,$4,$5,jsonb_build_object('items',$6::jsonb))`,
-		g.Session.TenantID, g.Session.UserID, "batch", strings.TrimSpace(in.Reason), func() string {
+	if err := adminStore.RecordBatchAudit(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID,
+		strings.TrimSpace(in.Reason), func() string {
 			if allOK {
 				return "success"
 			}
 			return "conflict"
-		}(), toJSON(results)); err != nil {
+		}(), []byte(toJSON(results))); err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "batch audit is unavailable")
 		return
 	}

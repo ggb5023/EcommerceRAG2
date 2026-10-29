@@ -47,6 +47,9 @@
 | `ingest_not_authorized` | 403 | 否 | 没有资料导入权限 | `admin/queue_failure.go:queueFailureResponse`（gRPC `PERMISSION_DENIED`，含 `IngestAuthorizationError`），cause=`permission_denied` |
 | `ingest_schema_incomplete` | 500 | 否 | 资料服务未就绪，请联系管理员 | `admin/queue_failure.go:queueFailureResponse`（gRPC `FAILED_PRECONDITION`，由 Python `IngestSchemaIncompleteError` 映射），cause=`migration_incomplete` |
 | `ingest_queue_failed` | 503 / 500 | 是 | 资料排队失败，请稍后重试 | `admin/queue_failure.go:queueFailureResponse`（`UNAVAILABLE` → 503，其余 → 500），cause=出错类别（gRPC 码名或 Go 类型名，**不含 message**） |
+| `batch_already_confirming` | 409 | 否 | 该批次正在确认中，请稍后刷新查看 | `admin/store_imports.go:ClaimBatchForConfirm`（status 抢占失败，并发 confirm） |
+| `confirm_queue_failed` | 503 / 500 | 是 | 排队失败，请重试 | `admin/imports.go:adminConfirmImport`（排队失败后批次回补 `staged` 并写 `confirm_queue_failed` 审计），HTTP 状态沿用 `queueFailureResponse` |
+| `confirm_settle_failed` | 500 | 否 | 确认未能落定，请联系管理员 | `admin/store_imports.go:SettleConfirmSuccess`（status 已不是 `confirming`，多为超时回收抢占） |
 | `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `admin/import.go:adminImport`、`admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
 
 ## 维护规则

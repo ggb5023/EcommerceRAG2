@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -92,15 +91,13 @@ func (g *Handler) adminCreateStaff(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	var existing int64
-	err = tx.QueryRow(r.Context(), `SELECT id FROM app_user WHERE tenant_id=$1 AND external_id=$2`,
-		scope.TenantID, in.Username).Scan(&existing)
-	if err == nil {
-		httpapi.WriteError(w, http.StatusConflict, "username_exists", "an account with this username already exists")
+	exists, err := adminStore.AccountExists(r.Context(), tx, scope.TenantID, in.Username)
+	if err != nil {
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "staff_create_failed", "could not check the username")
 		return
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, http.StatusServiceUnavailable, "staff_create_failed", "could not check the username")
+	if exists {
+		httpapi.WriteError(w, http.StatusConflict, "username_exists", "an account with this username already exists")
 		return
 	}
 
@@ -118,16 +115,14 @@ func (g *Handler) adminCreateStaff(w http.ResponseWriter, r *http.Request) {
 	canonical, _ := json.Marshal(map[string]any{"tenant_id": scope.TenantID, "user_id": userID,
 		"role": in.Role, "scope_kind": "shops", "shop_ids": shops, "reason": in.Reason})
 	sum := sha256.Sum256(canonical)
-	var requestID int64
-	if err = tx.QueryRow(r.Context(), `INSERT INTO admin_permission_request(tenant_id,requested_by,role,scope_kind,shop_ids,reason,payload_hash)
-		VALUES($1,$2,$3,'shops',$4,$5,$6) RETURNING id`, scope.TenantID, userID, in.Role, shops,
-		in.Reason, hex.EncodeToString(sum[:])).Scan(&requestID); err != nil {
+	requestID, err := adminStore.CreateStaffPermissionRequest(r.Context(), tx, scope.TenantID, userID,
+		in.Role, shops, in.Reason, hex.EncodeToString(sum[:]))
+	if err != nil {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "staff_create_failed", "could not create the permission request")
 		return
 	}
-	var grantID int64
-	if err = tx.QueryRow(r.Context(), `SELECT ecr_issue_admin_grant($1,$2,$3,'shops',$4,$5,$6,$7)`,
-		scope.TenantID, userID, in.Role, shops, scope.UserID, requestID, in.Reason).Scan(&grantID); err != nil {
+	if _, err = adminStore.IssueStaffGrant(r.Context(), tx, scope.TenantID, userID, in.Role, shops,
+		scope.UserID, requestID, in.Reason); err != nil {
 		httpapi.WriteError(w, http.StatusConflict, "role_not_grantable", "the administrative grant was refused")
 		return
 	}

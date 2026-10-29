@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
@@ -24,53 +23,24 @@ func (g *Handler) adminReviews(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_suggestion_filter", "suggestion filter is invalid")
 		return
 	}
-	rows, err := g.DB.Query(r.Context(), `SELECT v.id,d.logical_key,d.title,s.shop_id,v.source_hash,v.status,v.Disclosure_class,
-		v.external_allowed,v.review_status,v.reviewed_hash,v.fencing_epoch,v.chunk_count,v.pipeline_version,v.quality_json,v.created_at,
-		j.id,COALESCE(j.stage,''),COALESCE(sug.id,0),COALESCE(sug.decision,''),COALESCE(sug.reasons,'[]'::jsonb),COALESCE(sug.evidence_chunk_ids,'{}'::text[]),COALESCE(sug.created_at,to_timestamp(0))
-		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		LEFT JOIN ingest_job_item i ON i.tenant_id=v.tenant_id AND i.document_version_id=v.id
-		LEFT JOIN ingest_job j ON j.tenant_id=i.tenant_id AND j.id=i.job_id
-		LEFT JOIN LATERAL (SELECT id,decision,reasons,evidence_chunk_ids,created_at FROM review_suggestion rs
-			WHERE rs.tenant_id=v.tenant_id AND rs.version_id=v.id AND rs.content_hash=v.source_hash
-			ORDER BY rs.created_at DESC,rs.id DESC LIMIT 1) sug ON true
-		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
-		AND ($3='' OR sug.decision=$3)
-		ORDER BY v.created_at DESC LIMIT 300`, g.Session.TenantID, scope.shops, suggestion)
+	queue, err := adminStore.ReviewQueue(r.Context(), g.DB, g.Session.TenantID, scope.shops, suggestion)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load review queue")
 		return
 	}
-	defer rows.Close()
-	items := make([]map[string]any, 0)
-	for rows.Next() {
-		var id int64
-		var jobID *int64
-		var key, title, shop, hash, state, disclosure, reviewState, pipeline, stage string
-		var external bool
-		var reviewedHash *string
-		var fence int64
-		var chunks *int32
-		var created time.Time
-		var quality []byte
-		var suggestionID int64
-		var suggestionDecision string
-		var suggestionReasons []byte
-		var suggestionEvidence []string
-		var suggestionCreated time.Time
-		if rows.Scan(&id, &key, &title, &shop, &hash, &state, &disclosure, &external, &reviewState, &reviewedHash, &fence, &chunks, &pipeline, &quality, &created, &jobID, &stage,
-			&suggestionID, &suggestionDecision, &suggestionReasons, &suggestionEvidence, &suggestionCreated) != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load review queue")
-			return
-		}
-		item := map[string]any{"version_id": strconv.FormatInt(id, 10), "document_id": key, "title": title, "shop_id": shop,
-			"source_hash": hash, "status": state, "disclosure_class": disclosure, "external_allowed": external, "review_status": reviewState,
-			"reviewed_hash": reviewedHash, "fencing_epoch": fence, "chunk_count": chunks, "pipeline_version": pipeline,
-			"quality": json.RawMessage(quality), "created_at": created,
-			"job_id": jobID, "stage": stage}
-		if suggestionID != 0 {
-			item["suggestion"] = map[string]any{"id": strconv.FormatInt(suggestionID, 10), "decision": suggestionDecision, "reasons": json.RawMessage(suggestionReasons),
-				"evidence_chunk_ids": suggestionEvidence, "created_at": suggestionCreated}
+	items := make([]map[string]any, 0, len(queue))
+	for _, row := range queue {
+		item := map[string]any{"version_id": strconv.FormatInt(row.VersionID, 10), "document_id": row.DocumentID,
+			"title": row.Title, "shop_id": row.ShopID, "source_hash": row.SourceHash, "status": row.Status,
+			"disclosure_class": row.DisclosureClass, "external_allowed": row.ExternalAllowed,
+			"review_status": row.ReviewStatus, "reviewed_hash": row.ReviewedHash, "fencing_epoch": row.FencingEpoch,
+			"chunk_count": row.ChunkCount, "pipeline_version": row.PipelineVersion,
+			"quality": json.RawMessage(row.Quality), "created_at": row.CreatedAt,
+			"job_id": row.JobID, "stage": row.Stage}
+		if row.SuggestionID != 0 {
+			item["suggestion"] = map[string]any{"id": strconv.FormatInt(row.SuggestionID, 10),
+				"decision": row.SuggestionDecision, "reasons": json.RawMessage(row.SuggestionReasons),
+				"evidence_chunk_ids": row.SuggestionEvidence, "created_at": row.SuggestionCreated}
 		}
 		items = append(items, item)
 	}
@@ -87,22 +57,7 @@ func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 404, "not_found", "version not found")
 		return
 	}
-	var data map[string]any
-	err = g.DB.QueryRow(r.Context(), `SELECT jsonb_build_object('version_id',v.id::text,'document_id',d.logical_key,'title',d.title,
-		'shop_id',s.shop_id,'source_hash',v.source_hash,'status',v.status,'disclosure_class',v.Disclosure_class,
-		'external_allowed',v.external_allowed,'review_status',v.review_status,'reviewed_hash',v.reviewed_hash,
-		'fencing_epoch',v.fencing_epoch,'chunk_count',v.chunk_count,'quality',v.quality_json,
-		'content',COALESCE((SELECT jsonb_agg(jsonb_build_object('chunk_index',c.chunk_index,'content',c.content,
-			'chunk_id','db-chunk-'||c.id::text,'heading_path',c.heading_path,'content_type',c.content_type,
-			'split_reason',c.split_reason,'source_position',c.meta_json->'source_position',
-			'char_start',c.char_start,'char_end',c.char_end,'warning',c.meta_json->'warning',
-			'table_body',c.meta_json->'table_body','table_caption',c.meta_json->'table_caption') ORDER BY c.chunk_index)
-			FROM chunk c WHERE c.tenant_id=v.tenant_id AND c.version_id=v.id),'[]'::jsonb),'path',sf.relative_path,'media_type',sf.media_type)
-		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
-		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
-		LEFT JOIN source_file sf ON sf.tenant_id=v.tenant_id AND sf.source_manifest_id=v.source_manifest_id AND sf.document_id=d.logical_key
-		WHERE v.tenant_id=$1 AND v.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
-		g.Session.TenantID, id, scope.shops).Scan(&data)
+	raw, err := adminStore.ReviewDetail(r.Context(), g.DB, g.Session.TenantID, id, scope.shops)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.WriteError(w, 404, "not_found", "version not found")
 		return
@@ -111,17 +66,19 @@ func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "database_unavailable", "review material is unavailable")
 		return
 	}
+	var data map[string]any
+	if err = json.Unmarshal(raw, &data); err != nil {
+		httpapi.WriteError(w, 503, "review_content_unavailable", "review material is unavailable")
+		return
+	}
 	content, err := projectReviewContent(data["content"])
 	if err != nil {
 		httpapi.WriteError(w, 503, "review_content_unavailable", "review material is unavailable")
 		return
 	}
 	data["content"] = content
-	var suggestionJSON []byte
-	_ = g.DB.QueryRow(r.Context(), `SELECT jsonb_build_object('decision',decision,'reasons',reasons,
-		'evidence_chunk_ids',evidence_chunk_ids,'created_at',created_at)
-		FROM review_suggestion WHERE tenant_id=$1 AND version_id=$2 AND content_hash=$3
-		ORDER BY created_at DESC,id DESC LIMIT 1`, g.Session.TenantID, id, data["source_hash"]).Scan(&suggestionJSON)
+	suggestionJSON, _ := adminStore.LatestSuggestion(r.Context(), g.DB, g.Session.TenantID, id,
+		strings.TrimSpace(data["source_hash"].(string)))
 	if suggestionJSON != nil {
 		data["suggestion"] = json.RawMessage(suggestionJSON)
 	}

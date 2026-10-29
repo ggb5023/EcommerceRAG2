@@ -84,15 +84,13 @@ func (g *Handler) adminCommandResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	var shop, action string
-	err := g.DB.QueryRow(r.Context(), `SELECT shop_id,action FROM control_command WHERE tenant_id=$1 AND actor_user_id=$2 AND command_id=$3`, g.Session.TenantID, g.Session.UserID, id).Scan(&shop, &action)
+	outcome, err := adminStore.ControlCommandResult(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id)
+	shop, action := outcome.ShopID, outcome.Action
 	if errors.Is(err, pgx.ErrNoRows) {
 		if _, parseErr := strconv.ParseInt(id, 10, 64); parseErr == nil {
 			var state, stage, errorCode, shopID string
-			if jobErr := g.DB.QueryRow(r.Context(), `SELECT j.status,j.stage,COALESCE(j.error_code,''),s.shop_id
-				FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
-				WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[])`, g.Session.TenantID, id, g.Session.AllowedShops).
-				Scan(&state, &stage, &errorCode, &shopID); jobErr == nil {
+			if job, jobErr := adminStore.IngestJobFallback(r.Context(), g.DB, g.Session.TenantID, id, g.Session.AllowedShops); jobErr == nil {
+				state, stage, errorCode, shopID = job.Status, job.Stage, job.ErrorCode, job.ShopID
 				httpapi.WriteJSON(w, 200, map[string]any{"command_id": id, "command_status": state, "state": state,
 					"stage": stage, "error_code": errorCode, "shop_id": shopID})
 				return
@@ -155,8 +153,7 @@ func (g *Handler) adminJobCommand(w http.ResponseWriter, r *http.Request, action
 		httpapi.WriteError(w, 409, "confirmation_conflict", "job confirmation changed")
 		return
 	}
-	var shop string
-	err = g.DB.QueryRow(r.Context(), `SELECT s.shop_id FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[])`, g.Session.TenantID, id, scope.shops).Scan(&shop)
+	shop, err := adminStore.IngestJobShop(r.Context(), g.DB, g.Session.TenantID, strconv.FormatInt(id, 10), scope.shops)
 	if err != nil {
 		g.writeVersionError(w, err)
 		return

@@ -339,6 +339,10 @@ count=$(grep -rho 'waitForTimeout' frontend/tests/*.browser.mjs | wc -l)
 - 每个 `frontend/tests/*.browser.mjs` 在文件头声明所需前置（env 键、端口、目录），
   `check.sh --e2e` 读取声明：缺失 → `UNCONFIGURED` 并打印**缺哪一项**，不进入用例。
 - 起独立栈：mock 26081 / 26063 + 独立 Vite 5174 + 独立 accept 库，不得触碰 dev 栈与 `ecr_v2_dev_local`。
+- **`internal/admin` 的 import batch 集成用例前置 ingest gRPC**：`V2_INTEGRATION_INGEST_ADDR`
+  （缺省回落到集成 env 里的 `V2_INGEST_GRPC_ADDR`）。未配置或 connect 失败 → 用例 `SKIP` 并打印
+  `ingest endpoint unavailable: <addr>`，不进入用例；该端点必须服务集成库（`test-integration.env` 的 DSN），
+  指向 dev 栈的 ingest（50053）会因未知租户被拒（403 `ingest_not_authorized`）。
 - 目标：`e2e-v2-lifecycle`、`e2e-login` 至少真跑通；其余用例按声明逐步补齐。
 
 ### 5.4 覆盖率实装

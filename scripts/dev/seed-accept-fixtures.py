@@ -214,19 +214,23 @@ def main() -> int:
         return fail(f"import confirm failed: {status} {confirmed}")
     print(f"CONFIRMED batch={batch} job={confirmed.get('job_id')}")
 
+    document_ids = {args.document_id} if args.from_corpus else {document["document_id"] for document in selected}
     deadline = time.time() + args.timeout
-    pending = existing
+    # Wait for *our* documents, not for any pending row: other imports may already
+    # sit in the queue and would satisfy a global count immediately.
     while time.time() < deadline:
-        pending = pending_count(base, headers)
-        if pending >= args.count:
-            break
+        status, reviews = call(base, "/admin/v1/merchant/reviews", headers)
+        if status == 200:
+            waiting = [item for item in reviews.get("items", [])
+                       if item.get("document_id") in document_ids and item.get("review_status") == "pending"]
+            if len(waiting) >= args.count:
+                print(f"PASS pending versions for {sorted(document_ids)}: {len(waiting)} (wanted {args.count})")
+                break
         time.sleep(3)
     else:
-        return fail(f"review queue still has {pending} pending version(s), wanted {args.count}")
-    print(f"PASS pending versions in the review queue: {pending} (wanted {args.count})")
+        return fail(f"no pending version for {sorted(document_ids)} after {args.timeout}s")
     if not args.publish:
         return 0
-    document_ids = {args.document_id} if args.from_corpus else {document["document_id"] for document in selected}
     return publish_pending(base, headers, document_ids, args.timeout)
 
 
