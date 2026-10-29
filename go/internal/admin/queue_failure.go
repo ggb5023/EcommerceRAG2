@@ -5,40 +5,40 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// queueFailureResponse maps an ingestion queue error to a status, a stable code
-// and a short cause identifier.
+// conflictMessage is actionable: the merchant must pick a new identity or clean
+// up the owning source first.
+const conflictMessage = "该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源"
+
+// queueFailureResponse maps an ingestion queue error to a status, a stable code,
+// a merchant-facing message and a short cause identifier.
 //
-// The cause is deliberately coarse: it is an error type name or a gRPC status
-// code, never a message. SQL, DSNs, file paths and credentials must not reach the
-// response body.
-func queueFailureResponse(err error) (statusCode int, code, cause string) {
+// The mapping reads the gRPC code only. Error messages are never inspected: they
+// can carry SQL, DSNs, file paths or credentials, so the cause stays coarse (a
+// status code name or a Go type name).
+func queueFailureResponse(err error) (statusCode int, code, message, cause string) {
 	var conflict *adminConflictError
 	switch {
 	case errors.As(err, &conflict):
-		return http.StatusConflict, "version_conflict", "conflict"
+		return http.StatusConflict, "version_conflict", conflictMessage, "conflict"
 	case status.Code(err) == codes.AlreadyExists:
-		// The confirm path can hit IngestConflictError too (document id owned by
+		// The confirm path reaches IngestConflictError too (a document id owned by
 		// another source); it must not look like a transient queue failure.
-		return http.StatusConflict, "version_conflict", "conflict"
+		return http.StatusConflict, "version_conflict", conflictMessage, "conflict"
 	case status.Code(err) == codes.PermissionDenied:
-		return http.StatusForbidden, "ingest_not_authorized", "permission_denied"
-	case isSchemaIncomplete(err):
-		return http.StatusInternalServerError, "ingest_schema_incomplete", "migration_incomplete"
+		return http.StatusForbidden, "ingest_not_authorized", "package could not be queued", "permission_denied"
+	case status.Code(err) == codes.FailedPrecondition:
+		return http.StatusInternalServerError, "ingest_schema_incomplete", "package could not be queued", "migration_incomplete"
+	case status.Code(err) == codes.Unavailable:
+		return http.StatusServiceUnavailable, "ingest_queue_failed", "package could not be queued", "Unavailable"
 	default:
-		return http.StatusInternalServerError, "ingest_queue_failed", queueCause(err)
+		return http.StatusInternalServerError, "ingest_queue_failed", "package could not be queued", queueCause(err)
 	}
-}
-
-// isSchemaIncomplete detects the migration guard without echoing the message.
-func isSchemaIncomplete(err error) bool {
-	return strings.Contains(strings.ToLower(status.Convert(err).Message()), "migration")
 }
 
 // queueCause returns a short identifier for the error class.
@@ -57,6 +57,6 @@ func queueCause(err error) string {
 
 // writeQueueFailure renders the mapping above.
 func writeQueueFailure(w http.ResponseWriter, err error) {
-	statusCode, code, cause := queueFailureResponse(err)
-	httpapi.WriteErrorCause(w, statusCode, code, "package could not be queued", cause)
+	statusCode, code, message, cause := queueFailureResponse(err)
+	httpapi.WriteErrorCause(w, statusCode, code, message, cause)
 }

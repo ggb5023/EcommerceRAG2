@@ -10,6 +10,7 @@ from app.ingest.database import (
     IngestAuthorizationError,
     IngestConflictError,
     IngestDatabase,
+    IngestSchemaIncompleteError,
     package_payload_hash,
 )
 from app.ingest.package_validation import _inspect_package
@@ -123,6 +124,8 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             )
         except IngestConflictError as error:
             context.abort(grpc.StatusCode.ALREADY_EXISTS, str(error))
+        except IngestSchemaIncompleteError:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "ingest schema incomplete")
         except IngestAuthorizationError as error:
             context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
         except ValueError as error:
@@ -171,6 +174,8 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             result = self.commands.execute(request)
         except IngestConflictError as error:
             context.abort(grpc.StatusCode.ALREADY_EXISTS, str(error))
+        except IngestSchemaIncompleteError:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "ingest schema incomplete")
         except IngestAuthorizationError as error:
             context.abort(grpc.StatusCode.PERMISSION_DENIED, str(error))
         except ValueError as error:

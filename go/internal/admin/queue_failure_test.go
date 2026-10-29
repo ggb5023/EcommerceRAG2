@@ -22,16 +22,16 @@ func TestQueueFailureMapsByCause(t *testing.T) {
 	}{
 		{"authorization", status.Error(codes.PermissionDenied, "ingest_not_authorized"),
 			http.StatusForbidden, "ingest_not_authorized", "permission_denied"},
-		{"migration", status.Error(codes.Unavailable, "v2 ingestion schema migration is incomplete"),
+		{"schema", status.Error(codes.FailedPrecondition, "ingest schema incomplete"),
 			http.StatusInternalServerError, "ingest_schema_incomplete", "migration_incomplete"},
-		{"queue", status.Error(codes.Unavailable, "ingestion persistence failed"),
-			http.StatusInternalServerError, "ingest_queue_failed", "Unavailable"},
-		{"plain", errors.New("connection refused"),
-			http.StatusInternalServerError, "ingest_queue_failed", "*errors.errorString"},
-		{"conflict", &adminConflictError{message: "idempotency key was reused"},
-			http.StatusConflict, "version_conflict", "conflict"},
+		{"transient", status.Error(codes.Unavailable, "ingestion persistence failed"),
+			http.StatusServiceUnavailable, "ingest_queue_failed", "Unavailable"},
 		{"document-owned", status.Error(codes.AlreadyExists, "document identifier is owned by another source"),
 			http.StatusConflict, "version_conflict", "conflict"},
+		{"conflict", &adminConflictError{message: "idempotency key was reused"},
+			http.StatusConflict, "version_conflict", "conflict"},
+		{"plain", errors.New("connection refused"),
+			http.StatusInternalServerError, "ingest_queue_failed", "*errors.errorString"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -51,6 +51,31 @@ func TestQueueFailureMapsByCause(t *testing.T) {
 				t.Fatalf("cause = %v, want %s", body["cause"], testCase.wantCause)
 			}
 		})
+	}
+}
+
+// The mapping must read the gRPC code only: a message that happens to mention
+// migrations must not turn a transient failure into a schema error.
+func TestQueueFailureIgnoresMessageText(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeQueueFailure(recorder, status.Error(codes.Unavailable, "v2 ingestion schema migration is incomplete"))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d (message must not change the mapping)", recorder.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"ingest_queue_failed"`) {
+		t.Fatalf("code changed by the message: %s", recorder.Body.String())
+	}
+}
+
+// The conflict message has to be actionable: pick a new identifier or clean up
+// the owning source first.
+func TestQueueFailureConflictMessageIsActionable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeQueueFailure(recorder, status.Error(codes.AlreadyExists, "document identifier is owned by another source"))
+	for _, want := range []string{"新的标识", "撤回后先清理来源"} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("message lost %q: %s", want, recorder.Body.String())
+		}
 	}
 }
 

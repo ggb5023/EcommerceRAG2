@@ -21,6 +21,10 @@ class IngestConflictError(RuntimeError):
     """The idempotency key was reused with a different package."""
 
 
+class IngestSchemaIncompleteError(RuntimeError):
+    """The ingestion schema is behind the code; retrying cannot help."""
+
+
 class IngestAuthorizationError(PermissionError):
     """The supplied identity is not valid for the requested shop."""
 
@@ -109,7 +113,7 @@ class IngestDatabase:
             )
             migrations = {row[0] for row in cursor.fetchall()}
         if not required.issubset(found) or not {"0010", "0013", "0022", "0023"}.issubset(migrations):
-            raise RuntimeError("v2 ingestion schema migration is incomplete")
+            raise IngestSchemaIncompleteError("ingest schema incomplete")
 
     @staticmethod
     def _validate_scope(
