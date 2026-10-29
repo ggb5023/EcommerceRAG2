@@ -526,10 +526,10 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var id int64
-	err = tx.QueryRow(r.Context(), `INSERT INTO admin_permission_request(tenant_id,requested_by,role,scope_kind,shop_ids,reason,payload_hash)
-		VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, g.Session.TenantID, g.Session.UserID,
-		in.Role, in.Scope, in.Shops, strings.TrimSpace(in.Reason), hex.EncodeToString(sum[:])).Scan(&id)
+	id, err := adminStore.CreatePermissionRequest(r.Context(), tx, PermissionRequest{
+		TenantID: g.Session.TenantID, RequestedBy: g.Session.UserID, Role: in.Role, ScopeKind: in.Scope,
+		ShopIDs: in.Shops, Reason: strings.TrimSpace(in.Reason), PayloadHash: hex.EncodeToString(sum[:]),
+	})
 	if err != nil {
 		httpapi.WriteError(w, 503, "request_create_failed", "could not create permission request")
 		return
@@ -590,15 +590,15 @@ func (g *Handler) adminDecideRequest(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 403, "admin_scope_denied", "request scope is outside the current administrative grant")
 		return
 	}
-	if in.Decision == "approved" {
-		if _, err = tx.Exec(r.Context(), `SELECT ecr_issue_admin_grant($1,$2,$3,$4,$5,$6,$7,$8)`,
-			g.Session.TenantID, targetUser, role, scopeKind, shops, g.Session.UserID, requestID, strings.TrimSpace(in.Reason)); err != nil {
+	if _, err = adminStore.DecidePermissionRequest(r.Context(), tx, PermissionDecision{
+		TenantID: g.Session.TenantID, RequestID: requestID, ActorID: g.Session.UserID,
+		Decision: in.Decision, Reason: strings.TrimSpace(in.Reason),
+		TargetUser: targetUser, Role: role, ScopeKind: scopeKind, ShopIDs: shops,
+	}); err != nil {
+		if in.Decision == "approved" {
 			httpapi.WriteError(w, databaseDecisionStatus(err), "request_conflict", "permission grant could not be issued")
 			return
 		}
-	} else {
-		_, err = tx.Exec(r.Context(), `SELECT ecr_decide_admin_request($1,$2,$3,$4,$5)`,
-			g.Session.TenantID, requestID, g.Session.UserID, in.Decision, strings.TrimSpace(in.Reason))
 	}
 	if err != nil {
 		httpapi.WriteError(w, 503, "decision_failed", "permission decision could not be recorded")

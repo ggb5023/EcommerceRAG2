@@ -32,8 +32,8 @@ STORE_SQL_BASELINE = 75
 # Per-file allowance while the migration is in flight. Every P-B commit lowers its
 # own entry; the target is all zeros. An entry may never grow.
 HANDLER_SQL_ALLOWANCE = {
-    "admin.go": 22,
-    "imports.go": 22,
+    "admin.go": 19,
+    "imports.go": 21,
     "import.go": 8,
     "review_suggestion_handlers.go": 6,
     "review.go": 5,

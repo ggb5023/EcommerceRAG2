@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -97,7 +98,19 @@ func integrationHandler(t *testing.T) (http.Handler, *pgxpool.Pool, *pgxpool.Poo
 		t.Fatal("scope signing key unavailable")
 	}
 	authority := &auth.Authority{DB: gateway, Session: session, SigningKey: key, RevisionMu: &sync.RWMutex{}}
-	conn, err := grpc.NewClient(values["V2_INGEST_GRPC_ADDR"], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ingestAddr := strings.TrimSpace(os.Getenv("V2_INTEGRATION_INGEST_ADDR"))
+	if ingestAddr == "" {
+		ingestAddr = strings.TrimSpace(values["V2_INGEST_GRPC_ADDR"])
+	}
+	if ingestAddr == "" {
+		t.Skip("ingest endpoint unavailable: not configured")
+	}
+	probe, probeErr := net.DialTimeout("tcp", ingestAddr, 2*time.Second)
+	if probeErr != nil {
+		t.Skipf("ingest endpoint unavailable: %s", ingestAddr)
+	}
+	_ = probe.Close()
+	conn, err := grpc.NewClient(ingestAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}

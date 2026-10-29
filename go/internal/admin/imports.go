@@ -98,8 +98,9 @@ func (g *Handler) adminAgentReviewSetting(w http.ResponseWriter, r *http.Request
 			return
 		}
 		defer tx.Rollback(r.Context())
-		if _, err = tx.Exec(r.Context(), `INSERT INTO tenant_agent_review(tenant_id,enabled,policy_version,actor_user_id)
-			VALUES($1,$2,$3,$4)`, g.Session.TenantID, in.Enabled, in.PolicyVersion, g.Session.UserID); err != nil {
+		if err = adminStore.WriteAgentReviewSetting(r.Context(), tx, AgentReviewSetting{
+			TenantID: g.Session.TenantID, Enabled: in.Enabled, PolicyVersion: in.PolicyVersion, ActorUserID: g.Session.UserID,
+		}); err != nil {
 			httpapi.WriteError(w, 503, "database_unavailable", "agent review setting is unavailable")
 			return
 		}
