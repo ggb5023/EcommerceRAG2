@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Read helpers for command results and ingestion job lookups. Single-statement
-// reads, same as the handlers they replace.
+// Ops reads: command results, ingestion job lookups and usage aggregation.
+// Single-statement reads, same as the handlers they replace.
 
 // CommandOutcome is one control_command row.
 type CommandOutcome struct {
