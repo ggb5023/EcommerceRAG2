@@ -23,6 +23,10 @@ func queueFailureResponse(err error) (statusCode int, code, cause string) {
 	switch {
 	case errors.As(err, &conflict):
 		return http.StatusConflict, "version_conflict", "conflict"
+	case status.Code(err) == codes.AlreadyExists:
+		// The confirm path can hit IngestConflictError too (document id owned by
+		// another source); it must not look like a transient queue failure.
+		return http.StatusConflict, "version_conflict", "conflict"
 	case status.Code(err) == codes.PermissionDenied:
 		return http.StatusForbidden, "ingest_not_authorized", "permission_denied"
 	case isSchemaIncomplete(err):

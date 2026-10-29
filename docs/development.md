@@ -144,8 +144,8 @@ python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-
 - dev 库 `ecr_v2_dev_local`：35 条迁移；`documents=6`、`document_version=4`（1 条 active、2 条 pending 待审、
   1 条 superseded）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
 - 顾客通道已启用：`shop-demo` 的 `customer_chat_enabled=true`、`public_slug=shop-demo`。
-- 已发布资料：`w2-delivery-b`（来自评测语料的配送事实，`external_allowed`，version 5），员工链路可命中 1 条引用；
-  旧的 `w2-delivery`（version 4）已 revoke。
+- 已发布资料：`w2-delivery-c`（来自评测语料的配送事实，`external_allowed`，version 6），员工链路可命中 1 条引用；
+  `w2-delivery-b`（version 5）与 `w2-delivery`（version 4）均已 revoke，同 id 再导入会得到 409 `version_conflict`。
 - `SYNTHETIC_BUSINESS_DATE=2026-09-29` 已固定（评测口径），prompt 里的业务日期不再随当天漂移，`smoke-answer.sh` 的 `answer_sha256` 因此可复现。
 - 顾客通道**拒绝 mock 输出**（`part.IsMock` 即转人工），所以离线档下顾客链路恒为 `provider_failed_search`；
   离线档的行为基线用员工通道 `scripts/dev/smoke-answer.sh` 取，顾客链路基线用 `scripts/dev/smoke-turn.sh` 取。

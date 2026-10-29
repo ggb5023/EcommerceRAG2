@@ -30,6 +30,8 @@ func TestQueueFailureMapsByCause(t *testing.T) {
 			http.StatusInternalServerError, "ingest_queue_failed", "*errors.errorString"},
 		{"conflict", &adminConflictError{message: "idempotency key was reused"},
 			http.StatusConflict, "version_conflict", "conflict"},
+		{"document-owned", status.Error(codes.AlreadyExists, "document identifier is owned by another source"),
+			http.StatusConflict, "version_conflict", "conflict"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

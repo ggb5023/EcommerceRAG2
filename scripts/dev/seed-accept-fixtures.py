@@ -226,7 +226,8 @@ def main() -> int:
     print(f"PASS pending versions in the review queue: {pending} (wanted {args.count})")
     if not args.publish:
         return 0
-    return publish_pending(base, headers, {document["document_id"] for document in selected}, args.timeout)
+    document_ids = {args.document_id} if args.from_corpus else {document["document_id"] for document in selected}
+    return publish_pending(base, headers, document_ids, args.timeout)
 
 
 def publish_pending(base: str, headers: dict[str, str], document_ids: set[str], timeout: int) -> int:
