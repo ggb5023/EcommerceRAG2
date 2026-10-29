@@ -164,6 +164,20 @@ internal/admin/
 
 **单写者收口**：`localauth` 不再直接写 `app_user`/`admin_audit`，改为调用 `admin.Store` 的最小方法（`CreateAccount`、`AppendAudit`）；`localauth` 只保留 `local_*` 三张表。
 
+**P-B 验收（机械可判定）**：
+
+| 判据 | 期望 | 检查方式 |
+| --- | --- | --- |
+| handler 文件中的 SQL | **0** | `scripts/check/check-admin-boundaries.py`（接入 `check.sh` 快速层） |
+| store 文件中的 SQL 总数 | **≥ 75**（改动前实测基线，只许增不许减） | 同上脚本的 `STORE_SQL_BASELINE` |
+| `docs/data-ownership.md` | **不因 P-B 改变**（结构迁移，不是归属变更） | 该文件 diff 为空 |
+| 每个提交 | `bash scripts/check.sh` 全绿 + `go test ./internal/admin/...` | 逐提交 |
+| 涉及集成测试的提交（staff / db access / import batch） | 另跑 `-tags integration` | 逐提交 |
+
+handler 文件清单（B1 起逐个清空 SQL）：`admin.go` `imports.go` `import.go` `review.go` `version.go`
+`staff.go` `usage.go` `shop_settings.go` `commands.go` `review_suggestion_handlers.go`。
+改动前实测：24 + 22 + 8 + 6 + 5 + 3 + 3 + 2 + 1 + 1 = **75**。
+
 **提交顺序**：
 
 1. `refactor(admin): add a store for account and audit writes`
