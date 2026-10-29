@@ -204,7 +204,14 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
         for name, command in commands.items():
             if stopped:
                 return 0
-            processes[name] = subprocess.Popen(command, cwd=cwd, env=environments[name], start_new_session=True)
+            log_dir = os.environ.get("V2_SERVICE_LOG_DIR")
+            if log_dir:
+                Path(log_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+                log = (Path(log_dir) / f"{name}.log").open("ab")
+                processes[name] = subprocess.Popen(command, cwd=cwd, env=environments[name],
+                                                   start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
+            else:
+                processes[name] = subprocess.Popen(command, cwd=cwd, env=environments[name], start_new_session=True)
         pending = set(processes)
         deadline = time.monotonic() + start_timeout
         announced = False

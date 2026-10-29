@@ -157,7 +157,7 @@ chmod 600 "$browser_env"
 
 log="$root/stack.log"
 : > "$log"
-setsid nohup bash "$repo/scripts/dev/v2-local-services.sh" --env "$root/runtime.env" >>"$log" 2>&1 &
+V2_SERVICE_LOG_DIR="$root/logs" setsid nohup bash "$repo/scripts/dev/v2-local-services.sh" --env "$root/runtime.env" >>"$log" 2>&1 &
 supervisor=$!
 echo "$supervisor" > "$root/supervisor.pid"
 
@@ -220,7 +220,7 @@ for name in ("gateway", "rag", "ingest", "vite"):
     if state[name]:
         print(f"  {name:8s} {state[name]}")
 print(f"  ports    {sys.argv[1]}")
-print(f"  log      {state['log']}")
+print(f"  log      {state['log']} (per service: {{root}}/logs/<name>.log)".replace("{root}", state["root"]))
 print(f"  browser  {state['root']}/browser.env")
 PY
 echo "stop with: bash scripts/dev/isolated-stack.sh stop"
