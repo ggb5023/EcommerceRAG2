@@ -37,12 +37,12 @@ func queueFailureResponse(err error) (statusCode int, code, message, cause strin
 	case status.Code(err) == codes.Unavailable:
 		return http.StatusServiceUnavailable, "ingest_queue_failed", "package could not be queued", "Unavailable"
 	default:
-		return http.StatusInternalServerError, "ingest_queue_failed", "package could not be queued", queueCause(err)
+		return http.StatusInternalServerError, "ingest_queue_failed", "package could not be queued", queueCauseOf(err)
 	}
 }
 
-// queueCause returns a short identifier for the error class.
-func queueCause(err error) string {
+// queueCauseOf returns a short identifier for the error class.
+func queueCauseOf(err error) string {
 	switch {
 	case errors.Is(err, context.Canceled):
 		return "canceled"
