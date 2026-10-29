@@ -411,7 +411,7 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 	}
 	queued, err := g.persistParsed(r.Context(), ParsedPackage{Manifest: manifest, Files: files, Documents: documents}, id, shop)
 	if err != nil {
-		httpapi.WriteError(w, 503, "ingestion_queue_failed", "package could not be queued")
+		writeQueueFailure(w, err)
 		return
 	}
 	_, err = g.DB.Exec(r.Context(), `UPDATE import_batch SET status='confirmed',ingest_job_id=$1 WHERE tenant_id=$2 AND id=$3 AND status='staged'`, queued.JobID, g.Session.TenantID, id)
