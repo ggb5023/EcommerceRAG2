@@ -78,6 +78,13 @@ stop_stack >/dev/null 2>&1 || true
 mkdir -p "$root"
 chmod 700 "$root"
 
+for port in "$base" $((base + 1)) $((base + 2)) $((base + 3)); do
+  if (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    echo "FAIL port $port is already in use; stop the previous stack first" >&2
+    exit 2
+  fi
+done
+
 gateway_port=$base
 rag_port=$((base + 1))
 ingest_port=$((base + 2))

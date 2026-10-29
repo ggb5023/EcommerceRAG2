@@ -19,6 +19,15 @@ await mkdir(output, { recursive: true, mode: 0o700 })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, headless: true })
 const admin = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const customer = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+// A freshly started stack can answer 503 for a moment while the gateway warms up
+// its dependencies; retry a few times with backoff instead of a fixed sleep.
+async function withRetry(fn, attempts = 3) {
+  let last
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try { return await fn() } catch (error) { last = error; await new Promise(r => setTimeout(r, 500 * 2 ** attempt)) }
+  }
+  throw last
+}
 const checks = []
 const inputs = []
 let mutations = 0
@@ -50,8 +59,11 @@ async function upload(days) {
   await form.locator('textarea').fill(manifest)
   const submitted = admin.waitForResponse(r => r.url().endsWith('/admin/v1/merchant/sources/import') && r.request().method() === 'POST')
   await form.getByRole('button', { name: '校验并排队', exact: true }).click()
-  const response = await submitted
-  assert.equal(response.status(), 202)
+  const response = await withRetry(async () => {
+    const result = await submitted
+    assert.equal(result.status(), 202)
+    return result
+  })
   mutations++
   const job = await response.json()
   for (let attempt = 0; attempt < 100; attempt++) {
