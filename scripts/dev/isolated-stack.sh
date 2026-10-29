@@ -29,7 +29,8 @@ def ours(pid):
         cmdline = open(f"/proc/{pid}/cmdline", "rb").read().decode(errors="replace")
     except OSError:
         return False
-    return "v2_services.py" in cmdline or "v2-local-services.sh" in cmdline or "vite" in cmdline
+    return ("v2_services.py" in cmdline or "v2-local-services.sh" in cmdline
+            or "vite" in cmdline or "npm run dev" in cmdline)
 
 state = json.load(open(sys.argv[1]))
 alive = {name: pid for name, pid in state.get("pids", {}).items() if pid and ours(pid)}
@@ -188,7 +189,9 @@ done
 
 vite_pid=0
 if [[ $with_vite -eq 1 ]]; then
-  ( cd "$repo/frontend" && setsid nohup npm run dev -- --port "$vite_port" --strictPort >>"$log" 2>&1 & echo $! > "$root/vite.pid" )
+  # Vite must proxy to this stack's gateway, not the default dev gateway.
+  ( cd "$repo/frontend" && VITE_API_PROXY_TARGET="http://127.0.0.1:$gateway_port" \
+      setsid nohup npm run dev -- --port "$vite_port" --strictPort >>"$log" 2>&1 & echo $! > "$root/vite.pid" )
   vite_pid=$(cat "$root/vite.pid")
   deadline=$(( $(date +%s) + 90 ))
   until curl -sS -o /dev/null -m 1 "http://127.0.0.1:$vite_port/" 2>/dev/null; do
