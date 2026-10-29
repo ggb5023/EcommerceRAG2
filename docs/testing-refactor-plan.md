@@ -339,6 +339,16 @@ count=$(grep -rho 'waitForTimeout' frontend/tests/*.browser.mjs | wc -l)
 - 每个 `frontend/tests/*.browser.mjs` 在文件头声明所需前置（env 键、端口、目录），
   `check.sh --e2e` 读取声明：缺失 → `UNCONFIGURED` 并打印**缺哪一项**，不进入用例。
 - 起独立栈：mock 26081 / 26063 + 独立 Vite 5174 + 独立 accept 库，不得触碰 dev 栈与 `ecr_v2_dev_local`。
+- **e2e 前置台账**（缺任何一项 → 该用例 `UNCONFIGURED`，不进入用例）：
+
+| e2e 用例 | 需要的前置 | 缺失时的行为 |
+| --- | --- | --- |
+| `e2e-import-wizard` | 独立栈（gateway+ingest）、Vite、栈内 `browser.env`（DSN + `LOGIN_PASSWORD`）、`tests/fixtures/import-batch-20` | `UNCONFIGURED (… to unlock)` |
+| `e2e-review-suggestion` | 同上 + 该库内可生成建议的待审版本（用例自己 seed `l2-seed-*`） | `UNCONFIGURED` |
+| `e2e-login` | 同上 + `LOGIN_PASSWORD` + 库内存在待改密的本地账号 | `UNCONFIGURED` |
+| `e2e-v2-lifecycle` | 同上 + 栈就绪判定（`/healthz` 与 `/v1/session` 均 200） | `UNCONFIGURED` |
+| 其余 9 条 | 同上 + 各自的 seed 数据（例：`workspace` 需要 `syn-policy-a` 证据） | `UNCONFIGURED`（有栈但缺 seed 时是 FAILED，属数据缺口） |
+
 - **`internal/admin` 的 import batch 集成用例前置 ingest gRPC**：`V2_INTEGRATION_INGEST_ADDR`
   （缺省回落到集成 env 里的 `V2_INGEST_GRPC_ADDR`）。未配置或 connect 失败 → 用例 `SKIP` 并打印
   `ingest endpoint unavailable: <addr>`，不进入用例；该端点必须服务集成库（`test-integration.env` 的 DSN），

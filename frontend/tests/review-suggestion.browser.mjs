@@ -7,7 +7,7 @@ import {mkdir,writeFile,readFile} from 'node:fs/promises'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 const workspace=(process.env.WORKSPACE_URL??'http://127.0.0.1:5174').replace(/\/$/,'')
-const env=Object.fromEntries((await readFile('/etc/ecommerce-rag/import-integration.env','utf8')).split('\n').filter(l=>l.includes('=')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)]}))
+const env=Object.fromEntries((await readFile(process.env.ECR_BROWSER_ENV??'/etc/ecommerce-rag/import-integration.env','utf8')).split('\n').filter(l=>l.includes('=')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)]}))
 const output=path.resolve(fileURLToPath(new URL(`../../.local/review-suggestion/browser/${randomUUID()}/`,import.meta.url)));await mkdir(output,{recursive:true,mode:0o700})
 const h=(s)=>createHash('sha256').update(s).digest('hex')
 const sql=[`DELETE FROM review_suggestion WHERE version_id IN (SELECT v.id FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id WHERE d.logical_key LIKE 'l2-seed-%')`,`DELETE FROM chunk WHERE doc_id IN (SELECT id FROM document WHERE logical_key LIKE 'l2-seed-%')`,`DELETE FROM document_version WHERE document_id IN (SELECT id FROM document WHERE logical_key LIKE 'l2-seed-%')`,`DELETE FROM document WHERE logical_key LIKE 'l2-seed-%'`]

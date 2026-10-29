@@ -231,8 +231,10 @@ if [ "$E2E" -eq 1 ]; then
   elif [ ! -d frontend/node_modules ]; then
     e2e_reason="frontend/node_modules is missing"
   else
-    e2e_gateway="127.0.0.1:8080"
-    e2e_workspace="http://127.0.0.1:5173"
+    # The browser layer is bound to the isolated stack: the dev stack serves a
+    # different database, so running against it only produces false failures.
+    e2e_gateway=$(stack_value gateway)
+    e2e_workspace="http://$(stack_value vite)"
     if stack_ready; then
       e2e_gateway=$(stack_value gateway)
       stack_vite=$(stack_value vite)
@@ -240,7 +242,7 @@ if [ "$E2E" -eq 1 ]; then
         e2e_workspace="http://$stack_vite"
       fi
       export ECR_PORTS_FILE=$ports_file
-    elif [ "$STACK" -eq 1 ]; then
+    else
       e2e_reason="$STACK_HINT (no $ports_file)"
     fi
     if [ -z "$e2e_reason" ] && ! curl -sf -m 2 "http://$e2e_gateway/healthz" >/dev/null 2>&1; then
@@ -249,6 +251,13 @@ if [ "$E2E" -eq 1 ]; then
       e2e_reason="vite $e2e_workspace is not reachable"
     fi
     export WORKSPACE_URL=$e2e_workspace
+    browser_env="$(dirname "$ports_file")/browser.env"
+    if [ -f "$browser_env" ]; then
+      ECR_BROWSER_ENV=$browser_env
+      export ECR_BROWSER_ENV
+      LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$browser_env" | head -1)
+      export LOGIN_PASSWORD
+    fi
   fi
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)

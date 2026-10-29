@@ -138,6 +138,16 @@ out.close()
 target.chmod(0o600)
 PY
 
+# The browser specs need the stack's database and a fixed local password.
+browser_env="$root/browser.env"
+migration_dsn=$(sed -n "s/^V2_MIGRATION_DSN=//p" "$db_env" | head -1 | tr -d "\"'")
+{
+  printf 'V2_MIGRATION_DSN=%s\n' "$migration_dsn"
+  printf 'LOGIN_PASSWORD=%s\n' "${ECR_BROWSER_LOGIN_PASSWORD:-stack-login-Passw0rd!}"
+  printf 'WORKSPACE_URL=http://127.0.0.1:%s\n' "$vite_port"
+} > "$browser_env"
+chmod 600 "$browser_env"
+
 log="$root/stack.log"
 : > "$log"
 setsid nohup bash "$repo/scripts/dev/v2-local-services.sh" --env "$root/runtime.env" >>"$log" 2>&1 &
@@ -154,9 +164,13 @@ fail() {
 }
 
 deadline=$(( $(date +%s) + 120 ))
-until curl -sS -o /dev/null -m 1 "http://127.0.0.1:$gateway_port/healthz" 2>/dev/null; do
+gateway_ready() {
+  curl -sS -o /dev/null -m 1 "http://127.0.0.1:$gateway_port/healthz" 2>/dev/null &&
+    [ "$(curl -sS -o /dev/null -w '%{http_code}' -m 2 "http://127.0.0.1:$gateway_port/v1/session" 2>/dev/null)" = "200" ]
+}
+until gateway_ready; do
   kill -0 "$supervisor" 2>/dev/null || fail "supervisor exited before the gateway became ready"
-  [[ $(date +%s) -lt $deadline ]] || fail "gateway did not become ready on port $gateway_port"
+  [[ $(date +%s) -lt $deadline ]] || fail "gateway did not answer /healthz and /v1/session on port $gateway_port"
   sleep 1
 done
 until (echo > "/dev/tcp/127.0.0.1/$ingest_port") 2>/dev/null; do
@@ -200,5 +214,6 @@ for name in ("gateway", "rag", "ingest", "vite"):
         print(f"  {name:8s} {state[name]}")
 print(f"  ports    {sys.argv[1]}")
 print(f"  log      {state['log']}")
+print(f"  browser  {state['root']}/browser.env")
 PY
 echo "stop with: bash scripts/dev/isolated-stack.sh stop"
