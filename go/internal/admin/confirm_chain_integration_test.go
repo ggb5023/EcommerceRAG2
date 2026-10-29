@@ -69,10 +69,10 @@ func TestConcurrentConfirmClaimsOnce(t *testing.T) {
 	}
 }
 
-// A queue failure must leave the batch in confirm_failed, never in confirming.
-func TestConfirmQueueFailureSettlesFailed(t *testing.T) {
+// A queue failure releases the claim: the batch returns to staged so the merchant
+// can retry, and the failure is recorded in the audit trail.
+func TestConfirmQueueFailureReleasesClaim(t *testing.T) {
 	api, migration, _, _, handler := integrationHandlerWithIngest(t, false)
-	// Point the ingest client at a closed port so the queue call fails.
 	dead, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -102,8 +102,71 @@ func TestConfirmQueueFailureSettlesFailed(t *testing.T) {
 	if err = migration.QueryRow(context.Background(), `SELECT status FROM import_batch WHERE id=$1`, batchID).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
-	if state != "confirm_failed" {
-		t.Fatalf("batch state = %s, want confirm_failed", state)
+	if state != "staged" {
+		t.Fatalf("batch state = %s, want staged so the merchant can retry", state)
+	}
+	var audits int
+	if err = migration.QueryRow(context.Background(), `SELECT count(*) FROM admin_audit
+		WHERE tenant_id=(SELECT tenant_id FROM import_batch WHERE id=$1) AND reason='confirm_queue_failed'`, batchID).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits == 0 {
+		t.Fatal("no confirm_queue_failed audit row was written")
+	}
+}
+
+// After a released claim the same batch can be confirmed again; the idempotency
+// key on Submit keeps it at one ingest job. Requires the integration ingest
+// endpoint (see docs/testing-refactor-plan.md §5.3).
+func TestConfirmRetryAfterReleaseQueuesOnce(t *testing.T) {
+	api, migration, _, _, handler := integrationHandler(t)
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadAddr := dead.Addr().String()
+	_ = dead.Close()
+	failing, err := grpc.NewClient(deadAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := "../../../tests/fixtures/import-batch-20"
+	created := uploadBatch(t, api, root, string(readManifest(t, root)))
+	batchID := created["batch_id"].(string)
+
+	live := handler.Ingest
+	handler.Ingest = ragv1.NewIngestServiceClient(failing)
+	status, body := apiStatus(t, api, "POST", "/admin/v1/merchant/imports/"+batchID+"/confirm",
+		map[string]any{"confirm": true, "reason": "integration first attempt"})
+	if status != http.StatusServiceUnavailable {
+		_ = failing.Close()
+		t.Fatalf("first confirm status = %d body=%s, want 503", status, body)
+	}
+	_ = failing.Close()
+	handler.Ingest = live
+
+	status, body = apiStatus(t, api, "POST", "/admin/v1/merchant/imports/"+batchID+"/confirm",
+		map[string]any{"confirm": true, "reason": "integration retry attempt"})
+	if status != http.StatusAccepted {
+		t.Fatalf("retry status = %d body=%s, want 202", status, body)
+	}
+	var state string
+	var jobID *int64
+	if err = migration.QueryRow(context.Background(), `SELECT status,ingest_job_id FROM import_batch WHERE id=$1`, batchID).
+		Scan(&state, &jobID); err != nil {
+		t.Fatal(err)
+	}
+	if state != "confirmed" || jobID == nil {
+		t.Fatalf("state = %s job=%v, want confirmed with a job id", state, jobID)
+	}
+	// The idempotency key is "admin:<shop>:<manifest_sha256>", so a retry must reuse
+	// the same ingest job rather than queue a second one.
+	var jobs int
+	if err = migration.QueryRow(context.Background(), `SELECT count(*) FROM import_batch WHERE tenant_id=(SELECT tenant_id FROM import_batch WHERE id=$1) AND manifest_sha256=(SELECT manifest_sha256 FROM import_batch WHERE id=$1) AND ingest_job_id IS NOT NULL`, batchID).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 {
+		t.Fatalf("batches with a job for this manifest = %d, want 1", jobs)
 	}
 }
 

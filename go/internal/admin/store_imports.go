@@ -335,10 +335,12 @@ func (s *Store) ClaimBatchForConfirm(ctx context.Context, db *pgxpool.Pool, tena
 	return tag.RowsAffected(), nil
 }
 
-// MarkConfirmQueueFailed settles a claimed batch as failed and records the cause.
-func (s *Store) MarkConfirmQueueFailed(ctx context.Context, db *pgxpool.Pool, tenantID, actorID, batchID int64,
+// ReleaseConfirmClaim returns a claimed batch to 'staged' so the merchant can
+// retry. Submit carries an idempotency key, so the retry cannot queue a second
+// job (refactor-input #14); keeping the batch failed would need a manual reset.
+func (s *Store) ReleaseConfirmClaim(ctx context.Context, db *pgxpool.Pool, tenantID, actorID, batchID int64,
 	cause, rulesVersion string) error {
-	tag, err := db.Exec(ctx, `UPDATE import_batch SET status='confirm_failed', confirm_started_at=NULL
+	tag, err := db.Exec(ctx, `UPDATE import_batch SET status='staged', confirm_started_at=NULL
 		WHERE tenant_id=$1 AND id=$2 AND status='confirming'`, tenantID, batchID)
 	if err != nil {
 		return err

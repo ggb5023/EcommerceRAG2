@@ -373,7 +373,7 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 	}
 	queued, err := g.persistParsed(r.Context(), ParsedPackage{Manifest: manifest, Files: files, Documents: documents}, id, shop)
 	if err != nil {
-		if settleErr := adminStore.MarkConfirmQueueFailed(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
+		if settleErr := adminStore.ReleaseConfirmClaim(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, id,
 			queueCauseOf(err), importRulesVersion); settleErr != nil {
 			log.Printf("confirm failure settlement failed")
 		}
