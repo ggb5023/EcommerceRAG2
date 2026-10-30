@@ -7,6 +7,7 @@ so both roles and their schemas are verified before either socket is bound.
 """
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import sys
@@ -142,6 +143,11 @@ def build_ai_process() -> AiProcess:
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=os.environ.get("V2_LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
+    )
     process = build_ai_process()
     stop_event = threading.Event()
 

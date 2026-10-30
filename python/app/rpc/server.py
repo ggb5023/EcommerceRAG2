@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import signal
+import sys
 from concurrent import futures
 
 import grpc
@@ -118,5 +120,14 @@ def main():
     serve(build_server(), os.environ.get("V2_GRPC_ADDR", "127.0.0.1:50052"))
 
 
+def _configure_logging() -> None:
+    logging.basicConfig(
+        level=os.environ.get("V2_LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
+    )
+
+
 if __name__ == "__main__":
+    _configure_logging()
     main()
