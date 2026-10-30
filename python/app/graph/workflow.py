@@ -45,6 +45,7 @@ GENERATION_SCHEMA: dict[str, Any] = {
                        "additionalProperties": False,
                    }},
 }
+# 本正则只产出 intent 分类，不决定终态；终态由 Go 的 decideClarification 决定（见 0028）。
 CLARIFICATION_WORKFLOW = re.compile(
     r"澄清|(?:应该|应|该).*先.*(?:问|确认)|(?:时效|时间|范围).*(?:不明确|不清楚)|clarif|(?:time|scope).*unclear",
     re.IGNORECASE,

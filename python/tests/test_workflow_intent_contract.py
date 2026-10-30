@@ -64,6 +64,17 @@ def test_response_has_exactly_the_control_fields(monkeypatch):
     assert set(result) == FIELDS
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("那个怎么样", False), ("应该先确认一下", True), ("时效不明确", True),
+     ("退货政策是什么", False), ("SKU-CUP-480 还有库存吗", False)],
+)
+def test_clarification_regex_classification(query, expected):
+    # The regex produces the intent classification only; intent passthrough and
+    # regex classification are two independent contracts, both asserted here.
+    assert bool(workflow.CLARIFICATION_WORKFLOW.search(query)) is expected
+
+
 def test_extra_field_is_rejected(monkeypatch):
     # Proves the assertion above is not vacuous: one injected field must fail it.
     with pytest.raises(AssertionError):
