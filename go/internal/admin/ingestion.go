@@ -44,8 +44,7 @@ func (g *Handler) queuePackage(ctx context.Context, manifest string, files []*ra
 			return queuedPackage{}, err
 		}
 	}
-	manifestDigest := sha256.Sum256([]byte(manifest))
-	key := "admin:" + shopID + ":" + hex.EncodeToString(manifestDigest[:])
+	key := ingestIdempotencyKey(shopID, manifest)
 	response, err := g.Ingest.Submit(ctx, &ragv1.SubmitRequest{
 		Context: scope, IdempotencyKey: key, ManifestYaml: manifest, Files: files,
 		TenantDbId: strconv.FormatInt(tenantID, 10), UserDbId: strconv.FormatInt(userID, 10), ShopId: shopID,
@@ -108,4 +107,12 @@ func validJobConfirmation(input adminJobConfirmation, session auth.Session, jobI
 	return input.Confirm && input.JobID == strconv.FormatInt(jobID, 10) &&
 		input.TenantID == session.Tenant && input.PermissionRevision == session.PermissionRevision &&
 		len(strings.TrimSpace(input.Reason)) >= 10 && len(input.Reason) <= 2000
+}
+
+// ingestIdempotencyKey is the key the ingest service deduplicates on: the shop
+// plus the manifest content. Same shop and manifest always yield the same key, so
+// a retried confirmation cannot queue a second job (refactor-input #14).
+func ingestIdempotencyKey(shopID, manifest string) string {
+	manifestDigest := sha256.Sum256([]byte(manifest))
+	return "admin:" + shopID + ":" + hex.EncodeToString(manifestDigest[:])
 }
