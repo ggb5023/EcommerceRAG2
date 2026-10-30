@@ -15,8 +15,8 @@
 ## 待做
 
 1. `python/app/ingest/sparse.py`（待建）（新）：`SparseWeight[]` → `sparsevec` 字面量序列化。
-2. `python/app/ingest/pipeline.py`：写入前校验——`token_id ∈ [0,65536)`、`nnz ≤ 2048`、`weight` 有限且 > 0；空列表或 provider 未返回 → **写 NULL**，并记一次 WARNING（带 chunk_id 与原因）。
-3. `python/app/ingest/database.py`：chunk 插入语句带上稀疏列。
+2. `python/app/ingest/worker.py`（chunk 的实际写入方，`database.py` 不是）：写入前校验——`token_id ∈ [0,65536)`、`nnz ≤ 2048`、`weight` 有限且 > 0；空列表或 provider 未返回 → **写 NULL**，并在批次结束时记**一条聚合** WARNING（missing 分类 + 总数 + 首个原因），不要在 chunk 循环里逐条打。
+3. `python/app/ingest/worker.py`：chunk 插入语句带上 `sparse_embedding` / `sparse_tokenizer_id` 两列（text 绑定后 `::sparsevec`，不拼字符串）。
 4. `tokenizer_id` 记产出者身份：`<provider>:<model>:sparse`（词表随模型变，必须能从数据看出是谁产的）。
 
 ## 不碰

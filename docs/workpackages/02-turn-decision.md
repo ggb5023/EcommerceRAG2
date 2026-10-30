@@ -9,7 +9,7 @@
 
 ## 改动范围
 
-- 迁移 `0038_turn_decision.sql`（0037 已被稀疏迁移占用）：
+- 迁移 `实现时取下一个可用编号_turn_decision.sql`（0037 已被稀疏迁移占用）：
   `turn_decision(tenant_id, conversation_id, turn_id, chosen jsonb, rejected jsonb, strength text, failure_code text, confidence numeric, created_at)` + `INDEX (tenant_id, created_at DESC)`。
 - `go/internal/admin/store_turn.go`（待建）（新）：`AppendTurnDecision(ctx, tx, decision)`。
 - `go/internal/gateway/turn_outcome.go`（待建）（新）：三态（ASKING/DONE/FAILED）各写一次；由 `runTurn` 末尾调用。
