@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+
 from app.retrieval.postgres import PostgresRetriever, _vector_literal
 
 
@@ -175,3 +176,47 @@ def test_customer_trace_rejects_missing_or_mismatched_execution(execution):
     with pytest.raises(ValueError, match='execution'):
         asyncio.run(retriever.arecord_trace({'tenant_db_id': '1', 'request_id': 'request',
                                             'subject_type': 'customer', 'execution_id': execution}, [], []))
+
+
+@pytest.mark.skipif(not os.environ.get("V2_INTEGRATION_ENV"), reason="isolated V2 configuration is not supplied")
+def test_sparse_probe_runs_against_the_real_database(caplog):
+    """The probe must execute inside the connection scope, not after it closed.
+
+    A silent probe (last_sparse_mode None) or a probe that never warns is exactly
+    the regression this test exists for.
+    """
+    import logging
+
+    import psycopg
+
+    from app.retrieval import postgres
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "dev"))
+    from v2_services import load_values
+
+    values = load_values(Path(os.environ["V2_INTEGRATION_ENV"]))
+    with psycopg.connect(values["V2_INGEST_DSN"]) as conn:
+        populated = conn.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL)").fetchone()[0]
+        tenant = conn.execute("SELECT id FROM tenant ORDER BY id LIMIT 1").fetchone()
+    tenant_db_id = str(tenant[0]) if tenant else "1"
+
+    original = postgres._sparse_mode_reported
+    postgres._sparse_mode_reported = False
+    try:
+        retriever = PostgresRetriever(values["V2_AI_DSN"])
+        with caplog.at_level(logging.WARNING, logger="app.retrieval.postgres"):
+            retriever.search(
+                query="退货政策",
+                query_vector=[0.0] * 1024,
+                scope={"tenant_id": "v2-demo-tenant", "tenant_db_id": tenant_db_id, "shop_id": "",
+                       "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": ["policy-a"],
+                       "role": "operator", "request_id": "sparse-probe-test"},
+                limit=3,
+            )
+        assert retriever.last_sparse_mode is not None, "the probe never ran (check its call site)"
+        assert retriever.last_sparse_mode == ("sparsevec" if populated else "text_heuristic")
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "app.retrieval.postgres"]
+        if not populated:
+            assert warnings, "an empty sparse_embedding column must warn once"
+    finally:
+        postgres._sparse_mode_reported = original
