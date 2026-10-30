@@ -26,7 +26,7 @@ P1 验收的判定标准与命令见 `docs/development.md`；缺语料的 skip �
 ### P1 仓库整理与架构收敛（约 5.5 周，技术验收完成）
 
 - [x] 推送全部本地分支，打基线 tag `baseline-20261016`
-- [x] 收拢旧工作树上的未提交改动（已存入远端分支 `archive/v1-wip-20261008`）
+- [x] 收拢旧工作树上的未提交改动（已存入远端分支 分支 archive/v1-wip-20261008）
 - [x] **M1 仓库减噪**：`scripts/` 分为 check、dev、ops、db 并删除一次性脚本；迁移 0029 在非开发库停用测试账号，`scripts/dev/seed-fixtures.sql` 负责恢复；`eval/run.sh` 作为统一入口并接入 `check.sh`；删除公开数据轨
 - [x] **M2 Python 单进程**（约 1 周）：AI RPC、摄取 RPC、worker 合成一个 `ai` 进程；进程内按 `rag_v2_ai`、`rag_v2_ingest` 保留两个连接池。合并进程、双池与单写者边界已由测试覆盖
 - [x] **M3 前端合并**（约 1 周）：`web/`、`admin-web/` 合并为 `frontend/`，统一 vue-router

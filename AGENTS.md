@@ -45,7 +45,7 @@
 - 一个功能点一次提交，只暂存具体文件，不用 `git add .` 或 `-A`。
 - 提交前运行 `python3 scripts/check/privacy_guard.py`；不用 `--no-verify`。
 - 提交身份 `EcommerceRAG Maintainers <maintainers@example.invalid>`；hooks 路径 `.githooks`，缺失时运行 `bash scripts/dev/install-git-hooks.sh`。
-- 唯一远端是 `origin`，即 GitHub `ggb5023/EcommerceRAG2`；主分支 `main`。push、merge、改写远端历史都需要明确授权。
+- 唯一远端是 `origin`，即 GitHub `github.com/ggb5023/EcommerceRAG2`；主分支 `main`。push、merge、改写远端历史都需要明确授权。
 - 守卫脚本拦截时只能通过新增提交修正，不能用工作区临时改动让钩子通过；需要的配置改动先 cherry-pick 到目标分支再推。
 
 ## 安全

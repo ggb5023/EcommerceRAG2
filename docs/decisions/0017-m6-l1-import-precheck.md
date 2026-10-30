@@ -8,7 +8,7 @@
 
 商家上传资料包后，系统解析、预检、展示问题与建议值；商家点击确认后，才通过既有摄取链路落库为
 `review_status='pending'` 的版本；未发布前整批软撤回。预检只给建议，不发布，不写
-`reviewed_by/reviewed_at/reviewed_hash`。
+`reviewed_by`、`reviewed_at`、`reviewed_hash`。
 
 - **agent 判定**：R1–R4 的 issue/severity/suggestion；不改发布状态。
 - **商家确认**：上传、核对、confirm、revoke。
@@ -19,8 +19,8 @@
 - `persistParsed` 只提交现有摄取 RPC；`document/document_version/chunk` 仍由 Python 摄取写。
 - 每个批次建一条 `source_manifest` 记录；确认后的版本通过
   `document_version.source_manifest_id` 关联该批次，不给 `document_version` 加列、不换写入方。
-- 上传阶段若需要保存字节，走 stage-only 摄取调用（Python 写 `source_manifest/source_file`，
-  不建 document/version）；Go 只写 `import_batch/import_item`。stage-only 的 proto 细节在阶段 2
+- 上传阶段若需要保存字节，走 stage-only 摄取调用（Python 写 `source_manifest` 与 `source_file`，
+  不建 document/version）；Go 只写 `import_batch` 与 `import_item`。stage-only 的 proto 细节在阶段 2
   落地前单独确认，不改变上面的写入方。
 
 `parseManifest` 为纯函数：校验 manifest schema、路径、文件哈希、R1–R4 所需字段，返回
@@ -64,7 +64,7 @@ CREATE INDEX idx_import_item_batch ON import_item (batch_id, id);
 ```
 
 `business_date` 必须显式落库，R2 与复现都不使用 `now()`。`source_hash` 是 R3 的判重键；给定列
-没有它，但不存就无法做可索引的重复检测。preview 阶段 `source_file_id/document_id` 可空，
+没有它，但不存就无法做可索引的重复检测。preview 阶段 `source_file_id` 与 `document_id` 可空，
 confirm 后回填；`reviewed_*` 三列始终不写。
 
 ### 3.2 tenant_agent_review（append-only）
@@ -109,7 +109,7 @@ CREATE TRIGGER trg_tenant_agent_review_append_only
 ### 4.2 预览
 
 `GET /admin/v1/merchant/imports/{id}`：批次元数据、逐条 staging 片段、问题列表、建议
-`disclosure_class/effective_from`。预览不返回 document 链接；document 尚未创建。
+`disclosure_class` 与 `effective_from`。预览不返回 document 链接；document 尚未创建。
 
 ### 4.3 确认
 

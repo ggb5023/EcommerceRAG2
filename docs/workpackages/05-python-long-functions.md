@@ -15,7 +15,7 @@
 ## 不碰
 
 - 不改任何判定逻辑、提示词、模型调用参数。
-- 不动 `graph/workflow.py` 的图结构（0028 边界）。
+- 不动 `python/app/graph/workflow.py` 的图结构（0028 边界）。
 
 ## 验收命令
 

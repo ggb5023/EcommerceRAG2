@@ -6,8 +6,8 @@
 
 | 目录 | 内容 |
 | --- | --- |
-| `go/` | Go gateway（`cmd/gateway`）、Web 静态服务（`cmd/web`）、开发用 facts fake |
-| `python/` | AI 与摄取（`app/graph`、`app/retrieval`、`app/ingest`、`app/providers`、`app/rpc`） |
+| `go/` | Go gateway（`go/cmd/gateway`）、Web 静态服务（`go/cmd/web`）、开发用 facts fake |
+| `python/` | AI 与摄取（`python/app/graph`、`python/app/retrieval`、`python/app/ingest`、`python/app/providers`、`python/app/rpc`） |
 | `frontend/` | 顾客页、客服工作台、商家管理台（单一 Vue 工程，按路由分区） |
 | `proto/` | Go 与 Python 的 gRPC 契约 |
 | `sql/migrations/` | checksum 迁移 |

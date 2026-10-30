@@ -73,7 +73,7 @@ CREATE TABLE provider_model (
 1. 填 `base_url` + `api_key`；
 2. 测试连接（最小请求，不生成业务答案）；
 3. 拉取/填写模型列表；
-4. 绑定 `control/embedding/rerank/generation` 四个槽位；
+4. 绑定 `control`、`embedding`、`rerank`、`generation` 四个槽位；
 5. 保存并启用。
 
 测试失败必须可区分：网络不可达、DNS 失败、401/403、模型不存在、embedding 维度不符、

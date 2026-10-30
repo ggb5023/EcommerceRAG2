@@ -6,7 +6,7 @@
 
 ## 1. 目标与边界
 
-对某个 `document_version` 生成可复查的 `approved/needs_revision` 建议，附理由与证据 chunk；
+对某个 `document_version` 生成可复查的 `approved` 与 `needs_revision` 建议，附理由与证据 chunk；
 商家可筛选 `needs_revision` 并批量确认，批量确认仍走既有 review 链路。
 
 **不做**：agent 发布、agent 写 `document_version.reviewed_*`、agent 写
@@ -55,7 +55,7 @@ CREATE TABLE review_suggestion (
 | C1 引用绑定 | 每个 `evidence_chunk_id` 属于本版本/tenant，chunk 存在且 `chunk_hash` 匹配；引用不为空 | `missing_citation` / `unbound_chunk` |
 | C2 生效覆盖 | `effective_from <= business_date`，且 `effective_to` 为空或 `>= business_date` | `effective_expired` |
 | C3 披露一致 | version 为 `external_allowed` 时，全部本版本 chunk 为 `external_allowed` | `disclosure_mismatch` |
-| C4 来源授权 | `document.meta_json.authorization` 存在，且 `basis/reference/checked_at` 三个键齐全 | `missing_authorization` |
+| C4 来源授权 | `document.meta_json.authorization` 存在，且 `basis`、`reference`、`checked_at` 三个键齐全 | `missing_authorization` |
 
 - C1 的“属于本版本、可随版本发布”指 chunk 绑定本 version，不要求当前 `status='active'`；
   否则所有 pending 版本都会被误判。
@@ -86,7 +86,7 @@ CREATE TABLE review_suggestion (
 {"business_date":"2026-10-27"}
 ```
 
-返回 `201` 或 `200`（幂等）：`decision/reasons/evidence_chunk_ids/created_at`。
+返回 `201` 或 `200`（幂等）：`decision`、`reasons`、`evidence_chunk_ids`、`created_at`。
 租户开关关闭返回 `409 agent_review_disabled`。
 
 ### 5.2 批量确认
@@ -98,7 +98,7 @@ CREATE TABLE review_suggestion (
 ```
 
 服务端逐条校验 shop 权限、版本仍 pending、`content_hash` 与建议一致、建议为 `approved`；
-随后以**商家账号**调用既有 review 逻辑，写 `reviewed_by/reviewed_at/reviewed_hash`。
+随后以**商家账号**调用既有 review 逻辑，写 `reviewed_by`、`reviewed_at`、`reviewed_hash`。
 任一条失败整批不写，返回逐条错误；重试幂等。
 
 ### 5.3 筛选

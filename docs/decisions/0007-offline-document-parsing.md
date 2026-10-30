@@ -8,7 +8,7 @@
 
 ## 决定
 
-- MinerU 只作为**离线解析实验**的能力保留在 `app/providers/`，不接入 `app/ingest` 的默认链条：导入资料的格式仍限定 `markdown`、`csv`、`docx`。
+- MinerU 只作为**离线解析实验**的能力保留在 `python/app/providers/`，不接入 `python/app/ingest` 的默认链条：导入资料的格式仍限定 `markdown`、`csv`、`docx`。
 - 使用它必须由操作者显式触发，并在 `providers.env` 里提供 `MINERU_TOKEN`；缺少 token 时按配置错误处理，不自动降级。
 - 摄取 worker 不读取 MinerU 配置，也不会因为 PDF 而改变任务状态。
 

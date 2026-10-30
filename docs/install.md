@@ -65,7 +65,7 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 
 模型调用没有货币账本（0021）：每次调用的 token 用量写入 `usage_log`，用 `scripts/dev/provider-usage.py status` 查看（读 `V2_USAGE_DSN` 或 `V2_GATEWAY_DSN`）。运行目录与文件的所有者必须与运行 AI/worker 的 UID 一致，不要靠放宽权限来绕过检查。
 
-安装账号保存在受限 `bootstrap/accounts.json`，只在本地私下查看，首次使用后修改密码。
+安装账号保存在受限 bootstrap 目录下的 accounts.json 文件，只在本地私下查看，首次使用后修改密码。
 
 - **员工与 access_admin**：管理台「新增员工」只能授予 `merchant_admin` 与 `knowledge_reviewer`；`access_admin` 属于带外授权，页面不提供。转移或新增 `access_admin` 需要运维以 migrator 身份执行
   `INSERT INTO admin_role_grant(...) ... ON CONFLICT (tenant_id,user_id,role) DO UPDATE ...` 并自行记录审计，不通过 HTTP 接口。

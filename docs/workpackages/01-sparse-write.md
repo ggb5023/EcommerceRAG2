@@ -21,7 +21,7 @@
 
 ## 不碰
 
-- 不改 `retrieval/postgres.py` 的查询分支（查询切换属第三步，需 A/B 开关与评测重跑）。
+- 不改 `python/app/retrieval/postgres.py` 的查询分支（查询切换属第三步，需 A/B 开关与评测重跑）。
 - 不改稠密向量链路。
 - 不改历史迁移。
 

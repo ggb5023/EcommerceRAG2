@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | 改动轮次链路后必须跑四条 smoke | 人工 | ⚠️ 口头约定（`.local/` 基线比对） |
 | 服务启动后日志必须有输出 | `check-service-logs.py` | ✅ |
-| 容器日志必须限量轮转 | `compose.yml` 的 `max-size/max-file` | ✅ |
+| 容器日志必须限量轮转 | `compose.yml` 的 `max-size` 与 `max-file` | ✅ |
 | 部署形态只能四选一（D1–D4） | 启动期 `validateDeploymentForm` | ✅ 单测覆盖 |
 | 明文 HTTP 只能绑 loopback | 同上（`requireLoopback`） | ✅ |
 | 镜像以 git-sha 打 tag，可回滚 | 无 | ⚠️ 部分（当前另有 `:selfhost` 别名） |
