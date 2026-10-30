@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TABLE = ROOT / "docs" / "contracts.md"
 # Two ratchets, both measured when the table was introduced. Only raise them.
-CONTRACTS_CROSS = 3
+CONTRACTS_CROSS = 4
 CONTRACTS_SAME = 1
 ROW = re.compile(r"^\|(?P<cells>.+)\|\s*$")
 

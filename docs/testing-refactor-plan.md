@@ -339,6 +339,11 @@ count=$(grep -rho 'waitForTimeout' frontend/tests/*.browser.mjs | wc -l)
 - 每个 `frontend/tests/*.browser.mjs` 在文件头声明所需前置（env 键、端口、目录），
   `check.sh --e2e` 读取声明：缺失 → `UNCONFIGURED` 并打印**缺哪一项**，不进入用例。
 - 起独立栈：mock 26081 / 26063 + 独立 Vite 5174 + 独立 accept 库，不得触碰 dev 栈与 `ecr_v2_dev_local`。
+- **`tests/test_v2_ingest_database.py` 的前置**：库名必须含 `v2_test` 且 env 要有 `V2_INGEST_DSN`。
+  现成的 `test-integration.env` 缺后者、`import-integration.env` 指向 accept 库，两者都会在 fixture 处失败。
+  可复现命令：先起隔离栈（生成 0600 的 runtime.env，DSN 已指向 `ecr_v2_test_m4`），再
+  `cd python && V2_INTEGRATION_ENV=/tmp/ecr-isolated/runtime.env uv run --frozen pytest tests/test_v2_ingest_database.py -q`。
+
 - **注记（2026-10-29）**：在此之前，隔离栈的 Vite 未覆盖 `VITE_API_PROXY_TARGET`，默认指向 dev 网关（8080）；
   因此该日期前的 e2e 结果均打在 dev 库上，**不能作为隔离栈的证据**。修复后需重新采集全部 e2e 结论。
 
