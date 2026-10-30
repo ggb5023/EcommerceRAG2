@@ -7,6 +7,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"github.com/ggb5023/EcommerceRAG/go/internal/ports"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -15,6 +16,9 @@ import (
 type FactClient interface {
 	Lookup(ctx context.Context, scope *ragv1.RequestContext, names []string, resourceID string) ([]*ragv1.Fact, error)
 }
+
+// Compile-time proof that the adapter satisfies the published port.
+var _ ports.FactClient = factProvider{}
 
 // factProvider adapts the tool registry to FactClient.
 type factProvider struct {

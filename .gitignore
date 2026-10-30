@@ -25,6 +25,7 @@
 !/docs/ui-only-acceptance.md
 !/docs/data-ownership.md
 !/docs/error-taxonomy.md
+!/docs/contracts.md
 # 重构方案分册：参与版本管理，否则 clone 后不可见（dsh 需要读它们）
 !/docs/refactor-assessment.md
 !/docs/*-plan.md
