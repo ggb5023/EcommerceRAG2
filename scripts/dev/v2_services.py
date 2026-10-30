@@ -204,7 +204,9 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
         for name, command in commands.items():
             if stopped:
                 return 0
-            log_dir = os.environ.get("V2_SERVICE_LOG_DIR")
+            # Dropping the logs entirely is worse than writing them somewhere
+            # predictable, so fall back to a per-user directory.
+            log_dir = os.environ.get("V2_SERVICE_LOG_DIR") or "/tmp/ecr-dev-logs"
             if log_dir:
                 Path(log_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
                 log = (Path(log_dir) / f"{name}.log").open("ab")
@@ -227,7 +229,7 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
                     print("FAIL V2 readiness timeout: " + ",".join(sorted(pending)), file=sys.stderr, flush=True)
                     return 1
             if not pending and not announced:
-                print("READY V2 gateway,ai", flush=True)
+                print(f"READY V2 gateway,ai (logs: {log_dir})", flush=True)
                 announced = True
             time.sleep(0.1)
         return 0
