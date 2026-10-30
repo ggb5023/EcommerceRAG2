@@ -1,7 +1,7 @@
 # 02 决策理由落库（B6）
 
 > 状态：pending　适用提交：4a625b1　验收：见 §验收命令
-> 来源：`reports/support-agent-platform-borrowables.md` B6
+> 来源：`docs/research/platform-borrowables.md` B6（采纳结论见 `docs/decisions/0030-borrowables-adoption.md`）
 
 ## 目标
 

@@ -1,7 +1,7 @@
 # 08 前端设计系统（M9 阶段 1）
 
 > 状态：pending　适用提交：4a625b1　验收：见 §验收命令
-> 详细规格：`docs/archive/frontend-refactor-plan.md` §6（tokens）、§7（移动适配）、§9（阶段与验收）
+> 详细规格：`docs/research/frontend-references.md`（选型结论）+ `docs/archive/frontend-refactor-plan.md` §6/§7（tokens 与移动适配细节）
 
 ## 目标
 

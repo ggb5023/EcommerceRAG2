@@ -112,3 +112,4 @@ cd python && uv run --frozen pytest -q
 | 本地起栈 / 端口 / 环境文件 | `docs/development.md` | `service-logs` |
 | 安装与商家操作 | `docs/install.md` `docs/knowledge.md` | — |
 | 已知债务 | `docs/refactor-input.md` | — |
+| 外部资料 / 参考实现对照 | `docs/research/` | — |

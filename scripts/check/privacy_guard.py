@@ -25,6 +25,8 @@ PUBLIC_FIXTURE_PREFIXES = ('tests/fixtures/import-batch-20/',)
 PUBLIC_REFACTOR_PLAN = re.compile(r'docs/(?:archive/)?(?:[a-z0-9-]+-plan|refactor-assessment)\.md')
 # Work-package specs are published deliberately; one file per active package.
 PUBLIC_WORKPACKAGE = re.compile(r'docs/workpackages/[a-z0-9-]+\.md')
+# Research notes are published deliberately: one file per investigated topic.
+PUBLIC_RESEARCH = re.compile(r'docs/research/[a-z0-9-]+\.md')
 
 
 def check_fixture_whitelist():
@@ -44,7 +46,8 @@ def public_document(name):
     return (name in PUBLIC_DOCUMENT_PATHS or PUBLIC_DECISION.fullmatch(name) is not None
             or any(name.startswith(prefix) for prefix in PUBLIC_FIXTURE_PREFIXES)
             or PUBLIC_REFACTOR_PLAN.fullmatch(name) is not None
-            or PUBLIC_WORKPACKAGE.fullmatch(name) is not None)
+            or PUBLIC_WORKPACKAGE.fullmatch(name) is not None
+            or PUBLIC_RESEARCH.fullmatch(name) is not None)
 PROJECT_RECORDS_MANIFEST = 'project-records/manifest.json'
 PATTERNS = (
     rb'-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----',

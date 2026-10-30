@@ -25,6 +25,8 @@
 !/docs/development.md
 !/docs/agent-entry.md
 !/docs/constraints.md
+!/docs/research/
+!/docs/research/*.md
 !/docs/workpackages/
 !/docs/workpackages/*.md
 !/docs/archive/
