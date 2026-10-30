@@ -150,6 +150,14 @@ def test_ingest_review_publish_replay_rollback_revoke(db):
 def test_duplicate_submission_conflict_and_stale_scope(db):
     first = db.submit(key="duplicate")
     assert db.submit(key="duplicate").job_id == first.job_id
+    # A different key must queue a second job: deduplication is keyed on the
+    # idempotency key, not on the content or on a cached response.
+    other = db.submit(b"# Another delivery policy\n", key="another-key")
+    assert other.job_id != first.job_id
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        rows = conn.execute("SELECT count(*) FROM ingest_job WHERE tenant_id=%s AND idempotency_key='duplicate'",
+                            (db.tenant,)).fetchone()
+    assert rows == (1,), rows
     with pytest.raises(IngestConflictError):
         db.submit(b"# Different\n\nDifferent bytes.\n", key="duplicate")
     stale = db.scope()
