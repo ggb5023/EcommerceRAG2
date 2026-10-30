@@ -27,6 +27,7 @@ def main() -> int:
         print("SKIP contracts: no docs/contracts.md")
         return 0
     covered = {"跨进程": 0, "同侧": 0}
+    totals = {"跨进程": 0, "同侧": 0}
     warnings = []
     for line in TABLE.read_text(encoding="utf-8").splitlines():
         if not line.startswith("|") or set(line) <= {"|", "-", " "}:
@@ -38,6 +39,7 @@ def main() -> int:
         if kind not in covered:
             warnings.append(f"{row[0]}: unknown type {kind!r}")
             continue
+        totals[kind] += 1
         if state.startswith("✅"):
             covered[kind] += 1
         elif state.startswith("⚠️"):
@@ -54,8 +56,9 @@ def main() -> int:
             print(f"NOTE contracts: {kind} rose to {covered[kind]}; raise {label}")
     if failed:
         return 1
-    print(f"PASS contracts: cross {covered['跨进程']}/{CONTRACTS_CROSS}, "
-          f"same {covered['同侧']}/{CONTRACTS_SAME}, warnings {len(warnings)}")
+    print(f"PASS contracts: cross {covered['跨进程']}/{totals['跨进程']} covered "
+          f"(ratchet {CONTRACTS_CROSS}), same {covered['同侧']}/{totals['同侧']} covered "
+          f"(ratchet {CONTRACTS_SAME}), warnings {len(warnings)}")
     return 0
 
 
