@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TABLE = ROOT / "docs" / "contracts.md"
 # Measured when the table was introduced. Only raise this number.
-CONTRACTS_COVERED = 1
+CONTRACTS_COVERED = 2
 ROW = re.compile(r"^\|(?P<cells>.+)\|\s*$")
 
 

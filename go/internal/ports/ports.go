@@ -9,11 +9,13 @@ import (
 	"context"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"google.golang.org/grpc"
 )
 
-// IngestClient is the generated ingest RPC client the admin package holds.
+// IngestClient is the one RPC call the admin package makes. The generated client
+// has a larger method set, so it satisfies this port; a fake only needs Submit.
 type IngestClient interface {
-	ragv1.IngestServiceClient
+	Submit(ctx context.Context, in *ragv1.SubmitRequest, opts ...grpc.CallOption) (*ragv1.SubmitResponse, error)
 }
 
 // FactClient fetches authorized facts for one turn.

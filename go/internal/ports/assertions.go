@@ -1,7 +1,10 @@
 package ports
 
 import (
+	"context"
+
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"google.golang.org/grpc"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 )
@@ -13,3 +16,13 @@ var (
 	_ IngestClient = (ragv1.IngestServiceClient)(nil)
 	_ Authority    = (*auth.Authority)(nil)
 )
+
+// fakeSubmit only implements the single method the port exposes: the build proves
+// the narrowed interface is injectable, not just satisfied by the generated client.
+type fakeSubmit struct{}
+
+func (fakeSubmit) Submit(context.Context, *ragv1.SubmitRequest, ...grpc.CallOption) (*ragv1.SubmitResponse, error) {
+	return &ragv1.SubmitResponse{}, nil
+}
+
+var _ IngestClient = fakeSubmit{}
