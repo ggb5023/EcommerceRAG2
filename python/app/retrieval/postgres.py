@@ -35,6 +35,7 @@ SPARSE_RRF_WEIGHT = 0.7
 # sparse vector path is active.
 _log = logging.getLogger(__name__)
 _sparse_mode_reported = False
+_sparse_probe_failed_reported = False
 # After step 2 lands, a running process switches from text_heuristic to sparsevec
 # on its own within this window; no restart is needed.
 SPARSE_MODE_TTL_SECONDS = 300.0
@@ -308,7 +309,8 @@ class PostgresRetriever:
                 [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
             )
             sparse_rows = cursor.fetchall()
-        self._report_sparse_mode(cursor)
+            # Inside the connection scope: outside it the cursor is already closed.
+            self._report_sparse_mode(cursor)
 
         dense_by_id = {str(row["chunk_id"]): (row, rank) for rank, row in enumerate(dense_rows, 1)}
         sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
@@ -343,7 +345,11 @@ class PostgresRetriever:
         try:
             cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL) AS populated")
             row = cursor.fetchone()
-        except psycopg.Error:  # the probe is diagnostic: never fail a search over it
+        except psycopg.Error as error:  # the probe is diagnostic: never fail a search over it
+            global _sparse_probe_failed_reported
+            if not _sparse_probe_failed_reported:
+                _sparse_probe_failed_reported = True
+                _log.warning("sparse mode probe failed: %s — the probe is not reporting", error)
             return
         # The connection uses dict_row, so read by name instead of position.
         if isinstance(row, dict):

@@ -76,3 +76,48 @@ def test_dict_rows_are_supported():
     instance._sparse_mode_checked_at = 0.0
     instance._report_sparse_mode(FakeCursor(populated=True, as_dict=True), ttl=0)
     assert instance.last_sparse_mode == "sparsevec"
+
+
+class ClosedAfterFirstUse:
+    """Simulates a cursor used after the with-block exited."""
+
+    def __init__(self, populated: bool):
+        self.populated = populated
+        self.executions = 0
+
+    def execute(self, *_args, **_kwargs):
+        self.executions += 1
+
+    def fetchone(self):
+        if self.executions > 1:
+            raise postgres.psycopg.OperationalError("the connection is closed")
+        return {"populated": self.populated}
+
+
+def test_probe_records_the_mode_on_first_use(monkeypatch):
+    monkeypatch.setattr(postgres, "_sparse_probe_failed_reported", False)
+    instance = retriever()
+    instance._sparse_mode = None
+    instance._sparse_mode_checked_at = 0.0
+    instance._report_sparse_mode(ClosedAfterFirstUse(populated=False), ttl=0)
+    assert instance.last_sparse_mode == "text_heuristic"
+
+
+def test_probe_failure_is_reported_not_silent(monkeypatch, caplog):
+    monkeypatch.setattr(postgres, "_sparse_probe_failed_reported", False)
+    instance = retriever()
+    instance._sparse_mode = None
+    instance._sparse_mode_checked_at = 0.0
+    instance.last_sparse_mode = None
+
+    class Broken:
+        def execute(self, *_args, **_kwargs):
+            raise postgres.psycopg.OperationalError("the connection is closed")
+
+    with caplog.at_level(logging.WARNING):
+        instance._report_sparse_mode(Broken(), ttl=0)
+        instance._report_sparse_mode(Broken(), ttl=0)
+    assert instance.last_sparse_mode is None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "sparse mode probe failed" in warnings[0].getMessage()
