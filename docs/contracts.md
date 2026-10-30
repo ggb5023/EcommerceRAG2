@@ -9,7 +9,7 @@
 | 契约 | 类型 | Go 侧 | Python/前端侧 | 两侧测试 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | gRPC 码 → HTTP 状态 | 跨进程 | `go/internal/admin/queue_failure.go:queueFailureResponse` | `python/app/rpc/ingest.py`（`context.abort` 的码） | `go/internal/admin/queue_failure_test.go` / 无（Python 侧只测了提交流程，未断言码） | ⚠️ 缺 Python 侧断言 |
-| ingest 提交幂等键 | 跨进程 | `go/internal/admin/ingestion.go:ingestIdempotencyKey`（`"admin:"+shopID+":"+sha256(manifest)`） | `python/app/rpc/ingest.py:Submit` → `database.submit(idempotency_key=…)` | `go/internal/admin/ingestion_key_test.go`（规则 + 稳定 + 店铺隔离）/ `python/tests/test_v2_ingest_owner.py`（只用到 key，不断言推导规则） | ⚠️ 缺 Python 侧断言 |
+| ingest 提交幂等键 | 跨进程 | `go/internal/admin/ingestion.go:ingestIdempotencyKey`（`"admin:"+shopID+":"+sha256(manifest)`） | `python/app/rpc/ingest.py:Submit` → `database.submit(idempotency_key=…)` | `go/internal/admin/ingestion_key_test.go`（规则 + 稳定 + 店铺隔离）/ `python/tests/test_v2_ingest_database.py:test_duplicate_submission_conflict_and_stale_scope`（同 key 复用同一 job、换 key 产生新 job、同 key 只有 1 行） | ✅ |
 | scope 传递 | 跨进程 | `go/internal/auth/authority.go:IssueScopeForShop` | `python/app/chains/provider.py`（`require_scope`） | `go/internal/auth/authority_test.go`（正向 + 篡改 tenant/店铺被拒）/ `python/tests/test_provider_scope.py` | ✅ |
 | SSE 帧格式 | 跨进程 | `go/internal/gateway/sse.go:sseStream` | `frontend/src/api.ts:158`（`Accept: text/event-stream` 的消费） | `go/internal/gateway/sse_test.go` / `frontend/src/api.test.ts` | ✅ |
 | clarification 信号 | 跨进程 | `go/internal/gateway/turn_route.go:decideClarification` | `python/app/graph/workflow.py`（intent 分类） | `go/internal/gateway/turn_route_test.go` / 无（Python 侧未断言与 Go 的字段对应） | ⚠️ 缺 Python 侧断言 |
