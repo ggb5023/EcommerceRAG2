@@ -185,9 +185,6 @@ func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, err := adminStore.JobDetail(r.Context(), g.DB, g.Session.TenantID, jobID, scope.shops)
-	jobStatus, jobStage, shopID, manifestHash := detail.Status, detail.Stage, detail.ShopID, detail.ManifestHash
-	datasetHash, errorCode := detail.DatasetHash, detail.ErrorCode
-	fencingEpoch, cancelRequested, leaseExpiresAt := detail.FencingEpoch, detail.CancelRequested, detail.LeaseExpiresAt
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.WriteError(w, 404, "not_found", "ingestion job not found")
 		return
@@ -196,6 +193,9 @@ func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion job")
 		return
 	}
+	jobStatus, jobStage, shopID, manifestHash := detail.Status, detail.Stage, detail.ShopID, detail.ManifestHash
+	datasetHash, errorCode := detail.DatasetHash, detail.ErrorCode
+	fencingEpoch, cancelRequested, leaseExpiresAt := detail.FencingEpoch, detail.CancelRequested, detail.LeaseExpiresAt
 	jobItems, err := adminStore.JobItems(r.Context(), g.DB, g.Session.TenantID, jobID, scope.shops)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not load ingestion items")

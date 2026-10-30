@@ -19,6 +19,8 @@ usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigure
   --e2e      fast layer plus the browser layer (needs the dev stack and Chromium)
   --all      fast layer plus both of the above
   --cov      reserved for coverage collection (batch 2); accepted, nothing collected yet
+  --stack    use the isolated stack from scripts/dev/isolated-stack.sh
+             (reads $ECR_PORTS_FILE, default /tmp/ecr-isolated/ports.json)
   --allow-unconfigured
              only with --all: accept items that could not run instead of failing the gate
 
@@ -34,6 +36,7 @@ DB=0
 E2E=0
 COV=0
 ALL=0
+STACK=0
 ALLOW_UNCONFIGURED=0
 for arg in "$@"; do
   case "$arg" in
@@ -41,6 +44,7 @@ for arg in "$@"; do
     --e2e) E2E=1 ;;
     --all) DB=1; E2E=1; ALL=1 ;;
     --cov) COV=1 ;;
+    --stack) STACK=1 ;;
     --allow-unconfigured) ALLOW_UNCONFIGURED=1 ;;
     -h | --help) usage; exit 0 ;;
     *)
@@ -50,6 +54,27 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# ---------------------------------------------------------------- isolated stack
+ports_file=${ECR_PORTS_FILE:-/tmp/ecr-isolated/ports.json}
+stack_value() {
+  STACK_KEY=$1 python3 -c 'import json,os,sys
+try:
+    print(json.load(open(os.environ["ECR_PORTS_FILE"] if "ECR_PORTS_FILE" in os.environ else sys.argv[1])).get(os.environ["STACK_KEY"], ""))
+except Exception:
+    print("")' "$ports_file"
+}
+stack_ready() {
+  [ -f "$ports_file" ] || return 1
+  local gateway ingest
+  gateway=$(stack_value gateway)
+  ingest=$(stack_value ingest)
+  [ -n "$gateway" ] && [ -n "$ingest" ] || return 1
+  curl -sf -m 2 "http://$gateway/healthz" >/dev/null 2>&1 || return 1
+  (echo > "/dev/tcp/${ingest%:*}/${ingest#*:}") >/dev/null 2>&1 || return 1
+  return 0
+}
+STACK_HINT="run scripts/dev/isolated-stack.sh to unlock"
 
 passed=0
 unconfigured=0
@@ -137,7 +162,20 @@ if [ "$DB" -eq 1 ]; then
   # The import and customer suites drive the real ingest gRPC service; without a
   # reachable endpoint the queue step fails for reasons the gate cannot fix.
   import_reason=""
-  if [ ! -f "$import_env" ]; then
+  if stack_ready; then
+    # The isolated stack serves the integration database, so the import suites run
+    # against it even though the env file points at another ingest endpoint.
+    V2_INTEGRATION_INGEST_ADDR=$(stack_value ingest)
+    export V2_INTEGRATION_INGEST_ADDR
+    export ECR_PORTS_FILE=$ports_file
+    # The stack serves the integration database, so the suites must use that
+    # database's DSNs rather than the import env file's.
+    import_env=$test_env
+    echo "using isolated stack: ingest $V2_INTEGRATION_INGEST_ADDR db $(basename "$import_env")"
+    if [ ! -f /etc/ecommerce-rag/eval-scope.key ]; then
+      import_reason="missing /etc/ecommerce-rag/eval-scope.key"
+    fi
+  elif [ ! -f "$import_env" ]; then
     import_reason="missing $import_env"
   elif ! grep -q "^V2_INGEST_GRPC_ADDR=" "$import_env" 2>/dev/null; then
     import_reason="$import_env has no V2_INGEST_GRPC_ADDR"
@@ -159,6 +197,9 @@ if [ "$DB" -eq 1 ]; then
     python_reason="$test_env has no V2_AI_DSN"
   fi
 
+  if [ "$STACK" -eq 1 ] && [ -z "$import_reason" ] && ! stack_ready; then
+    import_reason="$STACK_HINT (no $ports_file)"
+  fi
   if [ -n "$import_reason" ]; then
     skip db db-import-batch "$import_reason" "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/admin -run TestImportBatch"
     skip db db-import-customer "$import_reason" "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/customer ./internal/ingestclient"
@@ -189,13 +230,53 @@ if [ "$E2E" -eq 1 ]; then
     e2e_reason="node is not installed"
   elif [ ! -d frontend/node_modules ]; then
     e2e_reason="frontend/node_modules is missing"
-  elif ! curl -sf -m 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    e2e_reason="gateway 127.0.0.1:8080 is not reachable"
-  elif ! curl -sf -m 2 http://127.0.0.1:5173/ >/dev/null 2>&1; then
-    e2e_reason="vite 127.0.0.1:5173 is not reachable"
+  else
+    # The browser layer is bound to the isolated stack: the dev stack serves a
+    # different database, so running against it only produces false failures.
+    e2e_gateway=$(stack_value gateway)
+    e2e_workspace="http://$(stack_value vite)"
+    if stack_ready; then
+      e2e_gateway=$(stack_value gateway)
+      stack_vite=$(stack_value vite)
+      if [ -n "$stack_vite" ]; then
+        e2e_workspace="http://$stack_vite"
+      fi
+      export ECR_PORTS_FILE=$ports_file
+    else
+      e2e_reason="$STACK_HINT (no $ports_file)"
+    fi
+    if [ -z "$e2e_reason" ] && ! curl -sf -m 2 "http://$e2e_gateway/healthz" >/dev/null 2>&1; then
+      e2e_reason="gateway $e2e_gateway is not reachable"
+    elif [ -z "$e2e_reason" ] && ! curl -sf -m 2 "$e2e_workspace/" >/dev/null 2>&1; then
+      e2e_reason="vite $e2e_workspace is not reachable"
+    fi
+    export WORKSPACE_URL=$e2e_workspace
+    browser_env="$(dirname "$ports_file")/browser.env"
+    if [ -f "$browser_env" ]; then
+      ECR_BROWSER_ENV=$browser_env
+      export ECR_BROWSER_ENV
+      LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$browser_env" | head -1)
+      export LOGIN_PASSWORD
+    fi
   fi
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)
+    if [ "$name" = "login" ]; then
+      # The login flow needs the local-account identity, which is a separate stack.
+      local_ports=${ECR_LOCAL_PORTS_FILE:-/tmp/ecr-isolated-local/ports.json}
+      local_env="$(dirname "$local_ports")/browser.env"
+      if [ ! -f "$local_ports" ] || [ ! -f "$local_env" ]; then
+        skip e2e "e2e-login" "run scripts/dev/isolated-stack.sh --identity local --ports 26091" "cd frontend && node tests/login.browser.mjs"
+        continue
+      fi
+      WORKSPACE_URL=$e2e_workspace
+      ECR_BROWSER_ENV=$local_env
+      LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$local_env" | head -1)
+      LOGIN_USER=$(sed -n "s/^LOGIN_USER=//p" "$local_env" | head -1)
+      export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
+      run e2e "e2e-login" "cd frontend && node tests/login.browser.mjs"
+      continue
+    fi
     if [ -n "$e2e_reason" ]; then
       skip e2e "e2e-$name" "$e2e_reason" "cd frontend && node tests/$name.browser.mjs"
     else

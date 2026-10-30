@@ -14,7 +14,9 @@ const root=path.resolve(fileURLToPath(new URL('../../',import.meta.url)))
 const fixture=path.join(root,'tests/fixtures/import-batch-20')
 const output=path.resolve(fileURLToPath(new URL(`../../.local/import-wizard/browser/${randomUUID()}/`,import.meta.url)))
 await mkdir(output,{recursive:true,mode:0o700})
-const env=Object.fromEntries((await readFile('/etc/ecommerce-rag/import-integration.env','utf8')).split('\n').filter(l=>l.includes('=')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)]}))
+const env=Object.fromEntries((await readFile(process.env.ECR_BROWSER_ENV??'/etc/ecommerce-rag/import-integration.env','utf8')).split('\n').filter(l=>l.includes('=')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)]}))
+const manifestText=await readFile(path.join(fixture,'manifest.yaml'),'utf8')
+const importedDocuments=[...manifestText.matchAll(/- document_id: (\S+)/g)].map(m=>m[1])
 const seedHash=(await import('node:crypto')).createHash('sha256').update(await readFile(path.join(fixture,'doc-03.md'))).digest('hex')
 execFileSync('psql',[env.V2_MIGRATION_DSN,'-v','ON_ERROR_STOP=1','-c',`
 DO $$ DECLARE tid bigint; sid bigint; did bigint;
@@ -68,8 +70,15 @@ try{
   await listPage.getByRole('heading',{name:'版本审核',level:1}).waitFor()
   const rows=listPage.locator('.version-row').filter({hasText:/Document \d+/})
   for(let i=0;i<40&&await rows.count()<20;i++)await listPage.waitForTimeout(500)
-  assert.equal(await rows.count(),20)
+  // The queue may already hold historical versions, so the assertion is about the
+  // twenty documents this case imported, not about a fixed row count.
+  assert.ok(await rows.count()>=20,`queue shows ${await rows.count()} rows, want at least 20`)
   assert.ok((await rows.first().innerText()).includes('待处理'))
+  const pending=new Set()
+  const response=await listPage.request.get(workspace+'/admin/v1/merchant/reviews')
+  assert.equal(response.status(),200)
+  for(const item of (await response.json()).items??[])if(item.review_status==='pending')pending.add(item.document_id)
+  for(const document of importedDocuments)assert.ok(pending.has(document),`${document} is not pending in the review queue`)
  })
  await step('revoke-whole-batch',async()=>{
   await wizard.getByRole('button',{name:'撤回整包'}).click()

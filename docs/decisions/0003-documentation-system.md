@@ -55,6 +55,7 @@
 | [0025](0025-code-level-rules.md) | 代码级规则：不复制指令、阶段函数只做一类事、不碰框架对象 | 已采纳 |
 | [0026](0026-proxy-fronted-deployment.md) | 部署形态：内置 edge 与前置代理二选一（含 D1–D4 与 R4 约束） | 提议 |
 | [0027](0027-document-source-ownership.md) | 文档与来源的归属：换来源重传的三种语义 | 提议 |
+| [0029](0029-sparse-retrieval.md) | 稀疏检索：写入契约、A/B 开关与上线条件 | 提议 |
 
 ## 后果
 

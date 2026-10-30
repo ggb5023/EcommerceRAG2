@@ -107,6 +107,9 @@ func integrationHandlerWithIngest(t *testing.T, requireIngest bool) (http.Handle
 	authority := &auth.Authority{DB: gateway, Session: session, SigningKey: key, RevisionMu: &sync.RWMutex{}}
 	ingestAddr := strings.TrimSpace(os.Getenv("V2_INTEGRATION_INGEST_ADDR"))
 	if ingestAddr == "" {
+		ingestAddr = isolatedStackIngest()
+	}
+	if ingestAddr == "" {
 		ingestAddr = strings.TrimSpace(values["V2_INGEST_GRPC_ADDR"])
 	}
 	if ingestAddr == "" && requireIngest {
@@ -415,4 +418,24 @@ func apiStatus(t *testing.T, api http.Handler, method, path string, body any) (i
 	recorder := httptest.NewRecorder()
 	api.ServeHTTP(recorder, request)
 	return recorder.Code, recorder.Body.String()
+}
+
+// isolatedStackIngest reads the ingest address published by
+// scripts/dev/isolated-stack.sh. An absent or unreadable file means "no stack".
+func isolatedStackIngest() string {
+	path := os.Getenv("ECR_PORTS_FILE")
+	if path == "" {
+		path = "/tmp/ecr-isolated/ports.json"
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var state struct {
+		Ingest string `json:"ingest"`
+	}
+	if json.Unmarshal(raw, &state) != nil {
+		return ""
+	}
+	return strings.TrimSpace(state.Ingest)
 }
