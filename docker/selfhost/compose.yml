@@ -12,6 +12,11 @@ x-python: &python
 services:
   postgres:
     image: pgvector/pgvector@sha256:eac621400b7b7ff52493883e41e930e3d104695fea5b68cc0c42370cf7880067
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_PASSWORD_FILE: /run/secrets/pg-password
       POSTGRES_INITDB_ARGS: --encoding=UTF8 --auth-host=scram-sha-256
@@ -46,6 +51,11 @@ services:
     depends_on: {migrate: {condition: service_completed_successfully}}
   keycloak:
     image: quay.io/keycloak/keycloak@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     profiles: [oidc]
     command: [start, --import-realm, --http-enabled=true, --http-relative-path=/identity, --proxy-headers=xforwarded, --health-enabled=true, --hostname-strict=true]
     env_file: ["${ECR_RUNTIME}/identity.env"]
@@ -63,6 +73,11 @@ services:
   gateway:
     build: {context: ../.., dockerfile: docker/selfhost/go.Dockerfile}
     image: ecommerce-rag-go:selfhost
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file: ["${ECR_RUNTIME}/gateway.env"]
     volumes: ["${ECR_RUNTIME}/gateway:/run/runtime:ro", "${ECR_RUNTIME}/web:/run/web:ro"]
     ports: ["${ECR_WEB_BIND:-127.0.0.1}:${ECR_HTTPS_PORT:-8443}:8443"]
@@ -89,6 +104,11 @@ services:
     healthcheck: {test: [CMD, /app/.venv/bin/python, /app/scripts/selfhost-health.py, ai], interval: 5s, timeout: 3s, retries: 30}
   redis:
     image: redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     profiles: [cache]
     command: [redis-server, /run/redis/redis.conf]
     volumes: [redis-data:/data, "${ECR_RUNTIME:?run selfhost init}/redis:/run/redis:ro"]
