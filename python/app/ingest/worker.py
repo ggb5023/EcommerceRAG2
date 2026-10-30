@@ -24,6 +24,7 @@ from uuid import uuid4
 import psycopg
 from psycopg.rows import dict_row
 
+from app.ingest import sparse
 from app.ingest.artifacts import build_ingestion_artifacts, store_artifact_bundle
 from app.ingest.database import IngestDatabase
 from app.ingest.object_journal import JournaledStore, cleanup_orphans
@@ -432,6 +433,7 @@ class IngestWorker:
                     output_type="dense&sparse", cancel_event=cancelled, tenant_id=claim.tenant_id)
                 if len(results) != len(batch):
                     raise ProviderError("invalid_response", "embedding shape mismatch", slot="embedding")
+                counters = document.setdefault("sparse_stats", {"ok": 0, "no_sparse": 0, "invalid": 0, "first_reason": ""})
                 for chunk, result in zip(batch, results, strict=True):
                     vector = result.dense
                     if result.dimensions != 1024:
@@ -439,6 +441,19 @@ class IngestWorker:
                     if len(vector) != 1024 or not all(math.isfinite(v) for v in vector) or not any(vector):
                         raise ProviderError("invalid_response", "invalid embedding vector", slot="embedding")
                     chunk["embedding"] = "[" + ",".join(str(float(v)) for v in vector) + "]"
+                    # 0029: the sparse payload never fails the import; an unusable
+                    # payload is written as NULL and counted for one batch warning.
+                    literal, reason = sparse.to_literal(getattr(result, "sparse", None))
+                    chunk["sparse_embedding"] = literal
+                    if literal is None:
+                        bucket = "invalid" if reason and "no sparse" not in reason else "no_sparse"
+                        counters[bucket] += 1
+                        if not counters["first_reason"]:
+                            counters["first_reason"] = f"chunk_index={chunk['chunk_index']}: {reason}"
+                    else:
+                        counters["ok"] += 1
+                        chunk["sparse_tokenizer_id"] = sparse.sparse_tokenizer_id(
+                            getattr(self.embedding_provider, "provider_name", "provider"), result.model)
                     if document.get("embedding_model", result.model) != result.model:
                         raise ProviderError("invalid_response", "embedding model changed during ingestion", slot="embedding")
                     document["embedding_model"] = result.model
@@ -568,8 +583,9 @@ class IngestWorker:
                         "INSERT INTO chunk(tenant_id,doc_id,version_id,shop_id,chunk_index,section_seq,"
                         "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
                         "content_type,split_reason,embedding_model,embedding_dim,tokenizer_id,effective_from,"
-                        "effective_to,meta_json,source_object_key,chunk_hash,embedding,lang) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-                        "%s,1024,'whitespace-v1',%s,%s,%s,%s,%s,%s::halfvec,'zh')",
+                        "effective_to,meta_json,source_object_key,chunk_hash,embedding,sparse_embedding,sparse_tokenizer_id,lang) "
+                        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                        "%s,1024,'whitespace-v1',%s,%s,%s,%s,%s,%s::halfvec,%s::sparsevec,%s,'zh')",
                         (
                             claim.tenant_id,
                             document_row[0],
@@ -593,6 +609,8 @@ class IngestWorker:
                             document["raw_key"],
                             chunk["chunk_hash"],
                             chunk["embedding"],
+                            chunk.get("sparse_embedding"),
+                            chunk.get("sparse_tokenizer_id"),
                         ),
                     )
                 cursor.execute(
