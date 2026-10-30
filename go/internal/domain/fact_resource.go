@@ -41,3 +41,10 @@ func RoutedOrderResource(response *ragv1.UnderstandResponse, query string) (stri
 	}
 	return ids[0], true
 }
+
+// IsOrderIdentifier reports whether s has the shape of an order identifier.
+// The regex stays private: exporting it would invite new copies elsewhere.
+func IsOrderIdentifier(s string) bool { return orderIDPattern.MatchString(s) }
+
+// ResourceTokens returns the identifier-shaped tokens in s.
+func ResourceTokens(s string) []string { return queryResourcePattern.FindAllString(s, -1) }

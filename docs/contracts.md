@@ -14,7 +14,7 @@
 | SSE 帧格式 | 跨进程 | `go/internal/gateway/sse.go:sseStream` | `frontend/src/api.ts:158`（`Accept: text/event-stream` 的消费） | `go/internal/gateway/sse_test.go` / `frontend/src/api.test.ts` | ✅ |
 | clarification 信号 | 跨进程 | `go/internal/gateway/turn_route.go:decideClarification` | `python/app/graph/workflow.py`（intent 分类） | `go/internal/gateway/turn_route_test.go` / `python/tests/test_workflow_intent_contract.py`（三类 intent + 键集合精确相等，不含终态字段） | ✅ |
 | store 行类型与可空列 | 同侧 | `go/internal/admin/store_imports.go`（`JobDetailRow` / `JobItemRow`） | —（同侧，Go 内部契约） | `go/internal/admin/store_imports_integration_test.go:TestJobDetailAcceptsNullDatasetHash` | ✅ |
-| domain 纯函数边界 | 同侧 | `go/internal/domain/`（`FilterEvidence` / `DecideClarification` / `ValidateCitation`） | —（同侧） | `scripts/check/check-domain-imports.py`（禁 gateway/admin/httpapi/pgxpool/grpc 直接引用，禁导出函数接 `context.Context`）+ `go test ./internal/domain/ -cover`=96.3% | ✅ |
+| domain 纯函数边界 | 同侧 | `go/internal/domain/`（`FilterEvidence` / `DecideClarification` / `ValidateCitation` / `RoutedOrderResource` + 助手 `IsOrderIdentifier` / `ResourceTokens`） | —（同侧） | `scripts/check/check-domain-imports.py`（禁 gateway/admin/httpapi/pgxpool/grpc 直接引用，禁导出函数接 `context.Context`）+ `go test ./internal/domain/ -cover`=96.3% | ✅ |
 | 稀疏向量写入 | 跨进程 | （待 [0029](decisions/0029-sparse-retrieval.md)，尚未实现） | `python/app/providers/aliyun_bailian.py:722`（只解析，不落库） | 无 / 无 | ❌ 未实现 |
 
 ## 维护规则

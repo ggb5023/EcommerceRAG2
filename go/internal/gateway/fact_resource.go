@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	"math"
 	"regexp"
 	"slices"
@@ -155,7 +156,7 @@ func routedProductResource(response *ragv1.UnderstandResponse, query, history st
 		}
 		confidence := entity.GetConfidence()
 		candidate := strings.TrimSpace(entity.GetValue())
-		if id != "" || !orderIDPattern.MatchString(candidate) || math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < .5 || confidence > 1 {
+		if id != "" || !domain.IsOrderIdentifier(candidate) || math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < .5 || confidence > 1 {
 			return "", false
 		}
 		id = candidate
@@ -163,7 +164,7 @@ func routedProductResource(response *ragv1.UnderstandResponse, query, history st
 	if id == "" {
 		return "", false
 	}
-	if slices.Contains(queryResourcePattern.FindAllString(query, -1), id) {
+	if slices.Contains(domain.ResourceTokens(query), id) {
 		current := map[string]bool{}
 		for _, token := range skuToken.FindAllString(query, -1) {
 			current[token] = true

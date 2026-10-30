@@ -17,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,9 +33,6 @@ import (
 )
 
 const turnTimeout = 60 * time.Second
-
-var orderIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-var queryResourcePattern = regexp.MustCompile(`[A-Za-z0-9_-]+`)
 
 func routedOrderResource(response *ragv1.UnderstandResponse, query string) (string, bool) {
 	return domain.RoutedOrderResource(response, query)

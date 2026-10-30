@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -35,5 +36,18 @@ func TestRoutedOrderResourceRequiresOneConfidentValidEntity(t *testing.T) {
 				t.Fatalf("RoutedOrderResource()=(%q,%v), want (%q,%v)", got, ok, test.want, test.ok)
 			}
 		})
+	}
+}
+
+func TestIsOrderIdentifierAndResourceTokens(t *testing.T) {
+	if !IsOrderIdentifier("V2-ORDER-001") || IsOrderIdentifier("../secret") || IsOrderIdentifier("") {
+		t.Fatal("identifier shape check is wrong")
+	}
+	tokens := ResourceTokens("订单号 V2-ORDER-0010 状态")
+	if !slices.Contains(tokens, "V2-ORDER-0010") || !slices.Contains(tokens, "V2-ORDER-0010") {
+		t.Fatalf("tokens = %v", tokens)
+	}
+	if !slices.Contains(ResourceTokens("单号 V2-ORDER-001"), "V2-ORDER-001") {
+		t.Fatal("an exact identifier must tokenize to itself")
 	}
 }
