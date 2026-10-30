@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -27,6 +28,12 @@ class RetrievalSchemaError(RuntimeError):
 # Temporary weight for the sparse branch; the rationale and the A/B plan live in
 # docs/decisions/0029-sparse-retrieval.md. Do not tune it without that record.
 SPARSE_RRF_WEIGHT = 0.7
+
+# The sparse branch below ranks by a text heuristic; chunk.sparse_embedding is not
+# written yet (decisions/0029). Report that honestly instead of pretending the
+# sparse vector path is active.
+_log = logging.getLogger(__name__)
+_sparse_mode_reported = False
 
 
 @dataclass(frozen=True)
@@ -125,6 +132,8 @@ class PostgresRetriever:
         self._connect = connect
         self._dense_candidates = dense_candidates
         self._sparse_candidates = sparse_candidates
+        self._sparse_mode: str | None = None
+        self.last_sparse_mode: str | None = None
 
     def verify_schema(self) -> None:
         """Fail closed unless the checksum migration has installed retrieval tables."""
@@ -294,6 +303,7 @@ class PostgresRetriever:
                 [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
             )
             sparse_rows = cursor.fetchall()
+        self._report_sparse_mode(cursor)
 
         dense_by_id = {str(row["chunk_id"]): (row, rank) for rank, row in enumerate(dense_rows, 1)}
         sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
@@ -315,6 +325,23 @@ class PostgresRetriever:
             combined.append(candidate)
         combined.sort(key=lambda item: (-item.rrf_score, item.id))
         return [item.as_evidence() for item in combined[:limit]]
+
+    def _report_sparse_mode(self, cursor: Any) -> None:
+        """Expose which sparse path ran, and say so once if the column is empty."""
+        global _sparse_mode_reported
+        if self._sparse_mode is not None:
+            return
+        cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL)")
+        row = cursor.fetchone()
+        populated = bool(row[0]) if row else False
+        self._sparse_mode = "sparsevec" if populated else "text_heuristic"
+        self.last_sparse_mode = self._sparse_mode
+        if not populated and not _sparse_mode_reported:
+            _sparse_mode_reported = True
+            _log.warning(
+                "sparse retrieval is running on the text heuristic: chunk.sparse_embedding is never written "
+                "(see docs/decisions/0029-sparse-retrieval.md); sparse contribution is zero for vector terms"
+            )
 
     async def asearch(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Run blocking psycopg I/O outside the event loop used by gRPC."""
