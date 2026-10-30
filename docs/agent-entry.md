@@ -36,13 +36,13 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 
 边界（决策 0028）：**Go 拥有**授权、幂等、状态机、事件顺序、落库、失败分类、终态（ASKING/DONE/FAILED）；**Python 拥有** intent 分类、clarification 文案候选、confidence、检索多跳、提示组装。判据：**能不能看/能不能发 → Go；还要不要再检索/再问一句 → Python**。
 
-## 3. 门禁（`scripts/check.sh`，35 项）
+## 3. 门禁（`scripts/check.sh`，37 项）
 
 | 组 | 项 | 拦什么 |
 | --- | --- | --- |
 | 边界 | `stage-boundaries` `admin-boundaries` `domain-imports` `ownership` | SQL 回流 handler、阶段函数接 request、domain 依赖基础设施、越权写表 |
 | 契约 | `contracts` | 跨进程契约缺一侧测试（棘轮只许增：cross 5/6、same 2/2） |
-| 文档 | `docs-links` `docs-drift` `doc-baseline` `openapi` | 断链、同一事实多处陈述、基线被改 |
+| 文档 | `docs-links` `docs-drift` `doc-paths` `decisions-index` `doc-baseline` `openapi` | 断链、同一事实多处陈述、文档里的路径不存在、决策编号漏号或撞车、基线被改 |
 | 隐私 | `privacy-guard` `privacy-tests` `publication-tests` | 密钥、非公开文档入库 |
 | 可观测 | `service-logs` | 服务起了但完全静默 |
 | 正确性 | `go-test` `python-tests` `frontend-tests` `eval-offline` `facts-fake-matrix` `provider-smoke` `artifact-*-smoke` | 行为回归 |
@@ -54,7 +54,7 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 ## 4. 验证命令
 
 ```bash
-bash scripts/check.sh                 # 快速层 35 项（默认）
+bash scripts/check.sh                 # 快速层 37 项（默认）
 bash scripts/check.sh --db            # 加持久化层（需集成库；无栈则 UNCONFIGURED）
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式

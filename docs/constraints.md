@@ -80,3 +80,17 @@
 - 新增一条规则 → 先在本表加一行，再写实现或明确标「口头约定」；
 - 「口头约定」变成门禁时，同步更新"强制方式"列，**不要只改代码不改表**；
 - 本表与 `docs/archive/*-plan.md` 的关系：那边是当时的分析过程与工作包细节，本表是当前仍然生效的规则摘要。
+
+## 8. 各节来源
+
+本表由六份域计划合并而来，删去过程与工作包细节，只保留仍然生效的规则。
+需要追溯「当时为什么这么定」时按节打开对应归档：
+
+| 本表节 | 来源（冻结） |
+| --- | --- |
+| 1 数据与迁移 | `docs/archive/data-and-migrations-plan.md` |
+| 2 运维与发布 | `docs/archive/ops-and-release-plan.md` |
+| 3 安全与密钥 | `docs/archive/security-and-secrets-plan.md` |
+| 4 可观测性 | `docs/archive/observability-plan.md` |
+| 5 评测 | `docs/archive/eval-system-plan.md` |
+| 6 治理 | `docs/archive/governance-plan.md` |
