@@ -1,6 +1,6 @@
 # 数据归属
 
-[项目入口](../README.md) · [架构](architecture.md) · [后端重构细则](backend-refactor-plan.md)
+[项目入口](../README.md) · [架构](architecture.md) · [后端重构细则](archive/backend-refactor-plan.md)
 
 一张表只有一个写入方，或少数被明确批准的写入方。这张表是唯一来源：代码里的每一条
 `INSERT` / `UPDATE` / `DELETE` 都必须落在下面声明的集合里，否则 `scripts/check/check-ownership.py` 失败。

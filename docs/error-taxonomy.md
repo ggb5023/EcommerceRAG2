@@ -1,6 +1,6 @@
 # 错误码表（骨架）
 
-[项目入口](../README.md) · [可观测性方案](observability-plan.md) · [架构](architecture.md)
+[项目入口](../README.md) · [可观测性方案](archive/observability-plan.md) · [架构](architecture.md)
 
 一行一个错误码。**骨架已建，随新增码持续补行**：新增 `finish(...)` / `WriteError(...)` 的错误码时必须同时补一行，
 否则视为未完成（见 [决策 0025](decisions/0025-code-level-rules.md) 的 R1——同一件事只写在一处，本表是唯一出处）。

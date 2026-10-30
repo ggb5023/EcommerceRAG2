@@ -15,6 +15,7 @@
 !/docs/product.md
 !/docs/decisions/
 !/docs/decisions/[0-9][0-9][0-9][0-9]-*.md
+!/docs/decisions/INDEX.md
 !/docs/install.md
 !/docs/openapi.yaml
 !/docs/knowledge.md
@@ -22,6 +23,12 @@
 !/docs/backup.md
 !/docs/refactor-input.md
 !/docs/development.md
+!/docs/agent-entry.md
+!/docs/constraints.md
+!/docs/workpackages/
+!/docs/workpackages/*.md
+!/docs/archive/
+!/docs/archive/*.md
 !/docs/ui-only-acceptance.md
 !/docs/data-ownership.md
 !/docs/error-taxonomy.md

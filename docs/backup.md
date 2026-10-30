@@ -33,7 +33,7 @@ ZRS、版本控制、AES256）。备份前缀 `ecr-backup/`；`drill/` 下的旧
 
 - `corpus/revision/current/`：冻结语料 5 个 revision 文件；目录不存在时只写带 `corpus_revision=absent`
   标记的清单与快照，不上传任何替代数据。
-- `eval/current/`：`eval/` 下的用例、契约、review 与校验脚本（排除 `__pycache__`、`.pytest_cache`、`*.pyc`）
+- `/var/lib/ecommerce-rag/eval/current/`：`eval/` 下的用例、契约、review 与校验脚本（排除 `__pycache__`、`.pytest_cache`、`*.pyc`）
   以及清单 `manifest.sha256`。
 - `git/<short-sha>.bundle`：`git bundle create --all` 的整仓历史，上传前先 `git bundle verify`。
 - `reports/<ts>/`：仅当显式传 `--with-reports DIR` 时归档；默认留空。
@@ -66,11 +66,11 @@ sudo scripts/ops/oss-restore.sh --dest /tmp/ecr-restore --git-bundle
 ```
 
 脚本按清单下载对象、写入 `manifest.sha256` 并逐个 `sha256sum -c`；git 侧优先读取 `git/latest` 指针（bundle 名 + sha256），校验后 `git bundle verify` 并打印所选 bundle 与提交号；指针缺失时才按对象修改时间取最新；演练可用 `ECR_RESTORE_IGNORE_POINTER=1` 强制走该回退分支并打印警告与所选 bundle。语料存在时执行
-`ECR_REQUIRE_EVAL=1 python3 scripts/check/check-eval-corpus.py`，语料缺失时明确 `SKIP` 并在
+评测语料的完整性检查与 `ECR_REQUIRE_EVAL` 的用法见 `docs/development.md` 的「评测与门禁」一节，语料缺失时明确 `SKIP` 并在
 `--require-revision` 下失败。git bundle 用 `git bundle verify` 校验。恢复只写目标目录，不删除已有内容。
 
 **状态含义**
 
 - `NOOP`：远端清单与本地逐对象一致，本区未上传。
 - `corpus_revision=absent`：语料目录不存在，跳过语料上传；这是“缺件”，不是“已备份”。
-- `check.sh` 全绿不代表评测已验证；P1 验收用 `ECR_REQUIRE_EVAL=1 bash scripts/check.sh`。
+- `check.sh` 全绿不代表评测已验证；P1 验收要求见 `docs/development.md`。

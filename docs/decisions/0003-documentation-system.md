@@ -61,4 +61,4 @@
 ## 后果
 
 - 原 FACTS 中仍然有效的结论已并入 architecture 和 [0004](0004-retained-invariants.md)。
-- `scripts/check-doc-baseline.py` 改为检查新体系。
+- `scripts/check/check-doc-baseline.py` 改为检查新体系。

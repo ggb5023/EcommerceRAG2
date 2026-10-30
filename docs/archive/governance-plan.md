@@ -118,7 +118,7 @@ python:  uv pip list --outdated ; pip-audit（或 uvx pip-audit）
 - 禁止文档里出现的 `docs/decisions/NNNN-*.md` 链接指向不存在的文件
 
 验收：`python3 scripts/check/check-docs-drift.py` → `PASS`；故意在 `docs/install.md` 里加一行 `V2_ONLINE_BUDGET_CNY` 应 fail；
-在 `docs/governance-plan.md`、`docs/refactor-assessment.md`、`docs/testing-refactor-plan.md` 里出现同样的词应 **不** fail（同构白名单生效）。
+在 `docs/archive/governance-plan.md`、`docs/archive/refactor-assessment.md`、`docs/archive/testing-refactor-plan.md` 里出现同样的词应 **不** fail（同构白名单生效）。
 
 ---
 

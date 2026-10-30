@@ -30,7 +30,7 @@
 4. **提交粒度**：一阶段一分支；每个提交可独立编译、可独立回滚；前缀 `refactor:`（纯结构）、`test:`（补测）、`docs:`。
 5. **推送与合并**：不 push、不 merge，除非操作者明确授权；合并后 24 小时内推送并删除分支。
 6. **重构期间功能冻结**：除阻塞性 bug 外不接新功能，避免与 P-A/P-B/P-C 冲突。
-7. **文档先行**：开工前把 `refactor-assessment.md` 从 `.local/`（gitignored）移到 `docs/refactor-assessment.md` 并提交，否则细则引用的"总纲"在 clone 后不可见。
+7. **文档先行**：开工前把 `refactor-assessment.md` 从 `.local/`（gitignored）移到 `docs/archive/refactor-assessment.md` 并提交，否则细则引用的"总纲"在 clone 后不可见。
 
 ## 2. 基线（重构前先记录，用于对比）
 
@@ -136,7 +136,7 @@ cd frontend && node tests/v2-restart.browser.mjs        # 6 步（恢复语义�
 wc -l go/internal/gateway/main.go                       # ≤ 800（P-A）
 ```
 
-**阶段函数验收（[决策 0025](decisions/0025-code-level-rules.md) R2）**：每个拆出的阶段函数行数 **≤80**、
+**阶段函数验收（[决策 0025](../decisions/0025-code-level-rules.md) R2）**：每个拆出的阶段函数行数 **≤80**、
 只触碰一类工作（SQL / 模型调用 / 序列化 / 纯判断），触碰两类以上必须再拆；
 汇报时给出每个函数的行数与触碰类别统计。
 `runTurn` 最终 **≤120 行**，只做输入构造、阶段调用与失败分支；
@@ -314,9 +314,9 @@ python3 scripts/check/check-structure.py                 # 通过
 ```bash
 # 0) 前置：确认总纲与分册已在仓库内且可被 git 跟踪
 #    注意 .gitignore 的 /docs/** 会忽略这些文件，必须先有白名单：
-#    !/docs/*-plan.md 与 !/docs/refactor-assessment.md
-git check-ignore -v docs/refactor-assessment.md docs/backend-refactor-plan.md   # 期望输出为空
-ls docs/refactor-assessment.md docs/backend-refactor-plan.md
+#    !/docs/*-plan.md 与 !/docs/archive/refactor-assessment.md
+git check-ignore -v docs/archive/refactor-assessment.md docs/archive/backend-refactor-plan.md   # 期望输出为空
+ls docs/archive/refactor-assessment.md docs/archive/backend-refactor-plan.md
 
 # 1) 确认起点干净（m8 已合入 main 并推送）
 git checkout main && git pull --ff-only && git log --oneline -3

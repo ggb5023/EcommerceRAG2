@@ -66,7 +66,7 @@
 
 ## B 级（允许 CLI，一条命令）
 
-- 安装/迁移/启动：`docker compose` 或 `bash scripts/dev/v2-local-services.sh --env ...`；
+- 安装/迁移/启动：`docker compose` 或 本机启动脚本见 `docs/development.md`；
 - 备份/恢复：`scripts/ops/oss-backup.sh` / `oss-restore.sh`；
 - Provider 与用量配置：`/etc/ecommerce-rag/providers.env` 与 `scripts/dev/provider-usage.py`（0021 之后不再有货币账本）。
   这些不要求 WebUI；若在 WebUI 暴露，必须走 0019 的密钥与审计规则。

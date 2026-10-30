@@ -26,7 +26,7 @@
 - 浏览器只访问 Go；权限只由 Go 决定，Python 只用 Go 签发的 scope。
 - 一张表只有一个写入方；不用 SQL 直写终态绕过业务流程。
 - 结构变化只能新增 checksum 迁移；应用不执行 DDL。
-- Go 和 Python 的契约只在 `proto/rag/v1/rag.proto`；改完运行 `bash scripts/dev/generate-proto.sh`，不手改生成文件。
+- Go 和 Python 的契约只在 `proto/rag/v1/rag.proto`；生成与校验流程见 `docs/development.md`，不手改生成文件。
 
 ## 检查
 

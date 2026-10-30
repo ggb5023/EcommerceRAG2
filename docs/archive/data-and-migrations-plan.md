@@ -24,7 +24,7 @@
 ### D1 表归属没有权威文档（必修）
 
 - 现象：`app_user` / `admin_audit` 在 `admin` 与 `localauth` 两处 INSERT（生产代码，非测试），0004 红线事实上失效
-  现状：W1 已收口到 `localauth`，见 [数据归属](data-ownership.md)。
+  现状：W1 已收口到 `localauth`，见 [数据归属](../data-ownership.md)。
 - 风险：新功能随手再开第三个写入方，没人能发现
 - 判定：这不是"代码问题"，是"缺一张表"的问题
 

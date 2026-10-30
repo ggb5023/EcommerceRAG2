@@ -20,15 +20,15 @@
 | 文档 | 角色 | 冲突时 |
 | --- | --- | --- |
 | 本文件 | 总纲：问题清单、工作包划分、执行顺序、红线 | **以本文件的顺序与红线为准** |
-| `docs/backend-refactor-plan.md` | W1/W2 的执行细则（Go/Python 拆分怎么做） | 细则以后端文档为准，范围以本文件为准 |
-| `docs/testing-refactor-plan.md` | 门禁分层、覆盖率、故障注入 | 门禁相关以测试文档为准 |
-| `docs/frontend-refactor-plan.md` | 前端设计系统与两端分离 | 前端相关以前端文档为准 |
-| `docs/data-and-migrations-plan.md` | 数据归属、迁移纪律、授权检查、恢复演练 | 表归属与迁移以本文档为准 |
-| `docs/ops-and-release-plan.md` | 部署编排、版本化发布、升级回滚、部署冒烟 | 发布与回滚以本文档为准 |
-| `docs/security-and-secrets-plan.md` | 授权判定收口、密钥清单与轮换、个人信息保留 | 安全边界以本文档为准 |
-| `docs/observability-plan.md` | 请求关联 ID、最小指标集、错误码表、日志规范 | 可观测性以本文档为准 |
-| `docs/eval-system-plan.md` | 评测可信度：三态门禁、provenance、报告 schema | 评测门禁语义以本文档为准 |
-| `docs/governance-plan.md` | 分支治理、里程碑 tag、决策编号、依赖扫描、文档防漂移 | 流程规则以本文档为准 |
+| `docs/archive/backend-refactor-plan.md` | W1/W2 的执行细则（Go/Python 拆分怎么做） | 细则以后端文档为准，范围以本文件为准 |
+| `docs/archive/testing-refactor-plan.md` | 门禁分层、覆盖率、故障注入 | 门禁相关以测试文档为准 |
+| `docs/archive/frontend-refactor-plan.md` | 前端设计系统与两端分离 | 前端相关以前端文档为准 |
+| `docs/archive/data-and-migrations-plan.md` | 数据归属、迁移纪律、授权检查、恢复演练 | 表归属与迁移以本文档为准 |
+| `docs/archive/ops-and-release-plan.md` | 部署编排、版本化发布、升级回滚、部署冒烟 | 发布与回滚以本文档为准 |
+| `docs/archive/security-and-secrets-plan.md` | 授权判定收口、密钥清单与轮换、个人信息保留 | 安全边界以本文档为准 |
+| `docs/archive/observability-plan.md` | 请求关联 ID、最小指标集、错误码表、日志规范 | 可观测性以本文档为准 |
+| `docs/archive/eval-system-plan.md` | 评测可信度：三态门禁、provenance、报告 schema | 评测门禁语义以本文档为准 |
+| `docs/archive/governance-plan.md` | 分支治理、里程碑 tag、决策编号、依赖扫描、文档防漂移 | 流程规则以本文档为准 |
 
 同一件事只允许出现在一个文档里；本文件不再重复 W1/W2 的具体拆分步骤，
 新增的六份文档各自编号（D/O/S/M/E/G 前缀），不得与本文件的 W0–W6 混用。
@@ -37,10 +37,10 @@
 
 ```bash
 cd /data/app/EcommerceRAG2
-for f in docs/refactor-assessment.md docs/backend-refactor-plan.md docs/testing-refactor-plan.md \
-         "docs/frontend-refactor-plan.md" docs/data-and-migrations-plan.md docs/ops-and-release-plan.md \
-         docs/security-and-secrets-plan.md docs/observability-plan.md docs/eval-system-plan.md \
-         docs/governance-plan.md; do
+for f in docs/archive/refactor-assessment.md docs/archive/backend-refactor-plan.md docs/archive/testing-refactor-plan.md \
+         "docs/archive/frontend-refactor-plan.md" docs/archive/data-and-migrations-plan.md docs/archive/ops-and-release-plan.md \
+         docs/archive/security-and-secrets-plan.md docs/archive/observability-plan.md docs/archive/eval-system-plan.md \
+         docs/archive/governance-plan.md; do
   [ -f "$f" ] && echo "OK   $f" || echo "MISS $f"
 done
 ```
@@ -109,7 +109,7 @@ time bash scripts/check.sh               # 2026-10-27 实测 31.1s，作为"快�
 `docs/install.md`、`docs/development.md`、`docs/architecture.md`、`docs/backup.md`、`docs/refactor-input.md`、
 `AGENTS.md`、`ROADMAP.md`（具体份数以 R0 验收命令的实测输出为准）。
 （`docs/decisions/0006`、`0019`、`0021` 中的提及属历史记录，**不改**；`docs/*-plan.md` 与
-`docs/refactor-assessment.md` 因在本轮讨论这些废弃键，纳入漂移检查白名单。）
+`docs/archive/refactor-assessment.md` 因在本轮讨论这些废弃键，纳入漂移检查白名单。）
 
 **判定**：口径不一致，会让商家按旧文档去配 `V2_ONLINE_BUDGET_*`。
 
@@ -234,8 +234,8 @@ git rev-parse --short HEAD origin/main main   # 三者关系明确
 **做**
 
 - 0021 文档漂移清理（W0）
-- 数据归属收口（W1，细则见 `docs/backend-refactor-plan.md` P-B）
-- gateway 拆分（W2，细则见 `docs/backend-refactor-plan.md` P-A）
+- 数据归属收口（W1，细则见 `docs/archive/backend-refactor-plan.md` P-B）
+- gateway 拆分（W2，细则见 `docs/archive/backend-refactor-plan.md` P-A）
 - provider 密钥路径决策（W3）
 - eval 分层（W4）
 - 跨服务旅程用例（W5）
@@ -303,13 +303,13 @@ git rev-parse --short HEAD origin/main main   # 三者关系明确
 
 ### T1 测试门禁分层（引用型工作包）
 
-- 细则、批次划分与验收命令见 `docs/testing-refactor-plan.md` 第 1、2 节
+- 细则、批次划分与验收命令见 `docs/archive/testing-refactor-plan.md` 第 1、2 节
 - 前置：W1 完成之后执行；不要与 W2 / M9-1 并行（三者都改 `scripts/check.sh` 或 `frontend/`）
 - 完成定义：以该文档第 1 节的 G1–G5 全部达标为准
 
 ### M9-1 前端设计系统（引用型工作包）
 
-- 细则与验收见 `docs/frontend-refactor-plan.md` 第 9 节「阶段 1」
+- 细则与验收见 `docs/archive/frontend-refactor-plan.md` 第 9 节「阶段 1」
 - 前置：m8 合并完成、0024 决策已写、bundle 基线已测
 - 完成定义：以该文档阶段 1 的验收清单为准（tokens + 组件 + `data-testid`，不动业务逻辑）
 

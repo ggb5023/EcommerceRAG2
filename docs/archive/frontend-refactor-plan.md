@@ -313,7 +313,7 @@ main == origin/main = 5baa01c
 
 ### 9.0 与后端重构的顺序规则（必读，冲突时以此为准）
 
-后端重构见 `docs/backend-refactor-plan.md`（P-A turn 引擎 / P-B admin store / P-C Python 巨型函数），
+后端重构见 `docs/archive/backend-refactor-plan.md`（P-A turn 引擎 / P-B admin store / P-C Python 巨型函数），
 其中第 1.6 条写明"**重构期间功能冻结：除阻塞性 bug 外不接新功能**"。本方案必须服从该冻结。
 
 | 本方案阶段 | 能否与后端重构并行 | 理由 |

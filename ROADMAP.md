@@ -10,7 +10,7 @@ M1–M5 已全部完成并合入 main。冻结评测首个基线（baseline v1�
 
 质量门槛自 P1 起由 agent 评审承担（见[0015](docs/decisions/0015-agent-review-owns-quality-in-development.md)），开发阶段不安排人工复核；商家阶段按[0013](docs/decisions/0013-merchant-delegated-agent-review.md)只对五类必要变更要求人工确认。技术验收覆盖冻结用例的离线与在线链路、七条安全排除、OSS 备份恢复演练与 token 用量记录；real_service_acceptance=false（合成数据）。
 
-P1 验收必须以 `ECR_REQUIRE_EVAL=1 bash scripts/check.sh` 运行；缺语料的 skip 只用于日常开发，不构成评测通过。
+P1 验收的判定标准与命令见 `docs/development.md`；缺语料的 skip 只用于日常开发，不构成评测通过。
 
 下一项：P2 首版能力的具体任务等待方向；开发阶段人工复核按 0015 不安排，真实商家数据验收另行授权；未获准真实模型调用时不重跑评测。
 
