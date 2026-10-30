@@ -14,18 +14,17 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
 	"io"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"os"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,30 +39,7 @@ var orderIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 var queryResourcePattern = regexp.MustCompile(`[A-Za-z0-9_-]+`)
 
 func routedOrderResource(response *ragv1.UnderstandResponse, query string) (string, bool) {
-	if response == nil {
-		return "", false
-	}
-	ids := make([]string, 0, 1)
-	for _, entity := range response.Entities {
-		if entity.GetName() != "order_id" {
-			continue
-		}
-		confidence := entity.GetConfidence()
-		if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0.5 || confidence > 1 {
-			return "", false
-		}
-		id := strings.TrimSpace(entity.GetValue())
-		if id != "" {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) != 1 || !orderIDPattern.MatchString(ids[0]) {
-		return "", false
-	}
-	if !slices.Contains(queryResourcePattern.FindAllString(query, -1), ids[0]) {
-		return "", false
-	}
-	return ids[0], true
+	return domain.RoutedOrderResource(response, query)
 }
 
 func isV2Profile(profile string) bool {
