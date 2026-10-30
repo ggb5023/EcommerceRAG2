@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import re
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -34,6 +35,9 @@ SPARSE_RRF_WEIGHT = 0.7
 # sparse vector path is active.
 _log = logging.getLogger(__name__)
 _sparse_mode_reported = False
+# After step 2 lands, a running process switches from text_heuristic to sparsevec
+# on its own within this window; no restart is needed.
+SPARSE_MODE_TTL_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,7 @@ class PostgresRetriever:
         self._dense_candidates = dense_candidates
         self._sparse_candidates = sparse_candidates
         self._sparse_mode: str | None = None
+        self._sparse_mode_checked_at = 0.0
         self.last_sparse_mode: str | None = None
 
     def verify_schema(self) -> None:
@@ -326,15 +331,20 @@ class PostgresRetriever:
         combined.sort(key=lambda item: (-item.rrf_score, item.id))
         return [item.as_evidence() for item in combined[:limit]]
 
-    def _report_sparse_mode(self, cursor: Any) -> None:
-        """Expose which sparse path ran, and say so once if the column is empty."""
+    def _report_sparse_mode(self, cursor: Any, ttl: float = SPARSE_MODE_TTL_SECONDS) -> None:
+        """Expose which sparse path ran, and warn once while the column stays empty.
+
+        The probe is cached for ``ttl`` seconds (``ttl=0`` forces a re-check), so a
+        long-lived process notices step 2 landing without a restart.
+        """
         global _sparse_mode_reported
-        if self._sparse_mode is not None:
+        if self._sparse_mode is not None and ttl > 0 and time.monotonic() - self._sparse_mode_checked_at < ttl:
             return
         cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL)")
         row = cursor.fetchone()
         populated = bool(row[0]) if row else False
         self._sparse_mode = "sparsevec" if populated else "text_heuristic"
+        self._sparse_mode_checked_at = time.monotonic()
         self.last_sparse_mode = self._sparse_mode
         if not populated and not _sparse_mode_reported:
             _sparse_mode_reported = True
