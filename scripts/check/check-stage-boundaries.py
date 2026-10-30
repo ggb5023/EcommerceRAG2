@@ -25,6 +25,12 @@ FUNC = re.compile(r"^func\s+(?:\(([^)]*)\)\s*)?([A-Za-z0-9_]+)\s*\(", re.MULTILI
 FORBIDDEN_TYPE = re.compile(r"\*(?:Handler|Server|Gateway|gateway)\b")
 # runTurn must stay an orchestrator: SQL, SSE writes and answer qualifiers belong
 # to the stage files (decision 0025 R2 / P-A acceptance).
+# Counted stage functions across go/internal/gateway/turn_*.go. A drop means a
+# stage function disappeared without a wrapper: fail, except for the migration
+# recorded below.
+# 2026-10-30 由 29 降为 28：errStageContract.Error() 随类型迁往 internal/domain，
+# 它不是阶段函数，是计数器的历史假阳性。允许下降仅限此类搬迁，且有本注释为凭。
+STAGE_FUNC_BASELINE = 28
 # Base allowance. Lower it after every split; a raise is only accepted when the
 # exact from→to step is recorded in RUN_TURN_AMENDMENTS.
 RUN_TURN_BUDGET = 117
@@ -141,6 +147,8 @@ def main() -> int:
             field = FORBIDDEN_FIELD.search(body)
             if field:
                 problems.append(f"{relative}:{line} {name}: touches gateway fields via g.")
+    if checked < STAGE_FUNC_BASELINE:
+        problems.append(f"stage function count dropped to {checked}, baseline is {STAGE_FUNC_BASELINE}")
     problems.extend(orchestrator_problems())
     run_turn = orchestrator_lines()
     permitted, reason = permitted_budget()

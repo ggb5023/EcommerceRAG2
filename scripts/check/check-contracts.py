@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TABLE = ROOT / "docs" / "contracts.md"
 # Two ratchets, both measured when the table was introduced. Only raise them.
 CONTRACTS_CROSS = 5
-CONTRACTS_SAME = 1
+CONTRACTS_SAME = 2
 ROW = re.compile(r"^\|(?P<cells>.+)\|\s*$")
 
 

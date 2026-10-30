@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -98,15 +99,9 @@ func finalAnswer(result *generationResult, snapshotFallback bool) string {
 	return text
 }
 
-// validateCitation reports whether the cited evidence is one of the accepted
-// candidates. It is pure: it only compares protobuf messages.
+// validateCitation is the thin wrapper over the pure domain rule.
 func validateCitation(citation *ragv1.Evidence, accepted []*ragv1.Evidence) bool {
-	for _, original := range accepted {
-		if evidenceEqual(original, citation) {
-			return true
-		}
-	}
-	return false
+	return domain.ValidateCitation(citation, accepted)
 }
 
 // persistCitation stores one accepted citation for the execution.

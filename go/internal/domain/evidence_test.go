@@ -1,4 +1,4 @@
-package gateway
+package domain
 
 import (
 	"errors"
@@ -21,12 +21,11 @@ func ids(items []*ragv1.Evidence) []string {
 }
 
 func equalIDs(got []*ragv1.Evidence, want ...string) bool {
-	gotIDs := ids(got)
-	if len(gotIDs) != len(want) {
+	if len(got) != len(want) {
 		return false
 	}
 	for index := range want {
-		if gotIDs[index] != want[index] {
+		if got[index].GetId() != want[index] {
 			return false
 		}
 	}
@@ -35,12 +34,12 @@ func equalIDs(got []*ragv1.Evidence, want ...string) bool {
 
 func TestFilterEvidencePermission(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("allowed"), evidence("denied")}
-	grants := []evidenceGrant{{allowed: true}, {allowed: false}}
-	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "allowed") {
+	grants := []EvidenceGrant{{Allowed: true}, {Allowed: false}}
+	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "allowed") {
 		t.Fatalf("permission filter kept %v, want [allowed]", ids(got))
 	}
 	// Missing grants count as denied.
-	if got, err := filterEvidence(raw, []evidenceGrant{{allowed: true}}, true); err == nil || got != nil {
+	if got, err := FilterEvidence(raw, []EvidenceGrant{{Allowed: true}}, true); err == nil || got != nil {
 		t.Fatalf("short grants kept %v, want [allowed]", ids(got))
 	}
 }
@@ -49,8 +48,8 @@ func TestFilterEvidenceDisclosureClass(t *testing.T) {
 	internal := evidence("internal")
 	internal.DisclosureClass = "internal_only"
 	raw := []*ragv1.Evidence{evidence("external"), internal}
-	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
-	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "external") {
+	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
+	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "external") {
 		t.Fatalf("disclosure filter kept %v, want [external]", ids(got))
 	}
 }
@@ -59,17 +58,17 @@ func TestFilterEvidenceCustomerEligibility(t *testing.T) {
 	ineligible := evidence("ineligible")
 	ineligible.CustomerEligible = false
 	raw := []*ragv1.Evidence{evidence("eligible"), ineligible}
-	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
-	if got, err := filterEvidence(raw, grants, true); err != nil || !equalIDs(got, "eligible") {
+	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
+	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "eligible") {
 		t.Fatalf("eligibility filter kept %v, want [eligible]", ids(got))
 	}
-	if got, err := filterEvidence(raw, grants, false); err != nil || !equalIDs(got, "eligible", "ineligible") {
+	if got, err := FilterEvidence(raw, grants, false); err != nil || !equalIDs(got, "eligible", "ineligible") {
 		t.Fatalf("without the eligibility rule kept %v", ids(got))
 	}
 }
 
 func TestFilterEvidenceEmpty(t *testing.T) {
-	if got, err := filterEvidence(nil, nil, true); err != nil || len(got) != 0 {
+	if got, err := FilterEvidence(nil, nil, true); err != nil || len(got) != 0 {
 		t.Fatalf("nil input produced %v, err=%v", ids(got), err)
 	}
 }
@@ -77,26 +76,26 @@ func TestFilterEvidenceEmpty(t *testing.T) {
 // A broken contract fails the turn closed instead of silently dropping evidence.
 func TestFilterEvidenceRejectsNilItem(t *testing.T) {
 	raw := []*ragv1.Evidence{nil, evidence("x")}
-	grants := []evidenceGrant{{allowed: true}, {allowed: true}}
-	got, err := filterEvidence(raw, grants, true)
+	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
+	got, err := FilterEvidence(raw, grants, true)
 	if err == nil || got != nil {
 		t.Fatalf("nil item must return an error and no evidence, got %v err=%v", ids(got), err)
 	}
-	var contract errStageContract
-	if !errors.As(err, &contract) || contract.detail != "nil evidence item" {
+	var contract ErrEvidenceContract
+	if !errors.As(err, &contract) || contract.Detail != "nil evidence item" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestFilterEvidenceRejectsGrantMismatch(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("a"), evidence("b")}
-	grants := []evidenceGrant{{allowed: true}}
-	got, err := filterEvidence(raw, grants, true)
+	grants := []EvidenceGrant{{Allowed: true}}
+	got, err := FilterEvidence(raw, grants, true)
 	if err == nil || got != nil {
 		t.Fatalf("missing grant must return an error and no evidence, got %v err=%v", ids(got), err)
 	}
-	var contract errStageContract
-	if !errors.As(err, &contract) || contract.detail != "grant index mismatch" {
+	var contract ErrEvidenceContract
+	if !errors.As(err, &contract) || contract.Detail != "grant index mismatch" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

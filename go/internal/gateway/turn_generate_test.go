@@ -32,3 +32,9 @@ func TestValidateCitationRejectsUnknownOrAlteredEvidence(t *testing.T) {
 		t.Fatal("a nil citation must be rejected")
 	}
 }
+
+// evidence is the fixture helper shared by the gateway tests.
+func evidence(id string) *ragv1.Evidence {
+	return &ragv1.Evidence{Id: id, DocumentId: "doc-" + id, VersionId: "v-" + id,
+		ShopId: "shop-a", DisclosureClass: "external_allowed", CustomerEligible: true, Rank: 1}
+}
