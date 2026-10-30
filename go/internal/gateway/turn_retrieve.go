@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -22,14 +23,18 @@ type stageFailure struct {
 
 func (f *stageFailure) Error() string { return f.code }
 
-// errStageContract reports a broken contract between the orchestrator and a
-// stage. It is a programming error, never a user error, so the caller fails the
-// turn closed instead of continuing with partial data (invariant #9).
-type errStageContract struct {
-	detail string
-}
+// errStageContract is the domain contract error, kept under the local name so the
+// gateway call sites read the same as before.
+type errStageContract = domain.ErrEvidenceContract
 
-func (e errStageContract) Error() string { return "stage contract violated: " + e.detail }
+// filterEvidence is the thin wrapper over the pure domain rule.
+func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustomerEligible bool) ([]*ragv1.Evidence, error) {
+	converted := make([]domain.EvidenceGrant, len(grants))
+	for index, grant := range grants {
+		converted[index] = domain.EvidenceGrant{Allowed: grant.allowed}
+	}
+	return domain.FilterEvidence(raw, converted, requireCustomerEligible)
+}
 
 // evidenceGrant records what the authorization layer decided about one candidate.
 // It is materialised outside the pure filter because deciding it needs the
@@ -88,32 +93,6 @@ func authorizeEvidence(check func(*ragv1.Evidence) (bool, error), raw []*ragv1.E
 		grants[index] = evidenceGrant{allowed: allowed}
 	}
 	return grants, nil
-}
-
-// filterEvidence applies the customer-facing rules to raw candidates. It is pure:
-// no database, no context, no client. The document scope, resource disclosure
-// class and active-version checks arrive pre-computed in grants.
-func filterEvidence(raw []*ragv1.Evidence, grants []evidenceGrant, requireCustomerEligible bool) ([]*ragv1.Evidence, error) {
-	keep := make([]*ragv1.Evidence, 0, len(raw))
-	for index, item := range raw {
-		if item == nil {
-			return nil, errStageContract{detail: "nil evidence item"}
-		}
-		if index >= len(grants) {
-			return nil, errStageContract{detail: "grant index mismatch"}
-		}
-		if !grants[index].allowed {
-			continue
-		}
-		if item.GetDisclosureClass() != "external_allowed" {
-			continue
-		}
-		if requireCustomerEligible && !item.GetCustomerEligible() {
-			continue
-		}
-		keep = append(keep, item)
-	}
-	return keep, nil
 }
 
 // persistEvidence writes the accepted evidence rows for one execution. It checks

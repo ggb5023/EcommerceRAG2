@@ -7,6 +7,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -147,28 +148,6 @@ func (guard turnGuard) scopeAuthorized(scope *ragv1.RequestContext) bool {
 	return true
 }
 
-// clarificationDecision is the pure routing outcome for an ambiguous question.
-type clarificationDecision struct {
-	needed bool
-	text   string
-}
-
-// decideClarification reports whether the routed turn must stop and ask the user
-// to be more specific. It is pure: it reads the routed response only.
-func decideClarification(routed *ragv1.UnderstandResponse, snapshotFallback bool) clarificationDecision {
-	if snapshotFallback {
-		return clarificationDecision{}
-	}
-	if !(routed.Intent == "clarification" || strings.TrimSpace(routed.Clarification) != "" && routed.Confidence < 0.5) {
-		return clarificationDecision{}
-	}
-	text := routed.Clarification
-	if text == "" {
-		text = "请补充更多问题细节。"
-	}
-	return clarificationDecision{needed: true, text: text}
-}
-
 // resumeParentCheckpoint continues an unfinished ASKING checkpoint of the parent
 // turn. It is best-effort: any rejection fails the turn with the mapped code.
 func resumeParentCheckpoint(ctx context.Context, client ragv1.RagServiceClient, scope *ragv1.RequestContext) *stageFailure {
@@ -180,4 +159,12 @@ func resumeParentCheckpoint(ctx context.Context, client ragv1.RagServiceClient, 
 		return &stageFailure{state: "FAILED", code: "checkpoint_resume_failed"}
 	}
 	return nil
+}
+
+// clarificationDecision and decideClarification are thin wrappers over the pure
+// domain rule; the body lives in go/internal/domain/route.go.
+type clarificationDecision = domain.ClarificationDecision
+
+func decideClarification(routed *ragv1.UnderstandResponse, snapshotFallback bool) clarificationDecision {
+	return domain.DecideClarification(routed, snapshotFallback)
 }

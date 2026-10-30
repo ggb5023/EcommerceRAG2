@@ -471,7 +471,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(factFailure.state, factFailure.code, "")
 		return
 	}
-	if decision := decideClarification(routed, snapshotFallback); decision.needed {
+	if decision := decideClarification(routed, snapshotFallback); decision.Needed {
 		if !ensureScopeAuthorized() {
 			return
 		}
@@ -479,7 +479,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 			finish(checkpointFailure.state, checkpointFailure.code, "")
 			return
 		}
-		finish("ASKING", "", decision.text)
+		finish("ASKING", "", decision.Text)
 		return
 	}
 	if !ensureScopeAuthorized() {
