@@ -449,7 +449,7 @@ class IngestWorker:
                         bucket = "invalid" if reason and "no sparse" not in reason else "no_sparse"
                         counters[bucket] += 1
                         if not counters["first_reason"]:
-                            counters["first_reason"] = f"chunk_index={chunk['chunk_index']}: {reason}"
+                            counters["first_reason"] = f"chunk_index={chunk.get('chunk_index', '?')}: {reason}"
                     else:
                         counters["ok"] += 1
                         chunk["sparse_tokenizer_id"] = sparse.sparse_tokenizer_id(
