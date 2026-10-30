@@ -340,9 +340,16 @@ class PostgresRetriever:
         global _sparse_mode_reported
         if self._sparse_mode is not None and ttl > 0 and time.monotonic() - self._sparse_mode_checked_at < ttl:
             return
-        cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL)")
-        row = cursor.fetchone()
-        populated = bool(row[0]) if row else False
+        try:
+            cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL) AS populated")
+            row = cursor.fetchone()
+        except psycopg.Error:  # the probe is diagnostic: never fail a search over it
+            return
+        # The connection uses dict_row, so read by name instead of position.
+        if isinstance(row, dict):
+            populated = bool(row.get("populated"))
+        else:
+            populated = bool(row[0]) if row else False
         self._sparse_mode = "sparsevec" if populated else "text_heuristic"
         self._sparse_mode_checked_at = time.monotonic()
         self.last_sparse_mode = self._sparse_mode

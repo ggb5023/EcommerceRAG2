@@ -9,14 +9,17 @@ from app.retrieval import postgres
 
 
 class FakeCursor:
-    def __init__(self, populated: bool):
-        self.populated = populated
-        self.executions = 0
-
     def execute(self, *_args, **_kwargs):
         self.executions += 1
 
+    def __init__(self, populated: bool, as_dict: bool = False):
+        self.populated = populated
+        self.as_dict = as_dict
+        self.executions = 0
+
     def fetchone(self):
+        if self.as_dict:
+            return {"populated": self.populated}
         return (self.populated,)
 
 
@@ -64,3 +67,12 @@ def test_ttl_caches_the_probe_and_zero_forces_a_recheck():
     assert cursor.executions == 1, "the probe must be cached inside the TTL"
     instance._report_sparse_mode(cursor, ttl=0)
     assert cursor.executions == 2, "ttl=0 must re-check"
+
+
+def test_dict_rows_are_supported():
+    # The production connection uses dict_row; indexing by position would raise.
+    instance = retriever()
+    instance._sparse_mode = None
+    instance._sparse_mode_checked_at = 0.0
+    instance._report_sparse_mode(FakeCursor(populated=True, as_dict=True), ttl=0)
+    assert instance.last_sparse_mode == "sparsevec"
