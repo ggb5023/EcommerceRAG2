@@ -35,7 +35,7 @@ COMMENT = re.compile(r"\s+#.*$")
 PLACEHOLDER = re.compile(r"^(?:\.{2,}|…|<[^>]*>)$")
 # Ratchet: duplicated instructions are tolerated up to this many warnings. Each
 # round of cleanup lowers the number; raising it needs a review, not a fix.
-WARN_BUDGET = 5
+WARN_BUDGET = 0
 # Frozen at the moment the ratchet was set, used to name what is new.
 WARN_BASELINE = frozenset({
     "scripts/check/check-eval-corpus.py",
@@ -89,8 +89,14 @@ def _has_arguments(values: dict[str, set[str]]) -> bool:
     return any((value or "").strip() for value in values)
 
 
+# Archived documents are frozen history: they intentionally mention retired keys,
+# old commands and superseded rules. Drift applies only to maintained documents.
+ARCHIVE_PREFIX = 'docs/archive/'
+
+
 def main() -> int:
-    documents = scanned_documents()
+    documents = [p for p in scanned_documents()
+                 if ARCHIVE_PREFIX not in rel(p).replace('\\', '/')]
     failures: list[str] = []
     warnings: list[str] = []
 
