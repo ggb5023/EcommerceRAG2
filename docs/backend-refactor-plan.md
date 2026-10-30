@@ -143,6 +143,9 @@ wc -l go/internal/gateway/main.go                       # ≤ 800（P-A）
 **SQL、Prompt、SSE 帧一律不得出现在 `runTurn` 内**。
 每个 `refactor` 提交必须能回答：**删除这次改动后，系统行为是否逐字节相同？**
 若不同，它不是 refactor，必须拆成独立提交并走决策。
+阶段函数计数基线为 **28**（2026-10-30 由 29 降为 28：`errStageContract.Error()` 随类型迁往 `internal/domain`，
+它不是阶段函数，是计数器的历史假阳性；允许下降仅限此类搬迁）。
+
 `runTurn` 行数由 `check-stage-boundaries.py` 的棘轮约束：`RUN_TURN_BUDGET` 只许降；
 确需上升时必须在 `RUN_TURN_AMENDMENTS` 里补一条「日期 + 从→到 + 原因」，无记录的上升直接失败。
 
