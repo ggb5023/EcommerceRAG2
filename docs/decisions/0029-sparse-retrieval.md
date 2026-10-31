@@ -67,3 +67,14 @@
 | 维持现状（文本启发式当稀疏） | [pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html) | 名不副实：`sparse_embedding` 列空置，启发式无法表达词权重，且逐行 `similarity()` 不可索引加速 |
 | 用 BM25 全文检索替代稀疏向量 | [tsvector](https://www.postgresql.org/docs/current/datatype-textsearch.html) | 中文分词与权重需要额外组件，且与 provider 已有的 `SparseWeight` 产物不衔接；可作为 (b) 的对照基线之一 |
 | 直接切到 `sparsevec` 且不保留 legacy | [pgvector sparsevec](https://github.com/pgvector/pgvector#sparse-vectors) | 无法做 A/B，遇到质量回退没有回退路径；违反约束 a |
+
+## 实施教训
+
+a) **改代码后必须重启服务再验证**：`to_literal` 的 1-based 修复提交于 09:13，而 worker 进程启动于 09:00，
+   修复后第一次导入仍报 `parse_failed`——验证的是旧进程。规则：任何 ingest/retrieval 代码改动，
+   验证前先重启并确认进程启动时间晚于提交时间。
+b) **验证性导入不要发布**：用 `--publish` 造验证数据会让该文档进入 active 集合，改变检索结果并污染 smoke 基线
+   （本轮 answer 的 evidence 从 `db-chunk-8` 变成 `db-chunk-8 + db-chunk-69`，`answer_chars` 682 → 952）。
+   规则：只为验证写入时省略 `--publish`；chunk 在 ingest 阶段就已落库，不需要发布。
+
+实测：`max(token_id)=7`、`nnz=4`、`dims=65536`，均远低于上限（2048 / 65536）。

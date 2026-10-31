@@ -415,6 +415,13 @@ class IngestWorker:
             self._settle_failure(
                 claim, f"provider_{code}", retryable=False, detail="embedding failed"
             )
+        except psycopg.DataError as error:
+            # A rejected sparsevec literal (or any malformed value) is a write
+            # failure, not a parsing failure: parse_failed sent the last
+            # investigation into the wrong stage (0029 实施教训).
+            self._settle_failure(
+                claim, "persist_failed", retryable=False, detail=type(error).__name__
+            )
         except Exception as error:  # noqa: BLE001 - error detail is not exposed to clients
             self._settle_failure(
                 claim, "parse_failed", retryable=True, detail=type(error).__name__
