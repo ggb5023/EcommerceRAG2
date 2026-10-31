@@ -24,7 +24,7 @@
 | `invalid_evidence_labels` | — | 否 | 证据排序异常，已转人工 | `gateway/main.go:runTurn` |
 | `evidence_contract_violated` | — | 否 | 检索结果异常，已转人工 | `gateway/turn_retrieve.go:filterEvidence`（契约破坏，fail-closed） |
 | `persistence_failed` | 503 | 是 | 保存失败，请稍后重试 | `gateway/turn_retrieve.go:persistEvidence`、`turn_generate.go`、`turn_persist.go` |
-| `persist_failed` | 400 | 否 | 导入未完成，请重试或联系维护者 | `python/app/ingest/worker.py`（向量写入被数据库拒绝，含 `sparsevec` 字面量非法） |
+| `persist_failed` | — | 否 | 导入未完成，请联系维护者 | `python/app/ingest/worker.py`（向量写入被数据库拒绝，含非法 `sparsevec` 字面量；仅 job 记录，不上响应） |
 | `fact_evidence_persistence_failed` | — | 是 | 事实查询结果未能保存 | `gateway/main.go:runTurn` |
 | `rag_generate_failed` | — | 是 | 生成失败，请稍后重试 | `gateway/turn_generate.go:generateAnswer` |
 | `provider_profile_mismatch` | — | 否 | 服务配置异常 | `gateway/turn_generate.go:generateAnswer`、`turn_retrieve.go:retrieveEvidence` |
