@@ -17,41 +17,41 @@
 
 | 错误码 | HTTP | 可重试 | 顾客可见文案 | 出现位置 |
 | --- | --- | --- | --- | --- |
-| `permission_denied` | 403 | 否 | 该问题超出可回答范围 | `gateway/main.go:runTurn`（请求策略拒绝） |
-| `permission_changed` | 403 | 否 | 权限已变化，请刷新后重试 | `gateway/main.go:runTurn`、`customer/ai.go:run` |
-| `invalid_routing_response` | — | 是 | 系统繁忙，请稍后重试 | `gateway/main.go:runTurn`（模型返回空路由） |
-| `rag_search_failed` | — | 是 | 暂时无法检索资料 | `gateway/turn_retrieve.go:retrieveEvidence` |
-| `invalid_evidence_labels` | — | 否 | 证据排序异常，已转人工 | `gateway/main.go:runTurn` |
-| `evidence_contract_violated` | — | 否 | 检索结果异常，已转人工 | `gateway/turn_retrieve.go:filterEvidence`（契约破坏，fail-closed） |
-| `persistence_failed` | 503 | 是 | 保存失败，请稍后重试 | `gateway/turn_retrieve.go:persistEvidence`、`turn_generate.go`、`turn_persist.go` |
+| `permission_denied` | 403 | 否 | 该问题超出可回答范围 | `go/internal/gateway/main.go:runTurn`（请求策略拒绝） |
+| `permission_changed` | 403 | 否 | 权限已变化，请刷新页面 | `go/internal/gateway/main.go:runTurn`、`go/internal/customer/ai.go:run` |
+| `invalid_routing_response` | — | 是 | 系统繁忙，请稍后重试 | `go/internal/gateway/main.go:runTurn`（模型返回空路由） |
+| `rag_search_failed` | — | 是 | 暂时无法检索资料 | `go/internal/gateway/turn_retrieve.go:retrieveEvidence` |
+| `invalid_evidence_labels` | — | 否 | 证据排序异常，已转人工 | `go/internal/gateway/main.go:runTurn` |
+| `evidence_contract_violated` | — | 否 | 检索结果异常，已转人工 | `go/internal/gateway/turn_retrieve.go:filterEvidence`（契约破坏，fail-closed） |
+| `persistence_failed` | 503 | 是 | 保存失败，请稍后重试 | `go/internal/gateway/turn_retrieve.go:persistEvidence`、`go/internal/gateway/turn_generate.go`、`go/internal/gateway/turn_persist.go` |
 | `persist_failed` | — | 否 | 导入未完成，请联系维护者 | `python/app/ingest/worker.py`（向量写入被数据库拒绝，含非法 `sparsevec` 字面量；仅 job 记录，不上响应） |
-| `fact_evidence_persistence_failed` | — | 是 | 事实查询结果未能保存 | `gateway/main.go:runTurn` |
-| `rag_generate_failed` | — | 是 | 生成失败，请稍后重试 | `gateway/turn_generate.go:generateAnswer` |
-| `provider_profile_mismatch` | — | 否 | 服务配置异常 | `gateway/turn_generate.go:generateAnswer`、`turn_retrieve.go:retrieveEvidence` |
-| `fact_tool_not_allowed` | — | 否 | 该问题需要人工确认 | `facts/facts.go:FailureCode`（模型请求了未授权工具） |
-| `fact_provider_unavailable` | — | 是 | 事实查询暂不可用 | `facts/facts.go:FailureCode` |
-| `fact_provider_unauthorized` | — | 否 | 事实查询无授权 | `facts/facts.go:FailureCode` |
-| `fact_provider_rate_limited` | — | 是 | 查询过于频繁，请稍后重试 | `facts/facts.go:FailureCode` |
-| `fact_provider_timeout` | — | 是 | 事实查询超时 | `facts/facts.go:FailureCode` |
-| `fact_provider_canceled` | — | 是 | 已取消 | `facts/facts.go:FailureCode` |
-| `fact_provider_invalid_response` | — | 是 | 事实查询返回异常 | `facts/facts.go:FailureCode` |
-| `fact_tool_failed` | — | 是 | 事实查询失败 | `facts/facts.go:FailureCode` |
-| `checkpoint_save_failed` | — | 是 | 请稍后重试 | `gateway/main.go:runTurn`（澄清/快照回退保存检查点） |
-| `checkpoint_resume_failed` | — | 是 | 请稍后重试 | `gateway/main.go:runTurn`（父轮次续跑失败） |
-| `cancelled` | — | 是 | 已取消 | `gateway/turn_generate.go:generateAnswer`、`turn_persist.go:finishTurn` |
-| `knowledge_missing` | — | 否 | 当前店铺知识没有足够依据回答，已转人工 | `customer/ai.go:run`（无授权文档）、`auth/customer.go:IssueCustomerScope` |
-| `provider_failed_search` | — | 是 | 检索服务暂不可用，已转人工 | `customer/ai.go:run`（stage=search，含 mock 输出被拒） |
-| `provider_failed_generation` | — | 是 | 生成服务暂不可用，已转人工 | `customer/ai.go:run`（stage=generation） |
-| `provider_failed_control` | — | 是 | 理解服务暂不可用，已转人工 | `customer/ai.go:run`（stage=control） |
-| `customer_requested` | — | 否 | 已转人工客服 | `customer/ai.go:run`（顾客要求转人工） |
-| `unsupported_request` | — | 否 | 当前问题需要人工确认 | `customer/ai.go:run`（需要实时订单/物流事实） |
-| `ingest_not_authorized` | 403 | 否 | 没有资料导入权限 | `admin/queue_failure.go:queueFailureResponse`（gRPC `PERMISSION_DENIED`，含 `IngestAuthorizationError`），cause=`permission_denied` |
-| `ingest_schema_incomplete` | 500 | 否 | 资料服务未就绪，请联系管理员 | `admin/queue_failure.go:queueFailureResponse`（gRPC `FAILED_PRECONDITION`，由 Python `IngestSchemaIncompleteError` 映射），cause=`migration_incomplete` |
-| `ingest_queue_failed` | 503 / 500 | 是 | 资料排队失败，请稍后重试 | `admin/queue_failure.go:queueFailureResponse`（`UNAVAILABLE` → 503，其余 → 500），cause=出错类别（gRPC 码名或 Go 类型名，**不含 message**） |
-| `batch_already_confirming` | 409 | 否 | 该批次正在确认中，请稍后刷新查看 | `admin/store_imports.go:ClaimBatchForConfirm`（status 抢占失败，并发 confirm） |
-| `confirm_queue_failed` | 503 / 500 | 是 | 排队失败，请重试 | `admin/imports.go:adminConfirmImport`（排队失败后批次回补 `staged` 并写 `confirm_queue_failed` 审计），HTTP 状态沿用 `queueFailureResponse` |
-| `confirm_settle_failed` | 500 | 否 | 确认未能落定，请联系管理员 | `admin/store_imports.go:SettleConfirmSuccess`（status 已不是 `confirming`，多为超时回收抢占） |
-| `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `admin/import.go:adminImport`、`admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
+| `fact_evidence_persistence_failed` | — | 是 | 事实查询结果未能保存 | `go/internal/gateway/main.go:runTurn` |
+| `rag_generate_failed` | — | 是 | 生成失败，请稍后重试 | `go/internal/gateway/turn_generate.go:generateAnswer` |
+| `provider_profile_mismatch` | — | 否 | 服务配置异常 | `go/internal/gateway/turn_generate.go:generateAnswer`、`go/internal/gateway/turn_retrieve.go:retrieveEvidence` |
+| `fact_tool_not_allowed` | — | 否 | 该问题需要人工确认 | `go/internal/facts/facts.go:FailureCode`（模型请求了未授权工具） |
+| `fact_provider_unavailable` | — | 是 | 事实查询暂不可用 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_provider_unauthorized` | — | 否 | 事实查询无授权 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_provider_rate_limited` | — | 是 | 查询过于频繁，请稍后重试 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_provider_timeout` | — | 是 | 事实查询超时 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_provider_canceled` | — | 是 | 已取消 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_provider_invalid_response` | — | 是 | 事实查询返回异常 | `go/internal/facts/facts.go:FailureCode` |
+| `fact_tool_failed` | — | 是 | 事实查询失败 | `go/internal/facts/facts.go:FailureCode` |
+| `checkpoint_save_failed` | — | 是 | 请稍后重试 | `go/internal/gateway/main.go:runTurn`（澄清/快照回退保存检查点） |
+| `checkpoint_resume_failed` | — | 是 | 请稍后重试 | `go/internal/gateway/main.go:runTurn`（父轮次续跑失败） |
+| `cancelled` | — | 是 | 已取消 | `go/internal/gateway/turn_generate.go:generateAnswer`、`go/internal/gateway/turn_persist.go:finishTurn` |
+| `knowledge_missing` | — | 否 | 当前店铺知识没有足够依据回答，已转人工 | `go/internal/customer/ai.go:run`（无授权文档）、`go/internal/auth/customer.go:IssueCustomerScope` |
+| `provider_failed_search` | — | 是 | 检索服务暂不可用，已转人工 | `go/internal/customer/ai.go:run`（stage=search，含 mock 输出被拒） |
+| `provider_failed_generation` | — | 是 | 生成服务暂不可用，已转人工 | `go/internal/customer/ai.go:run`（stage=generation） |
+| `provider_failed_control` | — | 是 | 理解服务暂不可用，已转人工 | `go/internal/customer/ai.go:run`（stage=control） |
+| `customer_requested` | — | 否 | 已转人工客服 | `go/internal/customer/ai.go:run`（顾客要求转人工） |
+| `unsupported_request` | — | 否 | 当前问题需要人工确认 | `go/internal/customer/ai.go:run`（需要实时订单/物流事实） |
+| `ingest_not_authorized` | 403 | 否 | 没有资料导入权限 | `go/internal/admin/queue_failure.go:queueFailureResponse`（gRPC `PERMISSION_DENIED`，含 `IngestAuthorizationError`），cause=`permission_denied` |
+| `ingest_schema_incomplete` | 500 | 否 | 资料服务未就绪，请联系管理员 | `go/internal/admin/queue_failure.go:queueFailureResponse`（gRPC `FAILED_PRECONDITION`，由 Python `IngestSchemaIncompleteError` 映射），cause=`migration_incomplete` |
+| `ingest_queue_failed` | 503 / 500 | 是 | 资料排队失败，请稍后重试 | `go/internal/admin/queue_failure.go:queueFailureResponse`（`UNAVAILABLE` → 503，其余 → 500），cause=出错类别（gRPC 码名或 Go 类型名，**不含 message**） |
+| `batch_already_confirming` | 409 | 否 | 该批次正在确认中，请稍后刷新查看 | `go/internal/admin/store_imports.go:ClaimBatchForConfirm`（status 抢占失败，并发 confirm） |
+| `confirm_queue_failed` | 503 / 500 | 是 | 排队失败，请重试 | `go/internal/admin/imports.go:adminConfirmImport`（排队失败后批次回补 `staged` 并写 `confirm_queue_failed` 审计），HTTP 状态沿用 `queueFailureResponse` |
+| `confirm_settle_failed` | 500 | 否 | 确认未能落定，请联系管理员 | `go/internal/admin/store_imports.go:SettleConfirmSuccess`（status 已不是 `confirming`，多为超时回收抢占） |
+| `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `go/internal/admin/import.go:adminImport`、`go/internal/admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
 
 ## 维护规则
 
