@@ -22,11 +22,9 @@ WRITE = re.compile(r"(?i)\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9
 CREATE = re.compile(r"(?i)create\s+table\s+(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)")
 # Ratchet: 36 tables are written but not declared yet. Registering them lowers
 # this number; raising it is a policy change that needs a review, not a fix.
-# 2026-10-31 36 → 37：B6 新增 turn_decision（唯一写入方 admin/store_turn.go，已在 data-ownership 声明）。
-UNDECLARED_BUDGET = 37
+UNDECLARED_BUDGET = 36
 # Frozen at the moment the ratchet was introduced, only used to name what moved.
 UNDECLARED_BASELINE = frozenset({
-    "turn_decision",
     "chunk", "citation", "control_command", "conversation", "conversation_execution",
     "customer_command", "customer_conversation", "customer_event", "customer_execution",
     "customer_identity", "customer_message", "customer_reply", "customer_retrieval_trace",
