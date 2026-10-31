@@ -28,9 +28,10 @@ def to_literal(weights: Sequence[SparseWeight] | None, *, dimension: int = SPARS
                max_nnz: int = SPARSE_MAX_NNZ) -> tuple[str | None, str | None]:
     """Return (literal, None) or (None, reason).
 
-    The literal uses pgvector's `{index:value,...}/dimension` form. Duplicate token
-    ids keep the last weight, matching the provider contract (ids are unique there,
-    so a duplicate means a broken payload and is rejected instead).
+    The literal uses pgvector's `{index:value,...}/dimension` form. pgvector is
+    1-based, this module is 0-based: the boundary adds +1 when writing, so the read
+    side must subtract 1. With dimension 65536 the range 0..65535 maps exactly onto
+    1..65536. Duplicate token ids are rejected (the provider contract says unique).
     """
     if not weights:
         return None, "provider returned no sparse weights"
@@ -51,5 +52,5 @@ def to_literal(weights: Sequence[SparseWeight] | None, *, dimension: int = SPARS
         if token_id in pairs:
             return None, f"token_id {token_id} appears more than once"
         pairs[token_id] = float(value)
-    body = ",".join(f"{token_id}:{value:g}" for token_id, value in sorted(pairs.items()))
+    body = ",".join(f"{token_id + 1}:{value:g}" for token_id, value in sorted(pairs.items()))
     return "{" + body + "}/" + str(dimension), None
