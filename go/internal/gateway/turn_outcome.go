@@ -10,17 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 )
 
 // recordTurnDecision writes the explanatory row for one turn in its own short
 // transaction, mirroring finishTurn. It never fails the turn: the row is
 // explanatory data, so any problem is logged and the request continues.
 //
-// rejected currently carries evidence ids only; the per-item reason (disclosure
-// class, permission, validity window, contract breach) is B6's second step and
-// must not change the decision functions' signatures to get there.
+// chosen carries the citation ids the answer used; rejected carries one
+// {"id","reason"} object per candidate the filter dropped.
 func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity,
-	state, code string, chosen, rejected []string) {
+	state, code string, chosen []string, rejected []domain.RejectedEvidence) {
 	if db == nil {
 		return
 	}
@@ -33,23 +33,13 @@ func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventId
 	}
 	defer func() { _ = tx.Rollback(decisionCtx) }()
 
-	encode := func(ids []string) []byte {
-		if len(ids) == 0 {
-			return []byte("[]")
-		}
-		payload, marshalErr := json.Marshal(ids)
-		if marshalErr != nil {
-			return []byte("[]")
-		}
-		return payload
-	}
 	decision := admin.TurnDecision{
 		TenantID:       ident.tenantID,
 		ConversationID: strconv.FormatInt(ident.conversationID, 10),
 		TurnID:         strconv.FormatInt(ident.turnID, 10),
 		State:          state,
-		Chosen:         encode(chosen),
-		Rejected:       encode(rejected),
+		Chosen:         encodeDecisionList(chosen),
+		Rejected:       encodeDecisionList(rejected),
 	}
 	if state == "FAILED" && code != "" {
 		decision.FailureCode = &code
@@ -62,4 +52,17 @@ func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventId
 	if err = tx.Commit(decisionCtx); err != nil {
 		log.Printf("turn decision commit failed")
 	}
+}
+
+// encodeDecisionList always writes a JSON array, so an empty list stays [] and
+// never becomes SQL NULL.
+func encodeDecisionList[T any](items []T) []byte {
+	if len(items) == 0 {
+		return []byte("[]")
+	}
+	payload, marshalErr := json.Marshal(items)
+	if marshalErr != nil {
+		return []byte("[]")
+	}
+	return payload
 }

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 )
 
 // turnEventIdentity names the rows one streamed event belongs to. Stage code
@@ -108,16 +110,19 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 
 // newTurnSink binds the persistence helpers to one execution so the orchestrator
 // only sees two closures: write an event and finish the turn.
-func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func([]string, []string)) {
+func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func([]string, []domain.RejectedEvidence)) {
 	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
 	finishOnly := func(state, code, answer string) { finishTurn(ctx, db, ident, state, code, answer, mock) }
-	var chosen, rejected []string
+	var chosen []string
+	var rejected []domain.RejectedEvidence
 	// The decision row is written just before the terminal state so every exit
 	// path records what it knew, without touching the eleven call sites.
 	finish := func(state, code, answer string) {
 		recordTurnDecision(ctx, db, ident, state, code, chosen, rejected)
 		finishOnly(state, code, answer)
 	}
-	setTrace := func(chosenIDs, rejectedIDs []string) { chosen, rejected = chosenIDs, rejectedIDs }
+	setTrace := func(chosenIDs []string, rejectedEvidence []domain.RejectedEvidence) {
+		chosen, rejected = chosenIDs, rejectedEvidence
+	}
 	return write, finish, setTrace
 }

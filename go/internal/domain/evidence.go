@@ -22,28 +22,46 @@ type EvidenceGrant struct {
 	Allowed bool
 }
 
+// RejectedEvidence names one dropped candidate and the rule that dropped it.
+type RejectedEvidence struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// The three rules that can reject a candidate, in the order they are applied.
+const (
+	ReasonNotAuthorized       = "not_authorized"
+	ReasonDisclosureDenied    = "disclosure_denied"
+	ReasonNotCustomerEligible = "not_customer_eligible"
+)
+
 // FilterEvidence applies the customer-facing rules to raw candidates. It is pure:
 // no database, no context, no client. The document scope, resource disclosure
-// class and active-version checks arrive pre-computed in grants.
-func FilterEvidence(raw []*ragv1.Evidence, grants []EvidenceGrant, requireCustomerEligible bool) ([]*ragv1.Evidence, error) {
+// class and active-version checks arrive pre-computed in grants. Rejected
+// candidates are returned alongside the kept ones so the turn can record why.
+func FilterEvidence(raw []*ragv1.Evidence, grants []EvidenceGrant, requireCustomerEligible bool) ([]*ragv1.Evidence, []RejectedEvidence, error) {
 	keep := make([]*ragv1.Evidence, 0, len(raw))
+	rejected := make([]RejectedEvidence, 0)
 	for index, item := range raw {
 		if item == nil {
-			return nil, ErrEvidenceContract{Detail: "nil evidence item"}
+			return nil, nil, ErrEvidenceContract{Detail: "nil evidence item"}
 		}
 		if index >= len(grants) {
-			return nil, ErrEvidenceContract{Detail: "grant index mismatch"}
+			return nil, nil, ErrEvidenceContract{Detail: "grant index mismatch"}
 		}
 		if !grants[index].Allowed {
+			rejected = append(rejected, RejectedEvidence{ID: item.GetId(), Reason: ReasonNotAuthorized})
 			continue
 		}
 		if item.GetDisclosureClass() != "external_allowed" {
+			rejected = append(rejected, RejectedEvidence{ID: item.GetId(), Reason: ReasonDisclosureDenied})
 			continue
 		}
 		if requireCustomerEligible && !item.GetCustomerEligible() {
+			rejected = append(rejected, RejectedEvidence{ID: item.GetId(), Reason: ReasonNotCustomerEligible})
 			continue
 		}
 		keep = append(keep, item)
 	}
-	return keep, nil
+	return keep, rejected, nil
 }

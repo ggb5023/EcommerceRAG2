@@ -457,7 +457,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	evidence, retrievalFailure, retrievalAborted := runRetrievalStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+	evidence, rejected, retrievalFailure, retrievalAborted := runRetrievalStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
 		base, routed.RewrittenQuery, mockOutput, ensureScopeAuthorized,
 		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) })
 	if retrievalAborted {
@@ -488,7 +488,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
 			ResponsePurpose: "customer_reply", HistorySummary: history},
 		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
-		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent, func(ids []string) { setTrace(ids, nil) })
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent, func(ids []string) { setTrace(ids, rejected) })
 	if generateAborted {
 		return
 	}

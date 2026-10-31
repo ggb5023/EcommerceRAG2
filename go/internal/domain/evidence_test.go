@@ -35,11 +35,11 @@ func equalIDs(got []*ragv1.Evidence, want ...string) bool {
 func TestFilterEvidencePermission(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("allowed"), evidence("denied")}
 	grants := []EvidenceGrant{{Allowed: true}, {Allowed: false}}
-	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "allowed") {
+	if got, _, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "allowed") {
 		t.Fatalf("permission filter kept %v, want [allowed]", ids(got))
 	}
 	// Missing grants count as denied.
-	if got, err := FilterEvidence(raw, []EvidenceGrant{{Allowed: true}}, true); err == nil || got != nil {
+	if got, _, err := FilterEvidence(raw, []EvidenceGrant{{Allowed: true}}, true); err == nil || got != nil {
 		t.Fatalf("short grants kept %v, want [allowed]", ids(got))
 	}
 }
@@ -49,7 +49,7 @@ func TestFilterEvidenceDisclosureClass(t *testing.T) {
 	internal.DisclosureClass = "internal_only"
 	raw := []*ragv1.Evidence{evidence("external"), internal}
 	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
-	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "external") {
+	if got, _, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "external") {
 		t.Fatalf("disclosure filter kept %v, want [external]", ids(got))
 	}
 }
@@ -59,16 +59,16 @@ func TestFilterEvidenceCustomerEligibility(t *testing.T) {
 	ineligible.CustomerEligible = false
 	raw := []*ragv1.Evidence{evidence("eligible"), ineligible}
 	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
-	if got, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "eligible") {
+	if got, _, err := FilterEvidence(raw, grants, true); err != nil || !equalIDs(got, "eligible") {
 		t.Fatalf("eligibility filter kept %v, want [eligible]", ids(got))
 	}
-	if got, err := FilterEvidence(raw, grants, false); err != nil || !equalIDs(got, "eligible", "ineligible") {
+	if got, _, err := FilterEvidence(raw, grants, false); err != nil || !equalIDs(got, "eligible", "ineligible") {
 		t.Fatalf("without the eligibility rule kept %v", ids(got))
 	}
 }
 
 func TestFilterEvidenceEmpty(t *testing.T) {
-	if got, err := FilterEvidence(nil, nil, true); err != nil || len(got) != 0 {
+	if got, _, err := FilterEvidence(nil, nil, true); err != nil || len(got) != 0 {
 		t.Fatalf("nil input produced %v, err=%v", ids(got), err)
 	}
 }
@@ -77,9 +77,9 @@ func TestFilterEvidenceEmpty(t *testing.T) {
 func TestFilterEvidenceRejectsNilItem(t *testing.T) {
 	raw := []*ragv1.Evidence{nil, evidence("x")}
 	grants := []EvidenceGrant{{Allowed: true}, {Allowed: true}}
-	got, err := FilterEvidence(raw, grants, true)
-	if err == nil || got != nil {
-		t.Fatalf("nil item must return an error and no evidence, got %v err=%v", ids(got), err)
+	got, rejected, err := FilterEvidence(raw, grants, true)
+	if err == nil || got != nil || len(rejected) != 0 {
+		t.Fatalf("nil item must return an error and no evidence/rejection, got %v rejected=%v err=%v", ids(got), rejected, err)
 	}
 	var contract ErrEvidenceContract
 	if !errors.As(err, &contract) || contract.Detail != "nil evidence item" {
@@ -87,10 +87,47 @@ func TestFilterEvidenceRejectsNilItem(t *testing.T) {
 	}
 }
 
+// Each rejection names the rule that dropped the candidate, so the stored
+// decision row can answer "why was this evidence not used?".
+func TestFilterEvidenceRejectedNotAuthorized(t *testing.T) {
+	raw := []*ragv1.Evidence{evidence("denied")}
+	got, rejected, err := FilterEvidence(raw, []EvidenceGrant{{Allowed: false}}, true)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("kept %v, want none (err=%v)", ids(got), err)
+	}
+	if len(rejected) != 1 || rejected[0].ID != "denied" || rejected[0].Reason != "not_authorized" {
+		t.Fatalf("rejected %v, want [{denied not_authorized}]", rejected)
+	}
+}
+
+func TestFilterEvidenceRejectedDisclosureDenied(t *testing.T) {
+	internal := evidence("internal")
+	internal.DisclosureClass = "internal_only"
+	got, rejected, err := FilterEvidence([]*ragv1.Evidence{internal}, []EvidenceGrant{{Allowed: true}}, true)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("kept %v, want none (err=%v)", ids(got), err)
+	}
+	if len(rejected) != 1 || rejected[0].ID != "internal" || rejected[0].Reason != "disclosure_denied" {
+		t.Fatalf("rejected %v, want [{internal disclosure_denied}]", rejected)
+	}
+}
+
+func TestFilterEvidenceRejectedNotCustomerEligible(t *testing.T) {
+	ineligible := evidence("ineligible")
+	ineligible.CustomerEligible = false
+	got, rejected, err := FilterEvidence([]*ragv1.Evidence{ineligible}, []EvidenceGrant{{Allowed: true}}, true)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("kept %v, want none (err=%v)", ids(got), err)
+	}
+	if len(rejected) != 1 || rejected[0].ID != "ineligible" || rejected[0].Reason != "not_customer_eligible" {
+		t.Fatalf("rejected %v, want [{ineligible not_customer_eligible}]", rejected)
+	}
+}
+
 func TestFilterEvidenceRejectsGrantMismatch(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("a"), evidence("b")}
 	grants := []EvidenceGrant{{Allowed: true}}
-	got, err := FilterEvidence(raw, grants, true)
+	got, _, err := FilterEvidence(raw, grants, true)
 	if err == nil || got != nil {
 		t.Fatalf("missing grant must return an error and no evidence, got %v err=%v", ids(got), err)
 	}
