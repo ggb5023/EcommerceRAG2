@@ -78,3 +78,6 @@ b) **验证性导入不要发布**：用 `--publish` 造验证数据会让该文
    规则：只为验证写入时省略 `--publish`；chunk 在 ingest 阶段就已落库，不需要发布。
 
 实测：`max(token_id)=7`、`nnz=4`、`dims=65536`，均远低于上限（2048 / 65536）。
+c) **Go 侧改动的验证前置**：先 `go build` 再重启，并用 `strings .local/v2-gateway | grep -c <新符号>` 确认二进制包含改动；
+   否则 smoke 通过只证明旧二进制还能跑。同理，新建表的迁移必须同时给运行时角色授权，
+   否则写入只会留下一条被 `log.Printf` 吞掉的 permission denied。
