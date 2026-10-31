@@ -64,6 +64,7 @@ bash scripts/dev/smoke-turn.sh
 bash scripts/dev/smoke-answer.sh
 bash scripts/dev/smoke-clarify.sh
 bash scripts/dev/smoke-facts.sh
+bash scripts/dev/smoke-denied.sh   # 失败关闭：state=FAILED + permission_denied
 
 # 隔离栈（--db / --e2e 的前置）
 bash scripts/dev/isolated-stack.sh --identity development --ports 26081 --with-vite
