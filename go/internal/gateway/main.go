@@ -395,7 +395,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
 		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
 	}
-	writeEvent, finish, _ := newTurnSink(ctx, g.db, ident, mockOutput)
+	writeEvent, finish, setTrace := newTurnSink(ctx, g.db, ident, mockOutput)
 	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
 	if !guard.authorized() {
 		return
@@ -484,11 +484,11 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	answer, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+	answer, _, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
 		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
 			ResponsePurpose: "customer_reply", HistorySummary: history},
 		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
-		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent)
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent, func(ids []string) { setTrace(ids, nil) })
 	if generateAborted {
 		return
 	}
