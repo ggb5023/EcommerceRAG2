@@ -3,6 +3,7 @@
 *.md
 !/README.md
 !/AGENTS.md
+!/CLAUDE.md
 !/ROADMAP.md
 !/scripts/README.md
 !eval/
@@ -24,6 +25,7 @@
 !/docs/refactor-input.md
 !/docs/development.md
 !/docs/agent-entry.md
+!/docs/environment-facts.md
 !/docs/constraints.md
 !/docs/research/
 !/docs/research/*.md
