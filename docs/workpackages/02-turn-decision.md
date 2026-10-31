@@ -1,6 +1,6 @@
 # 02 决策理由落库（B6）
 
-> 状态：pending　适用提交：4a625b1　验收：见 §验收命令
+> 状态：done　适用提交：4a625b1　验收：见 §验收命令
 > 来源：`docs/research/platform-borrowables.md` B6（采纳结论见 `docs/decisions/0030-borrowables-adoption.md`）
 
 ## 目标
@@ -38,3 +38,8 @@ cd go && go test ./internal/admin/ -run TurnDecision -v
 ## 未覆盖路径
 
 - FAILED 轮次的 `rejected` 可能为空（无证据可拒绝），测试需覆盖"空数组"与"NULL"的区分。
+
+## 实际交付 vs 计划
+
+- 计划外新增：`state` 列（迁移 `0041`）、`rejected` 原因采集、第五条 `smoke-denied`。
+- 计划内但未覆盖：非空 `rejected` 仅由单测覆盖；真实 `smoke-answer` 的候选全部通过过滤，落库为 `[]`。
