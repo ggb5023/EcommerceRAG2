@@ -47,6 +47,7 @@ func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventId
 		TenantID:       ident.tenantID,
 		ConversationID: strconv.FormatInt(ident.conversationID, 10),
 		TurnID:         strconv.FormatInt(ident.turnID, 10),
+		State:          state,
 		Chosen:         encode(chosen),
 		Rejected:       encode(rejected),
 	}

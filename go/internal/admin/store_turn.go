@@ -13,6 +13,7 @@ type TurnDecision struct {
 	TenantID       int64
 	ConversationID string
 	TurnID         string
+	State          string
 	Chosen         []byte
 	Rejected       []byte
 	Strength       *string
@@ -34,10 +35,10 @@ func (s *Store) AppendTurnDecision(ctx context.Context, tx pgx.Tx, decision Turn
 		decision.Rejected = []byte("[]")
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO turn_decision(tenant_id,conversation_id,turn_id,chosen,rejected,strength,failure_code,confidence)
-		 VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8)
+		`INSERT INTO turn_decision(tenant_id,conversation_id,turn_id,state,chosen,rejected,strength,failure_code,confidence)
+		 VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
 		 ON CONFLICT (tenant_id,conversation_id,turn_id) DO NOTHING`,
-		decision.TenantID, decision.ConversationID, decision.TurnID,
+		decision.TenantID, decision.ConversationID, decision.TurnID, decision.State,
 		string(decision.Chosen), string(decision.Rejected),
 		decision.Strength, decision.FailureCode, decision.Confidence)
 	return err
