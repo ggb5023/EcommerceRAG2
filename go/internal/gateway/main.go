@@ -395,8 +395,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
 		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
 	}
-	writeEvent, finish, setTrace := newTurnSink(ctx, g.db, ident, mockOutput)
-	_ = setTrace
+	writeEvent, finish, _ := newTurnSink(ctx, g.db, ident, mockOutput)
 	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
 	if !guard.authorized() {
 		return
