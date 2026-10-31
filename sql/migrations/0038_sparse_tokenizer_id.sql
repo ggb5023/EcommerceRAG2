@@ -2,8 +2,6 @@
 -- vectors, so it records its own producer instead of overwriting tokenizer_id.
 BEGIN;
 
-SELECT pg_advisory_xact_lock(742018);
-
 ALTER TABLE chunk ADD COLUMN sparse_tokenizer_id text;
 
 COMMENT ON COLUMN chunk.sparse_tokenizer_id IS

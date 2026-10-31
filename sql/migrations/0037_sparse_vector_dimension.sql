@@ -3,8 +3,6 @@
 -- because a CHECK cannot count sparsevec non-zeros.
 BEGIN;
 
-SELECT pg_advisory_xact_lock(742018);
-
 ALTER TABLE chunk ALTER COLUMN sparse_embedding TYPE sparsevec(65536);
 
 COMMENT ON COLUMN chunk.sparse_embedding IS
