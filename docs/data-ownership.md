@@ -39,3 +39,7 @@
 - 新增表：先在本文登记，再写迁移。未登记却被写入的表，脚本只告警不失败，但新增登记属于同一次提交。
 - 收口方向只能是"被调用方向"：`admin` 已经依赖 `localauth`，因此 `localauth` 不能反向调用 `admin`。
 - 跨表原子性由调用方事务保证：写入方法接收调用方的 `pgx.Tx`，不自己开事务。
+
+## turn_decision
+
+唯一写入方：`go/internal/admin/store_turn.go`（`AppendTurnDecision`，接调用方事务，冲突忽略）。Python 侧不写这张表（决策 0028：落库归 Go）。
