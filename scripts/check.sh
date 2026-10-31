@@ -17,6 +17,7 @@ usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigure
   (no flag)  fast layer only: static checks, unit tests and builds
   --db       fast layer plus the real-database layer (needs the integration env files)
   --e2e      fast layer plus the browser layer (needs the dev stack and Chromium)
+  --smoke    fast layer plus the five turn-chain smokes (needs a live dev stack)
   --all      fast layer plus both of the above
   --cov      reserved for coverage collection (batch 2); accepted, nothing collected yet
   --stack    use the isolated stack from scripts/dev/isolated-stack.sh
@@ -33,6 +34,7 @@ EOF
 }
 
 DB=0
+SMOKE=0
 E2E=0
 COV=0
 ALL=0
@@ -42,6 +44,7 @@ for arg in "$@"; do
   case "$arg" in
     --db) DB=1 ;;
     --e2e) E2E=1 ;;
+    --smoke) SMOKE=1 ;;
     --all) DB=1; E2E=1; ALL=1 ;;
     --cov) COV=1 ;;
     --stack) STACK=1 ;;
@@ -291,6 +294,22 @@ if [ "$E2E" -eq 1 ]; then
     fi
   done
   layer_end e2e
+fi
+
+if [ "$SMOKE" -eq 1 ]; then
+  layer_start smoke
+  if [ "$(curl -sS -o /dev/null -w '%{http_code}' -m 3 http://127.0.0.1:8080/healthz 2>/dev/null)" != "200" ]; then
+    skip smoke "smoke-stack" "start the dev stack to run the smoke layer" "bash scripts/dev/smoke-answer.sh"
+  else
+    for name in turn answer clarify facts denied; do
+      case "$name" in
+        turn) baseline=".local/w2/before-smoke.txt" ;;
+        *) baseline=".local/w2/before-${name}-smoke.txt" ;;
+      esac
+      run smoke "smoke-$name" "bash scripts/dev/smoke-$name.sh | diff -u $baseline -"
+    done
+  fi
+  layer_end smoke
 fi
 
 if [ "$COV" -eq 1 ]; then

@@ -58,6 +58,7 @@ bash scripts/check.sh                 # 快速层 37 项（默认）
 bash scripts/check.sh --db            # 加持久化层（需集成库；无栈则 UNCONFIGURED）
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式
+bash scripts/check.sh --smoke         # 加轮次链路层（五条 smoke 与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
 
 # 四条 smoke（改动轮次链路后必跑，与 .local/w2/ 基线逐字节比对）
 bash scripts/dev/smoke-turn.sh
