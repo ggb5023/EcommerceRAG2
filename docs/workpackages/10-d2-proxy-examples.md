@@ -51,3 +51,15 @@ python3 scripts/check/check-doc-paths.py
   UNCONFIGURED，不算通过。
 - D1 内置 edge 与真实 ALB/云厂商代理未在本轮验证；D4 由既有
   `validateDeploymentForm` 单测覆盖，不在本包新增。
+
+## 实际交付 vs 计划
+
+- `07e83eb`：工作包 + INDEX 行；`4ae9476`：examples、install/agent-entry 文档、
+  `go/cmd/d2-proxy`、`scripts/dev/d2-proxy-smoke.sh`、check.sh `--e2e` 接入。
+- examples：nginx/Caddy 均带 R4-2（协议头一次）、R4-3（SSE 不缓冲）、R4-4（SPA/API 同源不重写）
+  注释与网关侧配置说明；D1/D4 互斥已注明。
+- `d2-proxy-smoke.sh` 三步 PASS：API 200 + `scored_total`；SSE 收到 `event:`/`status`；
+  SPA 200 text/html。`check.sh --e2e` 项 `d2-proxy-smoke` PASS；fast 40、smoke 45 不变。
+- 未覆盖：nginx/caddy 语法未校验（本机无二进制）、真实 TLS/域名/HTTP2 未验证、SSE 用持久事件
+  回放而非实时持续流、D2 项依赖本机 dev 8080 与 `frontend/dist`。
+- WP10 保持 `active`；是否转 `done` 等主 agent 复核。
