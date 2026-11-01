@@ -1,0 +1,55 @@
+/* Design tokens from docs/archive/frontend-refactor-plan.md §6.
+   Components consume these variables; pages must not hard-code colours. */
+:root {
+  --font-sans: Inter, ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif;
+
+  --color-bg: #f4f7f5;
+  --color-surface: #ffffff;
+  --color-border: #dfe8e2;
+  --color-text: #1b2b26;
+  --color-text-muted: #7b8c83;
+  --color-primary: #1d664b;
+  --color-success: #28734f;
+  --color-warning: #9a711d;
+  --color-danger: #b34b44;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  --text-xs: 10px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgba(22, 60, 51, 0.08);
+  --shadow-md: 0 4px 14px rgba(22, 60, 51, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #101815;
+    --color-surface: #17231f;
+    --color-border: #2c3d36;
+    --color-text: #eaf3ef;
+    --color-text-muted: #9db2a7;
+    --color-primary: #8fd1a9;
+    --color-success: #8fd1a9;
+    --color-warning: #e2c072;
+    --color-danger: #e58f88;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  }
+}
