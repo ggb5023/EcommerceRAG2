@@ -57,7 +57,7 @@ go_known_sha() {
 say "系统包"
 apt-get update -qq
 apt-get install -y -qq build-essential git curl ca-certificates jq unzip python3 python3-venv
-for pkg in shellcheck protobuf-compiler postgresql-client-16 redis-tools; do
+for pkg in shellcheck protobuf-compiler postgresql-client-16; do
   apt-get install -y -qq "$pkg" || echo "  ! 跳过可选包 $pkg"
 done
 

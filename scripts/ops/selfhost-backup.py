@@ -53,7 +53,7 @@ def main():
             member.mode = 0o700 if member.isdir() else 0o600
             return member
         for name in ('compose.env','gateway.env','ai.env','ingest.env','worker.env','identity.env',
-                     'bootstrap','gateway','ai','ingest','worker','identity','redis','web','artifacts'):
+                     'bootstrap','gateway','ai','ingest','worker','identity','web','artifacts'):
             path=runtime/name
             tar.add(path,arcname=path.name,filter=protect)
     hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in out.iterdir() if path.is_file()}

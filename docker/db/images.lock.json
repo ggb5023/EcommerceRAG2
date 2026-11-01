@@ -10,13 +10,5 @@
     "archive_sha256": "da2067c01591a59b8e68fa6f6eef76b2b4d6128a1cb76bd6f5d752e2a5e3a95c",
     "postgres_version": "16.15",
     "pgvector_version": "0.8.6"
-  },
-  "redis": {
-    "source": "library/redis:7-alpine",
-    "source_manifest": "sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2",
-    "source_config": "sha256:f84b0c4678011602b9b98c227a4dcd5468bf8b088b02fdd4165cb7758bad8058",
-    "imported_reference": "redis@sha256:1381fe0030d92594896c3fb2c32578d20fe89b69106417c36a091eb5f346ba27",
-    "archive_sha256": "d8a52f35e1e66f9a899969ae227b811974f11a7bed4012985154cfb196f60cef",
-    "version": "7.4.11"
   }
 }

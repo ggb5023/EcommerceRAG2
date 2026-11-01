@@ -52,7 +52,7 @@ def initialize(args):
     if provider.profile!='aliyun-bailian' or provider.embedding_dimensions!=1024 or provider.quota_rpm!=60:
         raise ValueError('explicit real 1024-dimensional Provider with 60 RPM required')
     runtime.mkdir(mode=0o700,parents=True)
-    for name,owner in [('gateway',65532),('ai',65532),('ingest',65532),('worker',65532),('artifacts',65532),('web',65532),('bootstrap',0),('identity',1000),('redis',999)]:
+    for name,owner in [('gateway',65532),('ai',65532),('ingest',65532),('worker',65532),('artifacts',65532),('web',65532),('bootstrap',0),('identity',1000)]:
         p=runtime/name;p.mkdir(mode=0o700)
         if os.geteuid()==0:os.chown(p,owner,owner)
     passwords={r:secrets.token_hex(32) for r in ['rag_migration','rag_v2_gateway','rag_v2_ai','rag_v2_ingest','keycloak']}
@@ -106,7 +106,6 @@ def initialize(args):
     write(runtime/'ai'/'providers.env',args.provider_config.read_text())
     if args.identity_profile == 'oidc_browser':
         write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
-    write(runtime/'redis/redis.conf','bind 0.0.0.0\nprotected-mode yes\nappendonly yes\nrequirepass '+secrets.token_hex(32)+'\n',999)
     write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
     for name in ('bootstrap','gateway','ai','web','artifacts'):
         directory = runtime/name

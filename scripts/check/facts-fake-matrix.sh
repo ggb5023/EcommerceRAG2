@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Process-level acceptance for the loopback merchant facts fake. It never
-# connects to PostgreSQL, Redis, a real merchant API, or an online model.
+# connects to PostgreSQL, a real merchant API, or an online model.
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/ecr-facts-fake.XXXXXX")
 chmod 700 "$tmp"

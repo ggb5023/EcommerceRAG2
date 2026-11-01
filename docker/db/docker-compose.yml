@@ -23,28 +23,8 @@ services:
     logging:
       driver: json-file
       options: {max-size: "20m", max-file: "3"}
-  redis:
-    image: ${REDIS_IMAGE:?set immutable REDIS_IMAGE in db.env}
-    container_name: rag-redis
-    restart: unless-stopped
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
-    ports: ["${DB_BIND_IP:?set private DB_BIND_IP in db.env}:6379:6379"]
-    volumes:
-      - /data/redis:/data
-      - /etc/ecommerce-rag/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    secrets: [redis_password]
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep -qx PONG"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    logging:
-      driver: json-file
-      options: {max-size: "10m", max-file: "3"}
 secrets:
   pg_admin_password:
     file: /etc/ecommerce-rag/pg_admin_password
   pg_app_password:
     file: /etc/ecommerce-rag/pg_app_password
-  redis_password:
-    file: /etc/ecommerce-rag/redis_password

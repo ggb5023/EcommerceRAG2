@@ -102,22 +102,9 @@ services:
       postgres: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
     healthcheck: {test: [CMD, /app/.venv/bin/python, /app/scripts/selfhost-health.py, ai], interval: 5s, timeout: 3s, retries: 30}
-  redis:
-    image: redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    profiles: [cache]
-    command: [redis-server, /run/redis/redis.conf]
-    volumes: [redis-data:/data, "${ECR_RUNTIME:?run selfhost init}/redis:/run/redis:ro"]
-    networks: [private]
-    restart: unless-stopped
 networks:
   private: {}
 volumes:
   postgres-data: {}
-  redis-data: {}
 secrets:
   pg-password: {file: "${ECR_RUNTIME}/bootstrap/pg-password"}
