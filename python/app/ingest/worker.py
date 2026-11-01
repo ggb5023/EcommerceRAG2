@@ -508,6 +508,204 @@ class IngestWorker:
                 lost.set()
                 return
 
+    def _publish_prepare(self, cursor, claim: IngestClaim) -> dict[str, Any] | None:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"knowledge:{claim.tenant_id}",))
+        cursor.execute(
+            "SELECT cancel_requested FROM ingest_job WHERE tenant_id=%s AND id=%s "
+            "AND owner_token=%s AND fencing_epoch=%s AND lease_expires_at>now() FOR UPDATE",
+            (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError("ingest fencing owner is stale")
+        if row[0]:
+            self._mark_cancelled(cursor, claim)
+            return None
+        return {item.document_id: item for item in claim.files}
+
+    def _insert_version(self, cursor, claim: IngestClaim, parsed: dict[str, Any],
+                        document: dict[str, Any], document_id: int) -> int:
+        spec = document["spec"]
+        cursor.execute(
+            "INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,"
+            "chunk_rule_version,embedding_model,pipeline_version,object_key,status,disclosure_class,"
+            "external_allowed,review_status,quality_json,chunk_count,fencing_epoch,source_manifest_id) "
+            "VALUES(%s,%s,%s,'local-parser-v2','structured-v2',%s,%s,%s,'ready',%s,false,"
+            "'pending',%s::jsonb,%s,%s,%s) RETURNING id",
+            (
+                claim.tenant_id,
+                document_id,
+                spec["source_hash"],
+                document["embedding_model"],
+                parsed["package"]["pipeline_version"],
+                document["raw_key"],
+                spec["disclosure_class"],
+                json.dumps(
+                    {
+                        "parse_status": "passed",
+                        "embedding_status": "passed",
+                        "index_mode": "postgres_hybrid",
+                        "artifact_bundle": document["bundle"],
+                        "quality_gate": "passed",
+                        "chunk_count": len(document["chunks"]),
+                        "empty_chunk_count": 0,
+                    },
+                    ensure_ascii=False,
+                ),
+                len(document["chunks"]),
+                claim.fencing_epoch,
+                claim.manifest_id,
+            ),
+        )
+        return int(cursor.fetchone()[0])
+
+    def _insert_chunks(self, cursor, claim: IngestClaim, document: dict[str, Any],
+                       document_id: int, version_id: int) -> None:
+        spec = document["spec"]
+        for chunk in document["chunks"]:
+            metadata = dict(chunk["metadata"])
+            metadata.update(
+                {
+                    "tenant_id": str(claim.tenant_id),
+                    "shop_id": claim.shop_id,
+                    "source_hash": spec["source_hash"],
+                    "disclosure_class": spec["disclosure_class"],
+                    "effective_from": spec["effective_from"],
+                    "effective_to": spec["effective_to"],
+                }
+            )
+            cursor.execute(
+                "INSERT INTO chunk(tenant_id,doc_id,version_id,shop_id,chunk_index,section_seq,"
+                "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
+                "content_type,split_reason,embedding_model,embedding_dim,tokenizer_id,effective_from,"
+                "effective_to,meta_json,source_object_key,chunk_hash,embedding,sparse_embedding,sparse_tokenizer_id,lang) "
+                "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                "%s,1024,'whitespace-v1',%s,%s,%s,%s,%s,%s::halfvec,%s::sparsevec,%s,'zh')",
+                (
+                    claim.tenant_id,
+                    document_id,
+                    version_id,
+                    claim.shop_id,
+                    chunk["chunk_index"],
+                    chunk["section_seq"],
+                    chunk["section_chunk_index"],
+                    chunk["char_start"],
+                    chunk["char_end"],
+                    chunk["heading_path"],
+                    chunk["content"],
+                    chunk["content"],
+                    chunk["token_count"],
+                    chunk["content_type"],
+                    chunk["split_reason"],
+                    document["embedding_model"],
+                    spec["effective_from"] or None,
+                    spec["effective_to"] or None,
+                    json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    document["raw_key"],
+                    chunk["chunk_hash"],
+                    chunk["embedding"],
+                    chunk.get("sparse_embedding"),
+                    chunk.get("sparse_tokenizer_id"),
+                ),
+            )
+
+    def _mark_item_reviewable(self, cursor, claim: IngestClaim, file: Any, version_id: int) -> None:
+        cursor.execute(
+            "UPDATE ingest_job_item SET status='awaiting_review',stage='review',document_version_id=%s,"
+            "lease_expires_at=NULL,error_code=NULL WHERE tenant_id=%s AND id=%s "
+            "AND owner_token=%s AND fencing_epoch=%s AND status='running'",
+            (
+                version_id,
+                claim.tenant_id,
+                file.item_id,
+                f"{claim.owner_token}:item:{file.item_id}",
+                file.item_epoch,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("ingest item fencing owner is stale")
+        # Release the owner only after the item leaves the running state.  The
+        # fencing trigger must still reject active lease takeover, while
+        # allowing the current owner to hand off a reviewable result.
+        cursor.execute(
+            "UPDATE ingest_job_item SET owner_token=NULL WHERE tenant_id=%s AND id=%s "
+            "AND owner_token=%s AND fencing_epoch=%s AND status='awaiting_review'",
+            (
+                claim.tenant_id,
+                file.item_id,
+                f"{claim.owner_token}:item:{file.item_id}",
+                file.item_epoch,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("ingest item owner release was fenced")
+
+    def _publish_document(self, cursor, claim: IngestClaim, parsed: dict[str, Any],
+                          document: dict[str, Any], file: Any) -> int:
+        spec = document["spec"]
+        cursor.execute(
+            "SELECT d.id FROM document d WHERE d.tenant_id=%s AND d.source_id=%s "
+            "AND d.logical_key=%s FOR UPDATE",
+            (claim.tenant_id, claim.source_id, spec["document_id"]),
+        )
+        document_row = cursor.fetchone()
+        if document_row is None:
+            raise RuntimeError("document row disappeared during ingestion")
+        version_id = self._insert_version(cursor, claim, parsed, document, document_row[0])
+        self._insert_chunks(cursor, claim, document, document_row[0], version_id)
+        self._mark_item_reviewable(cursor, claim, file, version_id)
+        return version_id
+
+    def _publish_finalize(self, cursor, claim: IngestClaim, parsed: dict[str, Any], dataset_sha: str) -> None:
+        cursor.execute(
+            "UPDATE ingest_artifact_object SET status='retained',updated_at=now() "
+            "WHERE tenant_id=%s AND job_id=%s AND owner_token=%s AND fencing_epoch=%s AND status='stored'",
+            (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
+        )
+        # source_manifest is an immutable submission record.  The parsed
+        # dataset identity belongs to the job result, so only ingest_job
+        # receives the derived hash below.  This also keeps the worker
+        # within the application role's least-privilege grants.
+        cursor.execute(
+            "UPDATE ingest_job SET status='awaiting_review',stage='review',dataset_sha256=%s,"
+            "lease_expires_at=NULL,updated_at=now() WHERE tenant_id=%s AND id=%s "
+            "AND owner_token=%s AND fencing_epoch=%s",
+            (
+                dataset_sha,
+                claim.tenant_id,
+                claim.job_id,
+                claim.owner_token,
+                claim.fencing_epoch,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("ingest job fencing owner is stale")
+        cursor.execute(
+            "UPDATE ingest_job SET owner_token=NULL WHERE tenant_id=%s AND id=%s "
+            "AND owner_token=%s AND fencing_epoch=%s AND status='awaiting_review'",
+            (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("ingest job owner release was fenced")
+        cursor.execute(
+            "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
+            "content_hash,fencing_epoch,reason,result,metadata_json) VALUES(%s,%s,'ingestion.parsed',"
+            "'ingest_job',%s,%s,%s,'Python worker produced reviewable versions','success',%s::jsonb)",
+            (
+                claim.tenant_id,
+                claim.submitted_by,
+                str(claim.job_id),
+                dataset_sha,
+                claim.fencing_epoch,
+                json.dumps(
+                    {
+                        "document_count": len(parsed["documents"]),
+                        "status": "awaiting_review",
+                    }
+                ),
+            ),
+        )
+
     def _publish_reviewable(
         self, claim: IngestClaim, parsed: dict[str, Any], dataset_sha: str
     ) -> None:
@@ -516,188 +714,14 @@ class IngestWorker:
             connection.transaction(),
             connection.cursor() as cursor,
         ):
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"knowledge:{claim.tenant_id}",))
-            cursor.execute(
-                "SELECT cancel_requested FROM ingest_job WHERE tenant_id=%s AND id=%s "
-                "AND owner_token=%s AND fencing_epoch=%s AND lease_expires_at>now() FOR UPDATE",
-                (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                raise RuntimeError("ingest fencing owner is stale")
-            if row[0]:
-                self._mark_cancelled(cursor, claim)
+            item_by_document = self._publish_prepare(cursor, claim)
+            if item_by_document is None:
                 return
-            version_ids: list[int] = []
-            item_by_document = {item.document_id: item for item in claim.files}
             for document in parsed["documents"]:
                 spec = document["spec"]
                 file = item_by_document[spec["document_id"]]
-                cursor.execute(
-                    "SELECT d.id FROM document d WHERE d.tenant_id=%s AND d.source_id=%s "
-                    "AND d.logical_key=%s FOR UPDATE",
-                    (claim.tenant_id, claim.source_id, spec["document_id"]),
-                )
-                document_row = cursor.fetchone()
-                if document_row is None:
-                    raise RuntimeError("document row disappeared during ingestion")
-                cursor.execute(
-                    "INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,"
-                    "chunk_rule_version,embedding_model,pipeline_version,object_key,status,disclosure_class,"
-                    "external_allowed,review_status,quality_json,chunk_count,fencing_epoch,source_manifest_id) "
-                    "VALUES(%s,%s,%s,'local-parser-v2','structured-v2',%s,%s,%s,'ready',%s,false,"
-                    "'pending',%s::jsonb,%s,%s,%s) RETURNING id",
-                    (
-                        claim.tenant_id,
-                        document_row[0],
-                        spec["source_hash"],
-                        document["embedding_model"],
-                        parsed["package"]["pipeline_version"],
-                        document["raw_key"],
-                        spec["disclosure_class"],
-                        json.dumps(
-                            {
-                                "parse_status": "passed",
-                                "embedding_status": "passed",
-                                "index_mode": "postgres_hybrid",
-                                "artifact_bundle": document["bundle"],
-                                "quality_gate": "passed",
-                                "chunk_count": len(document["chunks"]),
-                                "empty_chunk_count": 0,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        len(document["chunks"]),
-                        claim.fencing_epoch,
-                        claim.manifest_id,
-                    ),
-                )
-                version_id = int(cursor.fetchone()[0])
-                version_ids.append(version_id)
-                for chunk in document["chunks"]:
-                    metadata = dict(chunk["metadata"])
-                    metadata.update(
-                        {
-                            "tenant_id": str(claim.tenant_id),
-                            "shop_id": claim.shop_id,
-                            "source_hash": spec["source_hash"],
-                            "disclosure_class": spec["disclosure_class"],
-                            "effective_from": spec["effective_from"],
-                            "effective_to": spec["effective_to"],
-                        }
-                    )
-                    cursor.execute(
-                        "INSERT INTO chunk(tenant_id,doc_id,version_id,shop_id,chunk_index,section_seq,"
-                        "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
-                        "content_type,split_reason,embedding_model,embedding_dim,tokenizer_id,effective_from,"
-                        "effective_to,meta_json,source_object_key,chunk_hash,embedding,sparse_embedding,sparse_tokenizer_id,lang) "
-                        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-                        "%s,1024,'whitespace-v1',%s,%s,%s,%s,%s,%s::halfvec,%s::sparsevec,%s,'zh')",
-                        (
-                            claim.tenant_id,
-                            document_row[0],
-                            version_id,
-                            claim.shop_id,
-                            chunk["chunk_index"],
-                            chunk["section_seq"],
-                            chunk["section_chunk_index"],
-                            chunk["char_start"],
-                            chunk["char_end"],
-                            chunk["heading_path"],
-                            chunk["content"],
-                            chunk["content"],
-                            chunk["token_count"],
-                            chunk["content_type"],
-                            chunk["split_reason"],
-                            document["embedding_model"],
-                            spec["effective_from"] or None,
-                            spec["effective_to"] or None,
-                            json.dumps(metadata, ensure_ascii=False, sort_keys=True),
-                            document["raw_key"],
-                            chunk["chunk_hash"],
-                            chunk["embedding"],
-                            chunk.get("sparse_embedding"),
-                            chunk.get("sparse_tokenizer_id"),
-                        ),
-                    )
-                cursor.execute(
-                    "UPDATE ingest_job_item SET status='awaiting_review',stage='review',document_version_id=%s,"
-                    "lease_expires_at=NULL,error_code=NULL WHERE tenant_id=%s AND id=%s "
-                    "AND owner_token=%s AND fencing_epoch=%s AND status='running'",
-                    (
-                        version_id,
-                        claim.tenant_id,
-                        file.item_id,
-                        f"{claim.owner_token}:item:{file.item_id}",
-                        file.item_epoch,
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise RuntimeError("ingest item fencing owner is stale")
-                # Release the owner only after the item leaves the running
-                # state.  The fencing trigger must still reject active lease
-                # takeover, while allowing the current owner to hand off a
-                # reviewable result.
-                cursor.execute(
-                    "UPDATE ingest_job_item SET owner_token=NULL WHERE tenant_id=%s AND id=%s "
-                    "AND owner_token=%s AND fencing_epoch=%s AND status='awaiting_review'",
-                    (
-                        claim.tenant_id,
-                        file.item_id,
-                        f"{claim.owner_token}:item:{file.item_id}",
-                        file.item_epoch,
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise RuntimeError("ingest item owner release was fenced")
-            cursor.execute(
-                "UPDATE ingest_artifact_object SET status='retained',updated_at=now() "
-                "WHERE tenant_id=%s AND job_id=%s AND owner_token=%s AND fencing_epoch=%s AND status='stored'",
-                (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
-            )
-            # source_manifest is an immutable submission record.  The parsed
-            # dataset identity belongs to the job result, so only ingest_job
-            # receives the derived hash below.  This also keeps the worker
-            # within the application role's least-privilege grants.
-            cursor.execute(
-                "UPDATE ingest_job SET status='awaiting_review',stage='review',dataset_sha256=%s,"
-                "lease_expires_at=NULL,updated_at=now() WHERE tenant_id=%s AND id=%s "
-                "AND owner_token=%s AND fencing_epoch=%s",
-                (
-                    dataset_sha,
-                    claim.tenant_id,
-                    claim.job_id,
-                    claim.owner_token,
-                    claim.fencing_epoch,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise RuntimeError("ingest job fencing owner is stale")
-            cursor.execute(
-                "UPDATE ingest_job SET owner_token=NULL WHERE tenant_id=%s AND id=%s "
-                "AND owner_token=%s AND fencing_epoch=%s AND status='awaiting_review'",
-                (claim.tenant_id, claim.job_id, claim.owner_token, claim.fencing_epoch),
-            )
-            if cursor.rowcount != 1:
-                raise RuntimeError("ingest job owner release was fenced")
-            cursor.execute(
-                "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
-                "content_hash,fencing_epoch,reason,result,metadata_json) VALUES(%s,%s,'ingestion.parsed',"
-                "'ingest_job',%s,%s,%s,'Python worker produced reviewable versions','success',%s::jsonb)",
-                (
-                    claim.tenant_id,
-                    claim.submitted_by,
-                    str(claim.job_id),
-                    dataset_sha,
-                    claim.fencing_epoch,
-                    json.dumps(
-                        {
-                            "document_count": len(parsed["documents"]),
-                            "status": "awaiting_review",
-                        }
-                    ),
-                ),
-            )
+                self._publish_document(cursor, claim, parsed, document, file)
+            self._publish_finalize(cursor, claim, parsed, dataset_sha)
 
     def _settle_failure(
         self, claim: IngestClaim, error_code: str, *, retryable: bool, detail: str
