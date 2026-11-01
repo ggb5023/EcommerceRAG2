@@ -75,6 +75,8 @@
 | 里程碑 tag 作为回滚点 | `git tag`（4 个） | ✅ |
 | 分支合并后即删 | 人工 | ⚠️ 口头约定 |
 | 依赖与漏洞有扫描节奏 | 无 | ❌ 未实现 |
+| 开发库迁移/schema 自检 | `check-db-env-health.py`（`--db` 层；缺失/不可达输出 UNCONFIGURED） | ✅ |
+| CI 快速层 | GitHub Actions `.github/workflows/check.yml` | ⏳ 待远端启用确认 |
 | handler 中的 INSERT/UPDATE/DELETE 只能减不能增 | `check-structure.py`（A：`HANDLER_SQL_BASELINE=34`，只许降） | ✅ |
 | gateway/customer 与 admin 的依赖方向、前端直连 Python/DB 痕迹 | `check-structure.py`（B：2 个既有 gateway→admin 组合点为基线） | ✅ |
 

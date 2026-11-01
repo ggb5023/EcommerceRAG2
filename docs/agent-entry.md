@@ -55,7 +55,10 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 
 ```bash
 bash scripts/check.sh                 # 快速层 40 项（默认）
-bash scripts/check.sh --db            # 加持久化层（需集成库；无栈则 UNCONFIGURED）
+bash scripts/check.sh --cov           # Go/Python 覆盖率到 .local/coverage/（只报告，无门槛）
+bash scripts/check.sh --db            # 加持久化层（含 db-env-health 与 migrations-from-zero；无 scratch DSN 则 UNCONFIGURED）
+python3 scripts/check/check-db-env-health.py --env /etc/ecommerce-rag/dev.env
+ECR_SCRATCH_DSN=... ECR_SCRATCH_GATEWAY_DSN=... bash scripts/ops/verify-migrations-from-zero.sh
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式
 bash scripts/check.sh --smoke         # 快速层 + 五条 smoke（40 + 5 = 45 项；与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
