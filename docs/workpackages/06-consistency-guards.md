@@ -1,6 +1,6 @@
 # 06 一致性收尾与机械护栏（P-D）
 
-> 状态：见 INDEX.md　适用提交：9c49ebf　验收：见 §验收命令
+> 状态：见 INDEX.md　适用提交：7316674　验收：见 §验收命令
 > 详细规格：`docs/archive/backend-refactor-plan.md` §3 P-D
 
 ## 目标
