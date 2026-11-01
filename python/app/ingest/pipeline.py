@@ -89,160 +89,192 @@ def _common(document_id: str, version_id: str, metadata: dict[str, Any], title: 
     )
 
 
+@dataclass
+class _MarkdownParseState:
+    document_id: str
+    version_id: str
+    metadata: dict[str, Any]
+    title: str
+    elements: list[ParsedElement]
+    stack: list[tuple[int, str]]
+    buffer: list[str]
+    start_line: int
+    in_fence: bool = False
+    fence_info: str = ""
+    fence_start: int = 1
+    fence_lines: list[str] = field(default_factory=list)
+
+
 class MarkdownParser:
-    def parse(self, path: Path, *, document_id: str, version_id: str, metadata: dict[str, Any]) -> list[ParsedElement]:
-        text = path.read_text(encoding="utf-8")
-        elements: list[ParsedElement] = []
-        stack: list[tuple[int, str]] = []
-        buffer: list[str] = []
-        start_line = 1
-        title = metadata.get("title", document_id)
+    @staticmethod
+    def _is_table_row(value: str) -> bool:
+        stripped = value.strip()
+        return stripped.startswith("|") and stripped.endswith("|")
 
-        def flush(end_line: int, *, element_type: str = "text", **kwargs: Any) -> None:
-            nonlocal buffer, start_line
-            body = "\n".join(buffer).strip()
+    @staticmethod
+    def _is_table_separator(value: str) -> bool:
+        cells = value.strip().strip("|").split("|")
+        return bool(cells) and all(re.fullmatch(r"\s*:?-{3,}:?\s*", cell) for cell in cells)
+
+    @staticmethod
+    def _table_body(rows: list[str]) -> list[list[str]]:
+        return [[cell.strip() for cell in row.strip().strip("|").split("|")] for row in rows]
+
+    def _flush(self, state: _MarkdownParseState, end_line: int, *, element_type: str = "text",
+               **kwargs: Any) -> None:
+        body = "\n".join(state.buffer).strip()
+        if body:
+            # Strip blank boundary lines from the reported source range
+            # just as they are stripped from the normalized element.
+            first = next(i for i, line in enumerate(state.buffer) if line.strip())
+            last = max(i for i, line in enumerate(state.buffer) if line.strip())
+            state.elements.append(_common(
+                state.document_id, state.version_id, state.metadata, state.title, body,
+                {"line_start": state.start_line + first,
+                 "line_end": min(end_line, state.start_line + last)},
+                heading=tuple(item[1] for item in state.stack), element_type=element_type,
+                **kwargs,
+            ))
+        state.buffer = []
+
+    def _fence_open(self, state: _MarkdownParseState, number: int, match: re.Match) -> None:
+        self._flush(state, number - 1)
+        state.in_fence = True
+        state.fence_info = match.group(1) or ""
+        state.fence_start = number
+        state.fence_lines = []
+
+    def _fence_close(self, state: _MarkdownParseState, number: int) -> None:
+        body = "\n".join(state.fence_lines).strip()
+        if body:
+            state.elements.append(_common(
+                state.document_id, state.version_id, state.metadata, state.title, body,
+                {"line_start": state.fence_start, "line_end": number},
+                heading=tuple(item[1] for item in state.stack), element_type="code",
+                warning=f"code_language:{state.fence_info}" if state.fence_info else None,
+            ))
+        state.in_fence = False
+        state.fence_lines = []
+
+    def _heading(self, state: _MarkdownParseState, number: int, match: re.Match) -> None:
+        self._flush(state, number - 1)
+        level, heading = len(match.group(1)), match.group(2)
+        while state.stack and state.stack[-1][0] >= level:
+            state.stack.pop()
+        state.stack.append((level, heading))
+        state.title = heading
+        state.elements.append(_common(
+            state.document_id, state.version_id, state.metadata, state.title, heading,
+            {"line_start": number, "line_end": number},
+            heading=tuple(item[1] for item in state.stack), element_type="heading",
+            text_level=level,
+        ))
+        state.start_line = number + 1
+
+    def _table(self, state: _MarkdownParseState, lines: list[str], index: int, number: int) -> int:
+        self._flush(state, number - 1)
+        table_start = number
+        rows = [lines[index], lines[index + 1]]
+        index += 2
+        while index < len(lines) and self._is_table_row(lines[index]):
+            rows.append(lines[index])
+            index += 1
+        # The delimiter row is Markdown syntax, not a business-data row. Keep
+        # the source range unchanged for traceability while excluding it from
+        # the table element and searchable text.
+        parsed_rows = self._table_body(rows[:1] + rows[2:])
+        state.elements.append(_common(
+            state.document_id, state.version_id, state.metadata, state.title,
+            "\n".join(" | ".join(row) for row in parsed_rows),
+            {"line_start": table_start, "line_end": index},
+            heading=tuple(item[1] for item in state.stack), element_type="table",
+            table_body=parsed_rows,
+        ))
+        state.buffer = []
+        state.start_line = index + 1
+        return index
+
+    def _image(self, state: _MarkdownParseState, number: int, match: re.Match) -> None:
+        self._flush(state, number - 1)
+        alt_text, image_ref = match.groups()
+        state.elements.append(_common(
+            state.document_id, state.version_id, state.metadata, state.title,
+            alt_text or image_ref,
+            {"line_start": number, "line_end": number},
+            heading=tuple(item[1] for item in state.stack), element_type="image",
+            image_refs=(image_ref,), warning="image_reference_only",
+        ))
+        state.start_line = number + 1
+
+    def _list_line(self, state: _MarkdownParseState, number: int, line: str,
+                   lines: list[str], index: int) -> None:
+        if not state.buffer:
+            state.start_line = number
+        state.buffer.append(line)
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        if not re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", next_line):
+            self._flush(state, number, element_type="list")
+
+    @staticmethod
+    def _finish(state: _MarkdownParseState, lines: list[str]) -> None:
+        if state.in_fence:
+            body = "\n".join(state.fence_lines).strip()
             if body:
-                # Strip blank boundary lines from the reported source range
-                # just as they are stripped from the normalized element.
-                first = next(i for i, line in enumerate(buffer) if line.strip())
-                last = max(i for i, line in enumerate(buffer) if line.strip())
-                elements.append(_common(
-                    document_id, version_id, metadata, title, body,
-                    {"line_start": start_line + first, "line_end": min(end_line, start_line + last)},
-                    heading=tuple(item[1] for item in stack), element_type=element_type,
-                    **kwargs,
+                state.elements.append(_common(
+                    state.document_id, state.version_id, state.metadata, state.title, body,
+                    {"line_start": state.fence_start, "line_end": len(lines)},
+                    heading=tuple(item[1] for item in state.stack), element_type="code",
+                    warning="unterminated_code_fence",
                 ))
-            buffer = []
 
-        def is_table_row(value: str) -> bool:
-            stripped = value.strip()
-            return stripped.startswith("|") and stripped.endswith("|")
-
-        def is_table_separator(value: str) -> bool:
-            cells = value.strip().strip("|").split("|")
-            return bool(cells) and all(re.fullmatch(r"\s*:?-{3,}:?\s*", cell) for cell in cells)
-
-        def table_body(rows: list[str]) -> list[list[str]]:
-            return [[cell.strip() for cell in row.strip().strip("|").split("|")] for row in rows]
-
-        lines = text.splitlines()
-        in_fence = False
-        fence_info = ""
-        fence_start = 1
-        fence_lines: list[str] = []
+    def parse(self, path: Path, *, document_id: str, version_id: str, metadata: dict[str, Any]) -> list[ParsedElement]:
+        state = _MarkdownParseState(
+            document_id=document_id, version_id=version_id, metadata=metadata,
+            title=metadata.get("title", document_id), elements=[], stack=[], buffer=[],
+            start_line=1,
+        )
+        lines = path.read_text(encoding="utf-8").splitlines()
         index = 0
         while index < len(lines):
             number, line = index + 1, lines[index]
             fence_match = re.match(r"^\s*```\s*([^\s]*)?.*$", line)
-            if not in_fence and fence_match:
-                flush(number - 1)
-                in_fence = True
-                fence_info = fence_match.group(1) or ""
-                fence_start = number
-                fence_lines = []
+            if not state.in_fence and fence_match:
+                self._fence_open(state, number, fence_match)
                 index += 1
                 continue
-            if in_fence:
+            if state.in_fence:
                 if line.strip().startswith("```"):
-                    body = "\n".join(fence_lines).strip()
-                    if body:
-                        elements.append(_common(
-                            document_id, version_id, metadata, title, body,
-                            {"line_start": fence_start, "line_end": number},
-                            heading=tuple(item[1] for item in stack), element_type="code",
-                            warning=f"code_language:{fence_info}" if fence_info else None,
-                        ))
-                    in_fence = False
-                    fence_lines = []
+                    self._fence_close(state, number)
                 else:
-                    fence_lines.append(line)
+                    state.fence_lines.append(line)
                 index += 1
                 continue
-
             heading_match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
             if heading_match:
-                flush(number - 1)
-                level, heading = len(heading_match.group(1)), heading_match.group(2)
-                while stack and stack[-1][0] >= level:
-                    stack.pop()
-                stack.append((level, heading))
-                title = heading
-                elements.append(_common(
-                    document_id, version_id, metadata, title, heading,
-                    {"line_start": number, "line_end": number},
-                    heading=tuple(item[1] for item in stack), element_type="heading",
-                    text_level=level,
-                ))
-                start_line = number + 1
+                self._heading(state, number, heading_match)
                 index += 1
                 continue
-
-            if is_table_row(line) and index + 1 < len(lines) and is_table_separator(lines[index + 1]):
-                flush(number - 1)
-                table_start = number
-                rows = [line, lines[index + 1]]
-                index += 2
-                while index < len(lines) and is_table_row(lines[index]):
-                    rows.append(lines[index])
-                    index += 1
-                # The delimiter row is Markdown syntax, not a business-data
-                # row. Keep the source range unchanged for traceability while
-                # excluding it from the table element and searchable text.
-                parsed_rows = table_body(rows[:1] + rows[2:])
-                elements.append(_common(
-                    document_id, version_id, metadata, title,
-                    "\n".join(" | ".join(row) for row in parsed_rows),
-                    {"line_start": table_start, "line_end": index},
-                    heading=tuple(item[1] for item in stack), element_type="table",
-                    table_body=parsed_rows,
-                ))
-                buffer = []
-                start_line = index + 1
+            if self._is_table_row(line) and index + 1 < len(lines) and self._is_table_separator(lines[index + 1]):
+                index = self._table(state, lines, index, number)
                 continue
-
             image_match = re.match(r"^\s*!\[([^]]*)\]\(([^)]+)\)\s*$", line)
             if image_match:
-                flush(number - 1)
-                alt_text, image_ref = image_match.groups()
-                elements.append(_common(
-                    document_id, version_id, metadata, title, alt_text or image_ref,
-                    {"line_start": number, "line_end": number},
-                    heading=tuple(item[1] for item in stack), element_type="image",
-                    image_refs=(image_ref,), warning="image_reference_only",
-                ))
-                start_line = number + 1
+                self._image(state, number, image_match)
                 index += 1
                 continue
-
             if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line):
-                if not buffer:
-                    start_line = number
-                buffer.append(line)
-                next_line = lines[index + 1] if index + 1 < len(lines) else ""
-                if not re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", next_line):
-                    flush(number, element_type="list")
+                self._list_line(state, number, line, lines, index)
                 index += 1
                 continue
-
-            if not buffer:
-                start_line = number
-            buffer.append(line)
+            if not state.buffer:
+                state.start_line = number
+            state.buffer.append(line)
             index += 1
-
-        if in_fence:
-            body = "\n".join(fence_lines).strip()
-            if body:
-                elements.append(_common(
-                    document_id, version_id, metadata, title, body,
-                    {"line_start": fence_start, "line_end": len(lines)},
-                    heading=tuple(item[1] for item in stack), element_type="code",
-                    warning="unterminated_code_fence",
-                ))
+        if state.in_fence:
+            self._finish(state, lines)
         else:
-            flush(len(lines))
-        return elements
-
-
+            self._flush(state, len(lines))
+        return state.elements
 class CSVParser:
     def parse(self, path: Path, *, document_id: str, version_id: str, metadata: dict[str, Any]) -> list[ParsedElement]:
         elements: list[ParsedElement] = []
