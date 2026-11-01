@@ -11,11 +11,19 @@ import (
 )
 
 var outcomesBase = time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
+var nextResolutionTurnID int64
 
 func resolvedState(value string) *string { return &value }
 
 func outcomeTurn(conversation int64, minute int, state *string) resolutionTurn {
-	return resolutionTurn{ConversationID: conversation, CreatedAt: outcomesBase.Add(time.Duration(minute) * time.Minute), State: state}
+	nextResolutionTurnID++
+	return resolutionTurn{TurnID: nextResolutionTurnID, ConversationID: conversation,
+		CreatedAt: outcomesBase.Add(time.Duration(minute) * time.Minute), State: state}
+}
+
+func at(minute int) *time.Time {
+	value := outcomesBase.Add(time.Duration(minute) * time.Minute)
+	return &value
 }
 
 func almostEqual(got, want float64) bool {
@@ -23,9 +31,9 @@ func almostEqual(got, want float64) bool {
 }
 
 func TestResolutionSummaryEmptyWindow(t *testing.T) {
-	summary := summarizeResolution(nil)
+	summary := summarizeResolution(nil, outcomesBase)
 	if summary.TurnsTotal != 0 || summary.ScoredTotal != 0 || summary.Solved != 0 || summary.Clarified != 0 ||
-		summary.Abandoned != 0 || summary.Failed != 0 || summary.Unknown != 0 {
+		summary.Abandoned != 0 || summary.Failed != 0 || summary.Cancelled != 0 || summary.Pending != 0 || summary.Unknown != 0 {
 		t.Fatalf("empty window = %+v, want all zero", summary)
 	}
 	if summary.AutoRate != nil || summary.AssistedRate != nil {
@@ -33,36 +41,80 @@ func TestResolutionSummaryEmptyWindow(t *testing.T) {
 	}
 }
 
-// An ASKING turn whose conversation never reaches DONE is scored as abandoned:
-// excluding it from the denominator is what inflated the old rate.
+// An ASKING turn older than the grace window is abandoned.
 func TestResolutionSummaryAbandoned(t *testing.T) {
-	summary := summarizeResolution([]resolutionTurn{outcomeTurn(1, 0, resolvedState("ASKING"))})
+	summary := summarizeResolution([]resolutionTurn{outcomeTurn(1, 0, resolvedState("ASKING"))},
+		outcomesBase.Add(15*time.Minute))
 	if summary.Abandoned != 1 || summary.Clarified != 0 || summary.ScoredTotal != 1 {
 		t.Fatalf("summary = %+v, want abandoned=1 clarified=0 scored_total=1", summary)
 	}
 	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0) {
 		t.Fatalf("auto_rate = %v, want 0 (not null)", summary.AutoRate)
 	}
-	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
-		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d", summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown+summary.Pending {
+		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d pending=%d",
+			summary.TurnsTotal, summary.ScoredTotal, summary.Unknown, summary.Pending)
 	}
 }
 
-// An ASKING turn followed by DONE in the same conversation is clarified, not
-// abandoned, and the later DONE is solved.
-func TestResolutionSummaryClarified(t *testing.T) {
-	summary := summarizeResolution([]resolutionTurn{
-		outcomeTurn(1, 0, resolvedState("ASKING")),
-		outcomeTurn(1, 10, resolvedState("DONE")),
-	})
+// Only a later child linked by parent_turn_id marks the parent as clarified.
+func TestResolutionSummaryParentLinkedClarified(t *testing.T) {
+	parent := outcomeTurn(1, 0, resolvedState("ASKING"))
+	child := outcomeTurn(1, 10, resolvedState("DONE"))
+	child.ParentTurnID = &parent.TurnID
+	summary := summarizeResolution([]resolutionTurn{parent, child}, outcomesBase.Add(20*time.Minute))
 	if summary.Clarified != 1 || summary.Abandoned != 0 || summary.Solved != 1 || summary.ScoredTotal != 2 {
 		t.Fatalf("summary = %+v, want clarified=1 abandoned=0 solved=1 scored_total=2", summary)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0.5) {
-		t.Fatalf("auto_rate = %v, want 0.5", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 1) {
+		t.Fatalf("auto_rate = %v, want 1 (clarified excluded from the direct denominator)", summary.AutoRate)
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 1) {
 		t.Fatalf("assisted_rate = %v, want 1", summary.AssistedRate)
+	}
+}
+
+// A DONE in the same conversation without the parent link is not a clarification.
+func TestResolutionSummaryUnrelatedDoneNotClarified(t *testing.T) {
+	parent := outcomeTurn(1, 0, resolvedState("ASKING"))
+	unrelated := outcomeTurn(1, 5, resolvedState("DONE"))
+	summary := summarizeResolution([]resolutionTurn{parent, unrelated}, outcomesBase.Add(20*time.Minute))
+	if summary.Clarified != 0 || summary.Abandoned != 1 || summary.Solved != 1 {
+		t.Fatalf("summary = %+v, want clarified=0 abandoned=1 solved=1", summary)
+	}
+}
+
+// The pending clock starts at the latest execution's finished_at, not at turn
+// creation; an ASKING turn exactly at the ten-minute mark is no longer pending.
+func TestResolutionSummaryPending(t *testing.T) {
+	young := outcomeTurn(1, 0, resolvedState("ASKING"))
+	young.FinishedAt = at(8)
+	old := outcomeTurn(2, 5, resolvedState("ASKING"))
+	summary := summarizeResolution([]resolutionTurn{young, old}, outcomesBase.Add(15*time.Minute))
+	if summary.Pending != 1 || summary.Abandoned != 1 || summary.ScoredTotal != 1 {
+		t.Fatalf("summary = %+v, want pending=1 abandoned=1 scored_total=1", summary)
+	}
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0) {
+		t.Fatalf("auto_rate = %v, want 0", summary.AutoRate)
+	}
+	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 0) {
+		t.Fatalf("assisted_rate = %v, want 0", summary.AssistedRate)
+	}
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown+summary.Pending {
+		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d pending=%d",
+			summary.TurnsTotal, summary.ScoredTotal, summary.Unknown, summary.Pending)
+	}
+}
+
+// CANCELLED is its own bucket and no longer inflates failed.
+func TestResolutionSummaryCancelledSplit(t *testing.T) {
+	summary := summarizeResolution([]resolutionTurn{outcomeTurn(1, 0, resolvedState("CANCELLED"))},
+		outcomesBase.Add(15*time.Minute))
+	if summary.Cancelled != 1 || summary.Failed != 0 || summary.ScoredTotal != 1 {
+		t.Fatalf("summary = %+v, want cancelled=1 failed=0 scored_total=1", summary)
+	}
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0) {
+		t.Fatalf("auto_rate = %v, want 0", summary.AutoRate)
 	}
 }
 
@@ -74,7 +126,7 @@ func TestResolutionSummaryReaskedWithin5m(t *testing.T) {
 		outcomeTurn(1, 3, resolvedState("ASKING")),
 		outcomeTurn(2, 0, resolvedState("DONE")),
 		outcomeTurn(2, 10, resolvedState("ASKING")),
-	})
+	}, outcomesBase.Add(30*time.Minute))
 	if summary.ReaskedWithin5m != 1 {
 		t.Fatalf("reasked_within_5m = %d, want 1", summary.ReaskedWithin5m)
 	}
@@ -96,7 +148,7 @@ func TestResolutionSummaryMetricGapResponse(t *testing.T) {
 		t.Fatalf("response is not JSON: %v", err)
 	}
 	if !payload.MetricGap {
-		t.Fatalf("metric_gap = false, want true for turns_total=5 scored_total=3 unknown=1")
+		t.Fatalf("metric_gap = false, want true for turns_total=5 scored_total=3 unknown=1 pending=0")
 	}
 	if !strings.Contains(recorder.Body.String(), `"metric_gap":true`) {
 		t.Fatalf("response does not serialize the flag explicitly: %s", recorder.Body.String())
@@ -113,36 +165,40 @@ func TestResolutionSummaryMetricGapFalseIsExplicit(t *testing.T) {
 	}
 }
 
-// Every turn with a decision row must land in exactly one scored bucket; only
-// turns without a row may be unknown. The four buckets must sum to scored_total.
+// Every turn must land in exactly one settled bucket, unknown, or pending.
 func TestResolutionSummaryIdentityHolds(t *testing.T) {
+	pending := outcomeTurn(4, 0, resolvedState("ASKING"))
+	pending.FinishedAt = at(12)
+	parent := outcomeTurn(2, 0, resolvedState("ASKING"))
+	child := outcomeTurn(2, 10, resolvedState("DONE"))
+	child.ParentTurnID = &parent.TurnID
 	summary := summarizeResolution([]resolutionTurn{
-		// A DONE followed by another turn is still solved under the five-bucket
-		// definition; there is no half-counted turn.
 		outcomeTurn(1, 0, resolvedState("DONE")),
 		outcomeTurn(1, 3, resolvedState("DONE")),
-		outcomeTurn(2, 0, resolvedState("ASKING")),
-		outcomeTurn(2, 10, resolvedState("DONE")),
+		parent,
+		child,
 		outcomeTurn(3, 0, resolvedState("ASKING")),
-		outcomeTurn(4, 0, resolvedState("FAILED")),
-		// CANCELLED shares the failed bucket until 03 revisits its contract.
+		pending,
+		outcomeTurn(5, 0, resolvedState("FAILED")),
 		outcomeTurn(6, 0, resolvedState("CANCELLED")),
-		outcomeTurn(5, 0, nil),
-	})
-	if summary.TurnsTotal != 8 {
-		t.Fatalf("turns_total = %d, want 8", summary.TurnsTotal)
+		outcomeTurn(7, 0, nil),
+	}, outcomesBase.Add(15*time.Minute))
+	if summary.TurnsTotal != 9 {
+		t.Fatalf("turns_total = %d, want 9", summary.TurnsTotal)
 	}
-	if summary.Solved != 3 || summary.Clarified != 1 || summary.Abandoned != 1 || summary.Failed != 2 || summary.Unknown != 1 {
-		t.Fatalf("summary = %+v, want solved=3 clarified=1 abandoned=1 failed=2 unknown=1", summary)
+	if summary.Solved != 3 || summary.Clarified != 1 || summary.Abandoned != 1 || summary.Pending != 1 ||
+		summary.Failed != 1 || summary.Cancelled != 1 || summary.Unknown != 1 {
+		t.Fatalf("summary = %+v, want solved=3 clarified=1 abandoned=1 pending=1 failed=1 cancelled=1 unknown=1", summary)
 	}
-	if summary.ScoredTotal != summary.Solved+summary.Clarified+summary.Abandoned+summary.Failed {
-		t.Fatalf("scored_total=%d does not equal the four buckets", summary.ScoredTotal)
+	if summary.ScoredTotal != summary.Solved+summary.Clarified+summary.Abandoned+summary.Failed+summary.Cancelled {
+		t.Fatalf("scored_total=%d does not equal the five buckets", summary.ScoredTotal)
 	}
-	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
-		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d", summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown+summary.Pending {
+		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d pending=%d",
+			summary.TurnsTotal, summary.ScoredTotal, summary.Unknown, summary.Pending)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/7.0) {
-		t.Fatalf("auto_rate = %v, want 3/7", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/6.0) {
+		t.Fatalf("auto_rate = %v, want 3/6 (clarified excluded from the denominator)", summary.AutoRate)
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 4.0/7.0) {
 		t.Fatalf("assisted_rate = %v, want 4/7", summary.AssistedRate)

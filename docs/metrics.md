@@ -1,6 +1,6 @@
 # 指标口径（唯一出处）
 
-> 权威等级：context（指标口径的唯一出处）　适用提交：7675ad2
+> 权威等级：context（指标口径的唯一出处）　适用提交：9bd72a0（本轮重开 03）
 > 本文件只定义指标，不实现。代码与页面必须引用本文件；改口径先改本文件，再改代码与页面。
 
 ## 人群
@@ -13,11 +13,28 @@
 
 | 指标 / 桶 | 目标口径 | 当前代码行为 |
 | --- | --- | --- |
-| `auto_answer_rate` | `DONE / (DONE + ASKING_abandoned + FAILED + CANCELLED)`，按人群过滤；`clarified` 不进分母 | `auto_rate = solved / scored_total`，其中 `scored_total = solved + clarified + abandoned + failed`；CANCELLED 并入 `failed`。**待改**：分母剔除 clarified，CANCELLED 单列 |
-| `pending` | `ASKING` 未超过 10 分钟宽限期；单列，不进入任何分母 | 无此桶；ASKING 只按「同一 conversation 之后是否出现 DONE」分为 clarified / abandoned。**待改** |
-| `clarified` | 必须用 `parent_turn_id` 关联澄清轮与被解决的后续轮 | 用「同一 `conversation_id` 之后出现 `DONE`」判断，不读 `parent_turn_id`。**待改** |
-| `CANCELLED` | 单独成桶，不并入 `failed` | 并入 `failed`（`store_analytics` 的 `case "FAILED", "CANCELLED"`）。**待改** |
+| `auto_answer_rate`（页面名：直接解决率） | `DONE / (DONE + ASKING_abandoned + FAILED + CANCELLED)`，按人群过滤；`clarified`、`pending`、`unknown` 不进分母 | 本轮后：`auto_rate = solved / (solved + abandoned + failed + cancelled)`；分母为 0 时返回 null |
+| `assisted_rate`（页面名：无需人工介入率） | `(DONE + clarified) / scored_total`；`scored_total = DONE + clarified + ASKING_abandoned + FAILED + CANCELLED` | 本轮后：`assisted_rate = (solved + clarified) / scored_total`；`scored_total` 为 0 时返回 null |
+| `pending` | `ASKING` 且从最新 execution 的 `finished_at` 起算不足 10 分钟；`finished_at` 为 NULL 时回退 `turn.created_at`；单列，不进入任何分母 | 已实现：最新 execution 的 `finished_at`（缺失回退 `created_at`），10 分钟宽限 |
+| `clarified` | 窗口内存在更晚的轮次，其 `parent_turn_id = 本轮 t.id`，且其最新 execution 状态为 `DONE`；同会话无关 DONE 不算 | 已实现：按 `parent_turn_id` 关联，不按 conversation 推断 |
+| `CANCELLED` | 单独成桶，不并入 `failed` | 已实现：`cancelled` 独立字段；`failed` 不含取消 |
 | `wrong_answer_rate` | 只能来自离线评测或人工标注；不得从 `DONE` 推断 | 无此指标；未从 `DONE` 推断 |
+
+## ASKING 的判定优先级
+
+1. 存在 `parent_turn_id` 关联的更晚 DONE 子轮 → `clarified`；
+2. 否则，仍在 10 分钟宽限内 → `pending`；
+3. 否则 → `abandoned`。
+
+## 边界与已承认的限制
+
+- `/resume` 原地续接产生的是同一 `turn` 的新 execution，最终 `DONE` 计入 `solved`，
+  不产生 `clarified`。这是设计，不是漏算。
+- 子轮 `DONE` 若落在统计窗口之外（窗口下界或 `LIMIT 50000` 截断），父轮会被判为
+  `abandoned` 而不是 `clarified`；本版承认该右删失误差。
+- 两个比率的分母为 0 时返回 `null`，与真实的 0% 区分。
+- `scored_total = solved + clarified + abandoned + failed + cancelled`；
+  `turns_total = scored_total + unknown + pending`。
 
 ## 约束
 

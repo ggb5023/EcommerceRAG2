@@ -39,9 +39,9 @@ func (g *Handler) adminOutcomes(w http.ResponseWriter, r *http.Request) {
 // metric page into a 500. A false flag is always serialized so the frontend can
 // test it without guessing the field's absence.
 func (g *Handler) respondOutcomes(w http.ResponseWriter, tenantID int64, summary ResolutionSummary) {
-	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
-		log.Printf("outcome metric identity violated: tenant=%d turns=%d scored=%d unknown=%d",
-			tenantID, summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown+summary.Pending {
+		log.Printf("outcome metric identity violated: tenant=%d turns=%d scored=%d unknown=%d pending=%d",
+			tenantID, summary.TurnsTotal, summary.ScoredTotal, summary.Unknown, summary.Pending)
 		summary.MetricGap = true
 	}
 	httpapi.WriteJSON(w, http.StatusOK, summary)

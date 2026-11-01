@@ -59,6 +59,8 @@ export type ResolutionOutcome = {
   clarified: number
   abandoned: number
   failed: number
+  cancelled: number
+  pending: number
   unknown: number
   reasked_within_5m: number
   auto_rate: number | null
