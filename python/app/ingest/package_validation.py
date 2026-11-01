@@ -37,7 +37,7 @@ def _date_text(value, field: str, context) -> str:
     return parsed.isoformat()
 
 
-def _inspect_package(request, context):
+def _inspect_uploaded(request, context) -> tuple[bytes, dict[str, bytes]]:
     if not request.tenant_id or not request.shop_id:
         _fail(context, "server authorization scope is required")
     manifest_bytes = request.manifest_yaml.encode("utf-8")
@@ -64,7 +64,10 @@ def _inspect_package(request, context):
         if total > MAX_PACKAGE_BYTES:
             _fail(context, "package size exceeds the allowed limit")
         uploaded[item.path] = bytes(item.content)
+    return manifest_bytes, uploaded
 
+
+def _inspect_manifest(request, context) -> tuple[dict, str, str, str, list]:
     try:
         manifest = yaml.safe_load(request.manifest_yaml)
     except yaml.YAMLError:
@@ -95,92 +98,102 @@ def _inspect_package(request, context):
     documents = manifest.get("documents")
     if not isinstance(documents, list) or not 1 <= len(documents) <= MAX_DOCUMENTS:
         _fail(context, "manifest documents count is outside the allowed limit")
+    return manifest, source_id, source_name, pipeline_version, documents
 
+
+def _inspect_document(spec, index: int, uploaded: dict[str, bytes], used_paths: set[str],
+                      document_ids: set[str], pipeline_version: str, manifest_hash: str,
+                      context) -> dict:
+    if not isinstance(spec, dict):
+        _fail(context, f"documents[{index}] must be a mapping")
+    document_id, title, relative, fmt = (
+        spec.get("document_id"),
+        spec.get("title"),
+        spec.get("path"),
+        spec.get("format"),
+    )
+    if (
+        not isinstance(document_id, str)
+        or not IDENTIFIER.fullmatch(document_id)
+        or document_id in document_ids
+    ):
+        _fail(context, f"documents[{index}].document_id is invalid or duplicated")
+    document_ids.add(document_id)
+    if not isinstance(title, str) or not title.strip() or len(title) > 300:
+        _fail(context, f"documents[{index}].title is invalid")
+    if not isinstance(relative, str) or not relative or "\\" in relative:
+        _fail(context, f"documents[{index}].path is invalid")
+    relative_path = PurePosixPath(relative)
+    if (
+        relative_path.is_absolute()
+        or relative_path.as_posix() != relative
+        or any(part in {"", ".", ".."} for part in relative_path.parts)
+    ):
+        _fail(context, f"documents[{index}].path is unsafe")
+    if relative not in uploaded or relative in used_paths:
+        _fail(context, f"documents[{index}].path is missing or duplicated")
+    used_paths.add(relative)
+    if not isinstance(fmt, str) or fmt not in ALLOWED_FORMATS:
+        _fail(context, f"documents[{index}].format is unsupported")
+    extension_ok = {
+        "markdown": relative_path.suffix.lower() in {".md", ".markdown"},
+        "csv": relative_path.suffix.lower() == ".csv",
+        "docx": relative_path.suffix.lower() == ".docx",
+    }[fmt]
+    if not extension_ok:
+        _fail(context, f"documents[{index}] format does not match its file")
+    disclosure = spec.get("disclosure_class", "unclassified")
+    if not isinstance(disclosure, str) or disclosure not in ALLOWED_DISCLOSURE:
+        _fail(context, f"documents[{index}].disclosure_class is invalid")
+    effective_from = _date_text(
+        spec.get("effective_from"), "effective_from", context
+    )
+    effective_to = _date_text(spec.get("effective_to"), "effective_to", context)
+    if effective_from and effective_to and effective_to <= effective_from:
+        _fail(
+            context, f"documents[{index}] effective_to must be after effective_from"
+        )
+    content = uploaded[relative]
+    source_hash = hashlib.sha256(content).hexdigest()
+    declared_hash = spec.get("sha256")
+    if (
+        not isinstance(declared_hash, str)
+        or not SHA256.fullmatch(declared_hash)
+        or declared_hash != source_hash
+    ):
+        _fail(
+            context, f"documents[{index}].sha256 does not match the uploaded file"
+        )
+    version_id = (
+        "v-"
+        + hashlib.sha256(
+            f"{source_hash}\0{pipeline_version}\0{manifest_hash}".encode()
+        ).hexdigest()[:20]
+    )
+    return {
+        "document_id": document_id,
+        "title": title.strip(),
+        "format": fmt,
+        "path": relative,
+        "source_hash": source_hash,
+        "disclosure_class": disclosure,
+        "effective_from": effective_from,
+        "effective_to": effective_to,
+        "version_id": version_id,
+    }
+
+
+def _inspect_package(request, context):
+    manifest_bytes, uploaded = _inspect_uploaded(request, context)
+    _, source_id, source_name, pipeline_version, documents = _inspect_manifest(request, context)
     manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
     used_paths: set[str] = set()
     document_ids: set[str] = set()
-    validated = []
-    for index, spec in enumerate(documents):
-        if not isinstance(spec, dict):
-            _fail(context, f"documents[{index}] must be a mapping")
-        document_id, title, relative, fmt = (
-            spec.get("document_id"),
-            spec.get("title"),
-            spec.get("path"),
-            spec.get("format"),
-        )
-        if (
-            not isinstance(document_id, str)
-            or not IDENTIFIER.fullmatch(document_id)
-            or document_id in document_ids
-        ):
-            _fail(context, f"documents[{index}].document_id is invalid or duplicated")
-        document_ids.add(document_id)
-        if not isinstance(title, str) or not title.strip() or len(title) > 300:
-            _fail(context, f"documents[{index}].title is invalid")
-        if not isinstance(relative, str) or not relative or "\\" in relative:
-            _fail(context, f"documents[{index}].path is invalid")
-        relative_path = PurePosixPath(relative)
-        if (
-            relative_path.is_absolute()
-            or relative_path.as_posix() != relative
-            or any(part in {"", ".", ".."} for part in relative_path.parts)
-        ):
-            _fail(context, f"documents[{index}].path is unsafe")
-        if relative not in uploaded or relative in used_paths:
-            _fail(context, f"documents[{index}].path is missing or duplicated")
-        used_paths.add(relative)
-        if not isinstance(fmt, str) or fmt not in ALLOWED_FORMATS:
-            _fail(context, f"documents[{index}].format is unsupported")
-        extension_ok = {
-            "markdown": relative_path.suffix.lower() in {".md", ".markdown"},
-            "csv": relative_path.suffix.lower() == ".csv",
-            "docx": relative_path.suffix.lower() == ".docx",
-        }[fmt]
-        if not extension_ok:
-            _fail(context, f"documents[{index}] format does not match its file")
-        disclosure = spec.get("disclosure_class", "unclassified")
-        if not isinstance(disclosure, str) or disclosure not in ALLOWED_DISCLOSURE:
-            _fail(context, f"documents[{index}].disclosure_class is invalid")
-        effective_from = _date_text(
-            spec.get("effective_from"), "effective_from", context
-        )
-        effective_to = _date_text(spec.get("effective_to"), "effective_to", context)
-        if effective_from and effective_to and effective_to <= effective_from:
-            _fail(
-                context, f"documents[{index}] effective_to must be after effective_from"
-            )
-
-        content = uploaded[relative]
-        source_hash = hashlib.sha256(content).hexdigest()
-        declared_hash = spec.get("sha256")
-        if (
-            not isinstance(declared_hash, str)
-            or not SHA256.fullmatch(declared_hash)
-            or declared_hash != source_hash
-        ):
-            _fail(
-                context, f"documents[{index}].sha256 does not match the uploaded file"
-            )
-        version_id = (
-            "v-"
-            + hashlib.sha256(
-                f"{source_hash}\0{pipeline_version}\0{manifest_hash}".encode()
-            ).hexdigest()[:20]
-        )
-        validated.append(
-            {
-                "document_id": document_id,
-                "title": title.strip(),
-                "format": fmt,
-                "path": relative,
-                "source_hash": source_hash,
-                "disclosure_class": disclosure,
-                "effective_from": effective_from,
-                "effective_to": effective_to,
-                "version_id": version_id,
-            }
-        )
+    validated = [
+        _inspect_document(spec, index, uploaded, used_paths, document_ids,
+                          pipeline_version, manifest_hash, context)
+        for index, spec in enumerate(documents)
+    ]
     if used_paths != set(uploaded):
         _fail(context, "package contains unreferenced files")
     return {
