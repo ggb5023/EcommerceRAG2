@@ -82,5 +82,6 @@ FROM classified;
 - 本轮口径落地：`auto_rate` 分母剔除 clarified；新增 `assisted_rate` 的 scored_total 定义；
   `pending`（10 分钟右删失）、`clarified`（parent_turn_id）、`cancelled`（从 failed 拆出）全部实现。
 - 计划外：`OutcomesSummary.vue` 拆出展示层以便 SSR 渲染测试；`api.test.ts` 增加字段渲染用例；
-  响应新增 `pending` / `cancelled` 字段。
+  响应新增 `pending` / `cancelled` 字段；`TestResolutionSummarySQLReconciliation` 在
+  test-integration 库用手写 SQL 对账 Go 分类（含 parent 链接、无关 DONE、/resume DONE）。
 - 计划内未覆盖：customer 人群、页面人工视觉检查、`--db` / `--e2e`。
