@@ -3,6 +3,8 @@ import {onUnmounted,ref} from 'vue'
 import {get,post,request} from './api'
 import {knowledgePackage} from './knowledge-package'
 import {canRevokeImport,commandStateLabel} from './import-wizard-state'
+import Button from '../components/Button.vue'
+import Input from '../components/Input.vue'
 const props=defineProps<{shops:string[]}>();const emit=defineEmits<{imported:[]}>()
 const shop=ref(props.shops[0]??'');const businessDate=ref(new Date().toISOString().slice(0,10));const files=ref<File[]>([]);const manifestFile=ref<File|null>(null);const batchId=ref('');const preview=ref<any>(null);const notice=ref('');const busy=ref(false);const jobId=ref('');const jobState=ref('');const jobError=ref('');const revokedAt=ref<string|null>(null);let timer:ReturnType<typeof setTimeout>|undefined
 function stopPolling(){if(timer)clearTimeout(timer);timer=undefined}
@@ -27,10 +29,10 @@ onUnmounted(stopPolling)
 <template><section class="import-form" :class="{revoked:!!revokedAt}"><h2>导入预检（三步）</h2>
 <p v-if="!batchId">第一步：上传资料包。R1–R4 本地规则预检只给建议，不会发布或写入审核结论；模型辅助默认关闭。</p>
 <p v-else>第二步：核对片段与问题；确认后才会创建待审核版本。</p>
-<div class="form-grid"><label>店铺<select v-model="shop"><option v-for="s in shops" :key="s">{{s}}</option></select></label><label>业务日期<input v-model="businessDate" type="date"></label></div>
-<form v-if="!batchId" @submit.prevent="upload"><label>manifest.yaml（可选；提供时按原 manifest 预检）<input type="file" accept=".yaml,.yml" @change="manifestFile=($event.target as HTMLInputElement).files?.[0]??null"></label><label>资料文件<input type="file" multiple accept=".docx,.markdown,.md,.csv" @change="files=Array.from(($event.target as HTMLInputElement).files??[])"></label><button class="primary" :disabled="busy||!shop||!files.length">开始预检</button></form>
+<div class="form-grid"><label>店铺<select v-model="shop"><option v-for="s in shops" :key="s">{{s}}</option></select></label><label>业务日期<Input v-model="businessDate" type="date"/></label></div>
+<form v-if="!batchId" @submit.prevent="upload"><label>manifest.yaml（可选；提供时按原 manifest 预检）<input type="file" accept=".yaml,.yml" @change="manifestFile=($event.target as HTMLInputElement).files?.[0]??null"></label><label>资料文件<input type="file" multiple accept=".docx,.markdown,.md,.csv" @change="files=Array.from(($event.target as HTMLInputElement).files??[])"></label><Button type="submit" variant="primary" :disabled="busy||!shop||!files.length">开始预检</Button></form>
 <div v-else><p v-for="(item,index) in preview?.items??[]" :key="item.item_id" class="precheck-item"><strong>{{Number(index)+1}}. {{item.precheck_detail?.title}}</strong><details v-for="issue in item.precheck_result" :key="issue.issue_code"><summary>{{issue.issue_code}}（{{issue.severity}}）</summary><span>{{issue.snippet}} — {{issue.suggested_action}}</span></details></p>
 <p>批次状态：<strong>{{revokedAt?'已撤回':preview?.status}}</strong><span v-if="revokedAt"> · 撤回时间：{{revokedAt}}</span></p>
 <p v-if="jobId">摄取任务：{{commandStateLabel(jobState,jobError)}}<span v-if="jobError">（{{jobError}}）</span></p>
-<p><button class="primary" :disabled="busy||!!revokedAt" @click="confirm">确认导入</button> <button type="button" :disabled="busy||!canRevokeImport(preview?.status,revokedAt)" @click="revoke">撤回整包</button> <button type="button" @click="reset">关闭</button></p><small>本地规则预检仅供参考，发布前请确认。</small></div>
+<p><Button variant="primary" :disabled="busy||!!revokedAt" @click="confirm">确认导入</Button> <Button variant="secondary" :disabled="busy||!canRevokeImport(preview?.status,revokedAt)" @click="revoke">撤回整包</Button> <Button variant="secondary" @click="reset">关闭</Button></p><small>本地规则预检仅供参考，发布前请确认。</small></div>
 <p role="status">{{notice}}</p></section></template>
