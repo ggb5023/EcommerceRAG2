@@ -9,17 +9,25 @@ import (
 )
 
 // ResolutionSummary is the merchant-facing outcome metric for one time window.
-// Rates are pointers so "no data" (N=0) serializes as null, not 0: the UI must
-// be able to tell "0% solved" apart from "nothing happened yet".
+// turns_total is every turn the window returned; scored_total is the rate
+// denominator and deliberately excludes unknown turns. Rates are pointers so
+// "no data" (scored_total=0) serializes as null, not 0: the UI must be able to
+// tell "0% solved" apart from "nothing happened yet".
 type ResolutionSummary struct {
-	Total        int64    `json:"total"`
+	TurnsTotal   int64    `json:"turns_total"`
+	ScoredTotal  int64    `json:"scored_total"`
 	Solved       int64    `json:"solved"`
 	Clarified    int64    `json:"clarified"`
 	Failed       int64    `json:"failed"`
 	Unknown      int64    `json:"unknown"`
 	AutoRate     *float64 `json:"auto_rate"`
 	AssistedRate *float64 `json:"assisted_rate"`
+	Truncated    bool     `json:"truncated"`
 }
+
+// resolutionFetchLimit bounds how many turns one request reads into memory.
+// The query asks for one extra row only to detect that the bound was hit.
+const resolutionFetchLimit = 50000
 
 // resolutionTurn is one turn in the window with the state its decision row
 // recorded. A nil State means the turn has no turn_decision row (or a row from
@@ -40,7 +48,9 @@ func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantI
 	rows, err := db.Query(ctx, `SELECT t.conversation_id, t.created_at, td.state
 		FROM turn t
 		LEFT JOIN turn_decision td ON td.tenant_id=t.tenant_id AND td.turn_id=t.id::text
-		WHERE t.tenant_id=$1 AND t.created_at>=$2`, tenantID, from)
+		WHERE t.tenant_id=$1 AND t.created_at>=$2
+		ORDER BY t.created_at DESC
+		LIMIT $3`, tenantID, from, resolutionFetchLimit+1)
 	if err != nil {
 		return ResolutionSummary{}, err
 	}
@@ -56,14 +66,20 @@ func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantI
 	if err := rows.Err(); err != nil {
 		return ResolutionSummary{}, err
 	}
-	return summarizeResolution(turns), nil
+	truncated := len(turns) > resolutionFetchLimit
+	if truncated {
+		turns = turns[:resolutionFetchLimit]
+	}
+	summary := summarizeResolution(turns)
+	summary.Truncated = truncated
+	return summary, nil
 }
 
 // summarizeResolution applies the outcome rules to one window of turns. It is
 // pure so the three edge cases (empty window, normal counts, unknown excluded)
 // can be tested without a database.
 func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
-	summary := ResolutionSummary{Total: int64(len(turns))}
+	summary := ResolutionSummary{TurnsTotal: int64(len(turns))}
 	byConversation := make(map[int64][]resolutionTurn)
 	for _, turn := range turns {
 		byConversation[turn.ConversationID] = append(byConversation[turn.ConversationID], turn)
@@ -93,6 +109,7 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 		}
 	}
 	resolved := summary.Solved + summary.Clarified + summary.Failed
+	summary.ScoredTotal = resolved
 	if resolved > 0 {
 		auto := float64(summary.Solved) / float64(resolved)
 		assisted := float64(summary.Solved+summary.Clarified) / float64(resolved)

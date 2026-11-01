@@ -20,7 +20,7 @@ func almostEqual(got, want float64) bool {
 
 func TestResolutionSummaryEmptyWindow(t *testing.T) {
 	summary := summarizeResolution(nil)
-	if summary.Total != 0 || summary.Solved != 0 || summary.Clarified != 0 || summary.Failed != 0 || summary.Unknown != 0 {
+	if summary.TurnsTotal != 0 || summary.ScoredTotal != 0 || summary.Solved != 0 || summary.Clarified != 0 || summary.Failed != 0 || summary.Unknown != 0 {
 		t.Fatalf("empty window = %+v, want all zero", summary)
 	}
 	if summary.AutoRate != nil || summary.AssistedRate != nil {
@@ -43,8 +43,8 @@ func TestResolutionSummaryCounts(t *testing.T) {
 		outcomeTurn(6, 0, resolvedState("DONE")),
 		outcomeTurn(6, 6, resolvedState("FAILED")),
 	})
-	if summary.Total != 9 || summary.Solved != 4 || summary.Clarified != 1 || summary.Failed != 2 || summary.Unknown != 1 {
-		t.Fatalf("summary = %+v, want total=9 solved=4 clarified=1 failed=2 unknown=1", summary)
+	if summary.TurnsTotal != 9 || summary.ScoredTotal != 7 || summary.Solved != 4 || summary.Clarified != 1 || summary.Failed != 2 || summary.Unknown != 1 {
+		t.Fatalf("summary = %+v, want turns_total=9 scored_total=7 solved=4 clarified=1 failed=2 unknown=1", summary)
 	}
 	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 4.0/7.0) {
 		t.Fatalf("auto_rate = %v, want 4/7", summary.AutoRate)
@@ -61,8 +61,8 @@ func TestResolutionSummaryUnknownExcludedFromDenominator(t *testing.T) {
 		outcomeTurn(3, 0, nil),
 		outcomeTurn(4, 0, nil),
 	})
-	if summary.Unknown != 3 || summary.Solved != 1 {
-		t.Fatalf("summary = %+v, want unknown=3 solved=1", summary)
+	if summary.TurnsTotal != 4 || summary.ScoredTotal != 1 || summary.Unknown != 3 || summary.Solved != 1 {
+		t.Fatalf("summary = %+v, want turns_total=4 scored_total=1 unknown=3 solved=1", summary)
 	}
 	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 1) {
 		t.Fatalf("auto_rate = %v, want 1 (unknown turns excluded)", summary.AutoRate)

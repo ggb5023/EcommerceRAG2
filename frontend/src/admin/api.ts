@@ -53,13 +53,15 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export type ResolutionOutcome = {
-  total: number
+  turns_total: number
+  scored_total: number
   solved: number
   clarified: number
   failed: number
   unknown: number
   auto_rate: number | null
   assisted_rate: number | null
+  truncated: boolean
 }
 
 export const get = <T>(path: string) => request<T>(path)

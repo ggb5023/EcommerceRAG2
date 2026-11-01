@@ -8,8 +8,7 @@ const summary = ref<ResolutionOutcome | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-const resolved = computed(() => (summary.value?.solved ?? 0) + (summary.value?.clarified ?? 0) + (summary.value?.failed ?? 0))
-const hasData = computed(() => resolved.value > 0)
+const hasData = computed(() => (summary.value?.scored_total ?? 0) > 0)
 
 function rate(value: number | null | undefined) {
   return value === null || value === undefined ? '暂无数据' : `${(value * 100).toFixed(1)}%`
@@ -37,14 +36,15 @@ onMounted(load)
     <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button type="button" @click="load">重试</button></div>
     <section v-if="loading" class="state-panel" role="status"><strong>正在汇总结果数据</strong><span>统计以服务端当前记录为准。</span></section>
     <template v-else-if="summary">
+      <p v-if="summary.truncated" class="notice" role="status">数据量过大，已按最近 5 万条统计。</p>
       <div class="health-grid">
+        <article class="health-cell"><span>可判定轮次</span><strong>{{ summary.scored_total }}</strong><small>比率分母</small></article>
         <article class="health-cell"><span>直接解决</span><strong>{{ summary.solved }}</strong><small>DONE 且 5 分钟内没有新轮次</small></article>
-        <article class="health-cell"><span>澄清后解决</span><strong>{{ summary.clarified }}</strong><small>ASKING 且同会话之后出现 DONE</small></article>
         <article class="health-cell"><span>失败</span><strong>{{ summary.failed }}</strong><small>状态 FAILED</small></article>
-        <article class="health-cell"><span>自动解决率</span><strong>{{ hasData ? rate(summary.auto_rate) : '暂无数据' }}</strong><small>{{ summary.solved }} / {{ resolved }} 轮</small></article>
-        <article class="health-cell"><span>含澄清解决率</span><strong>{{ hasData ? rate(summary.assisted_rate) : '暂无数据' }}</strong><small>{{ summary.solved + summary.clarified }} / {{ resolved }} 轮</small></article>
+        <article class="health-cell"><span>自动解决率</span><strong>{{ hasData ? rate(summary.auto_rate) : '暂无数据' }}</strong><small>{{ summary.solved }} / {{ summary.scored_total }} 轮</small></article>
+        <article class="health-cell"><span>含澄清解决率</span><strong>{{ hasData ? rate(summary.assisted_rate) : '暂无数据' }}</strong><small>{{ summary.solved + summary.clarified }} / {{ summary.scored_total }} 轮</small></article>
       </div>
-      <p class="scope-note">窗口内共 {{ summary.total }} 轮提问；{{ summary.unknown }} 轮缺少决策记录，不计入比率分母。参与计算 {{ resolved }} 轮。</p>
+      <p class="scope-note">{{ summary.turns_total }} 次提问中 {{ summary.scored_total }} 次可判定（{{ summary.unknown }} 次无决策记录）。</p>
     </template>
   </section>
 </template>

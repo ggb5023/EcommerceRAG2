@@ -1,6 +1,6 @@
 # 03 结果度量：自动解决率（B1）
 
-> 状态：pending　适用提交：4a625b1　验收：见 §验收命令
+> 状态：done　适用提交：4a625b1　验收：见 §验收命令
 > 前置：02-turn-decision（state 列）
 
 ## 目标
@@ -31,7 +31,7 @@
 
 详见 docs/agent-entry.md §4。本包额外：
   curl -s 'localhost:8080/admin/v1/merchant/outcomes?range=30d' | jq
-  → 返回 {total, solved, clarified, failed, unknown, auto_rate, assisted_rate}
+  → 返回 {turns_total, scored_total, solved, clarified, failed, unknown, auto_rate, assisted_rate, truncated}
   → 与下面这条 SQL 的结果逐项相符（手算校验，不要只信接口自己）：
     SELECT
       count(*) FILTER (WHERE td.state='DONE')   AS done_all,
@@ -46,3 +46,12 @@
 - "5 分钟内没有新 turn" 用 turn.created_at 判断，不涉及 query 相似度；
   相似度阈值需要实测依据，本版不做。
 - 跨时区/夏令时未处理（数据集是合成业务日期）。
+- 聚合在 Go 侧完成（SQL 只做 join+filter），非 SQL GROUP BY；
+  好处是分类逻辑可单测、不依赖数据库；代价是窗口内行数受 LIMIT 约束。
+- 规格里那条对账 SQL 原写法 `td.turn_id = t.id` 类型不匹配（text vs bigint），
+  实际使用 `t.id::text`；这是规格错误，已修正。
+
+## 实际交付 vs 计划
+
+- 计划外：`invalid_range` / `outcomes_unavailable` 两个错误码、抓取上限（`LIMIT 50000` + `truncated`）。
+- 计划内未覆盖：N=0 的前端显示无组件级测试、页面未人工视觉检查。
