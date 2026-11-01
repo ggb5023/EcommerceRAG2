@@ -86,11 +86,12 @@ func gapMinCount(value string) (int64, bool) {
 // writeGapExport creates a private JSONL file whose lines can be copied into
 // the frozen evaluation corpus by a human. It never mutates the corpus.
 func writeGapExport(tenantID int64, items []KnowledgeGap) (string, int, error) {
-	if err := os.MkdirAll(gapExportDir, 0o700); err != nil {
+	dir := gapExportRoot()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", 0, err
 	}
 	name := fmt.Sprintf("gaps-%d-%s.jsonl", tenantID, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	path := filepath.Join(gapExportDir, name)
+	path := filepath.Join(dir, name)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", 0, err
@@ -116,4 +117,26 @@ func writeGapExport(tenantID int64, items []KnowledgeGap) (string, int, error) {
 		return "", 0, err
 	}
 	return filepath.ToSlash(path), len(items), nil
+}
+
+// gapExportRoot anchors exports at the repository root even when the service
+// runs with a subdirectory as its working directory. ECR_GAP_EXPORT_DIR is the
+// explicit override for tests and non-repository deployments.
+func gapExportRoot() string {
+	if dir := os.Getenv("ECR_GAP_EXPORT_DIR"); dir != "" {
+		return dir
+	}
+	if dir, err := os.Getwd(); err == nil {
+		for {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return filepath.Join(dir, ".local", "gap-exports")
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return gapExportDir
 }
