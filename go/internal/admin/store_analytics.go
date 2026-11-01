@@ -36,9 +36,9 @@ type ResolutionSummary struct {
 // The query asks for one extra row only to detect that the bound was hit.
 const resolutionFetchLimit = 50000
 
-// resolutionTurn is one turn in the window with the state its decision row
-// recorded. A nil State means the turn has no turn_decision row (or a row from
-// before 0041); those are counted as unknown, never as failures.
+// resolutionTurn is one turn in the window with the state recorded for its
+// latest execution. A nil State means that execution has no decision row (or a
+// row from before 0041); those are counted as unknown, never as failures.
 type resolutionTurn struct {
 	ConversationID int64
 	CreatedAt      time.Time
@@ -48,13 +48,23 @@ type resolutionTurn struct {
 // ResolutionSummary reads every turn in the window and classifies it. The
 // classification lives here, next to its only query, so the five buckets cannot
 // drift apart: DONE is solved, ASKING is clarified or abandoned depending on
-// whether the conversation later reached DONE, FAILED is failed, and a turn
-// without a decision row is unknown. The first four buckets are scored; the
-// last is excluded from the denominator.
+// whether the conversation later reached DONE, FAILED and CANCELLED are failed,
+// and a turn whose latest execution has no decision row is unknown. The first
+// four buckets are scored; the last is excluded from the denominator.
+//
+// The ledger is keyed by execution, so the state is read from the turn's latest
+// execution. Rows that 0042 could not map (NULL execution_id) are excluded.
 func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantID int64, from time.Time) (ResolutionSummary, error) {
-	rows, err := db.Query(ctx, `SELECT t.conversation_id, t.created_at, td.state
+	rows, err := db.Query(ctx, `SELECT t.conversation_id, t.created_at, latest.state
 		FROM turn t
-		LEFT JOIN turn_decision td ON td.tenant_id=t.tenant_id AND td.turn_id=t.id::text
+		LEFT JOIN LATERAL (
+			SELECT td.state
+			FROM conversation_execution e
+			LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
+			WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
+			ORDER BY e.execution_no DESC
+			LIMIT 1
+		) latest ON true
 		WHERE t.tenant_id=$1 AND t.created_at>=$2
 		ORDER BY t.created_at DESC
 		LIMIT $3`, tenantID, from, resolutionFetchLimit+1)
@@ -112,7 +122,9 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 				} else {
 					summary.Abandoned++
 				}
-			case "FAILED":
+			case "FAILED", "CANCELLED":
+				// A cancelled turn did not complete; keep it in the failed
+				// bucket so the 03 response contract does not grow a field.
 				summary.Failed++
 			}
 		}

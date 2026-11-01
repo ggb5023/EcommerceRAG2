@@ -20,7 +20,7 @@
 | 表 | 允许的写入方（包/服务） | 读取方 | 理由 | 钉住它的检查 |
 | --- | --- | --- | --- | --- |
 | `app_user` | `localauth` | `admin`、`auth`、`customer`、`gateway`、`localauth`；Python `ingest` 只读 | 账号属于本地登录模块：CLI 建号与员工创建共用同一个写入方法，admin 在**自己的事务里**调用它，账号行只有一处 SQL | `scripts/check/check-ownership.py`；`TestStaffCreationRespectsGrantBoundary` |
-| `turn_decision` | `admin` | `admin`（B6 之后由管理端读） | 每轮一行决策记录，写入方只有 `store_turn.go`；chosen/rejected 空时为 `[]` 而非 NULL | `scripts/check/check-ownership.py`；`TestAppendTurnDecisionRoundTripAndDedup` |
+| `turn_decision` | `admin` | `admin`（B6 之后由管理端读） | 每次 execution 一行决策记录（`tenant_id, execution_id` 唯一），写入方只有 `store_turn.go`；与 execution/turn 终态同事务，`ON CONFLICT DO UPDATE`；chosen/rejected 空时为 `[]` 而非 NULL | `scripts/check/check-ownership.py`；`TestAppendTurnDecisionRoundTripAndOverwrite` |
 | `local_credential` | `localauth` | `localauth` | 凭据与账号同生共死，必须和 `app_user` 同事务写入；`local_*` 表只由本地登录模块拥有 | `scripts/check/check-ownership.py`；`TestStaffCreationRespectsGrantBoundary` |
 | `admin_audit` | `admin`、`localauth`、`ingestclient` | `admin` | 审计是横切关注点：控制命令受理/回执、账号初始化、管理操作都要留痕，三处都在同一个 gateway 进程内，收口会引入无意义的跨包依赖 | `scripts/check/check-ownership.py` |
 | `admin_permission_request` | `admin` | `admin` | 权限申请与审批属于管理控制面，只有一个入口 | `scripts/check/check-ownership.py` |

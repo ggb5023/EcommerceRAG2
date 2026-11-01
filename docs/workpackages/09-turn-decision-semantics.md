@@ -12,6 +12,8 @@
      NULL 并在查询中排除（NULL 行不能被主键约束，故用唯一索引）。
    - `AppendTurnDecision` 的冲突处理改为 `ON CONFLICT (tenant_id, execution_id) DO UPDATE`：
      同一 execution 后写覆盖（终态只算一次，重写不应发生，但重放安全）。
+   - `ON CONFLICT DO UPDATE` 需要 UPDATE 权限，0040 只授予 INSERT/SELECT；
+     0042 已执行不可回改，故用 `0043` 补 `GRANT UPDATE ON turn_decision TO rag_v2_gateway`。
 
 2. **终态只算一次，三处写入同一事务**
    - `recordTurnDecision` 从 `newTurnSink` 的 finish 包装移入 `finishTurn`，
@@ -40,7 +42,7 @@
 ```bash
 cd go && go test ./internal/gateway/ -run 'Resume|Cancel|Recovery' -v
 cd go && go test ./internal/admin/ -run TurnDecision -v
-# 三库应用迁移后逐文件比对 sha256 与 schema_migration.checksum_sha256（41 → 42）
+# 三库应用迁移后逐文件比对 sha256 与 schema_migration.checksum_sha256（41 → 43）
 bash scripts/check.sh          # 39
 bash scripts/check.sh --smoke  # 44
 curl -s 'localhost:8080/admin/v1/merchant/outcomes?range=30d' | jq

@@ -20,7 +20,7 @@
 | `python/app/providers` | 模型适配（Bailian / MinerU / Tavily） | — |
 | `frontend/src` | 管理端 + 顾客端 SPA | — |
 | `eval/` | 冻结评测（53 例对齐集） | 产品代码 |
-| `sql/migrations/` | 41 条迁移，**只追加** | 修改历史文件 |
+| `sql/migrations/` | 43 条迁移，**只追加** | 修改历史文件 |
 | `scripts/check/` | 守卫 | — |
 
 ## 2. 分层与纪律
@@ -34,7 +34,7 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 2. **每个函数只在一个抽象层工作**（阶段函数 ≤80 行，不接 `*http.Request`）；
 3. **阶段之间只通过显式数据通信**（不靠共享状态传值）。
 
-边界（决策 0028）：**Go 拥有**授权、幂等、状态机、事件顺序、落库、失败分类、终态（ASKING/DONE/FAILED）；**Python 拥有** intent 分类、clarification 文案候选、confidence、检索多跳、提示组装。判据：**能不能看/能不能发 → Go；还要不要再检索/再问一句 → Python**。
+边界（决策 0028）：**Go 拥有**授权、幂等、状态机、事件顺序、落库、失败分类、终态（ASKING/DONE/FAILED/CANCELLED）；**Python 拥有** intent 分类、clarification 文案候选、confidence、检索多跳、提示组装。判据：**能不能看/能不能发 → Go；还要不要再检索/再问一句 → Python**。
 
 ## 3. 门禁（`scripts/check.sh`，39 项）
 

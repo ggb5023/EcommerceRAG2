@@ -15,7 +15,7 @@
 | clarification 信号 | 跨进程 | `go/internal/gateway/turn_route.go:decideClarification` | `python/app/graph/workflow.py`（intent 分类） | `go/internal/gateway/turn_route_test.go` / `python/tests/test_workflow_intent_contract.py`（三类 intent + 键集合精确相等，不含终态字段） | ✅ |
 | store 行类型与可空列 | 同侧 | `go/internal/admin/store_imports.go`（`JobDetailRow` / `JobItemRow`） | —（同侧，Go 内部契约） | `go/internal/admin/store_imports_integration_test.go:TestJobDetailAcceptsNullDatasetHash` | ✅ |
 | domain 纯函数边界 | 同侧 | `go/internal/domain/`（`FilterEvidence` / `DecideClarification` / `ValidateCitation` / `RoutedOrderResource` + 助手 `IsOrderIdentifier` / `ResourceTokens`） | —（同侧） | `scripts/check/check-domain-imports.py`（禁 gateway/admin/httpapi/pgxpool/grpc 直接引用，禁导出函数接 `context.Context`）+ `go test ./internal/domain/ -cover`=96.3% | ✅ |
-| turn 决策记录 | 同侧 | `go/internal/admin/store_turn.go`（`AppendTurnDecision`，接调用方 tx，`ON CONFLICT DO NOTHING`） | —（同侧） | `go/internal/admin/store_turn_test.go`（nil tx / 往返 "[]" 非 NULL / 同 key 只一行） | ✅ |
+| turn 决策记录 | 同侧 | `go/internal/admin/store_turn.go`（`AppendTurnDecision`，按 `tenant_id, execution_id` 建键，接调用方 tx，`ON CONFLICT DO UPDATE`） | —（同侧） | `go/internal/admin/store_turn_test.go`（nil tx / 同一 execution 覆盖为 DONE / 空数组非 NULL） | ✅ |
 | 稀疏写入契约 | 跨进程 | `sql/migrations/0037_sparse_vector_dimension.sql`（`sparsevec(65536)`）与 `0038_sparse_tokenizer_id.sql`（tokenizer 标记） | `python/app/ingest/sparse.py:to_literal` / `sparse_tokenizer_id`（写入 `chunk.sparse_embedding`） | `python/tests/test_sparse_write.py`（维度、索引越界、权重、非零上限） | ✅ |
 | 稀疏查询契约 | 跨进程 | （待 [0029](decisions/0029-sparse-retrieval.md) 第三步，尚未实现） | （待查询侧实现） | 无 / 无 | ❌ 未实现 |
 

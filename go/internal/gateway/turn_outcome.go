@@ -3,38 +3,25 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"strconv"
-	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 )
 
-// recordTurnDecision writes the explanatory row for one turn in its own short
-// transaction, mirroring finishTurn. It never fails the turn: the row is
-// explanatory data, so any problem is logged and the request continues.
+// appendTurnDecision writes the explanatory row inside the caller's terminal
+// transaction. A failure aborts that transaction: the execution, the turn and
+// the decision row must become visible together.
 //
 // chosen carries the citation ids the answer used; rejected carries one
 // {"id","reason"} object per candidate the filter dropped.
-func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity,
-	state, code string, chosen []string, rejected []domain.RejectedEvidence) {
-	if db == nil {
-		return
-	}
-	decisionCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	tx, err := db.Begin(decisionCtx)
-	if err != nil {
-		log.Printf("turn decision transaction unavailable")
-		return
-	}
-	defer func() { _ = tx.Rollback(decisionCtx) }()
-
+func appendTurnDecision(ctx context.Context, tx pgx.Tx, ident turnEventIdentity,
+	state, code string, chosen []string, rejected []domain.RejectedEvidence) error {
 	decision := admin.TurnDecision{
 		TenantID:       ident.tenantID,
+		ExecutionID:    ident.executionID,
 		ConversationID: strconv.FormatInt(ident.conversationID, 10),
 		TurnID:         strconv.FormatInt(ident.turnID, 10),
 		State:          state,
@@ -45,13 +32,7 @@ func recordTurnDecision(ctx context.Context, db *pgxpool.Pool, ident turnEventId
 		decision.FailureCode = &code
 	}
 	store := admin.Store{}
-	if err = store.AppendTurnDecision(decisionCtx, tx, decision); err != nil {
-		log.Printf("turn decision not recorded: %v", err)
-		return
-	}
-	if err = tx.Commit(decisionCtx); err != nil {
-		log.Printf("turn decision commit failed")
-	}
+	return store.AppendTurnDecision(ctx, tx, decision)
 }
 
 // encodeDecisionList always writes a JSON array, so an empty list stays [] and

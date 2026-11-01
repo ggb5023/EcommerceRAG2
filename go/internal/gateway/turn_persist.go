@@ -71,9 +71,11 @@ func recordToolCall(ctx context.Context, db *pgxpool.Pool, tenantID int64, reque
 	return err
 }
 
-// finishTurn writes the terminal state unless the execution already ended.
-// Cancellation wins over the requested state, exactly as the inline version did.
-func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer string, mock bool) {
+// finishTurn writes the terminal state, the turn status and the decision row in
+// one transaction. Cancellation wins over the requested state, exactly as the
+// inline version did, and the ledger records that final state too.
+func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer string, mock bool,
+	chosen []string, rejected []domain.RejectedEvidence) {
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	tx, err := db.Begin(finishCtx)
@@ -101,6 +103,9 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 		conversationID: ident.conversationID, executionNo: ident.executionNo, requestID: ident.requestID, mock: mock,
 	}, state, code, answer)
 	if err == nil {
+		err = appendTurnDecision(finishCtx, tx, ident, state, code, chosen, rejected)
+	}
+	if err == nil {
 		err = tx.Commit(finishCtx)
 	}
 	if err != nil {
@@ -109,17 +114,14 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 }
 
 // newTurnSink binds the persistence helpers to one execution so the orchestrator
-// only sees two closures: write an event and finish the turn.
+// only sees two closures: write an event and finish the turn. setTrace only
+// carries data; the decision row is written inside finishTurn's transaction.
 func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func([]string, []domain.RejectedEvidence)) {
 	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
-	finishOnly := func(state, code, answer string) { finishTurn(ctx, db, ident, state, code, answer, mock) }
 	var chosen []string
 	var rejected []domain.RejectedEvidence
-	// The decision row is written just before the terminal state so every exit
-	// path records what it knew, without touching the eleven call sites.
 	finish := func(state, code, answer string) {
-		recordTurnDecision(ctx, db, ident, state, code, chosen, rejected)
-		finishOnly(state, code, answer)
+		finishTurn(ctx, db, ident, state, code, answer, mock, chosen, rejected)
 	}
 	setTrace := func(chosenIDs []string, rejectedEvidence []domain.RejectedEvidence) {
 		chosen, rejected = chosenIDs, rejectedEvidence

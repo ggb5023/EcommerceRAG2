@@ -131,6 +131,12 @@ func (g *gateway) recoverInterruptedExecutions(ctx context.Context) (int, error)
 		if err = persistExecutionTerminal(ctx, tx, item.id, state, code, ""); err != nil {
 			return 0, err
 		}
+		ident := turnEventIdentity{tenantID: item.id.tenantID, executionID: item.id.executionID,
+			turnID: item.id.turnID, conversationID: item.id.conversationID,
+			executionNo: item.id.executionNo, requestID: item.id.requestID}
+		if err = appendTurnDecision(ctx, tx, ident, state, code, nil, nil); err != nil {
+			return 0, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return 0, err

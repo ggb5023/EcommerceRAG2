@@ -11,6 +11,7 @@ import (
 // package never interprets them.
 type TurnDecision struct {
 	TenantID       int64
+	ExecutionID    int64
 	ConversationID string
 	TurnID         string
 	State          string
@@ -21,9 +22,9 @@ type TurnDecision struct {
 	Confidence     *float64
 }
 
-// AppendTurnDecision records the decision for one turn inside the caller's
-// transaction. A repeated write for the same turn is ignored: the first record
-// wins, and a retry never fails the turn.
+// AppendTurnDecision records the decision for one execution inside the caller's
+// transaction. The execution key makes a replayed terminal write overwrite the
+// same row instead of silently keeping an earlier state.
 func (s *Store) AppendTurnDecision(ctx context.Context, tx pgx.Tx, decision TurnDecision) error {
 	if tx == nil {
 		return ErrStoreNeedsTransaction
@@ -35,10 +36,12 @@ func (s *Store) AppendTurnDecision(ctx context.Context, tx pgx.Tx, decision Turn
 		decision.Rejected = []byte("[]")
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO turn_decision(tenant_id,conversation_id,turn_id,state,chosen,rejected,strength,failure_code,confidence)
-		 VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
-		 ON CONFLICT (tenant_id,conversation_id,turn_id) DO NOTHING`,
-		decision.TenantID, decision.ConversationID, decision.TurnID, decision.State,
+		`INSERT INTO turn_decision(tenant_id,execution_id,conversation_id,turn_id,state,chosen,rejected,strength,failure_code,confidence)
+		 VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10)
+		 ON CONFLICT (tenant_id,execution_id) DO UPDATE SET
+		   state=EXCLUDED.state, chosen=EXCLUDED.chosen, rejected=EXCLUDED.rejected,
+		   strength=EXCLUDED.strength, failure_code=EXCLUDED.failure_code, confidence=EXCLUDED.confidence`,
+		decision.TenantID, decision.ExecutionID, decision.ConversationID, decision.TurnID, decision.State,
 		string(decision.Chosen), string(decision.Rejected),
 		decision.Strength, decision.FailureCode, decision.Confidence)
 	return err

@@ -125,13 +125,15 @@ func TestResolutionSummaryIdentityHolds(t *testing.T) {
 		outcomeTurn(2, 10, resolvedState("DONE")),
 		outcomeTurn(3, 0, resolvedState("ASKING")),
 		outcomeTurn(4, 0, resolvedState("FAILED")),
+		// CANCELLED shares the failed bucket until 03 revisits its contract.
+		outcomeTurn(6, 0, resolvedState("CANCELLED")),
 		outcomeTurn(5, 0, nil),
 	})
-	if summary.TurnsTotal != 7 {
-		t.Fatalf("turns_total = %d, want 7", summary.TurnsTotal)
+	if summary.TurnsTotal != 8 {
+		t.Fatalf("turns_total = %d, want 8", summary.TurnsTotal)
 	}
-	if summary.Solved != 3 || summary.Clarified != 1 || summary.Abandoned != 1 || summary.Failed != 1 || summary.Unknown != 1 {
-		t.Fatalf("summary = %+v, want solved=3 clarified=1 abandoned=1 failed=1 unknown=1", summary)
+	if summary.Solved != 3 || summary.Clarified != 1 || summary.Abandoned != 1 || summary.Failed != 2 || summary.Unknown != 1 {
+		t.Fatalf("summary = %+v, want solved=3 clarified=1 abandoned=1 failed=2 unknown=1", summary)
 	}
 	if summary.ScoredTotal != summary.Solved+summary.Clarified+summary.Abandoned+summary.Failed {
 		t.Fatalf("scored_total=%d does not equal the four buckets", summary.ScoredTotal)
@@ -139,10 +141,10 @@ func TestResolutionSummaryIdentityHolds(t *testing.T) {
 	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
 		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d", summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/6.0) {
-		t.Fatalf("auto_rate = %v, want 3/6", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/7.0) {
+		t.Fatalf("auto_rate = %v, want 3/7", summary.AutoRate)
 	}
-	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 4.0/6.0) {
-		t.Fatalf("assisted_rate = %v, want 4/6", summary.AssistedRate)
+	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 4.0/7.0) {
+		t.Fatalf("assisted_rate = %v, want 4/7", summary.AssistedRate)
 	}
 }
