@@ -1,38 +1,48 @@
 # 03 结果度量：自动解决率（B1）
 
 > 状态：pending　适用提交：4a625b1　验收：见 §验收命令
-> 前置：02-turn-decision（需要 strength 字段）
+> 前置：02-turn-decision（state 列）
 
 ## 目标
 
-给商家一个能看懂的数字：本月 N 次提问中，直接解决 X、澄清后解决 Y、失败 Z，自动解决率 = (X+Y)/N。
+给商家一个可读的数字：窗口内提问总数、直接解决、澄清后解决、失败，
+以及「自动解决率 = solved / N」和「含澄清解决率 = (solved+clarified) / N」。
 
-## 改动范围
+## 口径（写死，实现时不许再解释）
 
-- `go/internal/admin/store_analytics.go`（待建）（新）：`ResolutionSummary(ctx, tenantID, from, to)`。
-  口径：DONE 计为解决；ASKING 后同会话 5 分钟内出现相似 query 视为未解决；FAILED 计入失败。
-- `go/internal/admin/outcomes.go`（待建）（新）：`GET /admin/v1/merchant/outcomes?range=`。
-- `frontend/src/admin/OutcomesPanel.vue`（待建）（新）+ `admin/api.ts` 加调用 + `AdminApp.vue` 挂载。
-- `docs/contracts.md`：无新增跨进程契约（页面直连 Go）。
+- 窗口：?range=7d|30d，默认 30d；按 turn.created_at 过滤；租户内全店铺。
+- state 取自 turn_decision.state（左连接 turn 表按 turn_id）。
+- 四个互斥计数：
+    solved    = state='DONE'   且 同一 conversation_id 在 5 分钟内没有更新的 turn
+    clarified = state='ASKING' 且 同一 conversation_id 之后出现过 state='DONE'
+    failed    = state='FAILED'
+    unknown   = turn 存在但 turn_decision 无对应行（历史数据）
+- N = solved + clarified + failed（不含 unknown）
+- auto_rate = solved / N；assisted_rate = (solved + clarified) / N；N=0 时返回 null 而非 0
+  （0 和"没有数据"必须在 UI 上可区分）。
 
 ## 不碰
 
-- **不得出现任何货币金额**（0021）：只统计次数与 token。
-- 不引入新服务、不做实时聚合（按请求聚合即可）。
+- 不得出现任何货币字段或货币符号（0021）。
+- 不加新表、不加视图：纯 SELECT 聚合。
+- 不改 turn / turn_decision 的写入路径。
 
 ## 验收命令
 
-详见 `docs/agent-entry.md` §4。本包额外：
-
-```
-管理台结果页：三个计数与自动解决率可读；页面内不出现任何货币符号或金额字段
-```
-
-
-## 行为变更
-
-零（纯读）。
+详见 docs/agent-entry.md §4。本包额外：
+  curl -s 'localhost:8080/admin/v1/merchant/outcomes?range=30d' | jq
+  → 返回 {total, solved, clarified, failed, unknown, auto_rate, assisted_rate}
+  → 与下面这条 SQL 的结果逐项相符（手算校验，不要只信接口自己）：
+    SELECT
+      count(*) FILTER (WHERE td.state='DONE')   AS done_all,
+      count(*) FILTER (WHERE td.state='ASKING') AS asking_all,
+      count(*) FILTER (WHERE td.state='FAILED') AS failed_all,
+      count(*) FILTER (WHERE td.state IS NULL)  AS unknown_all
+    FROM turn t LEFT JOIN turn_decision td ON td.turn_id = t.id::text
+    WHERE t.created_at >= now() - interval '30 days';
 
 ## 未覆盖路径
 
-- "同会话 5 分钟内相似 query"的相似度阈值需给出实测依据；首版可用精确归一化匹配，并在报告里说明局限。
+- "5 分钟内没有新 turn" 用 turn.created_at 判断，不涉及 query 相似度；
+  相似度阈值需要实测依据，本版不做。
+- 跨时区/夏令时未处理（数据集是合成业务日期）。
