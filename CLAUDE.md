@@ -3,7 +3,7 @@
 @docs/agent-entry.md
 @docs/environment-facts.md
 
-MUST READ FIRST: `docs/agent-entry.md`（113 行，仓库地图 / 分层 / 39 项门禁 / 验证命令 / 红线 / 索引）。
+MUST READ FIRST: `docs/agent-entry.md`（仓库地图 / 分层 / 门禁 / 验证命令 / 红线 / 索引）。
 本文件只补充 Claude Code 特有的三条约定，其余以 agent-entry 为准。
 
 ## 1. 工作单位是工作包

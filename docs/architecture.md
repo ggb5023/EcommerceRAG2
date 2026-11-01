@@ -78,7 +78,7 @@
 
 | 方面 | 当前 | 目标 | 阶段 |
 | --- | --- | --- | --- |
-| 部署 | Compose 有 7 个服务（默认 6 个，Keycloak 走 oidc profile） | 3 个默认服务 | P1 |
+| 部署 | Compose 共 7 个服务：3 个长驻（postgres/gateway/ai）+ 3 个 one-shot（db-init/migrate/bootstrap）+ keycloak（oidc profile，默认不启） | 3 个长驻服务 | P1（最后核对：7675ad2） |
 | 资料 | DOCX、Markdown、CSV、FAQ；无商品表结构，无时效 | 商品表结构化、生效和失效时间 | P2 |
 | 工作台 | 人工队列加员工 AI 辅助 | 建议回复、一键复制、知识缺口 | P2 |
 

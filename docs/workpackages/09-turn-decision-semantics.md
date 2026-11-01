@@ -1,6 +1,6 @@
 # 09 决策账本语义（重开 02）
 
-> 状态：pending　适用提交：5b9dd5d　验收：见 §验收命令
+> 状态：见 INDEX.md　适用提交：5b9dd5d　验收：见 §验收命令
 > 重开原因：02 的 `turn_decision` 以 turn 为键，ASKING 行会挡住后续 DONE；
 > 终态与账本分两个事务写，取消/恢复路径可能留下与 execution 不一致的账本。
 

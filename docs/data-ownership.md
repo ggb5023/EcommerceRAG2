@@ -2,6 +2,10 @@
 
 [项目入口](../README.md) · [架构](architecture.md) · [后端重构细则](archive/backend-refactor-plan.md)
 
+> **未声明的表**当前允许写入但不受单写者保护（预算 36，只许降）。
+> 新增写入前必须先登记。核心热表 `turn` / `conversation` / `sse_event` /
+> `evidence_snapshot` / `citation` / `message` / `customer_*` 尚未声明，正在逐步收口。
+
 一张表只有一个写入方，或少数被明确批准的写入方。这张表是唯一来源：代码里的每一条
 `INSERT` / `UPDATE` / `DELETE` 都必须落在下面声明的集合里，否则 `scripts/check/check-ownership.py` 失败。
 

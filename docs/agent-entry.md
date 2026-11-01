@@ -41,7 +41,7 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 | 组 | 项 | 拦什么 |
 | --- | --- | --- |
 | 边界 | `stage-boundaries` `admin-boundaries` `domain-imports` `ownership` | SQL 回流 handler、阶段函数接 request、domain 依赖基础设施、越权写表 |
-| 契约 | `contracts` | 跨进程契约缺一侧测试（棘轮只许增：cross 5/6、same 2/2） |
+| 契约 | `contracts` | 跨进程契约缺一侧测试（棘轮数值以 `scripts/check/check-contracts.py` 的 `CONTRACTS_CROSS` / `CONTRACTS_SAME` 为准） |
 | 文档 | `docs-links` `docs-drift` `doc-paths` `decisions-index` `doc-baseline` `openapi` | 断链、同一事实多处陈述、文档里的路径不存在、决策编号漏号或撞车、基线被改 |
 | 隐私 | `privacy-guard` `privacy-tests` `publication-tests` | 密钥、非公开文档入库 |
 | 可观测 | `service-logs` | 服务起了但完全静默 |
@@ -107,6 +107,7 @@ cd python && uv run --frozen pytest -q
 | 轮次编排 / 阶段拆分 | `docs/decisions/0028-orchestration-boundary.md` | `stage-boundaries` |
 | 持久化 / 加 SQL | `docs/data-ownership.md` | `admin-boundaries` `ownership` |
 | 跨进程字段（gRPC/SSE/错误码） | `docs/contracts.md` `docs/error-taxonomy.md` | `contracts` |
+| 指标口径 / 自动解决率 | `docs/metrics.md` | — |
 | 检索 / 稀疏 / 嵌入 | `docs/decisions/0029-sparse-retrieval.md` | `eval-offline` |
 | 代码分层与三条规则 | `docs/decisions/0025-code-level-rules.md` | 全部边界类 |
 | 部署形态 / 前置代理 | `docs/decisions/0026-proxy-fronted-deployment.md` | `--e2e` |
@@ -115,3 +116,35 @@ cd python && uv run --frozen pytest -q
 | 安装与商家操作 | `docs/install.md` `docs/knowledge.md` | — |
 | 已知债务 | `docs/refactor-input.md` | — |
 | 外部资料 / 参考实现对照 | `docs/research/` | — |
+
+## 8. 权威顺序（冲突时用）
+
+```text
+代码/迁移/proto 与 docs/environment-facts.md（现在是什么 / 环境事实）
+  > docs/contracts.md + docs/data-ownership.md（边界）
+  > docs/workpackages/CURRENT + docs/workpackages/INDEX.md（这轮做什么）
+  > docs/decisions/（为什么）
+  > architecture / product / ROADMAP（目标）
+  > archive / research（背景，不作为当前依据）
+```
+
+冲突时停下提问；不许用改门禁、改断言、改基线的方式"解决"冲突。
+
+## 9. 当前环境判定
+
+- systemd dev：`systemctl restart ecommerce-rag-dev`（端口 8080/50053）
+- 隔离栈：`bash scripts/dev/isolated-stack.sh --identity development --ports 26081`
+- 自部署：`docker/selfhost/compose.yml`
+
+重启错的服务 = 验证旧进程。改 Go 先重建二进制并用 `strings` 验证符号；改 Python 先重启并核对进程启动时间（见 `environment-facts.md` #1/#2）。
+
+## 10. 改动类型 → 必跑层
+
+| 改动类型 | 必跑 |
+| --- | --- |
+| domain | `go test ./internal/domain/ -cover`（`go-test`）+ `--smoke` |
+| turn 引擎 | `go build -o .local/v2-gateway ./cmd/gateway` + `strings` 验证符号 + 重启 + `--smoke` |
+| ingest / retrieval | 重启 + 核对进程启动时间 + `--smoke` |
+| SQL / migration | 已应用迁移的各库逐文件比对 sha256（至少 dev 与 test-integration，库名与方式以 `environment-facts.md` 与 `scripts/ops/v2-migrate.py` 用法为准）+ `--db` |
+| proto | `buf lint` / `buf build` / `buf breaking` |
+| docs | `docs-links` + `docs-drift` + `doc-paths` |
