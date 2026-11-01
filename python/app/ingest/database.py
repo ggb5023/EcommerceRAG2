@@ -201,172 +201,21 @@ class IngestDatabase:
                 "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
                 (f"{tenant_pk}:{idempotency_key}",),
             )
-            cursor.execute(
-                "SELECT id, manifest_sha256, status FROM ingest_job "
-                "WHERE tenant_id=%s AND idempotency_key=%s",
-                (tenant_pk, idempotency_key),
-            )
-            existing = cursor.fetchone()
+            existing = _submit_existing(cursor, tenant_pk, idempotency_key, package_sha256)
             if existing is not None:
-                job_id, old_manifest, status = existing
-                cursor.execute(
-                    "SELECT payload_hash FROM ingest_payload WHERE tenant_id=%s AND job_id=%s",
-                    (tenant_pk, job_id),
-                )
-                payload = cursor.fetchone()
-                if payload is not None and payload[0] != package_sha256:
-                    raise IngestConflictError(
-                        "idempotency key was reused with different package bytes"
-                    )
-                cursor.execute(
-                    "SELECT count(*) FROM ingest_job_item WHERE tenant_id=%s AND job_id=%s",
-                    (tenant_pk, job_id),
-                )
-                count = int(cursor.fetchone()[0])
-                return SubmittedJob(
-                    job_id, str(status), str(old_manifest), package_sha256, count
-                )
-
-            cursor.execute(
-                "INSERT INTO source(tenant_id,shop_id,type,uri) VALUES(%s,%s,'admin_manifest',%s) "
-                "ON CONFLICT(tenant_id,shop_id,type,uri) WHERE uri IS NOT NULL "
-                "DO UPDATE SET uri=EXCLUDED.uri RETURNING id",
-                (tenant_pk, shop_id, f"admin://{source_id}"),
-            )
-            source_pk = int(cursor.fetchone()[0])
-            cursor.execute(
-                "INSERT INTO source_manifest(tenant_id,source_id,manifest_sha256,dataset_sha256,"
-                "pipeline_version,manifest_yaml,uploaded_by) VALUES(%s,%s,%s,%s,%s,%s,%s) "
-                "ON CONFLICT(tenant_id,source_id,manifest_sha256) DO NOTHING "
-                "RETURNING id",
-                (
-                    tenant_pk,
-                    source_pk,
-                    manifest_sha256,
-                    package_sha256,
-                    pipeline_version,
-                    manifest_yaml,
-                    user_pk,
-                ),
-            )
-            manifest_row = cursor.fetchone()
-            if manifest_row is None:
-                cursor.execute(
-                    "SELECT id,pipeline_version,manifest_yaml,dataset_sha256 FROM source_manifest "
-                    "WHERE tenant_id=%s AND source_id=%s AND manifest_sha256=%s",
-                    (tenant_pk, source_pk, manifest_sha256),
-                )
-                manifest_row = cursor.fetchone()
-                if manifest_row is None or manifest_row[1:] != (
-                    pipeline_version,
-                    manifest_yaml,
-                    package_sha256,
-                ):
-                    raise IngestConflictError(
-                        "manifest hash already belongs to different immutable content"
-                    )
-            manifest_pk = int(manifest_row[0])
-            cursor.execute(
-                "INSERT INTO ingest_job(tenant_id,source_id,idempotency_key,stage,status,manifest_sha256,"
-                "submitted_by,next_attempt_at,max_attempts) VALUES(%s,%s,%s,'queued','pending',%s,%s,now(),5) RETURNING id",
-                (tenant_pk, source_pk, idempotency_key, manifest_sha256, user_pk),
-            )
-            job_id = int(cursor.fetchone()[0])
-            cursor.execute(
-                "INSERT INTO ingest_payload(tenant_id,job_id,idempotency_key,payload_hash) VALUES(%s,%s,%s,%s)",
-                (tenant_pk, job_id, idempotency_key, package_sha256),
-            )
+                return existing
+            source_pk = _submit_source(cursor, tenant_pk, shop_id, source_id)
+            manifest_pk = _submit_manifest(cursor, tenant_pk, source_pk, manifest_sha256,
+                                           package_sha256, pipeline_version, manifest_yaml, user_pk)
+            job_id = _submit_job(cursor, tenant_pk, source_pk, idempotency_key,
+                                 manifest_sha256, user_pk, package_sha256)
             item_count = 0
             for document in documents:
-                cursor.execute(
-                    "INSERT INTO document(tenant_id,source_id,logical_key,title,doc_type,meta_json,status) "
-                    "VALUES(%s,%s,%s,%s,%s,%s::jsonb,'pending') "
-                    "ON CONFLICT(tenant_id,logical_key) DO UPDATE SET title=EXCLUDED.title,source_id=EXCLUDED.source_id "
-                    "WHERE document.source_id=EXCLUDED.source_id RETURNING id",
-                    (
-                        tenant_pk,
-                        source_pk,
-                        document["document_id"],
-                        document["title"],
-                        document["format"],
-                        json.dumps(
-                            {
-                                "shop_id": shop_id,
-                                "disclosure_class": document["disclosure_class"],
-                                "source_name": source_name,
-                            },
-                            ensure_ascii=False,
-                        ),
-                    ),
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    raise IngestConflictError(
-                        "document identifier is owned by another source"
-                    )
-                cursor.execute(
-                    "INSERT INTO ingest_job_item(tenant_id,job_id,data_id,payload_hash,status,stage) "
-                    "VALUES(%s,%s,%s,%s,'pending','queued') RETURNING id",
-                    (
-                        tenant_pk,
-                        job_id,
-                        document["document_id"],
-                        document["source_hash"],
-                    ),
-                )
-                cursor.fetchone()
-                cursor.execute(
-                    "INSERT INTO source_file(tenant_id,source_manifest_id,document_id,relative_path,media_type,"
-                    "content_sha256,size_bytes,content) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) "
-                    "ON CONFLICT(tenant_id,source_manifest_id,relative_path) DO NOTHING "
-                    "RETURNING id",
-                    (
-                        tenant_pk,
-                        manifest_pk,
-                        document["document_id"],
-                        document["path"],
-                        _media_type(document["path"]),
-                        document["source_hash"],
-                        len(files[document["path"]]),
-                        files[document["path"]],
-                    ),
-                )
-                file_row = cursor.fetchone()
-                if file_row is None:
-                    cursor.execute(
-                        "SELECT content_sha256,size_bytes FROM source_file "
-                        "WHERE tenant_id=%s AND source_manifest_id=%s AND relative_path=%s",
-                        (tenant_pk, manifest_pk, document["path"]),
-                    )
-                    existing_file = cursor.fetchone()
-                    if existing_file is None or existing_file != (
-                        document["source_hash"],
-                        len(files[document["path"]]),
-                    ):
-                        raise IngestConflictError(
-                            "source file path already belongs to different immutable content"
-                        )
+                _submit_document(cursor, tenant_pk, source_pk, manifest_pk, job_id, shop_id,
+                                 source_name, document, files)
                 item_count += 1
-            cursor.execute(
-                "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
-                "content_hash,reason,result,metadata_json) VALUES(%s,%s,'ingestion.queued','ingest_job',%s,%s,%s,'success',%s::jsonb)",
-                (
-                    tenant_pk,
-                    user_pk,
-                    str(job_id),
-                    package_sha256,
-                    "v2 Python ingestion submission",
-                    json.dumps(
-                        {
-                            "shop_id": shop_id,
-                            "source_id": source_id,
-                            "manifest_sha256": manifest_sha256,
-                            "document_count": item_count,
-                        },
-                        ensure_ascii=False,
-                    ),
-                ),
-            )
+            _submit_event(cursor, tenant_pk, user_pk, job_id, package_sha256, shop_id,
+                          source_id, manifest_sha256, item_count)
             return SubmittedJob(
                 job_id, "pending", manifest_sha256, package_sha256, item_count
             )
@@ -415,6 +264,194 @@ class IngestDatabase:
             )
             return str(row[0])
 
+
+
+def _submit_existing(cursor, tenant_pk: int, idempotency_key: str, package_sha256: str) -> SubmittedJob | None:
+    cursor.execute(
+        "SELECT id, manifest_sha256, status FROM ingest_job "
+        "WHERE tenant_id=%s AND idempotency_key=%s",
+        (tenant_pk, idempotency_key),
+    )
+    existing = cursor.fetchone()
+    if existing is None:
+        return None
+    job_id, old_manifest, status = existing
+    cursor.execute(
+        "SELECT payload_hash FROM ingest_payload WHERE tenant_id=%s AND job_id=%s",
+        (tenant_pk, job_id),
+    )
+    payload = cursor.fetchone()
+    if payload is not None and payload[0] != package_sha256:
+        raise IngestConflictError(
+            "idempotency key was reused with different package bytes"
+        )
+    cursor.execute(
+        "SELECT count(*) FROM ingest_job_item WHERE tenant_id=%s AND job_id=%s",
+        (tenant_pk, job_id),
+    )
+    count = int(cursor.fetchone()[0])
+    return SubmittedJob(
+        job_id, str(status), str(old_manifest), package_sha256, count
+    )
+
+
+def _submit_source(cursor, tenant_pk: int, shop_id: str, source_id: str) -> int:
+    cursor.execute(
+        "INSERT INTO source(tenant_id,shop_id,type,uri) VALUES(%s,%s,'admin_manifest',%s) "
+        "ON CONFLICT(tenant_id,shop_id,type,uri) WHERE uri IS NOT NULL "
+        "DO UPDATE SET uri=EXCLUDED.uri RETURNING id",
+        (tenant_pk, shop_id, f"admin://{source_id}"),
+    )
+    return int(cursor.fetchone()[0])
+
+
+def _submit_manifest(cursor, tenant_pk: int, source_pk: int, manifest_sha256: str,
+                     package_sha256: str, pipeline_version: str, manifest_yaml: str,
+                     user_pk: int) -> int:
+    cursor.execute(
+        "INSERT INTO source_manifest(tenant_id,source_id,manifest_sha256,dataset_sha256,"
+        "pipeline_version,manifest_yaml,uploaded_by) VALUES(%s,%s,%s,%s,%s,%s,%s) "
+        "ON CONFLICT(tenant_id,source_id,manifest_sha256) DO NOTHING "
+        "RETURNING id",
+        (
+            tenant_pk,
+            source_pk,
+            manifest_sha256,
+            package_sha256,
+            pipeline_version,
+            manifest_yaml,
+            user_pk,
+        ),
+    )
+    manifest_row = cursor.fetchone()
+    if manifest_row is None:
+        cursor.execute(
+            "SELECT id,pipeline_version,manifest_yaml,dataset_sha256 FROM source_manifest "
+            "WHERE tenant_id=%s AND source_id=%s AND manifest_sha256=%s",
+            (tenant_pk, source_pk, manifest_sha256),
+        )
+        manifest_row = cursor.fetchone()
+        if manifest_row is None or manifest_row[1:] != (
+            pipeline_version,
+            manifest_yaml,
+            package_sha256,
+        ):
+            raise IngestConflictError(
+                "manifest hash already belongs to different immutable content"
+            )
+    return int(manifest_row[0])
+
+
+def _submit_job(cursor, tenant_pk: int, source_pk: int, idempotency_key: str,
+                manifest_sha256: str, user_pk: int, package_sha256: str) -> int:
+    cursor.execute(
+        "INSERT INTO ingest_job(tenant_id,source_id,idempotency_key,stage,status,manifest_sha256,"
+        "submitted_by,next_attempt_at,max_attempts) VALUES(%s,%s,%s,'queued','pending',%s,%s,now(),5) RETURNING id",
+        (tenant_pk, source_pk, idempotency_key, manifest_sha256, user_pk),
+    )
+    job_id = int(cursor.fetchone()[0])
+    cursor.execute(
+        "INSERT INTO ingest_payload(tenant_id,job_id,idempotency_key,payload_hash) VALUES(%s,%s,%s,%s)",
+        (tenant_pk, job_id, idempotency_key, package_sha256),
+    )
+    return job_id
+
+
+def _submit_document(cursor, tenant_pk: int, source_pk: int, manifest_pk: int, job_id: int,
+                     shop_id: str, source_name: str, document: dict[str, Any],
+                     files: dict[str, bytes]) -> None:
+    cursor.execute(
+        "INSERT INTO document(tenant_id,source_id,logical_key,title,doc_type,meta_json,status) "
+        "VALUES(%s,%s,%s,%s,%s,%s::jsonb,'pending') "
+        "ON CONFLICT(tenant_id,logical_key) DO UPDATE SET title=EXCLUDED.title,source_id=EXCLUDED.source_id "
+        "WHERE document.source_id=EXCLUDED.source_id RETURNING id",
+        (
+            tenant_pk,
+            source_pk,
+            document["document_id"],
+            document["title"],
+            document["format"],
+            json.dumps(
+                {
+                    "shop_id": shop_id,
+                    "disclosure_class": document["disclosure_class"],
+                    "source_name": source_name,
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise IngestConflictError(
+            "document identifier is owned by another source"
+        )
+    cursor.execute(
+        "INSERT INTO ingest_job_item(tenant_id,job_id,data_id,payload_hash,status,stage) "
+        "VALUES(%s,%s,%s,%s,'pending','queued') RETURNING id",
+        (
+            tenant_pk,
+            job_id,
+            document["document_id"],
+            document["source_hash"],
+        ),
+    )
+    cursor.fetchone()
+    cursor.execute(
+        "INSERT INTO source_file(tenant_id,source_manifest_id,document_id,relative_path,media_type,"
+        "content_sha256,size_bytes,content) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) "
+        "ON CONFLICT(tenant_id,source_manifest_id,relative_path) DO NOTHING "
+        "RETURNING id",
+        (
+            tenant_pk,
+            manifest_pk,
+            document["document_id"],
+            document["path"],
+            _media_type(document["path"]),
+            document["source_hash"],
+            len(files[document["path"]]),
+            files[document["path"]],
+        ),
+    )
+    file_row = cursor.fetchone()
+    if file_row is None:
+        cursor.execute(
+            "SELECT content_sha256,size_bytes FROM source_file "
+            "WHERE tenant_id=%s AND source_manifest_id=%s AND relative_path=%s",
+            (tenant_pk, manifest_pk, document["path"]),
+        )
+        existing_file = cursor.fetchone()
+        if existing_file is None or existing_file != (
+            document["source_hash"],
+            len(files[document["path"]]),
+        ):
+            raise IngestConflictError(
+                "source file path already belongs to different immutable content"
+            )
+
+
+def _submit_event(cursor, tenant_pk: int, user_pk: int, job_id: int, package_sha256: str,
+                  shop_id: str, source_id: str, manifest_sha256: str, item_count: int) -> None:
+    cursor.execute(
+        "INSERT INTO ingest_event(tenant_id,actor_user_id,action,resource_type,resource_id,"
+        "content_hash,reason,result,metadata_json) VALUES(%s,%s,'ingestion.queued','ingest_job',%s,%s,%s,'success',%s::jsonb)",
+        (
+            tenant_pk,
+            user_pk,
+            str(job_id),
+            package_sha256,
+            "v2 Python ingestion submission",
+            json.dumps(
+                {
+                    "shop_id": shop_id,
+                    "source_id": source_id,
+                    "manifest_sha256": manifest_sha256,
+                    "document_count": item_count,
+                },
+                ensure_ascii=False,
+            ),
+        ),
+    )
 
 def _media_type(path: str) -> str:
     lowered = path.lower()
