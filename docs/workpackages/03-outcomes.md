@@ -74,8 +74,10 @@ FROM classified;
 
 ## 实际交付 vs 计划
 
-- 本轮口径落地：`auto_rate` 分母剔除 clarified；新增 `assisted_rate` 的 scored_total 定义；
+- 本轮口径落地：`auto_rate` 与 `assisted_rate` 统一使用 `scored_total` 分母（clarified 回到分母）；
   `pending`（10 分钟右删失）、`clarified`（parent_turn_id）、`cancelled`（从 failed 拆出）全部实现。
+- 前端两个比率的分母文案统一显示 `scored_total`，并注明一次澄清会产生父/子两个可判定轮次。
+- 新增 `TestResolutionSummarySharedDenominator`，断言两个比率与响应 JSON 逐位一致。
 - 计划外：`OutcomesSummary.vue` 拆出展示层以便 SSR 渲染测试；`api.test.ts` 增加字段渲染用例；
   响应新增 `pending` / `cancelled` 字段；`TestResolutionSummarySQLReconciliation` 在
   test-integration 库用手写 SQL 对账 Go 分类（含 parent 链接、无关 DONE、/resume DONE）。

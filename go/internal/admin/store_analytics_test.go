@@ -66,8 +66,8 @@ func TestResolutionSummaryParentLinkedClarified(t *testing.T) {
 	if summary.Clarified != 1 || summary.Abandoned != 0 || summary.Solved != 1 || summary.ScoredTotal != 2 {
 		t.Fatalf("summary = %+v, want clarified=1 abandoned=0 solved=1 scored_total=2", summary)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 1) {
-		t.Fatalf("auto_rate = %v, want 1 (clarified excluded from the direct denominator)", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0.5) {
+		t.Fatalf("auto_rate = %v, want 0.5 (both rates share scored_total)", summary.AutoRate)
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 1) {
 		t.Fatalf("assisted_rate = %v, want 1", summary.AssistedRate)
@@ -165,6 +165,48 @@ func TestResolutionSummaryMetricGapFalseIsExplicit(t *testing.T) {
 	}
 }
 
+// Both rates must use scored_total, including clarified turns, and the JSON
+// response must carry exactly the same float64 values.
+func TestResolutionSummarySharedDenominator(t *testing.T) {
+	parent := outcomeTurn(1, 0, resolvedState("ASKING"))
+	child := outcomeTurn(1, 5, resolvedState("DONE"))
+	child.ParentTurnID = &parent.TurnID
+	summary := summarizeResolution([]resolutionTurn{
+		parent,
+		child,
+		outcomeTurn(2, 0, resolvedState("DONE")),
+		outcomeTurn(3, 0, resolvedState("FAILED")),
+		outcomeTurn(4, 0, resolvedState("CANCELLED")),
+		outcomeTurn(5, 0, resolvedState("ASKING")),
+	}, outcomesBase.Add(20*time.Minute))
+	if summary.Solved != 2 || summary.Clarified != 1 || summary.ScoredTotal != 6 {
+		t.Fatalf("summary = %+v, want solved=2 clarified=1 scored_total=6", summary)
+	}
+	wantAuto := float64(summary.Solved) / float64(summary.ScoredTotal)
+	wantAssisted := float64(summary.Solved+summary.Clarified) / float64(summary.ScoredTotal)
+	if summary.AutoRate == nil || *summary.AutoRate != wantAuto {
+		t.Fatalf("auto_rate = %v, want %v (solved/scored_total)", summary.AutoRate, wantAuto)
+	}
+	if summary.AssistedRate == nil || *summary.AssistedRate != wantAssisted {
+		t.Fatalf("assisted_rate = %v, want %v ((solved+clarified)/scored_total)", summary.AssistedRate, wantAssisted)
+	}
+	if *summary.AutoRate == *summary.AssistedRate {
+		t.Fatalf("rates are identical; clarified must move only the assisted numerator")
+	}
+	recorder := httptest.NewRecorder()
+	(&Handler{}).respondOutcomes(recorder, 1, summary)
+	var payload ResolutionSummary
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if payload.AutoRate == nil || *payload.AutoRate != wantAuto {
+		t.Fatalf("JSON auto_rate = %v, want %v", payload.AutoRate, wantAuto)
+	}
+	if payload.AssistedRate == nil || *payload.AssistedRate != wantAssisted {
+		t.Fatalf("JSON assisted_rate = %v, want %v", payload.AssistedRate, wantAssisted)
+	}
+}
+
 // Every turn must land in exactly one settled bucket, unknown, or pending.
 func TestResolutionSummaryIdentityHolds(t *testing.T) {
 	pending := outcomeTurn(4, 0, resolvedState("ASKING"))
@@ -197,8 +239,8 @@ func TestResolutionSummaryIdentityHolds(t *testing.T) {
 		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d pending=%d",
 			summary.TurnsTotal, summary.ScoredTotal, summary.Unknown, summary.Pending)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/6.0) {
-		t.Fatalf("auto_rate = %v, want 3/6 (clarified excluded from the denominator)", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/7.0) {
+		t.Fatalf("auto_rate = %v, want 3/7 (both rates share scored_total)", summary.AutoRate)
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 4.0/7.0) {
 		t.Fatalf("assisted_rate = %v, want 4/7", summary.AssistedRate)

@@ -14,10 +14,10 @@ import (
 // ASKING turns are right-censored and unknown turns have no ledger row, so
 // turns_total = scored_total + unknown + pending.
 //
-// auto_rate keeps its JSON name but the denominator is now the buckets that
-// did not need clarification: solved+abandoned+failed+cancelled. assisted_rate
-// uses scored_total. A nil rate means the relevant denominator is zero, which
-// is different from a real 0%.
+// Both rates share the scored_total denominator defined in docs/metrics.md:
+// auto_rate = solved/scored_total and assisted_rate = (solved+clarified)/
+// scored_total. A nil rate means scored_total is zero, which is different from
+// a real 0%.
 type ResolutionSummary struct {
 	TurnsTotal  int64 `json:"turns_total"`
 	ScoredTotal int64 `json:"scored_total"`
@@ -160,13 +160,11 @@ func summarizeResolution(turns []resolutionTurn, now time.Time) ResolutionSummar
 		}
 	}
 	summary.ScoredTotal = summary.Solved + summary.Clarified + summary.Abandoned + summary.Failed + summary.Cancelled
-	autoDenominator := summary.Solved + summary.Abandoned + summary.Failed + summary.Cancelled
-	if autoDenominator > 0 {
-		auto := float64(summary.Solved) / float64(autoDenominator)
-		summary.AutoRate = &auto
-	}
+	// both rates share the scored_total denominator (docs/metrics.md)
 	if summary.ScoredTotal > 0 {
+		auto := float64(summary.Solved) / float64(summary.ScoredTotal)
 		assisted := float64(summary.Solved+summary.Clarified) / float64(summary.ScoredTotal)
+		summary.AutoRate = &auto
 		summary.AssistedRate = &assisted
 	}
 	return summary
