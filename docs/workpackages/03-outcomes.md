@@ -5,19 +5,21 @@
 
 ## 目标
 
-给商家一个可读的数字：窗口内提问总数、直接解决、澄清后解决、失败，
+给商家一个可读的数字：窗口内提问总数、直接解决、澄清后解决、未解决、失败，
 以及「自动解决率 = solved / N」和「含澄清解决率 = (solved+clarified) / N」。
 
 ## 口径（写死，实现时不许再解释）
 
 - 窗口：?range=7d|30d，默认 30d；按 turn.created_at 过滤；租户内全店铺。
 - state 取自 turn_decision.state（左连接 turn 表按 turn_id）。
-- 四个互斥计数：
-    solved    = state='DONE'   且 同一 conversation_id 在 5 分钟内没有更新的 turn
+- 五个互斥计数：
+    solved    = state='DONE'
     clarified = state='ASKING' 且 同一 conversation_id 之后出现过 state='DONE'
+    abandoned = state='ASKING' 且 同一 conversation_id 之后没有出现过 state='DONE'
     failed    = state='FAILED'
     unknown   = turn 存在但 turn_decision 无对应行（历史数据）
-- N = solved + clarified + failed（不含 unknown）
+- N = scored_total = solved + clarified + abandoned + failed（不含 unknown）
+- 恒等式：turns_total = scored_total + unknown
 - auto_rate = solved / N；assisted_rate = (solved + clarified) / N；N=0 时返回 null 而非 0
   （0 和"没有数据"必须在 UI 上可区分）。
 
@@ -31,7 +33,7 @@
 
 详见 docs/agent-entry.md §4。本包额外：
   curl -s 'localhost:8080/admin/v1/merchant/outcomes?range=30d' | jq
-  → 返回 {turns_total, scored_total, solved, clarified, failed, unknown, auto_rate, assisted_rate, truncated}
+  → 返回 {turns_total, scored_total, solved, clarified, abandoned, failed, unknown, auto_rate, assisted_rate, truncated}
   → 与下面这条 SQL 的结果逐项相符（手算校验，不要只信接口自己）：
     SELECT
       count(*) FILTER (WHERE td.state='DONE')   AS done_all,
@@ -43,8 +45,8 @@
 
 ## 未覆盖路径
 
-- "5 分钟内没有新 turn" 用 turn.created_at 判断，不涉及 query 相似度；
-  相似度阈值需要实测依据，本版不做。
+- 不再用 5 分钟窗口区分重复提问：只要 state='DONE' 就计入 solved；
+  同一会话重复提问会连续计为已解决。
 - 跨时区/夏令时未处理（数据集是合成业务日期）。
 - 聚合在 Go 侧完成（SQL 只做 join+filter），非 SQL GROUP BY；
   好处是分类逻辑可单测、不依赖数据库；代价是窗口内行数受 LIMIT 约束。
@@ -53,5 +55,9 @@
 
 ## 实际交付 vs 计划
 
-- 计划外：`invalid_range` / `outcomes_unavailable` 两个错误码、抓取上限（`LIMIT 50000` + `truncated`）。
+- 计划外：`invalid_range` / `outcomes_unavailable` 两个错误码、抓取上限（`LIMIT 50000` + `truncated`）、
+  `internal_metric_gap` 断言错误码。
+- 计划外修正二：ASKING 未后续 DONE 原被排除在分母外（导致比率偏高 16 个百分点），
+  现改为计入 abandoned 并纳入分母。为满足 `turns_total = scored_total + unknown`，
+  solved 不再应用「5 分钟内没有更新 turn」条件；所有 DONE 计入 solved。
 - 计划内未覆盖：N=0 的前端显示无组件级测试、页面未人工视觉检查。

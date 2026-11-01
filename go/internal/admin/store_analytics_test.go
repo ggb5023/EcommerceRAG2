@@ -20,7 +20,8 @@ func almostEqual(got, want float64) bool {
 
 func TestResolutionSummaryEmptyWindow(t *testing.T) {
 	summary := summarizeResolution(nil)
-	if summary.TurnsTotal != 0 || summary.ScoredTotal != 0 || summary.Solved != 0 || summary.Clarified != 0 || summary.Failed != 0 || summary.Unknown != 0 {
+	if summary.TurnsTotal != 0 || summary.ScoredTotal != 0 || summary.Solved != 0 || summary.Clarified != 0 ||
+		summary.Abandoned != 0 || summary.Failed != 0 || summary.Unknown != 0 {
 		t.Fatalf("empty window = %+v, want all zero", summary)
 	}
 	if summary.AutoRate != nil || summary.AssistedRate != nil {
@@ -28,46 +29,69 @@ func TestResolutionSummaryEmptyWindow(t *testing.T) {
 	}
 }
 
-func TestResolutionSummaryCounts(t *testing.T) {
-	summary := summarizeResolution([]resolutionTurn{
-		outcomeTurn(1, 0, resolvedState("DONE")),
-		outcomeTurn(2, 0, resolvedState("ASKING")),
-		outcomeTurn(2, 10, resolvedState("DONE")),
-		outcomeTurn(3, 0, resolvedState("FAILED")),
-		// A DONE that the same conversation replaced within five minutes is not
-		// a solve; only the replacement is.
-		outcomeTurn(4, 0, resolvedState("DONE")),
-		outcomeTurn(4, 3, resolvedState("DONE")),
-		outcomeTurn(5, 0, nil),
-		// Beyond the five-minute window the earlier DONE still counts.
-		outcomeTurn(6, 0, resolvedState("DONE")),
-		outcomeTurn(6, 6, resolvedState("FAILED")),
-	})
-	if summary.TurnsTotal != 9 || summary.ScoredTotal != 7 || summary.Solved != 4 || summary.Clarified != 1 || summary.Failed != 2 || summary.Unknown != 1 {
-		t.Fatalf("summary = %+v, want turns_total=9 scored_total=7 solved=4 clarified=1 failed=2 unknown=1", summary)
+// An ASKING turn whose conversation never reaches DONE is scored as abandoned:
+// excluding it from the denominator is what inflated the old rate.
+func TestResolutionSummaryAbandoned(t *testing.T) {
+	summary := summarizeResolution([]resolutionTurn{outcomeTurn(1, 0, resolvedState("ASKING"))})
+	if summary.Abandoned != 1 || summary.Clarified != 0 || summary.ScoredTotal != 1 {
+		t.Fatalf("summary = %+v, want abandoned=1 clarified=0 scored_total=1", summary)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 4.0/7.0) {
-		t.Fatalf("auto_rate = %v, want 4/7", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0) {
+		t.Fatalf("auto_rate = %v, want 0 (not null)", summary.AutoRate)
 	}
-	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 5.0/7.0) {
-		t.Fatalf("assisted_rate = %v, want 5/7", summary.AssistedRate)
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
+		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d", summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
 	}
 }
 
-func TestResolutionSummaryUnknownExcludedFromDenominator(t *testing.T) {
+// An ASKING turn followed by DONE in the same conversation is clarified, not
+// abandoned, and the later DONE is solved.
+func TestResolutionSummaryClarified(t *testing.T) {
 	summary := summarizeResolution([]resolutionTurn{
-		outcomeTurn(1, 0, resolvedState("DONE")),
-		outcomeTurn(2, 0, nil),
-		outcomeTurn(3, 0, nil),
-		outcomeTurn(4, 0, nil),
+		outcomeTurn(1, 0, resolvedState("ASKING")),
+		outcomeTurn(1, 10, resolvedState("DONE")),
 	})
-	if summary.TurnsTotal != 4 || summary.ScoredTotal != 1 || summary.Unknown != 3 || summary.Solved != 1 {
-		t.Fatalf("summary = %+v, want turns_total=4 scored_total=1 unknown=3 solved=1", summary)
+	if summary.Clarified != 1 || summary.Abandoned != 0 || summary.Solved != 1 || summary.ScoredTotal != 2 {
+		t.Fatalf("summary = %+v, want clarified=1 abandoned=0 solved=1 scored_total=2", summary)
 	}
-	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 1) {
-		t.Fatalf("auto_rate = %v, want 1 (unknown turns excluded)", summary.AutoRate)
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 0.5) {
+		t.Fatalf("auto_rate = %v, want 0.5", summary.AutoRate)
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 1) {
-		t.Fatalf("assisted_rate = %v, want 1 (unknown turns excluded)", summary.AssistedRate)
+		t.Fatalf("assisted_rate = %v, want 1", summary.AssistedRate)
+	}
+}
+
+// Every turn with a decision row must land in exactly one scored bucket; only
+// turns without a row may be unknown. The four buckets must sum to scored_total.
+func TestResolutionSummaryIdentityHolds(t *testing.T) {
+	summary := summarizeResolution([]resolutionTurn{
+		// A DONE followed by another turn is still solved under the five-bucket
+		// definition; there is no half-counted turn.
+		outcomeTurn(1, 0, resolvedState("DONE")),
+		outcomeTurn(1, 3, resolvedState("DONE")),
+		outcomeTurn(2, 0, resolvedState("ASKING")),
+		outcomeTurn(2, 10, resolvedState("DONE")),
+		outcomeTurn(3, 0, resolvedState("ASKING")),
+		outcomeTurn(4, 0, resolvedState("FAILED")),
+		outcomeTurn(5, 0, nil),
+	})
+	if summary.TurnsTotal != 7 {
+		t.Fatalf("turns_total = %d, want 7", summary.TurnsTotal)
+	}
+	if summary.Solved != 3 || summary.Clarified != 1 || summary.Abandoned != 1 || summary.Failed != 1 || summary.Unknown != 1 {
+		t.Fatalf("summary = %+v, want solved=3 clarified=1 abandoned=1 failed=1 unknown=1", summary)
+	}
+	if summary.ScoredTotal != summary.Solved+summary.Clarified+summary.Abandoned+summary.Failed {
+		t.Fatalf("scored_total=%d does not equal the four buckets", summary.ScoredTotal)
+	}
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
+		t.Fatalf("identity broken: turns_total=%d scored_total=%d unknown=%d", summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+	}
+	if summary.AutoRate == nil || !almostEqual(*summary.AutoRate, 3.0/6.0) {
+		t.Fatalf("auto_rate = %v, want 3/6", summary.AutoRate)
+	}
+	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 4.0/6.0) {
+		t.Fatalf("assisted_rate = %v, want 4/6", summary.AssistedRate)
 	}
 }

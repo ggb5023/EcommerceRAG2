@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -28,6 +29,12 @@ func (g *Handler) adminOutcomes(w http.ResponseWriter, r *http.Request) {
 	summary, err := adminStore.ResolutionSummary(r.Context(), g.DB, scope.TenantID, from)
 	if err != nil {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "outcomes_unavailable", "outcomes unavailable")
+		return
+	}
+	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
+		log.Printf("outcome metric identity violated: tenant=%d turns=%d scored=%d unknown=%d",
+			scope.TenantID, summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+		httpapi.WriteError(w, http.StatusInternalServerError, "internal_metric_gap", "outcome metric is inconsistent")
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, summary)

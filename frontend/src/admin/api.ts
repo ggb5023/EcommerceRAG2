@@ -57,6 +57,7 @@ export type ResolutionOutcome = {
   scored_total: number
   solved: number
   clarified: number
+  abandoned: number
   failed: number
   unknown: number
   auto_rate: number | null

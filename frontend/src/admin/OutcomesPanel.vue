@@ -38,13 +38,13 @@ onMounted(load)
     <template v-else-if="summary">
       <p v-if="summary.truncated" class="notice" role="status">数据量过大，已按最近 5 万条统计。</p>
       <div class="health-grid">
-        <article class="health-cell"><span>可判定轮次</span><strong>{{ summary.scored_total }}</strong><small>比率分母</small></article>
-        <article class="health-cell"><span>直接解决</span><strong>{{ summary.solved }}</strong><small>DONE 且 5 分钟内没有新轮次</small></article>
-        <article class="health-cell"><span>失败</span><strong>{{ summary.failed }}</strong><small>状态 FAILED</small></article>
+        <article class="health-cell"><span>可判定</span><strong>{{ summary.scored_total }}</strong><small>比率分母</small></article>
+        <article class="health-cell"><span>直接解决</span><strong>{{ summary.solved }}</strong><small>状态 DONE</small></article>
+        <article class="health-cell"><span>未解决（澄清未续 + 失败）</span><strong>{{ summary.abandoned + summary.failed }}</strong><small>澄清未续 {{ summary.abandoned }} · 失败 {{ summary.failed }}</small></article>
         <article class="health-cell"><span>自动解决率</span><strong>{{ hasData ? rate(summary.auto_rate) : '暂无数据' }}</strong><small>{{ summary.solved }} / {{ summary.scored_total }} 轮</small></article>
         <article class="health-cell"><span>含澄清解决率</span><strong>{{ hasData ? rate(summary.assisted_rate) : '暂无数据' }}</strong><small>{{ summary.solved + summary.clarified }} / {{ summary.scored_total }} 轮</small></article>
       </div>
-      <p class="scope-note">{{ summary.turns_total }} 次提问中 {{ summary.scored_total }} 次可判定（{{ summary.unknown }} 次无决策记录）。</p>
+      <p class="scope-note">{{ summary.turns_total }} 次提问中 {{ summary.scored_total }} 次可判定（{{ summary.unknown }} 次无决策记录），其中 {{ summary.abandoned }} 次澄清后顾客未再继续。</p>
     </template>
   </section>
 </template>

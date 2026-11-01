@@ -10,14 +10,17 @@ import (
 
 // ResolutionSummary is the merchant-facing outcome metric for one time window.
 // turns_total is every turn the window returned; scored_total is the rate
-// denominator and deliberately excludes unknown turns. Rates are pointers so
-// "no data" (scored_total=0) serializes as null, not 0: the UI must be able to
-// tell "0% solved" apart from "nothing happened yet".
+// denominator and deliberately excludes unknown turns. The four scored buckets
+// partition every turn with a decision row, so
+// turns_total = scored_total + unknown always holds.
+// Rates are pointers so "no data" (scored_total=0) serializes as null, not 0:
+// the UI must be able to tell "0% solved" apart from "nothing happened yet".
 type ResolutionSummary struct {
 	TurnsTotal   int64    `json:"turns_total"`
 	ScoredTotal  int64    `json:"scored_total"`
 	Solved       int64    `json:"solved"`
 	Clarified    int64    `json:"clarified"`
+	Abandoned    int64    `json:"abandoned"`
 	Failed       int64    `json:"failed"`
 	Unknown      int64    `json:"unknown"`
 	AutoRate     *float64 `json:"auto_rate"`
@@ -39,11 +42,11 @@ type resolutionTurn struct {
 }
 
 // ResolutionSummary reads every turn in the window and classifies it. The
-// classification lives here, next to its only query, so the five rules cannot
-// drift apart: a DONE turn counts as solved only when the conversation moved
-// on no later than five minutes after it; an ASKING turn counts as clarified
-// only when the same conversation later reached DONE; unknown turns are
-// excluded from the denominator.
+// classification lives here, next to its only query, so the five buckets cannot
+// drift apart: DONE is solved, ASKING is clarified or abandoned depending on
+// whether the conversation later reached DONE, FAILED is failed, and a turn
+// without a decision row is unknown. The first four buckets are scored; the
+// last is excluded from the denominator.
 func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantID int64, from time.Time) (ResolutionSummary, error) {
 	rows, err := db.Query(ctx, `SELECT t.conversation_id, t.created_at, td.state
 		FROM turn t
@@ -84,7 +87,6 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 	for _, turn := range turns {
 		byConversation[turn.ConversationID] = append(byConversation[turn.ConversationID], turn)
 	}
-	const resolutionWindow = 5 * time.Minute
 	for _, conversation := range byConversation {
 		sort.SliceStable(conversation, func(i, j int) bool {
 			return conversation[i].CreatedAt.Before(conversation[j].CreatedAt)
@@ -96,19 +98,19 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 			}
 			switch *turn.State {
 			case "DONE":
-				if !hasNewerWithin(conversation, index, resolutionWindow) {
-					summary.Solved++
-				}
+				summary.Solved++
 			case "ASKING":
 				if hasLaterDone(conversation, index) {
 					summary.Clarified++
+				} else {
+					summary.Abandoned++
 				}
 			case "FAILED":
 				summary.Failed++
 			}
 		}
 	}
-	resolved := summary.Solved + summary.Clarified + summary.Failed
+	resolved := summary.Solved + summary.Clarified + summary.Abandoned + summary.Failed
 	summary.ScoredTotal = resolved
 	if resolved > 0 {
 		auto := float64(summary.Solved) / float64(resolved)
@@ -117,20 +119,6 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 		summary.AssistedRate = &assisted
 	}
 	return summary
-}
-
-// hasNewerWithin reports whether the conversation gained a strictly newer turn
-// no later than window after index.
-func hasNewerWithin(conversation []resolutionTurn, index int, window time.Duration) bool {
-	created := conversation[index].CreatedAt
-	for next := index + 1; next < len(conversation); next++ {
-		at := conversation[next].CreatedAt
-		if !at.After(created) {
-			continue
-		}
-		return !at.After(created.Add(window))
-	}
-	return false
 }
 
 // hasLaterDone reports whether the conversation reached DONE after index.
