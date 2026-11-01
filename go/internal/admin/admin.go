@@ -5,15 +5,12 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -189,7 +186,6 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 	components := map[string]any{
 		"go":         map[string]any{"status": "healthy", "version": envOr("APP_VERSION", "development")},
 		"postgresql": map[string]any{"status": "healthy"},
-		"redis":      map[string]any{"status": "not_configured"},
 		"python":     map[string]any{"status": "unknown"},
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -207,13 +203,6 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 			state = "healthy"
 		}
 		components["python"] = map[string]any{"status": state, "role": "parser_and_rag_rpc"}
-	}
-	if address := strings.TrimSpace(os.Getenv("REDIS_ADDR")); address != "" {
-		redisState := "unavailable"
-		if pingRedis(ctx, address, os.Getenv("REDIS_USERNAME"), os.Getenv("REDIS_PASSWORD")) == nil {
-			redisState = "healthy"
-		}
-		components["redis"] = map[string]any{"status": redisState}
 	}
 	worker, err := adminStore.IngestWorkerStatus(ctx, g.DB)
 	if err != nil {
@@ -283,46 +272,6 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 		"error_rate": map[string]any{"window_minutes": 15, "requests": executionsLast, "errors": errorsLast, "rate": errorRate},
 		"scope":      map[string]any{"tenant_id": g.Session.Tenant, "shop_id": g.Session.Shop},
 	})
-}
-
-func pingRedis(ctx context.Context, address, username, password string) error {
-	dialer := net.Dialer{Timeout: 700 * time.Millisecond}
-	conn, err := dialer.DialContext(ctx, "tcp", address)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	reader := bufio.NewReader(conn)
-	_ = conn.SetDeadline(time.Now().Add(700 * time.Millisecond))
-	if password != "" {
-		args := []string{"AUTH", password}
-		if username != "" {
-			args = []string{"AUTH", username, password}
-		}
-		if _, err = io.WriteString(conn, redisCommand(args...)); err != nil {
-			return err
-		}
-		if _, err = reader.ReadString('\n'); err != nil {
-			return err
-		}
-	}
-	if _, err = io.WriteString(conn, redisCommand("PING")); err != nil {
-		return err
-	}
-	line, err := reader.ReadString('\n')
-	if err != nil || !strings.Contains(line, "PONG") {
-		return errors.New("redis health check failed")
-	}
-	return nil
-}
-
-func redisCommand(args ...string) string {
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "*%d\r\n", len(args))
-	for _, arg := range args {
-		fmt.Fprintf(&builder, "$%d\r\n%s\r\n", len(arg), arg)
-	}
-	return builder.String()
 }
 
 func (g *Handler) adminAccounts(w http.ResponseWriter, r *http.Request) {

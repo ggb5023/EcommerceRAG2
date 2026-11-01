@@ -6,10 +6,8 @@ an MIT license and bundled third-party notices. Vue and Vite are MIT;
 TypeScript is Apache-2.0. LangChain and LangGraph are MIT. gRPC and Protocol
 Buffers retain their upstream notices. PostgreSQL and pgvector use the
 PostgreSQL License. Keycloak uses Apache-2.0 and retains third-party
-notices in their distributions. Redis 7.4 is source-available under the
-Redis Source Available License v2 or SSPL v1, not the project's MIT license.
-Redis is not required by the current single-instance customer message path.
-Operators must independently assess redistributing or offering each dependency
+notices in their distributions. Operators must independently assess
+redistributing or offering each dependency
 as a service. Model providers have separate service terms and billing.
 
 Exact application dependencies are recorded in go/go.mod, go/go.sum,

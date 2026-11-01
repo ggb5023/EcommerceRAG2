@@ -54,12 +54,12 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 `APP_ENV=production` 下 loopback 免令牌不生效，必须带令牌。**迁移顺序不能颠倒**：schema 必须先于
 owner 骨架，owner 骨架必须先于 `/setup`。
 
-若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/ops/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库、Redis 引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
+若构建工具镜像无法下载，可使用仓库锁定的本地 Go/Node/uv 工具链，并通过 uv 管理的独立 CPython 3.12 运行 `scripts/ops/selfhost-build-local.py --directory 仓外新目录`。它仅使用经锁清单校验的本机 pgvector 导入镜像作为可选运行基底，生成 source-only 应用镜像；依赖仍须按锁文件安装。公开 Compose 的数据库引用使用官方来源 manifest；本机离线导入的镜像摘要与 registry manifest 分开，不能互换宣称已验证公网拉取。
 
 默认仅绑定本机 Web 端口：Compose 发布 `127.0.0.1:8443`，`ECR_WEB_BIND` 默认就是 `127.0.0.1`。
 从其他机器访问时，要么在初始化时显式 `--bind 0.0.0.0`，要么前置一层反向代理；两种方式都要配主机防火墙和有效证书。
 即使发布到 `0.0.0.0`，`/setup` 仍强制一次性令牌（`APP_ENV=production` 下 loopback 豁免不生效）。
-数据库、Redis 和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；
+数据库和内部 RPC 不发布主机端口。测试环境可显式使用 `--local-certificate` 代替三项证书参数；
 只在自己的测试域名上安装生成的测试证书信任，不关闭证书校验。DNS/hosts 必须让浏览器解析该域名；
 容器内同一域名由 gateway 的网络别名解析。
 
@@ -137,4 +137,4 @@ bootstrap 之前完成（与 Compose 三段式一致）。
 
 客户消息和排队状态持久化；Go 重启后员工重新登录，人工领取重新排队，中断 AI 转人工。应用为单实例，第二个 Gateway 会拒绝获取数据库所有权。内部 RPC 证书默认 90 天，HTTPS 测试证书 30 天；部署者须在到期前更新证书、保持 SAN/CA/文件权限并重启相关服务。正式证书由部署者管理。
 
-第三方许可见 [声明](../THIRD_PARTY_NOTICES.txt)。自有代码 MIT 不覆盖第三方服务、资料、模型账户或 Redis 的许可。
+第三方许可见 [声明](../THIRD_PARTY_NOTICES.txt)。自有代码 MIT 不覆盖第三方服务、资料或模型账户的许可。

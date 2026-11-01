@@ -26,10 +26,10 @@
 │ PostgreSQL 16 + pgvector + pg_trgm       │
 │ 业务表 · 向量 · 摄取任务 · SSE 事件 · checkpoint │
 └─────────────────────────────────────────┘
-可选：Keycloak（OIDC）· Redis（缓存）    外部：百炼模型 API 或离线 mock
+可选：Keycloak（OIDC）    外部：百炼模型 API 或离线 mock
 ```
 
-默认部署是 3 个服务：`gateway`、`ai`、`postgres`。Keycloak 和 Redis 只在显式启用时运行。
+默认部署是 3 个服务：`gateway`、`ai`、`postgres`。Keycloak 只在显式启用时运行。
 
 `ai` 进程内部仍保留两个数据库角色和各自的连接池：`rag_v2_ai` 负责检索与 checkpoint，`rag_v2_ingest` 负责摄取任务、资料与命令写入。合并进程不合并写者，见约束 3。
 
@@ -78,7 +78,7 @@
 
 | 方面 | 当前 | 目标 | 阶段 |
 | --- | --- | --- | --- |
-| 部署 | Compose 有 9 个服务（含 bootstrap、edge、redis） | 3 个默认服务 | P1 |
+| 部署 | Compose 有 7 个服务（默认 6 个，Keycloak 走 oidc profile） | 3 个默认服务 | P1 |
 | 资料 | DOCX、Markdown、CSV、FAQ；无商品表结构，无时效 | 商品表结构化、生效和失效时间 | P2 |
 | 工作台 | 人工队列加员工 AI 辅助 | 建议回复、一键复制、知识缺口 | P2 |
 
@@ -90,6 +90,6 @@
 | Python | LangChain、LangGraph、FastAPI（内部）、gRPC、psycopg | `python/pyproject.toml`、`python/uv.lock` |
 | 前端 | Vue 3、TypeScript、Vite、vue-router | `package.json` 和锁文件 |
 | 契约 | Protobuf、buf | `buf.yaml`、`buf.gen.yaml` |
-| 存储 | PostgreSQL 16、pgvector、pg_trgm；Redis 可选 | `docker/db/` |
+| 存储 | PostgreSQL 16、pgvector、pg_trgm | `docker/db/` |
 | 模型 | 阿里云百炼（qwen 生成、1024 维 Embedding、Rerank） | `python/app/providers/` |
 | 工具链 | Go、Node、uv | `toolchains.lock.json` |

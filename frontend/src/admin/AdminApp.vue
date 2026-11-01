@@ -508,7 +508,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
           <div class="overview-meta"><span>只读运行信息</span><span>15 分钟窗口 · {{ formatTime(new Date().toISOString()) }}</span></div>
           <div class="health-grid">
             <article v-for="(component, name) in (data[0]?.components ?? {})" :key="name" class="health-cell">
-              <span>{{ ({ go: 'Go 网关', python: 'Python RAG', postgresql: 'PostgreSQL', redis: 'Redis', worker: '摄取 Worker' } as Record<string, string>)[name] ?? name }}</span>
+              <span>{{ ({ go: 'Go 网关', python: 'Python RAG', postgresql: 'PostgreSQL', worker: '摄取 Worker' } as Record<string, string>)[name] ?? name }}</span>
               <strong :class="`tone-${statusTone(component.status)}`">{{ statusLabel(component.status) }}</strong>
               <small>{{ component.version ?? component.role ?? component.detail ?? '运行状态' }}</small>
             </article>
