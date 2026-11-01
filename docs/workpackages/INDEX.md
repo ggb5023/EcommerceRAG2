@@ -10,7 +10,7 @@
 | 01 | 稀疏向量写入链路（0029 第二步） | implemented | 查询侧未做（`docs/contracts.md` 的稀疏查询契约 ❌） | — | `9ca35ec` |
 | 02 | 决策理由落库（B6） | done | — | superseded-by 09 | `97717a7` |
 | 03 | 结果度量：自动解决率（B1） | done | — | — | `f91282b` |
-| 04 | 内容缺口闭环（B3） | pending | 待 03 口径稳定后授权（不开工） | — | `06806dc` |
+| 04 | 内容缺口闭环（B3） | active | — | — | `bae8fdc` |
 | 05 | Python 长函数拆分（P-C） | pending | 规格深链在 archive，待内联 | — | `72d6f62` |
 | 06 | 一致性收尾与机械护栏（P-D） | pending | 建议扩到 gateway/customer | — | `06806dc` |
 | 07 | 测试分层剩余项 | pending | — | — | `06806dc` |

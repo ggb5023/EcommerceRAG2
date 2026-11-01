@@ -1,6 +1,6 @@
 # 04 内容缺口闭环（B3）
 
-> 状态：pending　适用提交：4a625b1　验收：见 §验收命令
+> 状态：见 INDEX.md　适用提交：f371072　验收：见 §验收命令
 > 设计来源：`docs/decisions/0016-content-inspection.md`
 
 ## 目标
@@ -25,9 +25,12 @@
 
 ## 改动范围
 
-- `go/internal/admin/store_analytics.go`（待建）：`KnowledgeGaps(ctx, tenantID, from, to)`（归一化 query + 计数 + 最近出现时间）。
-- `go/internal/admin/outcomes.go`（待建）：`GET /admin/v1/merchant/gaps`、`POST /admin/v1/merchant/gaps/export`（导出为评测用例片段）。
-- `frontend/src/admin/GapsPanel.vue`（待建）（新）+ 挂载。
+- `go/internal/admin/store_analytics.go`：`KnowledgeGaps(ctx, db, tenantID, from, minCount)`
+  与共享的 `askingOutcome` / `clarifiedParentSet`（03 与 04 同一判定）。
+- `go/internal/admin/gaps.go`：`GET /admin/v1/merchant/gaps`、`POST /admin/v1/merchant/gaps/export`；
+  导出写 `.local/gap-exports/`。
+- `frontend/src/admin/GapsPanel.vue` + `GapsView.vue` + AdminApp 路由挂载。
+- `docs/error-taxonomy.md`：`invalid_min_count`、`gaps_unavailable`、`gap_export_failed`。
 
 ## 不碰
 
@@ -39,14 +42,27 @@
 详见 `docs/agent-entry.md` §4。本包额外：
 
 ```bash
-cd go && go test ./internal/admin/ -run KnowledgeGaps -v
+cd go && go test ./internal/admin/ -run 'KnowledgeGaps|ResolutionSummary' -count=1 -v
+curl -s 'localhost:8080/admin/v1/merchant/gaps?range=30d' | jq
+curl -s -X POST 'localhost:8080/admin/v1/merchant/gaps/export?range=30d' | jq
 ```
-
 
 ## 行为变更
 
-零（纯读 + 前端）。
+无领域写入；export 只写 `.local/gap-exports/` 下的本地 JSONL。
 
 ## 未覆盖路径
 
-- query 归一化（去标点/大小写/同义）只做最简版本；相似问题合并效果需人工抽查后记录。
+- query 归一化只做小写、去标点、空白折叠；不做同义归并、拼写纠正或相似度聚类，
+  合并质量需人工抽查。
+- 导出的 JSONL 只是可复制的评测用例片段，不自动并入冻结评测集，也不写评测库。
+- dev 库当前只有两个归一化簇，无法覆盖长尾聚合；聚类边界由单测覆盖。
+- 未接 customer 人群；未跑 `--db` / `--e2e`，前端未做人工视觉检查。
+
+## 实际交付 vs 计划
+
+- 计划内：`KnowledgeGaps` 纯函数 + SQL、两个 admin handler、JSONL 导出、GapsPanel 列表/空态/导出按钮。
+- 计划外：把 `askingOutcome` / `clarifiedParentSet` 从 03 抽出供 04 复用（03 测试断言未改）；
+  `GapsView.vue` 拆出展示层以便 SSR 渲染测试；新增三个错误码；导出目录改为按仓库根锚定，
+  避免 gateway 的 `python/` 工作目录把文件写错位置。
+- 状态：04 按 INDEX 为 `active`；是否转 `done` 等审阅决定。
