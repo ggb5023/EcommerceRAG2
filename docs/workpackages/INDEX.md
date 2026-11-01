@@ -1,20 +1,21 @@
 # 工作包索引
 
-> 状态取值：`pending` / `in-progress` / `implemented` / `done`。
+> 状态取值：`pending` / `in-progress` / `active`（等同 in-progress，当前进行中）/ `implemented` / `done`。
 > `done` 仅当验收命令已实跑并通过；`implemented` 表示实现完成但验收或复核未闭合。
+> `superseded-by` 表示被后续工作包取代，不等于未完成。
 > 本表是工作包状态的唯一出处；`CURRENT` 只表示当前指针。
 
 | 编号 | 标题 | 状态 | 阻塞 | 替代关系 | 最后提交 |
 | --- | --- | --- | --- | --- | --- |
 | 01 | 稀疏向量写入链路（0029 第二步） | implemented | 查询侧未做（`docs/contracts.md` 的稀疏查询契约 ❌） | — | `9ca35ec` |
 | 02 | 决策理由落库（B6） | done | — | superseded-by 09 | `97717a7` |
-| 03 | 结果度量：自动解决率（B1） | implemented | 口径待 09 验收后复核，复核另开工作包 | — | `e9e1d89` |
+| 03 | 结果度量：自动解决率（B1） | active | 本轮重开，按 `docs/metrics.md` 落地口径 | — | `e9e1d89` |
 | 04 | 内容缺口闭环（B3） | pending | blocked-by 03 | — | `06806dc` |
 | 05 | Python 长函数拆分（P-C） | pending | 规格深链在 archive，待内联 | — | `72d6f62` |
 | 06 | 一致性收尾与机械护栏（P-D） | pending | 建议扩到 gateway/customer | — | `06806dc` |
 | 07 | 测试分层剩余项 | pending | — | — | `06806dc` |
 | 08 | 前端设计系统（M9 阶段 1） | pending | — | — | `002b355` |
-| 09 | 决策账本语义（重开 02） | implemented | 生命周期测试已过；`--smoke` 与 outcomes 对账验收待跑，跑通后改 done | — | `7675ad2` |
+| 09 | 决策账本语义（重开 02） | done | — | — | `7675ad2` |
 
 ## 同步规则
 
