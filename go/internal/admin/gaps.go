@@ -128,7 +128,9 @@ func gapExportRoot() string {
 	}
 	if dir, err := os.Getwd(); err == nil {
 		for {
-			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			// The Go module lives at <repo>/go, so the repository root is the
+			// directory that contains go/go.mod.
+			if _, err := os.Stat(filepath.Join(dir, "go", "go.mod")); err == nil {
 				return filepath.Join(dir, ".local", "gap-exports")
 			}
 			parent := filepath.Dir(dir)
