@@ -16,7 +16,8 @@
 | store 行类型与可空列 | 同侧 | `go/internal/admin/store_imports.go`（`JobDetailRow` / `JobItemRow`） | —（同侧，Go 内部契约） | `go/internal/admin/store_imports_integration_test.go:TestJobDetailAcceptsNullDatasetHash` | ✅ |
 | domain 纯函数边界 | 同侧 | `go/internal/domain/`（`FilterEvidence` / `DecideClarification` / `ValidateCitation` / `RoutedOrderResource` + 助手 `IsOrderIdentifier` / `ResourceTokens`） | —（同侧） | `scripts/check/check-domain-imports.py`（禁 gateway/admin/httpapi/pgxpool/grpc 直接引用，禁导出函数接 `context.Context`）+ `go test ./internal/domain/ -cover`=96.3% | ✅ |
 | turn 决策记录 | 同侧 | `go/internal/admin/store_turn.go`（`AppendTurnDecision`，接调用方 tx，`ON CONFLICT DO NOTHING`） | —（同侧） | `go/internal/admin/store_turn_test.go`（nil tx / 往返 "[]" 非 NULL / 同 key 只一行） | ✅ |
-| 稀疏向量写入 | 跨进程 | （待 [0029](decisions/0029-sparse-retrieval.md)，尚未实现） | `python/app/providers/aliyun_bailian.py:722`（只解析，不落库）；`python/app/retrieval/postgres.py:_report_sparse_mode`（检测到该列全为 NULL 时报告 `sparse_mode=text_heuristic` 并 WARN 一次） | 无 / 无 | ❌ 未实现（已有可见性自检） |
+| 稀疏写入契约 | 跨进程 | `sql/migrations/0037_sparse_vector_dimension.sql`（`sparsevec(65536)`）与 `0038_sparse_tokenizer_id.sql`（tokenizer 标记） | `python/app/ingest/sparse.py:to_literal` / `sparse_tokenizer_id`（写入 `chunk.sparse_embedding`） | `python/tests/test_sparse_write.py`（维度、索引越界、权重、非零上限） | ✅ |
+| 稀疏查询契约 | 跨进程 | （待 [0029](decisions/0029-sparse-retrieval.md) 第三步，尚未实现） | （待查询侧实现） | 无 / 无 | ❌ 未实现 |
 
 ## 维护规则
 
