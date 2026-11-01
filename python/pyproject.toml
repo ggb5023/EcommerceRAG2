@@ -16,7 +16,7 @@ dependencies = [
   "uvicorn>=0.34,<1",
 ]
 [dependency-groups]
-dev = ["grpcio-tools>=1.70,<2", "pytest>=8,<9", "ruff>=0.11,<1"]
+dev = ["coverage>=7,<8", "grpcio-tools>=1.70,<2", "pytest>=8,<9", "ruff>=0.11,<1"]
 cloud = ["oss2==2.19.1"]
 
 [tool.pytest.ini_options]

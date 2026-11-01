@@ -1,0 +1,38 @@
+name: check
+
+# The fast layer is the CI contract. --db / --e2e / --smoke need a live stack and
+# remain a local pre-merge requirement; see docs/workpackages/07-testing-coverage.md.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # buf breaking --against .git#branch=main needs the main ref.
+          fetch-depth: 0
+      - name: Install toolchains
+        run: sudo bash scripts/dev/bootstrap-dev.sh
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('toolchains.lock.json', 'python/uv.lock', 'frontend/package-lock.json') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('toolchains.lock.json', 'python/uv.lock', 'frontend/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: Fast gate
+        run: bash scripts/check.sh

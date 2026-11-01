@@ -2,7 +2,7 @@
 // import wizard and batch/database state; real provider capability is proven
 // by the lifecycle run.
 import assert from 'node:assert/strict'
-import {chromium} from 'playwright'
+import {chromium, expect} from 'playwright'
 import {mkdir,writeFile,readdir,readFile} from 'node:fs/promises'
 import {execFileSync} from 'node:child_process'
 import path from 'node:path'
@@ -69,7 +69,7 @@ try{
   await listPage.goto(workspace+'/admin/merchant/reviews',{waitUntil:'networkidle'})
   await listPage.getByRole('heading',{name:'版本审核',level:1}).waitFor()
   const rows=listPage.locator('.version-row').filter({hasText:/Document \d+/})
-  for(let i=0;i<40&&await rows.count()<20;i++)await listPage.waitForTimeout(500)
+  await expect.poll(async()=>rows.count(),{timeout:20000,intervals:[500]}).toBeGreaterThanOrEqual(20)
   // The queue may already hold historical versions, so the assertion is about the
   // twenty documents this case imported, not about a fixed row count.
   assert.ok(await rows.count()>=20,`queue shows ${await rows.count()} rows, want at least 20`)

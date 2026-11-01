@@ -1,6 +1,6 @@
 // Isolated accept DB + mock provider; this verifies L2 UI and stale handling.
 import assert from 'node:assert/strict'
-import {chromium} from 'playwright'
+import {chromium, expect} from 'playwright'
 import {createHash,randomUUID} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
 import {mkdir,writeFile,readFile} from 'node:fs/promises'
@@ -19,16 +19,29 @@ execFileSync('psql',[env.V2_MIGRATION_DSN,'-v','ON_ERROR_STOP=1','-c',sql.join('
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
 const context=await browser.newContext({viewport:{width:1440,height:900}});const page=await context.newPage();const checks=[];const errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('dialog',d=>d.accept())
 async function step(name,fn){try{await fn();checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){checks.push({name,status:'FAIL'});await page.screenshot({path:path.join(output,`${name}.png`)}).catch(()=>{});throw e}}
+async function waitForSuggestion(title){
+  for(let n=0;n<40;n++){
+    const response=await page.request.get(workspace+'/admin/v1/merchant/reviews')
+    if(response.status()===200){
+      const item=((await response.json()).items??[]).find(v=>v.title===title)
+      if(item?.suggestion?.id)return
+    }
+    await new Promise(resolve=>setTimeout(resolve,500))
+  }
+  throw Error(`suggestion timeout: ${title}`)
+}
 try{
  await step('seed-suggestions',async()=>{
   await page.goto(workspace+'/admin/merchant/reviews',{waitUntil:'networkidle'});await page.getByRole('heading',{name:'版本审核',level:1}).waitFor()
-  for(const i of [1,2,3,4]){const row=page.locator('.version-row').filter({hasText:`Suggestion ${i}`}).first();await row.getByRole('button',{name:'生成建议'}).click();await page.waitForTimeout(800)}
+  for(const i of [1,2,3,4]){const row=page.locator('.version-row').filter({hasText:`Suggestion ${i}`}).first();await row.getByRole('button',{name:'生成建议'}).click();await waitForSuggestion(`Suggestion ${i}`)}
   await page.reload({waitUntil:'networkidle'});await page.getByText(/AI 建议/).first().waitFor()
  })
  await step('filter-needs-revision',async()=>{
-  await page.locator('select').filter({has:page.locator('option[value="needs_revision"]')}).selectOption('needs_revision');await page.waitForTimeout(800)
-  assert.ok(await page.locator('.version-row').filter({hasText:'Suggestion 4'}).count()>=1)
-  await page.locator('select').filter({has:page.locator('option[value="needs_revision"]')}).selectOption('');await page.waitForTimeout(800)
+  const filter=page.locator('select').filter({has:page.locator('option[value="needs_revision"]')})
+  await filter.selectOption('needs_revision')
+  await expect.poll(async()=>page.locator('.version-row').filter({hasText:'Suggestion 4'}).count(),{timeout:20000,intervals:[500]}).toBeGreaterThanOrEqual(1)
+  await filter.selectOption('')
+  await expect.poll(async()=>page.locator('.version-row').filter({hasText:/Suggestion [1-4]/}).count(),{timeout:20000,intervals:[500]}).toBeGreaterThanOrEqual(4)
  })
  await step('batch-confirm-with-stale',async()=>{
   const staleId=execFileSync('psql',[env.V2_MIGRATION_DSN,'-Atc',`SELECT v.id FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id WHERE d.logical_key='l2-seed-2' ORDER BY v.id DESC LIMIT 1`]).toString().trim()
@@ -38,7 +51,7 @@ try{
   await dialog.getByRole('button',{name:'确认审核'}).click();await page.getByText(/成功 2/).waitFor({timeout:30000});assert.ok(await page.getByText(/stale 1/).count())
  })
  await step('stale-regenerate-and-publish-remains-manual',async()=>{
-  await page.getByRole('button',{name:'重新生成建议'}).click();await page.waitForTimeout(800)
+  await page.getByRole('button',{name:'重新生成建议'}).click();await page.waitForLoadState('networkidle')
   const row=page.locator('.version-row').filter({hasText:'Suggestion 1'}).first();await row.click();await page.getByRole('button',{name:'发布此版本'}).waitFor({timeout:30000})
  })
  const report={status:'PASS',checks,check_count:checks.length,page_errors:errors,screenshots:output,reviewer_kind:'agent',human_review_completed:false}

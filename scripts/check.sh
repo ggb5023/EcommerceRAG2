@@ -19,7 +19,7 @@ usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigure
   --e2e      fast layer plus the browser layer (needs the dev stack and Chromium)
   --smoke    fast layer plus the five turn-chain smokes (needs a live dev stack)
   --all      fast layer plus both of the above
-  --cov      reserved for coverage collection (batch 2); accepted, nothing collected yet
+  --cov      collect Go and Python coverage into .local/coverage/ (report only, no threshold)
   --stack    use the isolated stack from scripts/dev/isolated-stack.sh
              (reads $ECR_PORTS_FILE, default /tmp/ecr-isolated/ports.json)
   --allow-unconfigured
@@ -111,6 +111,25 @@ run() {
   fi
 }
 
+# run_optional <layer> <id> <command...> — exit 2 means UNCONFIGURED.
+run_optional() {
+  local layer=$1 id=$2
+  shift 2
+  local command="$*"
+  printf '[%s] %s %s\n' "$layer" "$id" "$command"
+  local status=0
+  bash -c "$command" || status=$?
+  if [ "$status" -eq 0 ]; then
+    passed=$((passed + 1))
+  elif [ "$status" -eq 2 ]; then
+    unconfigured=$((unconfigured + 1))
+    unconfigured_items+=("$id — unconfigured")
+  else
+    failed=$((failed + 1))
+    failed_items+=("[$layer] $id (exit $status)")
+  fi
+}
+
 # skip <layer> <id> <reason> <command...> — counted as UNCONFIGURED, never as a failure.
 skip() {
   local layer=$1 id=$2 reason=$3
@@ -169,6 +188,9 @@ if [ "$DB" -eq 1 ]; then
   layer_start db
   import_env=${ECR_IMPORT_INTEGRATION_ENV:-/etc/ecommerce-rag/import-integration.env}
   test_env=${ECR_TEST_INTEGRATION_ENV:-/etc/ecommerce-rag/test-integration.env}
+
+  run_optional db db-env-health "python3 scripts/check/check-db-env-health.py --env $test_env"
+  run_optional db migrations-from-zero "bash scripts/ops/verify-migrations-from-zero.sh"
 
   # The import and customer suites drive the real ingest gRPC service; without a
   # reachable endpoint the queue step fails for reasons the gate cannot fix.
@@ -314,7 +336,13 @@ if [ "$SMOKE" -eq 1 ]; then
 fi
 
 if [ "$COV" -eq 1 ]; then
-  echo "[cov] coverage-collect reserved for batch 2: nothing collected in this batch"
+  layer_start cov
+  mkdir -p .local/coverage
+  run cov go-coverage "cd go && go test -coverprofile=../.local/coverage/go.out ./... >/dev/null && go tool cover -func=../.local/coverage/go.out | tail -1 | tee ../.local/coverage/go-total.txt"
+  run cov go-coverage-packages "cd go && go test -cover ./... 2>&1 | tee ../.local/coverage/go-packages.txt >/dev/null"
+  run cov python-coverage "cd python && uv run --frozen coverage run --data-file=../.local/coverage/.coverage --source=app -m pytest -q && uv run --frozen coverage report --data-file=../.local/coverage/.coverage | tee ../.local/coverage/python.txt"
+  layer_end cov
+  echo "[cov] artifacts: .local/coverage/go.out go-total.txt go-packages.txt python.txt"
 fi
 
 # --------------------------------------------------------------------- summary

@@ -6,6 +6,7 @@ import { chromium } from 'playwright'
 import { execFileSync, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+const pollDelay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const accountsPath = process.env.KEYCLOAK_ACCOUNTS_FILE
 assert.ok(accountsPath, 'protected synthetic accounts required')
 const info = await lstat(accountsPath)
@@ -102,7 +103,7 @@ async function login(base, path) {
       break
     }
     if (await page.locator('#question').isVisible() || await page.getByRole('button', { name: '退出登录', exact: true }).isVisible()) break
-    await page.waitForTimeout(250)
+    await pollDelay(250)
   }
   await page.waitForURL(url => url.origin === base, { timeout: 20000 })
 }
@@ -136,7 +137,7 @@ try {
       if (['DONE', 'ASKING', 'FAILED', 'CANCELLED'].includes(result.status)) {
         assert.ok(['DONE', 'ASKING'].includes(result.status)); resultHash = digest(result); break
       }
-      await page.waitForTimeout(250)
+      await pollDelay(250)
     }
     assert.ok(resultHash)
     const events = await page.request.get(customer + '/v1/turns/' + turn.request_id + '/events')
@@ -157,7 +158,8 @@ try {
   if (process.env.KEYCLOAK_BROWSER_REFRESH === '1') {
     await test('actual-expired-access-token-refresh', async () => {
       console.log(JSON.stringify({ check_id: 'actual-expired-access-token-refresh', state: 'waiting_for_real_clock' }))
-      await page.waitForTimeout(130000)
+      // Deliberate access-token TTL wait, not a UI synchronization sleep.
+      await pollDelay(130000)
       assert.equal((await page.request.get(customer + '/v1/session')).status(), 200)
       assert.equal(digest(await (await page.request.get(customer + '/v1/turns/' + turn.request_id)).json()), resultHash)
     })
@@ -238,7 +240,7 @@ try {
       for (let i = 0; i < 100; i++) {
         try { const response = await page.request.get(customer + '/v1/auth/session', { timeout: 500 }); if (response.status() >= 500) break }
         catch { break }
-        await page.waitForTimeout(200)
+        await pollDelay(200)
       }
       stackLog = await open(output + '/replacement.log', 'wx', 0o600)
       ownedStack = spawn('bash', ['scripts/dev/v2-local-services.sh', '--env', runtime], { cwd: root, stdio: ['ignore', stackLog.fd, stackLog.fd] })
@@ -249,7 +251,7 @@ try {
       for (let i = 0; i < 600; i++) {
         if (ownedStack.exitCode !== null) break
         try { const response = await page.request.get(customer + '/v1/auth/session', { timeout: 500 }); if (response.status() === 200) { ready = true; break } } catch {}
-        await page.waitForTimeout(250)
+        await pollDelay(250)
       }
       assert.ok(ready)
       phase = 'reject_old_cookie'
