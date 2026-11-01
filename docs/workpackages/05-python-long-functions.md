@@ -1,6 +1,6 @@
 # 05 Python 长函数拆分（P-C）
 
-> 状态：pending　适用提交：f31bc44　验收：见 §验收命令
+> 状态：见 INDEX.md　适用提交：907977d　验收：见 §验收命令
 > 背景：`docs/archive/backend-refactor-plan.md`（归档只留历史背景，本文件是当前规格）
 
 ## 目标
@@ -11,11 +11,11 @@
 
 | 函数 | 行数 | 位置 | 目标 |
 | --- | --- | --- | --- |
-| `provider_generate_node` | 322 | `app/graph/workflow.py:601` | ≤80 |
-| `submit` | 209 | `app/ingest/database.py:164` | ≤80 |
-| `_publish_reviewable` | 190 | `app/ingest/worker.py:511` | ≤80 |
-| `_inspect_package` | 154 | `app/ingest/package_validation.py:40` | ≤80 |
-| `parse` | 151 | `app/ingest/pipeline.py:93` | ≤80 |
+| `provider_generate_node` | 322 | `python/app/graph/workflow.py:601` | ≤80 |
+| `submit` | 209 | `python/app/ingest/database.py:164` | ≤80 |
+| `_publish_reviewable` | 190 | `python/app/ingest/worker.py:511` | ≤80 |
+| `_inspect_package` | 154 | `python/app/ingest/package_validation.py:40` | ≤80 |
+| `parse` | 151 | `python/app/ingest/pipeline.py:93` | ≤80 |
 
 测量口径（复核用）：
 
@@ -71,3 +71,23 @@ cd frontend && npm test && npm run build
 
 - 拆分后 coverage 分支可能碎片化；若下降需补测试，不许下调门槛。
 - 本次只覆盖清单前五名；第 6 名以后的长函数留给后续工作包。
+
+## 实际交付 vs 计划
+
+| 函数 | 拆分前 | 拆分后 | 位置 |
+| --- | --- | --- | --- |
+| `provider_generate_node` | 322 | 22 | `python/app/graph/workflow.py` |
+| `submit` | 209 | 58 | `python/app/ingest/database.py` |
+| `_publish_reviewable` | 190 | 16 | `python/app/ingest/worker.py` |
+| `_inspect_package` | 154 | 21 | `python/app/ingest/package_validation.py` |
+| `MarkdownParser.parse` | 151 | 48 | `python/app/ingest/pipeline.py` |
+
+- 全部通过提取纯辅助函数/数据类完成：`provider_generate_node` 的 schema/instruction/messages/postprocess
+  分块；`submit` 的 existing/source/manifest/job/document/event 分块；`_publish_reviewable` 的
+  prepare/version/chunks/item/finalize 分块；`_inspect_package` 的 uploaded/manifest/document 分块；
+  `MarkdownParser.parse` 提取 `_MarkdownParseState` 与逐行处理 helper。
+- 行为零变更：`pytest -q` 拆分前后均为 **379 passed / 30 skipped**；ruff 全绿；`check.sh` 40；
+  `--smoke` 45 且五条与 `.local/w2/` 基线逐字节一致；前端 40 tests + build 通过。
+- ai 进程重启时间 `2026-11-01 22:06:50`，晚于最后提交 `907977d`（22:06:24）。
+- 未新增测试文件：现有 379 个用例覆盖了拆分前后的路径；未改提示词文本、模型参数、图结构、返回形状、错误码。
+- 05 保持 `active`；是否转 `done` 等主 agent 复核。
