@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { browserAuth, checkBrowserAuth } from './auth'
+import Button from './components/Button.vue'
+import Input from './components/Input.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,10 +53,10 @@ async function submit() {
       <h1>登录客服知识引擎</h1>
       <p v-if="!localMode" class="notice">当前部署未启用内置账号，请通过身份服务登录。</p>
       <template v-else>
-        <label>账号<input v-model="username" autocomplete="username" required></label>
-        <label>密码<input v-model="password" type="password" autocomplete="current-password" required></label>
+        <label>账号<Input v-model="username" autocomplete="username" required/></label>
+        <label>密码<Input v-model="password" type="password" autocomplete="current-password" required/></label>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <button type="submit" :disabled="busy">{{ busy ? '登录中…' : '登录' }}</button>
+        <Button type="submit" variant="primary" :disabled="busy">{{ busy ? '登录中…' : '登录' }}</Button>
       </template>
     </form>
   </main>

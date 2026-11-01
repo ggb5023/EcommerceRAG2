@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { browserAuth, checkBrowserAuth, csrfHeaders } from './auth'
+import Button from './components/Button.vue'
+import Input from './components/Input.vue'
 
 const router = useRouter()
 const current = ref('')
@@ -35,10 +37,10 @@ async function submit() {
     <form class="password-card" @submit.prevent="submit">
       <h1>修改密码</h1>
       <p class="hint">修改成功后所有会话都会失效，需要用新密码重新登录。</p>
-      <label>当前密码<input v-model="current" type="password" autocomplete="current-password" required></label>
-      <label>新密码<input v-model="next" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label>
+      <label>当前密码<Input v-model="current" type="password" autocomplete="current-password" required/></label>
+      <label>新密码<Input v-model="next" type="password" autocomplete="new-password" required minlength="12" maxlength="256"/></label>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button type="submit" :disabled="busy || !browserAuth.authenticated">{{ busy ? '提交中…' : '修改密码' }}</button>
+      <Button type="submit" variant="primary" :disabled="busy || !browserAuth.authenticated">{{ busy ? '提交中…' : '修改密码' }}</Button>
     </form>
   </main>
 </template>
