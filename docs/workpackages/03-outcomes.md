@@ -62,12 +62,7 @@ SELECT
 FROM classified;
 ```
 
-对账关系：
-
-- `scored_total = solved + clarified + abandoned + failed + cancelled`
-- `turns_total = scored_total + unknown + pending`
-- `auto_rate = solved / (solved + abandoned + failed + cancelled)`；分母为 0 → null
-- `assisted_rate = (solved + clarified) / scored_total`；scored_total 为 0 → null
+口径以 `docs/metrics.md` 为准，本文件不复述。
 
 ## 未覆盖路径
 

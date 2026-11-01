@@ -13,7 +13,7 @@
 
 | 指标 / 桶 | 目标口径 | 当前代码行为 |
 | --- | --- | --- |
-| `auto_answer_rate`（页面名：直接解决率） | `DONE / (DONE + ASKING_abandoned + FAILED + CANCELLED)`，按人群过滤；`clarified`、`pending`、`unknown` 不进分母 | 本轮后：`auto_rate = solved / (solved + abandoned + failed + cancelled)`；分母为 0 时返回 null |
+| `auto_answer_rate`（页面名：直接解决率） | `solved / scored_total`；`scored_total = solved + clarified + abandoned + failed + cancelled`；`pending`、`unknown` 不进分母 | **待改**：当前分母仍是 `solved + abandoned + failed + cancelled`；第二个提交统一为 `scored_total` |
 | `assisted_rate`（页面名：无需人工介入率） | `(DONE + clarified) / scored_total`；`scored_total = DONE + clarified + ASKING_abandoned + FAILED + CANCELLED` | 本轮后：`assisted_rate = (solved + clarified) / scored_total`；`scored_total` 为 0 时返回 null |
 | `pending` | `ASKING` 且从最新 execution 的 `finished_at` 起算不足 10 分钟；`finished_at` 为 NULL 时回退 `turn.created_at`；单列，不进入任何分母 | 已实现：最新 execution 的 `finished_at`（缺失回退 `created_at`），10 分钟宽限 |
 | `clarified` | 窗口内存在更晚的轮次，其 `parent_turn_id = 本轮 t.id`，且其最新 execution 状态为 `DONE`；同会话无关 DONE 不算 | 已实现：按 `parent_turn_id` 关联，不按 conversation 推断 |
@@ -35,6 +35,9 @@
 - 两个比率的分母为 0 时返回 `null`，与真实的 0% 区分。
 - `scored_total = solved + clarified + abandoned + failed + cancelled`；
   `turns_total = scored_total + unknown + pending`。
+- 一次澄清在轮次口径下计 2 个可判定轮次（父轮 `clarified` + 子轮 `solved`），
+  因此 `auto_rate` 会被稀释，这是口径取舍不是 bug。
+- 若将来需要"按问题计数"，需引入 conversation 级归并，属另一工作包。
 
 ## 约束
 
