@@ -258,6 +258,7 @@ fi
 # ------------------------------------------------------------- browser layer
 if [ "$E2E" -eq 1 ]; then
   layer_start e2e
+  run_optional e2e d2-proxy-smoke "bash scripts/dev/d2-proxy-smoke.sh"
   e2e_reason=""
   if ! command -v node >/dev/null 2>&1; then
     e2e_reason="node is not installed"

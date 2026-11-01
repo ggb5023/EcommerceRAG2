@@ -126,6 +126,43 @@ WantedBy=multi-user.target
 回滚回到上一个提交后重启同样的两个单元。源码部署同样走 `/setup` 首次安装，且迁移必须在
 bootstrap 之前完成（与 Compose 三段式一致）。
 
+## 前置代理部署（D2）
+
+D2 是「前置代理终止 TLS、网关只提供 loopback 明文」的形态，与 D1（内置 edge）二选一，
+**不得叠加**。适用于多域名、已有 nginx/Caddy/ALB，或需要统一证书与 WAF 的部署。
+
+四件事，逐项核对：
+
+1. **TLS 终端**：证书与私钥只安装在前置代理；网关 `WEB_ROOT` 必须为空。
+2. **SPA**：前置代理提供 `frontend/dist` 的静态文件，并把未知客户端路径回退到 `/index.html`。
+3. **协议头只注入一次**：只有前置代理设置 `X-Forwarded-Proto`；不要在前面再加一层代理，
+   也不要同时启用 D1。
+4. **SSE 不缓冲**：nginx 使用 `proxy_buffering off`，Caddy 使用 `flush_interval -1`，
+   否则事件会被缓存到连接结束才下发。
+
+网关侧配置：
+
+- `WEB_ROOT=`（空）
+- `HTTP_ADDR=127.0.0.1:8080`
+- `V2_CUSTOMER_PROXY_HOST=<代理地址>`（可信代理；用于客户 IP/协议判定）
+- 启动期 `validateDeploymentForm` 会拒绝 D4（`WEB_ROOT` 非空且配置了代理）以及非 loopback 的明文监听。
+
+示例配置：
+
+- [`docker/selfhost/examples/nginx.conf`](../docker/selfhost/examples/nginx.conf)
+- [`docker/selfhost/examples/Caddyfile`](../docker/selfhost/examples/Caddyfile)
+
+两个文件按“单商家、单域名”编写，均带 R4-2/3/4 注释；部署前替换域名、证书路径与静态目录。
+本仓库没有 nginx/caddy 二进制，示例未做语法校验；上线前请用 `nginx -t` 或 `caddy validate` 自查。
+
+本地验证（不依赖 Chromium）：
+
+```bash
+bash scripts/dev/d2-proxy-smoke.sh
+# 或作为 --e2e 层的一项：
+bash scripts/check.sh --e2e
+```
+
 ## 使用与故障定位
 
 - `/admin/overview`：管理员登录，设置店铺名称、欢迎语及客户入口；上传、预览、审核和发布知识。

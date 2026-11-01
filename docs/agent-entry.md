@@ -113,7 +113,7 @@ cd python && uv run --frozen pytest -q
 | 指标口径 / 自动解决率 | `docs/metrics.md` | — |
 | 检索 / 稀疏 / 嵌入 | `docs/decisions/0029-sparse-retrieval.md` | `eval-offline` |
 | 代码分层与三条规则 | `docs/decisions/0025-code-level-rules.md` | 全部边界类 |
-| 部署形态 / 前置代理 | `docs/decisions/0026-proxy-fronted-deployment.md` | `--e2e` |
+| 部署形态 / 前置代理 | `docs/decisions/0026-proxy-fronted-deployment.md` `docs/install.md`（D2 节） | `--e2e` |
 | 导入与版本归属 | `docs/decisions/0027-document-source-ownership.md` | `contracts` |
 | 本地起栈 / 端口 / 环境文件 | `docs/development.md` | `service-logs` |
 | 安装与商家操作 | `docs/install.md` `docs/knowledge.md` | — |

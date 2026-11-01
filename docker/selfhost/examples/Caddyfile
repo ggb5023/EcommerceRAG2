@@ -1,0 +1,33 @@
+# D2 front proxy: one merchant, one domain.
+#
+# Gateway side (decision 0026):
+#   WEB_ROOT=                       (must be empty; D2 never runs the built-in edge)
+#   HTTP_ADDR=127.0.0.1:8080        (plain HTTP must stay on loopback)
+#   V2_CUSTOMER_PROXY_HOST=<proxy>  (trusted proxy for customer IP/protocol)
+# D1 and D2 are mutually exclusive: WEB_ROOT set *and* this proxy configured is
+# rejected at startup (validateDeploymentForm, D4).
+#
+# This file is an example, not a tested deployment. Replace the domain, paths and
+# certificate locations before use.
+
+shop.example.com {
+    tls /etc/ecommerce-rag/web.crt /etc/ecommerce-rag/web.key
+
+    # R4-4: same-origin API paths, no rewrite. /v1/* covers /v1/customer.
+    @api path /v1/* /admin/v1/* /v1/customer /v1/customer/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8080 {
+            # R4-3: stream SSE without buffering.
+            flush_interval -1
+            # R4-2: Caddy injects X-Forwarded-Proto exactly once from the
+            # incoming scheme. Do not put another proxy/edge in front.
+        }
+    }
+
+    # R4-4: SPA fallback for client routes.
+    handle {
+        root * /srv/frontend
+        try_files {path} /index.html
+        file_server
+    }
+}
