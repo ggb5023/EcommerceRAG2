@@ -54,6 +54,9 @@
 | `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `go/internal/admin/import.go:adminImport`、`go/internal/admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
 | `invalid_range` | 400 | 否 | 不展示 | `go/internal/admin/usage.go:adminUsage`、`go/internal/admin/outcomes.go:adminOutcomes` |
 | `outcomes_unavailable` | 503 | 是 | 不展示 | `go/internal/admin/outcomes.go:adminOutcomes` |
+| `invalid_min_count` | 400 | 否 | 不展示 | `go/internal/admin/gaps.go:adminGaps` |
+| `gaps_unavailable` | 503 | 是 | 不展示 | `go/internal/admin/gaps.go:adminGaps`、`go/internal/admin/gaps.go:adminGapsExport` |
+| `gap_export_failed` | 500 | 否 | 不展示 | `go/internal/admin/gaps.go:adminGapsExport` |
 
 ## 维护规则
 

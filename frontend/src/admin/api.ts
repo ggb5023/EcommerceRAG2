@@ -69,9 +69,26 @@ export type ResolutionOutcome = {
   metric_gap: boolean
 }
 
+export type KnowledgeGap = {
+  query: string
+  normalized: string
+  count: number
+  last_seen: string
+  reason: 'abandoned' | 'failed'
+}
+
+export type KnowledgeGapReport = {
+  items: KnowledgeGap[]
+  truncated: boolean
+}
+
 export const get = <T>(path: string) => request<T>(path)
 export const getOutcomes = (range: '7d' | '30d' = '30d') =>
   get<ResolutionOutcome>(`/admin/v1/merchant/outcomes?range=${range}`)
+export const getGaps = (range: '7d' | '30d' = '30d') =>
+  get<KnowledgeGapReport>(`/admin/v1/merchant/gaps?range=${range}`)
+export const exportGaps = (range: '7d' | '30d' = '30d') =>
+  request<{ path: string; count: number }>(`/admin/v1/merchant/gaps/export?range=${range}`, { method: 'POST' })
 export const put = <T>(path: string, body: unknown) => request<T>(path, {
   method: 'PUT',
   headers: { 'Content-Type': 'application/json' },

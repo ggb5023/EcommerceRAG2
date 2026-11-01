@@ -11,6 +11,8 @@ strings .local/v2-gateway | grep -c <新符号>     # 必须 ≥1
 
 只 restart 不 build，跑的还是旧二进制；smoke 全绿只证明旧代码能跑。
 （事故 2026-10-31：setTrace 已提交但二进制不含该符号，smoke 通过、turn_decision 恒空。）
+strings 验证的标记必须是字符串字面量（const/日志文本），注释不编译进二进制；
+2026-11-01 曾因把标记写成注释导致 strings 检查为 0。
 
 ## 2. 改 Python（ingest / retrieval）：必须重启并核对启动时间
 

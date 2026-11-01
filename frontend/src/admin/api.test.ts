@@ -3,6 +3,7 @@ import { h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { ApiError, get, post } from './api'
 import OutcomesSummary from './OutcomesSummary.vue'
+import GapsView from './GapsView.vue'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -66,5 +67,27 @@ describe('outcomes panel rendering', () => {
     expect(html).toContain('两个比率的基数都是')
     expect(html).toContain('轮次；一次澄清会同时产生父轮（澄清）与子轮（直接解决）。')
     expect(html).toContain('表示未转人工的比例，不代表答案正确；正确率见离线评测')
+  })
+})
+
+describe('gaps panel rendering', () => {
+  const report = {
+    items: [{ query: '退款要多久？', normalized: '退款要多久', count: 3, last_seen: '2026-11-01T00:00:00Z', reason: 'abandoned' as const }],
+    truncated: false,
+  }
+  it('renders the gap rows and the export button', async () => {
+    const html = await renderToString(h(GapsView, { report, error: '', notice: '', busy: false }))
+    expect(html).toContain('退款要多久？')
+    expect(html).toContain('退款要多久')
+    expect(html).toContain('>3<')
+    expect(html).toContain('澄清未续')
+    expect(html).toContain('data-testid="gaps-export"')
+    expect(html).toContain('data-testid="gap-row"')
+  })
+  it('renders the empty state and the export button', async () => {
+    const html = await renderToString(h(GapsView, { report: { items: [], truncated: false }, error: '', notice: '', busy: false }))
+    expect(html).toContain('暂无内容缺口')
+    expect(html).toContain('data-testid="gaps-export"')
+    expect(html).toContain('data-testid="gaps-empty"')
   })
 })

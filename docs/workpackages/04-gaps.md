@@ -7,6 +7,22 @@
 
 把 ASKING/FAILED 的 query 变成可跟踪的"待补文档清单"，补完后能导出为回归用例。
 
+## 口径（分类判定与 03 共用同一纯函数）
+
+- **来源桶**：`abandoned + failed`。
+  - `failed`：latest execution 的 `decision.state='FAILED'`；
+  - `abandoned`：`ASKING` 且超过 10 分钟宽限且没有 `parent_turn_id` 关联的更晚 `DONE`
+    （与 03 的 `askingOutcome` 判定完全一致）。
+- **不进缺口清单**（理由）：
+  - `pending`：仍在宽限期内，顾客可能还会继续，不能算内容缺口；
+  - `clarified`：已经通过追问解决；
+  - `cancelled`：用户主动取消，不代表资料缺失；
+  - `unknown`：没有决策记录，无法判断原因。
+- **query 归一化**：小写 + 去标点 + 空白折叠；不做同义归并、不做拼写纠正。
+- **聚合键**：归一化后的 query；每项记录 `count`、`last_seen`（最新 `turn.created_at`）、
+  示例原句（取最近一条）、`reason`（`abandoned` | `failed`）。
+- 同一归一化 query 同时来自 abandoned 与 failed 时，`reason` 取最近一条 turn 的分类。
+
 ## 改动范围
 
 - `go/internal/admin/store_analytics.go`（待建）：`KnowledgeGaps(ctx, tenantID, from, to)`（归一化 query + 计数 + 最近出现时间）。

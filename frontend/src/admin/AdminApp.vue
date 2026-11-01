@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import KnowledgeImport from './KnowledgeImport.vue'
 import OutcomesPanel from './OutcomesPanel.vue'
+import GapsPanel from './GapsPanel.vue'
 import ShopSettings from './ShopSettings.vue'
 import AgentReviewSettings from './AgentReviewSettings.vue'
 import {versionHistoryView} from './version-history'
@@ -61,7 +62,7 @@ const confirmationChecked = ref(false)
 
 const page = computed(() => adminPageFromPath(route.path))
 const title = computed(() => ({
-  overview: '运行状态', outcomes: '结果度量', accounts: '账号与权限', requests: '权限申请', audit: '授权审计',
+  overview: '运行状态', outcomes: '结果度量', gaps: '内容缺口', accounts: '账号与权限', requests: '权限申请', audit: '授权审计',
   shops: '店铺范围', sources: '资料来源', ingestion: '摄取任务', reviews: '版本审核',
   'not-found': '页面不可用',
 }[page.value]))
@@ -112,6 +113,7 @@ const navigation = computed(() => {
   const items: { label: string; page: AdminPage; visible: boolean }[] = [
     { label: '运行状态', page: 'overview', visible: canSeeOperations.value },
     { label: '结果度量', page: 'outcomes', visible: canSeeOperations.value },
+    { label: '内容缺口', page: 'gaps', visible: canSeeOperations.value },
     { label: '账号与权限', page: 'accounts', visible: canAccess.value || canManage.value },
     { label: '权限申请', page: 'requests', visible: true },
     { label: '授权审计', page: 'audit', visible: canAccess.value || canReview.value },
@@ -249,7 +251,7 @@ async function loadPage() {
     if (browserAuth.enabled && !browserAuth.authenticated) { clearRestrictedContent(); identityStatus.value = 401; return }
     identityStatus.value = 0
     if (!session.value) session.value = await get<AdminSession>('/admin/v1/session')
-    if (page.value === 'outcomes') { data.value = []; return }
+    if (page.value === 'outcomes' || page.value === 'gaps') { data.value = []; return }
     const response = await get<ItemResponse | Row>(endpointForPage())
     data.value = page.value === 'overview'
       ? [response as Row]
@@ -472,7 +474,7 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
       <div class="rail-label">工作空间</div>
       <nav aria-label="管理工作空间">
         <button v-for="item in navigation" :key="item.page" type="button" class="nav-item" :class="{ active: page === item.page }" @click="go(item.page)">
-          <span class="nav-mark" aria-hidden="true">{{ ({ overview: '◫', outcomes: '◔', accounts: '♙', requests: '⇄', audit: '≡', shops: '⌂', sources: '▤', ingestion: '↻', reviews: '✓' } as Record<string, string>)[item.page] }}</span>
+          <span class="nav-mark" aria-hidden="true">{{ ({ overview: '◫', outcomes: '◔', gaps: '◌', accounts: '♙', requests: '⇄', audit: '≡', shops: '⌂', sources: '▤', ingestion: '↻', reviews: '✓' } as Record<string, string>)[item.page] }}</span>
           {{ item.label }}
         </button>
       </nav>
@@ -523,6 +525,8 @@ function onFilesChange(event: Event) { selectedFiles.value = Array.from((event.t
         </section>
 
         <section v-else-if="page === 'outcomes'" class="content-area"><OutcomesPanel /></section>
+
+        <section v-else-if="page === 'gaps'" class="content-area"><GapsPanel /></section>
 
         <section v-else-if="page === 'accounts'" class="content-area">
           <div class="section-head"><div><h2>授权范围内的账号</h2><p>撤权状态和权限版本由服务端当前记录决定。</p></div></div>

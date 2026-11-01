@@ -3,7 +3,9 @@ package admin
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -54,6 +56,7 @@ type resolutionTurn struct {
 	ConversationID int64
 	ParentTurnID   *int64
 	CreatedAt      time.Time
+	UserQuery      string
 	State          *string
 	FinishedAt     *time.Time
 }
@@ -112,22 +115,11 @@ func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantI
 // database.
 func summarizeResolution(turns []resolutionTurn, now time.Time) ResolutionSummary {
 	summary := ResolutionSummary{TurnsTotal: int64(len(turns))}
-	byID := make(map[int64]resolutionTurn, len(turns))
 	byConversation := make(map[int64][]resolutionTurn)
 	for _, turn := range turns {
-		byID[turn.TurnID] = turn
 		byConversation[turn.ConversationID] = append(byConversation[turn.ConversationID], turn)
 	}
-	clarifiedParents := make(map[int64]bool)
-	for _, child := range turns {
-		if child.ParentTurnID == nil || child.State == nil || *child.State != "DONE" {
-			continue
-		}
-		parent, ok := byID[*child.ParentTurnID]
-		if ok && child.CreatedAt.After(parent.CreatedAt) {
-			clarifiedParents[parent.TurnID] = true
-		}
-	}
+	clarifiedParents := clarifiedParentSet(turns)
 	for _, conversation := range byConversation {
 		sort.SliceStable(conversation, func(i, j int) bool {
 			return conversation[i].CreatedAt.Before(conversation[j].CreatedAt)
@@ -144,10 +136,10 @@ func summarizeResolution(turns []resolutionTurn, now time.Time) ResolutionSummar
 					summary.ReaskedWithin5m++
 				}
 			case "ASKING":
-				switch {
-				case clarifiedParents[turn.TurnID]:
+				switch askingOutcome(turn, clarifiedParents[turn.TurnID], now) {
+				case askingClarified:
 					summary.Clarified++
-				case isPending(turn, now):
+				case askingPending:
 					summary.Pending++
 				default:
 					summary.Abandoned++
@@ -181,6 +173,46 @@ func isPending(turn resolutionTurn, now time.Time) bool {
 	return now.Sub(base) < pendingGrace
 }
 
+const (
+	askingClarified = "clarified"
+	askingPending   = "pending"
+	askingAbandoned = "abandoned"
+)
+
+// clarifiedParentSet maps a parent turn to true when a later child linked by
+// parent_turn_id reached DONE. It is shared by the outcome summary and the gap
+// list so "clarified" has one definition.
+func clarifiedParentSet(turns []resolutionTurn) map[int64]bool {
+	byID := make(map[int64]resolutionTurn, len(turns))
+	for _, turn := range turns {
+		byID[turn.TurnID] = turn
+	}
+	clarified := make(map[int64]bool)
+	for _, child := range turns {
+		if child.ParentTurnID == nil || child.State == nil || *child.State != "DONE" {
+			continue
+		}
+		parent, ok := byID[*child.ParentTurnID]
+		if ok && child.CreatedAt.After(parent.CreatedAt) {
+			clarified[parent.TurnID] = true
+		}
+	}
+	return clarified
+}
+
+// askingOutcome is the single ASKING classifier shared by ResolutionSummary
+// and KnowledgeGaps. Priority: clarified > pending > abandoned.
+func askingOutcome(turn resolutionTurn, clarified bool, now time.Time) string {
+	switch {
+	case clarified:
+		return askingClarified
+	case isPending(turn, now):
+		return askingPending
+	default:
+		return askingAbandoned
+	}
+}
+
 const reaskWindow = 5 * time.Minute
 
 // hasNewerWithin reports whether the conversation gained a strictly newer turn
@@ -195,4 +227,145 @@ func hasNewerWithin(conversation []resolutionTurn, index int, window time.Durati
 		return !at.After(created.Add(window))
 	}
 	return false
+}
+
+// KnowledgeGap is one normalized query cluster that needs documentation or
+// content work. Query is the most recent original wording, Normalized is the
+// aggregation key.
+type KnowledgeGap struct {
+	Query      string    `json:"query"`
+	Normalized string    `json:"normalized"`
+	Count      int64     `json:"count"`
+	LastSeen   time.Time `json:"last_seen"`
+	Reason     string    `json:"reason"`
+}
+
+// KnowledgeGaps reads the window's abandoned and failed turns and aggregates
+// them by normalized query. Classification uses the same askingOutcome helper
+// as ResolutionSummary; the query also fetches DONE children of ASKING turns so
+// parent-linked clarification can be evaluated in Go.
+func (s *Store) KnowledgeGaps(ctx context.Context, db *pgxpool.Pool, tenantID int64, from time.Time, minCount int64) ([]KnowledgeGap, bool, error) {
+	rows, err := db.Query(ctx, `WITH latest AS (
+			SELECT t.id, t.conversation_id, t.parent_turn_id, t.created_at, t.user_query,
+				decision.state, decision.finished_at
+			FROM turn t
+			LEFT JOIN LATERAL (
+				SELECT td.state, e.finished_at
+				FROM conversation_execution e
+				LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
+				WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
+				ORDER BY e.execution_no DESC
+				LIMIT 1
+			) decision ON true
+			WHERE t.tenant_id=$1 AND t.created_at>=$2
+		)
+		SELECT id, conversation_id, parent_turn_id, created_at, user_query, state, finished_at
+		FROM latest
+		WHERE state IN ('FAILED','ASKING')
+		   OR (state='DONE' AND id IN (
+		       SELECT parent_turn_id FROM latest WHERE state='ASKING' AND parent_turn_id IS NOT NULL
+		   ))
+		ORDER BY created_at DESC
+		LIMIT $3`, tenantID, from, resolutionFetchLimit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	turns := make([]resolutionTurn, 0)
+	for rows.Next() {
+		var turn resolutionTurn
+		if err := rows.Scan(&turn.TurnID, &turn.ConversationID, &turn.ParentTurnID, &turn.CreatedAt,
+			&turn.UserQuery, &turn.State, &turn.FinishedAt); err != nil {
+			return nil, false, err
+		}
+		turns = append(turns, turn)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	truncated := len(turns) > resolutionFetchLimit
+	if truncated {
+		turns = turns[:resolutionFetchLimit]
+	}
+	return summarizeKnowledgeGaps(turns, minCount, time.Now()), truncated, nil
+}
+
+// summarizeKnowledgeGaps keeps only abandoned and failed turns, normalizes
+// their queries, and aggregates by the normalized text. Pending, clarified,
+// cancelled and unknown turns never enter the gap list.
+func summarizeKnowledgeGaps(turns []resolutionTurn, minCount int64, now time.Time) []KnowledgeGap {
+	if minCount < 1 {
+		minCount = 1
+	}
+	clarifiedParents := clarifiedParentSet(turns)
+	byKey := make(map[string]*KnowledgeGap)
+	for _, turn := range turns {
+		if turn.State == nil {
+			continue
+		}
+		reason := ""
+		switch *turn.State {
+		case "FAILED":
+			reason = "failed"
+		case "ASKING":
+			if askingOutcome(turn, clarifiedParents[turn.TurnID], now) != askingAbandoned {
+				continue
+			}
+			reason = "abandoned"
+		default:
+			continue
+		}
+		normalized := normalizeGapQuery(turn.UserQuery)
+		if normalized == "" {
+			continue
+		}
+		item, ok := byKey[normalized]
+		if !ok {
+			byKey[normalized] = &KnowledgeGap{Query: turn.UserQuery, Normalized: normalized,
+				Count: 1, LastSeen: turn.CreatedAt, Reason: reason}
+			continue
+		}
+		item.Count++
+		if turn.CreatedAt.After(item.LastSeen) {
+			item.LastSeen = turn.CreatedAt
+			item.Query = turn.UserQuery
+			item.Reason = reason
+		}
+	}
+	items := make([]KnowledgeGap, 0, len(byKey))
+	for _, item := range byKey {
+		if item.Count >= minCount {
+			items = append(items, *item)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		if !items[i].LastSeen.Equal(items[j].LastSeen) {
+			return items[i].LastSeen.After(items[j].LastSeen)
+		}
+		return items[i].Normalized < items[j].Normalized
+	})
+	return items
+}
+
+// normalizeGapQuery lowercases, drops punctuation, and collapses whitespace.
+// It deliberately does not merge synonyms or correct spelling.
+func normalizeGapQuery(query string) string {
+	var builder strings.Builder
+	space := false
+	for _, r := range strings.ToLower(strings.TrimSpace(query)) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			if space && builder.Len() > 0 {
+				builder.WriteByte(' ')
+			}
+			builder.WriteRune(r)
+			space = false
+		case unicode.IsSpace(r):
+			space = true
+		}
+	}
+	return builder.String()
 }
