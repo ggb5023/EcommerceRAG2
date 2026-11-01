@@ -16,16 +16,20 @@ import (
 // Rates are pointers so "no data" (scored_total=0) serializes as null, not 0:
 // the UI must be able to tell "0% solved" apart from "nothing happened yet".
 type ResolutionSummary struct {
-	TurnsTotal   int64    `json:"turns_total"`
-	ScoredTotal  int64    `json:"scored_total"`
-	Solved       int64    `json:"solved"`
-	Clarified    int64    `json:"clarified"`
-	Abandoned    int64    `json:"abandoned"`
-	Failed       int64    `json:"failed"`
-	Unknown      int64    `json:"unknown"`
-	AutoRate     *float64 `json:"auto_rate"`
-	AssistedRate *float64 `json:"assisted_rate"`
-	Truncated    bool     `json:"truncated"`
+	TurnsTotal  int64 `json:"turns_total"`
+	ScoredTotal int64 `json:"scored_total"`
+	Solved      int64 `json:"solved"`
+	Clarified   int64 `json:"clarified"`
+	Abandoned   int64 `json:"abandoned"`
+	Failed      int64 `json:"failed"`
+	Unknown     int64 `json:"unknown"`
+	// ReaskedWithin5m is a diagnostic only: it is never part of a rate because
+	// a follow-up question may be a new topic, not dissatisfaction.
+	ReaskedWithin5m int64    `json:"reasked_within_5m"`
+	AutoRate        *float64 `json:"auto_rate"`
+	AssistedRate    *float64 `json:"assisted_rate"`
+	Truncated       bool     `json:"truncated"`
+	MetricGap       bool     `json:"metric_gap"`
 }
 
 // resolutionFetchLimit bounds how many turns one request reads into memory.
@@ -99,6 +103,9 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 			switch *turn.State {
 			case "DONE":
 				summary.Solved++
+				if hasNewerWithin(conversation, index, reaskWindow) {
+					summary.ReaskedWithin5m++
+				}
 			case "ASKING":
 				if hasLaterDone(conversation, index) {
 					summary.Clarified++
@@ -119,6 +126,22 @@ func summarizeResolution(turns []resolutionTurn) ResolutionSummary {
 		summary.AssistedRate = &assisted
 	}
 	return summary
+}
+
+const reaskWindow = 5 * time.Minute
+
+// hasNewerWithin reports whether the conversation gained a strictly newer turn
+// no later than window after index. It feeds the diagnostic counter only.
+func hasNewerWithin(conversation []resolutionTurn, index int, window time.Duration) bool {
+	created := conversation[index].CreatedAt
+	for next := index + 1; next < len(conversation); next++ {
+		at := conversation[next].CreatedAt
+		if !at.After(created) {
+			continue
+		}
+		return !at.After(created.Add(window))
+	}
+	return false
 }
 
 // hasLaterDone reports whether the conversation reached DONE after index.

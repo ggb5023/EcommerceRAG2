@@ -36,6 +36,7 @@ onMounted(load)
     <div v-if="error" class="alert" role="alert"><span>{{ error }}</span><button type="button" @click="load">重试</button></div>
     <section v-if="loading" class="state-panel" role="status"><strong>正在汇总结果数据</strong><span>统计以服务端当前记录为准。</span></section>
     <template v-else-if="summary">
+      <p v-if="summary.metric_gap" class="alert" role="alert">统计口径存在未归类轮次，数字仅供参考。</p>
       <p v-if="summary.truncated" class="notice" role="status">数据量过大，已按最近 5 万条统计。</p>
       <div class="health-grid">
         <article class="health-cell"><span>可判定</span><strong>{{ summary.scored_total }}</strong><small>比率分母</small></article>
@@ -44,6 +45,7 @@ onMounted(load)
         <article class="health-cell"><span>自动解决率</span><strong>{{ hasData ? rate(summary.auto_rate) : '暂无数据' }}</strong><small>{{ summary.solved }} / {{ summary.scored_total }} 轮</small></article>
         <article class="health-cell"><span>含澄清解决率</span><strong>{{ hasData ? rate(summary.assisted_rate) : '暂无数据' }}</strong><small>{{ summary.solved + summary.clarified }} / {{ summary.scored_total }} 轮</small></article>
       </div>
+      <p class="scope-note">其中 {{ summary.reasked_within_5m }} 次答复后 5 分钟内顾客再次提问。</p>
       <p class="scope-note">{{ summary.turns_total }} 次提问中 {{ summary.scored_total }} 次可判定（{{ summary.unknown }} 次无决策记录），其中 {{ summary.abandoned }} 次澄清后顾客未再继续。</p>
     </template>
   </section>

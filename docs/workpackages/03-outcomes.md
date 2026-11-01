@@ -33,7 +33,8 @@
 
 详见 docs/agent-entry.md §4。本包额外：
   curl -s 'localhost:8080/admin/v1/merchant/outcomes?range=30d' | jq
-  → 返回 {turns_total, scored_total, solved, clarified, abandoned, failed, unknown, auto_rate, assisted_rate, truncated}
+  → 返回 {turns_total, scored_total, solved, clarified, abandoned, failed, unknown,
+           reasked_within_5m, auto_rate, assisted_rate, truncated, metric_gap}
   → 与下面这条 SQL 的结果逐项相符（手算校验，不要只信接口自己）：
     SELECT
       count(*) FILTER (WHERE td.state='DONE')   AS done_all,
@@ -52,11 +53,15 @@
   好处是分类逻辑可单测、不依赖数据库；代价是窗口内行数受 LIMIT 约束。
 - 规格里那条对账 SQL 原写法 `td.turn_id = t.id` 类型不匹配（text vs bigint），
   实际使用 `t.id::text`；这是规格错误，已修正。
+- 恒等式违反时不阻断页面：指标页可用性优先于"数字百分百准确"，
+  异常通过 `metric_gap` 标记与日志暴露，而不是 500。
+- `reasked_within_5m` 是诊断信号、不进比率：
+  它无法区分"顾客没被说服"与"顾客问了另一件事"，用它调比率会系统性压低数字。
 
 ## 实际交付 vs 计划
 
 - 计划外：`invalid_range` / `outcomes_unavailable` 两个错误码、抓取上限（`LIMIT 50000` + `truncated`）、
-  `internal_metric_gap` 断言错误码。
+  `reasked_within_5m` 诊断字段、恒等式违反时的 `metric_gap` 响应标记（不再返回 500）。
 - 计划外修正二：ASKING 未后续 DONE 原被排除在分母外（导致比率偏高 16 个百分点），
   现改为计入 abandoned 并纳入分母。为满足 `turns_total = scored_total + unknown`，
   solved 不再应用「5 分钟内没有更新 turn」条件；所有 DONE 计入 solved。

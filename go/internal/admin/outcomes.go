@@ -31,11 +31,18 @@ func (g *Handler) adminOutcomes(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "outcomes_unavailable", "outcomes unavailable")
 		return
 	}
+	g.respondOutcomes(w, scope.TenantID, summary)
+}
+
+// respondOutcomes keeps the page usable when the buckets do not add up: the
+// anomaly is logged and flagged in the payload instead of turning the whole
+// metric page into a 500. A false flag is always serialized so the frontend can
+// test it without guessing the field's absence.
+func (g *Handler) respondOutcomes(w http.ResponseWriter, tenantID int64, summary ResolutionSummary) {
 	if summary.TurnsTotal != summary.ScoredTotal+summary.Unknown {
 		log.Printf("outcome metric identity violated: tenant=%d turns=%d scored=%d unknown=%d",
-			scope.TenantID, summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
-		httpapi.WriteError(w, http.StatusInternalServerError, "internal_metric_gap", "outcome metric is inconsistent")
-		return
+			tenantID, summary.TurnsTotal, summary.ScoredTotal, summary.Unknown)
+		summary.MetricGap = true
 	}
 	httpapi.WriteJSON(w, http.StatusOK, summary)
 }

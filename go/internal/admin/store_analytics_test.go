@@ -1,7 +1,11 @@
 package admin
 
 import (
+	"encoding/json"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,6 +63,53 @@ func TestResolutionSummaryClarified(t *testing.T) {
 	}
 	if summary.AssistedRate == nil || !almostEqual(*summary.AssistedRate, 1) {
 		t.Fatalf("assisted_rate = %v, want 1", summary.AssistedRate)
+	}
+}
+
+// The re-ask counter is diagnostic only: both DONE turns stay solved, but only
+// the one followed within five minutes is reported.
+func TestResolutionSummaryReaskedWithin5m(t *testing.T) {
+	summary := summarizeResolution([]resolutionTurn{
+		outcomeTurn(1, 0, resolvedState("DONE")),
+		outcomeTurn(1, 3, resolvedState("ASKING")),
+		outcomeTurn(2, 0, resolvedState("DONE")),
+		outcomeTurn(2, 10, resolvedState("ASKING")),
+	})
+	if summary.ReaskedWithin5m != 1 {
+		t.Fatalf("reasked_within_5m = %d, want 1", summary.ReaskedWithin5m)
+	}
+	if summary.Solved != 2 {
+		t.Fatalf("solved = %d, want 2 (the diagnostic must not change the bucket)", summary.Solved)
+	}
+}
+
+// A broken identity stays a 200 with metric_gap=true so the page is still
+// usable; the anomaly is surfaced as data, not as an HTTP failure.
+func TestResolutionSummaryMetricGapResponse(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(&Handler{}).respondOutcomes(recorder, 7, ResolutionSummary{TurnsTotal: 5, ScoredTotal: 3, Unknown: 1})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	var payload ResolutionSummary
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if !payload.MetricGap {
+		t.Fatalf("metric_gap = false, want true for turns_total=5 scored_total=3 unknown=1")
+	}
+	if !strings.Contains(recorder.Body.String(), `"metric_gap":true`) {
+		t.Fatalf("response does not serialize the flag explicitly: %s", recorder.Body.String())
+	}
+}
+
+// A healthy summary must also serialize metric_gap=false, so the frontend can
+// read the field unconditionally.
+func TestResolutionSummaryMetricGapFalseIsExplicit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(&Handler{}).respondOutcomes(recorder, 7, ResolutionSummary{TurnsTotal: 4, ScoredTotal: 3, Unknown: 1})
+	if !strings.Contains(recorder.Body.String(), `"metric_gap":false`) {
+		t.Fatalf("response omits the false flag: %s", recorder.Body.String())
 	}
 }
 

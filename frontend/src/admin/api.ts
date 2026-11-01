@@ -60,9 +60,11 @@ export type ResolutionOutcome = {
   abandoned: number
   failed: number
   unknown: number
+  reasked_within_5m: number
   auto_rate: number | null
   assisted_rate: number | null
   truncated: boolean
+  metric_gap: boolean
 }
 
 export const get = <T>(path: string) => request<T>(path)
