@@ -434,7 +434,7 @@ type JobRow struct {
 	Status          string
 	ShopID          string
 	ManifestHash    string
-	DatasetHash     string
+	DatasetHash     *string
 	FencingEpoch    int64
 	CancelRequested bool
 	CreatedAt       time.Time
