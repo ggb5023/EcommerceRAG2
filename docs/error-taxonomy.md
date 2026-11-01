@@ -52,6 +52,8 @@
 | `confirm_queue_failed` | 503 / 500 | 是 | 排队失败，请重试 | `go/internal/admin/imports.go:adminConfirmImport`（排队失败后批次回补 `staged` 并写 `confirm_queue_failed` 审计），HTTP 状态沿用 `queueFailureResponse` |
 | `confirm_settle_failed` | 500 | 否 | 确认未能落定，请联系管理员 | `go/internal/admin/store_imports.go:SettleConfirmSuccess`（status 已不是 `confirming`，多为超时回收抢占） |
 | `version_conflict` | 409 | 否 | 该文档标识已被另一个来源占用；请使用新的标识，或撤回后先清理来源 | `go/internal/admin/import.go:adminImport`、`go/internal/admin/queue_failure.go:queueFailureResponse`（gRPC `ALREADY_EXISTS`，含"文档 id 已属于另一个来源"；或 `adminConflictError`），cause=`conflict` |
+| `invalid_range` | 400 | 否 | 不展示 | `go/internal/admin/usage.go:adminUsage`、`go/internal/admin/outcomes.go:adminOutcomes` |
+| `outcomes_unavailable` | 503 | 是 | 不展示 | `go/internal/admin/outcomes.go:adminOutcomes` |
 
 ## 维护规则
 
