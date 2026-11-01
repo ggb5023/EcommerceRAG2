@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
+	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
 	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
 	"google.golang.org/grpc/codes"
@@ -19,7 +20,7 @@ func (g *gateway) Routes() http.Handler {
 	mux := g.businessRoutes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if g.db != nil && r.URL.Path != "/internal/authorization/validate" && !g.ready.Load() {
-			writeError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
+			httpapi.WriteError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
 		}
 		if r.URL.Path == "/setup" && g.localSetup != nil {
@@ -40,7 +41,7 @@ func (g *gateway) Routes() http.Handler {
 			}
 			if r.Method == "GET" && r.URL.Path == "/v1/auth/session" {
 				w.Header().Set("Cache-Control", "no-store")
-				writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "authenticated": g.identity == nil})
+				httpapi.WriteJSON(w, http.StatusOK, map[string]any{"enabled": false, "authenticated": g.identity == nil})
 				return
 			}
 			http.NotFound(w, r)
@@ -61,7 +62,7 @@ func (g *gateway) Routes() http.Handler {
 					if errors.Is(err, identity.ErrInvalid) {
 						code = http.StatusUnauthorized
 					}
-					writeError(w, code, "browser_request_rejected", "browser request rejected")
+					httpapi.WriteError(w, code, "browser_request_rejected", "browser request rejected")
 					return
 				}
 			}
@@ -71,7 +72,7 @@ func (g *gateway) Routes() http.Handler {
 					if errors.Is(err, localauth.ErrSessionInvalid) {
 						code = http.StatusUnauthorized
 					}
-					writeError(w, code, "local_request_rejected", "request rejected")
+					httpapi.WriteError(w, code, "local_request_rejected", "request rejected")
 					return
 				}
 			}
@@ -84,11 +85,11 @@ func (g *gateway) Routes() http.Handler {
 					} else if status.Code(err) == codes.Unavailable {
 						code = http.StatusServiceUnavailable
 					}
-					writeError(w, code, "identity_rejected", "identity rejected")
+					httpapi.WriteError(w, code, "identity_rejected", "identity rejected")
 					return
 				}
 				if session.MustChangePassword {
-					writeError(w, http.StatusForbidden, "password_change_required", "password change required")
+					httpapi.WriteError(w, http.StatusForbidden, "password_change_required", "password change required")
 					return
 				}
 				requestGateway := g.scoped(session, check)

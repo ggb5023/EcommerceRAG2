@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 )
 
 const SessionCookie = "ecr_v2_session"
@@ -72,14 +74,14 @@ func (h *Handler) sessionState(w http.ResponseWriter, r *http.Request) {
 	session, cookie, err := h.resolve(r)
 	if err != nil {
 		if errors.Is(err, ErrAccountDisabled) {
-			writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "authenticated": false,
+			httpapi.WriteJSON(w, http.StatusOK, map[string]any{"enabled": true, "authenticated": false,
 				"mode": "local", "account_revoked": true})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "authenticated": false, "mode": "local"})
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"enabled": true, "authenticated": false, "mode": "local"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"enabled": true, "authenticated": true, "mode": "local",
 		"csrf_token":           DeriveCSRF(h.Key, cookie),
 		"must_change_password": session.MustChangePassword,
@@ -91,7 +93,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if ok, wait := h.Limiter.Allow(ip); !ok {
 		_ = h.event(r.Context(), "rate_limited", "", nil, nil, ip, "")
 		w.Header().Set("Retry-After", strings.TrimSuffix(wait.Round(time.Second).String(), "s"))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		httpapi.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
 		return
 	}
 	var in struct {
@@ -99,7 +101,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(r, &in); err != nil || in.Username == "" || len(in.Password) > 256 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httpapi.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 	h.Limiter.Record(ip)
@@ -107,7 +109,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		_ = DummyVerify(in.Password)
 		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), nil, nil, ip, `{"source":"login"}`)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httpapi.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
 	}
 	now := h.Store.now()
@@ -115,11 +117,11 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		if h.Limiter.ProbeExceeded(ip) {
 			_ = h.event(r.Context(), "rate_limited", "", &account.TenantID, &account.UserID, ip, "")
 			w.Header().Set("Retry-After", "900")
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+			httpapi.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
 			return
 		}
 		w.Header().Set("Retry-After", strings.TrimSuffix(time.Until(*account.LockedUntil).Round(time.Second).String(), "s"))
-		writeJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
+		httpapi.WriteJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
 		return
 	}
 	if err := Verify(in.Password, account.PasswordHash); err != nil {
@@ -131,32 +133,32 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 			_ = h.event(r.Context(), "account_locked", "", &account.TenantID, &account.UserID, ip, "")
 			_, _ = h.Store.RevokeUserSessions(r.Context(), account.TenantID, account.UserID, "lockout")
 			w.Header().Set("Retry-After", "900")
-			writeJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
+			httpapi.WriteJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
 			return
 		}
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httpapi.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
 	}
 	_ = h.Store.ClearFailures(r.Context(), account.TenantID, account.UserID)
 	if account.RevokedAt != nil {
 		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), &account.TenantID, &account.UserID, ip,
 			`{"source":"login","reason":"account_revoked"}`)
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account_revoked"})
+		httpapi.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "account_revoked"})
 		return
 	}
 	session, cookie, _, err := NewSession(account.TenantID, account.UserID, account.MustChangePassword, now)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
+		httpapi.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
 		return
 	}
 	session.CSRFHash = HashToken(DeriveCSRF(h.Key, cookie))
 	if err := h.Store.CreateSession(r.Context(), session); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
+		httpapi.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "session_unavailable"})
 		return
 	}
 	_ = h.event(r.Context(), "login_succeeded", "", &account.TenantID, &account.UserID, ip, "")
 	h.setCookie(w, r, cookie)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"mode": "local", "authenticated": true,
 		"must_change_password": account.MustChangePassword,
 		"csrf_token":           DeriveCSRF(h.Key, cookie),
@@ -175,11 +177,11 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	session, cookie, err := h.resolve(r)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httpapi.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	if !h.validWrite(r, cookie, session) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "csrf_invalid"})
+		httpapi.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "csrf_invalid"})
 		return
 	}
 	var in struct {
@@ -187,12 +189,12 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		Next    string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &in); err != nil || len(in.Next) < 12 || len(in.Next) > 256 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		httpapi.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
 	account, err := h.Store.FindAccountByID(r.Context(), session.TenantID, session.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		httpapi.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	if err := Verify(in.Current, account.PasswordHash); err != nil {
@@ -205,23 +207,23 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 			_, _ = h.Store.RevokeUserSessions(r.Context(), session.TenantID, session.UserID, "lockout")
 			h.clearCookie(w, r)
 			w.Header().Set("Retry-After", "900")
-			writeJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
+			httpapi.WriteJSON(w, http.StatusLocked, map[string]string{"error": "account_locked"})
 			return
 		}
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+		httpapi.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 		return
 	}
 	hash, err := Hash(in.Next)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "hash_unavailable"})
+		httpapi.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "hash_unavailable"})
 		return
 	}
 	if _, err := h.Store.ChangePassword(r.Context(), session.TenantID, session.UserID, hash); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "password_unavailable"})
+		httpapi.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "password_unavailable"})
 		return
 	}
 	h.clearCookie(w, r)
-	writeJSON(w, http.StatusOK, map[string]any{"changed": true, "relogin": true})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"changed": true, "relogin": true})
 }
 
 // ValidateWrite is the local counterpart of the OIDC browser check.
@@ -297,10 +299,4 @@ func decodeJSON(r *http.Request, target any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 64*1024))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }

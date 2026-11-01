@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -26,7 +27,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	conversationID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, 404, "not_found", "conversation not found")
+		httpapi.WriteError(w, 404, "not_found", "conversation not found")
 		return
 	}
 	var in struct {
@@ -35,7 +36,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		ParentTurnID string `json:"parent_turn_id"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, 400, "invalid_json", "invalid request body")
+		httpapi.WriteError(w, 400, "invalid_json", "invalid request body")
 		return
 	}
 	query := strings.TrimSpace(in.Text)
@@ -43,12 +44,12 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		query = strings.TrimSpace(in.Query)
 	}
 	if query == "" {
-		writeError(w, 400, "invalid_query", "query is required")
+		httpapi.WriteError(w, 400, "invalid_query", "query is required")
 		return
 	}
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
-		writeError(w, 400, "idempotency_key_required", "Idempotency-Key is required")
+		httpapi.WriteError(w, 400, "idempotency_key_required", "Idempotency-Key is required")
 		return
 	}
 	canonicalPayload, _ := json.Marshal(map[string]string{"query": query, "parent_turn_id": strings.TrimSpace(in.ParentTurnID)})
@@ -56,7 +57,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 	payloadHash := hex.EncodeToString(hash[:])
 	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not start turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not start turn")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -65,15 +66,15 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`,
 		g.session.TenantID, g.session.UserID, conversationID).Scan(&shopID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "conversation not found")
+		httpapi.WriteError(w, 404, "not_found", "conversation not found")
 		return
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not lock conversation")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not lock conversation")
 		return
 	}
 	if shopID != g.session.Shop {
-		writeError(w, 403, "forbidden", "shop is outside the current session")
+		httpapi.WriteError(w, 403, "forbidden", "shop is outside the current session")
 		return
 	}
 	if !g.authorizeConversationHistory(w, r, conversationID) {
@@ -88,7 +89,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 			err = tx.QueryRow(r.Context(), `SELECT id FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND request_id=$3`,
 				g.session.TenantID, conversationID, strings.TrimSpace(in.ParentTurnID)).Scan(&parentID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, 400, "invalid_parent_turn", "parent turn is invalid")
+				httpapi.WriteError(w, 400, "invalid_parent_turn", "parent turn is invalid")
 				return
 			}
 		}
@@ -96,26 +97,26 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		err = tx.QueryRow(r.Context(), `SELECT status FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`,
 			g.session.TenantID, conversationID, parentID).Scan(&parentStatus)
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, 404, "parent_turn_not_found", "parent turn not found")
+			httpapi.WriteError(w, 404, "parent_turn_not_found", "parent turn not found")
 			return
 		}
 		if err != nil {
-			writeError(w, 503, "database_unavailable", "could not load parent turn")
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load parent turn")
 			return
 		}
 		if parentStatus != "ASKING" {
-			writeError(w, 409, "parent_turn_not_asking", "parent turn is not awaiting clarification")
+			httpapi.WriteError(w, 409, "parent_turn_not_asking", "parent turn is not awaiting clarification")
 			return
 		}
 		err = tx.QueryRow(r.Context(), `SELECT e.id FROM conversation_execution e
 			WHERE e.tenant_id=$1 AND e.turn_id=$2 ORDER BY e.execution_no DESC LIMIT 1`,
 			g.session.TenantID, parentID).Scan(&parentExecutionID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
+			httpapi.WriteError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
 			return
 		}
 		if err != nil {
-			writeError(w, 503, "database_unavailable", "could not load parent execution")
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load parent execution")
 			return
 		}
 		parentTurnID = &parentID
@@ -132,15 +133,15 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		g.session.TenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
 	if err == nil {
 		if oldHash != payloadHash {
-			writeError(w, 409, "idempotency_conflict", "idempotency key was used with a different query")
+			httpapi.WriteError(w, 409, "idempotency_conflict", "idempotency key was used with a different query")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": oldRequest, "request_id": oldRequest, "status": oldStatus, "turn_id": strconv.FormatInt(oldTurnID, 10), "execution_no": oldExecutionNo, "conversation_id": strconv.FormatInt(conversationID, 10),
+		httpapi.WriteJSON(w, 200, map[string]any{"id": oldRequest, "request_id": oldRequest, "status": oldStatus, "turn_id": strconv.FormatInt(oldTurnID, 10), "execution_no": oldExecutionNo, "conversation_id": strconv.FormatInt(conversationID, 10),
 			"events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 503, "database_unavailable", "could not check idempotency")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not check idempotency")
 		return
 	}
 	var active bool
@@ -148,11 +149,11 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		AND conversation_id=$2 AND status IN ('PENDING','EXECUTING','CANCEL_REQUESTED'))`,
 		g.session.TenantID, conversationID).Scan(&active)
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not check active turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not check active turn")
 		return
 	}
 	if active {
-		writeError(w, 409, "turn_in_progress", "conversation already has an active turn")
+		httpapi.WriteError(w, 409, "turn_in_progress", "conversation already has an active turn")
 		return
 	}
 	requestID := newRequestID()
@@ -178,11 +179,11 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not persist turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not persist turn")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, 503, "database_unavailable", "could not commit turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not commit turn")
 		return
 	}
 	_, _ = g.db.Exec(r.Context(), `UPDATE conversation SET title=CASE WHEN title IS NULL OR title IN ('','新会话') THEN $3 ELSE title END
@@ -200,7 +201,7 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		}
 		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, parentID, parentExecution, 1)
 	}()
-	writeJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
+	httpapi.WriteJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
 		"turn_id": strconv.FormatInt(turnID, 10), "execution_no": 1, "conversation_id": strconv.FormatInt(conversationID, 10),
 		"is_mock": isMockProfile(g.profile), "events_url": "/v1/turns/" + requestID + "/events"})
 }
@@ -210,16 +211,16 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
+		httpapi.WriteError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
 	if !isV2Profile(g.profile) {
-		writeError(w, http.StatusConflict, "checkpoint_resume_unavailable", "checkpoint resume is available only for the v2 graph profile")
+		httpapi.WriteError(w, http.StatusConflict, "checkpoint_resume_unavailable", "checkpoint resume is available only for the v2 graph profile")
 		return
 	}
 	turnID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		httpapi.WriteError(w, http.StatusNotFound, "not_found", "turn not found")
 		return
 	}
 	var in struct {
@@ -227,7 +228,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		Answer string `json:"answer"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
 		return
 	}
 	query := strings.TrimSpace(in.Text)
@@ -235,12 +236,12 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		query = strings.TrimSpace(in.Answer)
 	}
 	if query == "" {
-		writeError(w, http.StatusBadRequest, "invalid_query", "answer is required")
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_query", "answer is required")
 		return
 	}
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
-		writeError(w, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required")
+		httpapi.WriteError(w, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required")
 		return
 	}
 	canonicalPayload, _ := json.Marshal(map[string]string{"answer": query})
@@ -249,7 +250,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	storageKey := "resume:" + key
 	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not start resume")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not start resume")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -260,15 +261,15 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		WHERE t.tenant_id=$1 AND t.id=$2 AND c.user_id=$3 FOR UPDATE OF t,c`,
 		g.session.TenantID, turnID, g.session.UserID).Scan(&conversationID, &shopID, &turnStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "not_found", "turn not found")
+		httpapi.WriteError(w, http.StatusNotFound, "not_found", "turn not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not lock turn")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not lock turn")
 		return
 	}
 	if shopID != g.session.Shop {
-		writeError(w, http.StatusForbidden, "forbidden", "turn is outside the current session")
+		httpapi.WriteError(w, http.StatusForbidden, "forbidden", "turn is outside the current session")
 		return
 	}
 	if !g.authorizeConversationHistory(w, r, conversationID) {
@@ -285,7 +286,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		g.session.TenantID, conversationID, storageKey).Scan(&oldHash, &oldTurnID, &oldExecutionID)
 	if err == nil {
 		if oldHash != payloadHash || oldTurnID != turnID {
-			writeError(w, http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different resume")
+			httpapi.WriteError(w, http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different resume")
 			return
 		}
 		var oldRequest, oldStatus string
@@ -293,20 +294,20 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		err = tx.QueryRow(r.Context(), `SELECT request_id,status,execution_no FROM conversation_execution
 			WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, oldExecutionID).Scan(&oldRequest, &oldStatus, &oldExecutionNo)
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load resumed execution")
+			httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load resumed execution")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"id": oldRequest, "request_id": oldRequest,
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"id": oldRequest, "request_id": oldRequest,
 			"status": oldStatus, "turn_id": strconv.FormatInt(turnID, 10), "execution_no": oldExecutionNo,
 			"conversation_id": strconv.FormatInt(conversationID, 10), "events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not check resume idempotency")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not check resume idempotency")
 		return
 	}
 	if turnStatus != "ASKING" {
-		writeError(w, http.StatusConflict, "turn_not_asking", "turn is not awaiting clarification")
+		httpapi.WriteError(w, http.StatusConflict, "turn_not_asking", "turn is not awaiting clarification")
 		return
 	}
 	var askingExecutionID int64
@@ -315,11 +316,11 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		WHERE tenant_id=$1 AND turn_id=$2 AND status='ASKING'
 		ORDER BY execution_no DESC LIMIT 1 FOR UPDATE`, g.session.TenantID, turnID).Scan(&askingExecutionID, &askingExecutionNo)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusConflict, "parent_checkpoint_missing", "turn has no pending checkpoint execution")
+		httpapi.WriteError(w, http.StatusConflict, "parent_checkpoint_missing", "turn has no pending checkpoint execution")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load checkpoint execution")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not load checkpoint execution")
 		return
 	}
 	requestID := newRequestID()
@@ -340,11 +341,11 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
 	}
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not persist resume")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not persist resume")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "could not commit resume")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "could not commit resume")
 		return
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
@@ -355,7 +356,7 @@ func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, turnID, askingExecutionID, executionNo)
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": requestID, "request_id": requestID,
+	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"id": requestID, "request_id": requestID,
 		"status": "EXECUTING", "turn_id": strconv.FormatInt(turnID, 10), "execution_no": executionNo,
 		"conversation_id": strconv.FormatInt(conversationID, 10), "is_mock": isMockProfile(g.profile),
 		"events_url": "/v1/turns/" + requestID + "/events"})
@@ -374,11 +375,11 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4`,
 		g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&executionID, &deadline)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "turn not found")
+		httpapi.WriteError(w, 404, "not_found", "turn not found")
 		return
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load events")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load events")
 		return
 	}
 	lastID, _ := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
@@ -442,7 +443,7 @@ func (g *gateway) events(w http.ResponseWriter, r *http.Request) {
 func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, 404, "not_found", "conversation not found")
+		httpapi.WriteError(w, 404, "not_found", "conversation not found")
 		return
 	}
 	var title string
@@ -450,11 +451,11 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 		WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND id=$4`,
 		g.session.TenantID, g.session.UserID, g.session.Shop, id).Scan(&title)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "conversation not found")
+		httpapi.WriteError(w, 404, "not_found", "conversation not found")
 		return
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load conversation")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load conversation")
 		return
 	}
 	if !g.authorizeConversationHistory(w, r, id) {
@@ -464,7 +465,7 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 		FROM turn t JOIN message m ON m.tenant_id=t.tenant_id AND m.turn_id=t.id
 		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no,m.created_at`, g.session.TenantID, id)
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load messages")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load messages")
 		return
 	}
 	defer rows.Close()
@@ -474,13 +475,13 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 		var turnID int64
 		var executionNo int
 		if err := rows.Scan(&role, &content, &requestID, &turnID, &executionNo); err != nil {
-			writeError(w, 503, "database_unavailable", "could not load messages")
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load messages")
 			return
 		}
 		messages = append(messages, map[string]any{"role": role, "content": content, "request_id": requestID, "turn_id": strconv.FormatInt(turnID, 10), "execution_no": executionNo, "mock": role == "assistant"})
 	}
 	if err = rows.Err(); err != nil {
-		writeError(w, 503, "database_unavailable", "could not load messages")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load messages")
 		return
 	}
 	rows.Close()
@@ -488,14 +489,14 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	err = g.db.QueryRow(r.Context(), `SELECT e.request_id FROM turn t JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
 		WHERE t.tenant_id=$1 AND t.conversation_id=$2 ORDER BY t.turn_no DESC,e.execution_no DESC LIMIT 1`, g.session.TenantID, id).Scan(&latestRequest)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 503, "database_unavailable", "could not load execution")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load execution")
 		return
 	}
 	result := map[string]any{"id": r.PathValue("id"), "title": title, "messages": messages}
 	if latestRequest != "" {
 		last, loadErr := g.executionResult(r.Context(), latestRequest)
 		if loadErr != nil {
-			writeError(w, 503, "database_unavailable", "could not load execution")
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load execution")
 			return
 		}
 		result["last_turn"] = last
@@ -505,10 +506,10 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 		result["lastReplyCopyable"] = false
 	}
 	if err := g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
+		httpapi.WriteError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
-	writeJSON(w, 200, result)
+	httpapi.WriteJSON(w, 200, result)
 }
 
 func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +522,7 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := g.db.Begin(r.Context())
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not cancel turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not cancel turn")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -531,11 +532,11 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
 		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`, g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&state, &executionID, &turnID)
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not cancel turn")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not cancel turn")
 		return
 	}
 	if terminal(state) {
-		writeJSON(w, 200, map[string]any{"request_id": requestID, "status": state})
+		httpapi.WriteJSON(w, 200, map[string]any{"request_id": requestID, "status": state})
 		return
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE conversation_execution SET cancel_requested=true,status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID)
@@ -546,7 +547,7 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		err = tx.Commit(r.Context())
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not persist cancellation")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not persist cancellation")
 		return
 	}
 	registry := g.executionRegistryOwner()
@@ -556,5 +557,5 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 	if stop != nil {
 		stop()
 	}
-	writeJSON(w, 200, map[string]any{"request_id": requestID, "status": "CANCEL_REQUESTED"})
+	httpapi.WriteJSON(w, 200, map[string]any{"request_id": requestID, "status": "CANCEL_REQUESTED"})
 }

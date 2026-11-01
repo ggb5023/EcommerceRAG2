@@ -1,6 +1,6 @@
 # 工程约束总表
 
-> 权威等级：enforced / context 混合（逐行标注）　适用提交：7675ad2　最后核对：2026-11-01
+> 权威等级：enforced / context 混合（逐行标注）　适用提交：9c49ebf（本轮结构守卫接入）　最后核对：2026-11-01
 > 强制方式列必须与 `scripts/check.sh` 一致；新增/删除门禁时同提交更新本表。
 > 用途：把散在六份域计划里的规则收敛成一张可查表。**每条规则必须回答"谁在强制"**。
 > 标「口头约定」的行是当前没有机械检查的规则——它们是待补门禁的清单，不要当成已保障。
@@ -75,6 +75,8 @@
 | 里程碑 tag 作为回滚点 | `git tag`（4 个） | ✅ |
 | 分支合并后即删 | 人工 | ⚠️ 口头约定 |
 | 依赖与漏洞有扫描节奏 | 无 | ❌ 未实现 |
+| handler 中的 INSERT/UPDATE/DELETE 只能减不能增 | `check-structure.py`（A：`HANDLER_SQL_BASELINE=34`，只许降） | ✅ |
+| gateway/customer 与 admin 的依赖方向、前端直连 Python/DB 痕迹 | `check-structure.py`（B：2 个既有 gateway→admin 组合点为基线） | ✅ |
 
 ## 7. 使用方式
 

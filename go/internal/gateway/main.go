@@ -10,6 +10,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/edge"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
+	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	"github.com/ggb5023/EcommerceRAG/go/internal/identity"
 	"github.com/ggb5023/EcommerceRAG/go/internal/localauth"
 	"io"
@@ -91,11 +92,6 @@ type gateway struct {
 	customer        *customer.Service
 }
 
-type apiError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
 func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 	if g.db == nil { // unit tests construct a handler-only gateway
 		return true
@@ -105,7 +101,7 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 		if status.Code(err) == codes.Unavailable {
 			code = http.StatusServiceUnavailable
 		}
-		writeError(w, code, auth.FailureCode(err), "authorization failed")
+		httpapi.WriteError(w, code, auth.FailureCode(err), "authorization failed")
 		return false
 	}
 	return true
@@ -278,10 +274,10 @@ func (g *gateway) businessRoutes() http.Handler {
 
 func (g *gateway) health(w http.ResponseWriter, r *http.Request) {
 	if err := g.db.Ping(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "database unavailable")
+		httpapi.WriteError(w, http.StatusServiceUnavailable, "database_unavailable", "database unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "component": "gateway", "stage": "v2"})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "component": "gateway", "stage": "v2"})
 }
 
 func (g *gateway) getSession(w http.ResponseWriter, _ *http.Request) {
@@ -291,11 +287,11 @@ func (g *gateway) getSession(w http.ResponseWriter, _ *http.Request) {
 			if status.Code(err) == codes.Unavailable {
 				statusCode = http.StatusServiceUnavailable
 			}
-			writeError(w, statusCode, auth.FailureCode(err), "authorization failed")
+			httpapi.WriteError(w, statusCode, auth.FailureCode(err), "authorization failed")
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"tenantId": g.session.Tenant, "userId": g.session.User, "role": g.session.Role,
 		"shopId": g.session.Shop, "shopName": g.session.Shop, "displayName": g.session.User, "profile": g.profile,
 		"allowedShopIds": g.session.AllowedShops, "allShops": g.session.AllShops,
@@ -311,7 +307,7 @@ func (g *gateway) listConversations(w http.ResponseWriter, r *http.Request) {
 			WHERE t.tenant_id=c.tenant_id AND t.conversation_id=c.id AND e.permission_revision IS DISTINCT FROM $4)
 		ORDER BY created_at DESC LIMIT 100`, g.session.TenantID, g.session.UserID, g.session.Shop, g.authority().CurrentRevision())
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load conversations")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load conversations")
 		return
 	}
 	defer rows.Close()
@@ -321,21 +317,21 @@ func (g *gateway) listConversations(w http.ResponseWriter, r *http.Request) {
 		var title, shop string
 		var created time.Time
 		if err := rows.Scan(&id, &title, &shop, &created); err != nil {
-			writeError(w, 503, "database_unavailable", "could not load conversations")
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load conversations")
 			return
 		}
 		items = append(items, map[string]any{"id": strconv.FormatInt(id, 10), "title": title, "shop_id": shop,
 			"created_at": created, "messages": []any{}})
 	}
 	if rows.Err() != nil {
-		writeError(w, 503, "database_unavailable", "could not load conversations")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load conversations")
 		return
 	}
 	if err := g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
+		httpapi.WriteError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
@@ -347,11 +343,11 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 		ShopID string `json:"shop_id"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, 400, "invalid_json", "invalid request body")
+		httpapi.WriteError(w, 400, "invalid_json", "invalid request body")
 		return
 	}
 	if in.ShopID != "" && in.ShopID != g.session.Shop {
-		writeError(w, 403, "forbidden", "shop is outside the current session")
+		httpapi.WriteError(w, 403, "forbidden", "shop is outside the current session")
 		return
 	}
 	if strings.TrimSpace(in.Title) == "" {
@@ -362,10 +358,10 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, g.session.TenantID, g.session.UserID,
 		g.session.Shop, in.Title).Scan(&id)
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not create conversation")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not create conversation")
 		return
 	}
-	writeJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "title": in.Title, "shop_id": g.session.Shop, "messages": []any{}})
+	httpapi.WriteJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "title": in.Title, "shop_id": g.session.Shop, "messages": []any{}})
 }
 
 // resumeTurn continues the existing v2 ASKING turn with a new execution.
@@ -516,18 +512,18 @@ func (g *gateway) getTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := g.executionResult(r.Context(), r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, 404, "not_found", "turn not found")
+		httpapi.WriteError(w, 404, "not_found", "turn not found")
 		return
 	}
 	if err != nil {
-		writeError(w, 503, "database_unavailable", "could not load execution")
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load execution")
 		return
 	}
 	if err = g.authority().Refresh(r.Context()); err != nil {
-		writeError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
+		httpapi.WriteError(w, authorizationHTTPStatus(err), auth.FailureCode(err), "authorization failed")
 		return
 	}
-	writeJSON(w, 200, result)
+	httpapi.WriteJSON(w, 200, result)
 }
 
 func grpcFailure(ctx context.Context, err error) (string, string) {
@@ -588,12 +584,4 @@ func decodeJSON(r *http.Request, dst any) error {
 		return errors.New("request body too large")
 	}
 	return json.Unmarshal(data, dst)
-}
-func writeJSON(w http.ResponseWriter, statusCode int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(value)
-}
-func writeError(w http.ResponseWriter, statusCode int, code, message string) {
-	writeJSON(w, statusCode, apiError{Code: code, Message: message})
 }
