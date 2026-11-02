@@ -19,11 +19,12 @@ type ShopRow struct {
 	PublicSlug          string
 	WelcomeMessage      string
 	CustomerChatEnabled bool
+	Timezone            string
 }
 
 // Shops lists the shops inside the caller's scope.
 func (s *Store) Shops(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string) ([]ShopRow, error) {
-	rows, err := db.Query(ctx, `SELECT id,name,status,COALESCE(public_slug,''),welcome_message,customer_chat_enabled FROM shop WHERE tenant_id=$1 AND id=ANY($2::text[]) ORDER BY id`,
+	rows, err := db.Query(ctx, `SELECT id,name,status,COALESCE(public_slug,''),welcome_message,customer_chat_enabled,COALESCE(timezone,'Asia/Shanghai') FROM shop WHERE tenant_id=$1 AND id=ANY($2::text[]) ORDER BY id`,
 		tenantID, shops)
 	if err != nil {
 		return nil, err
@@ -33,7 +34,7 @@ func (s *Store) Shops(ctx context.Context, db *pgxpool.Pool, tenantID int64, sho
 	for rows.Next() {
 		var row ShopRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Status, &row.PublicSlug, &row.WelcomeMessage,
-			&row.CustomerChatEnabled); err != nil {
+			&row.CustomerChatEnabled, &row.Timezone); err != nil {
 			return nil, err
 		}
 		items = append(items, row)
@@ -43,12 +44,12 @@ func (s *Store) Shops(ctx context.Context, db *pgxpool.Pool, tenantID int64, sho
 
 // UpdateShopSettings rewrites the merchant-facing channel settings of one shop.
 // It returns the affected row count so the caller keeps its conflict check.
-func (s *Store) UpdateShopSettings(ctx context.Context, tx pgx.Tx, tenantID int64, shopID, name, slug, welcome string, enabled bool) (int64, error) {
+func (s *Store) UpdateShopSettings(ctx context.Context, tx pgx.Tx, tenantID int64, shopID, name, slug, welcome string, enabled bool, timezone string) (int64, error) {
 	if tx == nil {
 		return 0, ErrStoreNeedsTransaction
 	}
-	result, err := tx.Exec(ctx, `UPDATE shop SET name=$3,public_slug=$4,welcome_message=$5,customer_chat_enabled=$6 WHERE tenant_id=$1 AND id=$2`,
-		tenantID, shopID, name, slug, welcome, enabled)
+	result, err := tx.Exec(ctx, `UPDATE shop SET name=$3,public_slug=$4,welcome_message=$5,customer_chat_enabled=$6,timezone=$7 WHERE tenant_id=$1 AND id=$2`,
+		tenantID, shopID, name, slug, welcome, enabled, timezone)
 	if err != nil {
 		return 0, err
 	}

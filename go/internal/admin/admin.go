@@ -499,8 +499,8 @@ func (g *Handler) adminShops(w http.ResponseWriter, r *http.Request) {
 	for _, shop := range shops {
 		items = append(items, map[string]any{"shop_id": shop.ID, "name": shop.Name, "status": shop.Status,
 			"public_slug": shop.PublicSlug, "welcome_message": shop.WelcomeMessage,
-			"customer_chat_enabled": shop.CustomerChatEnabled,
-			"customer_chat_url":     customerChatURL(g.CustomerOrigin, shop.PublicSlug, shop.CustomerChatEnabled && shop.Status == "active")})
+			"customer_chat_enabled": shop.CustomerChatEnabled, "timezone": shop.Timezone,
+			"customer_chat_url": customerChatURL(g.CustomerOrigin, shop.PublicSlug, shop.CustomerChatEnabled && shop.Status == "active")})
 	}
 	// Reuse customer authorization; a published internal or ACL-blocked document
 	// must never be advertised as available for a customer trial.

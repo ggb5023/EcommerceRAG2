@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 )
@@ -25,10 +26,11 @@ func (g *Handler) adminShopSettings(w http.ResponseWriter, r *http.Request) {
 		Slug     string `json:"public_slug"`
 		Welcome  string `json:"welcome_message"`
 		Enabled  bool   `json:"customer_chat_enabled"`
+		Timezone string `json:"timezone"`
 		Revision string `json:"permission_revision"`
 	}
-	if httpapi.DecodeJSON(r, &in) != nil || strings.TrimSpace(in.Name) == "" || len(in.Name) > 200 || len(in.Welcome) > 2000 || !publicSlug.MatchString(in.Slug) {
-		httpapi.WriteError(w, 400, "invalid_shop_settings", "name, public slug and bounded welcome message required")
+	if httpapi.DecodeJSON(r, &in) != nil || strings.TrimSpace(in.Name) == "" || len(in.Name) > 200 || len(in.Welcome) > 2000 || !publicSlug.MatchString(in.Slug) || !validShopTimezone(in.Timezone) {
+		httpapi.WriteError(w, 400, "invalid_shop_settings", "name, public slug, timezone and bounded welcome message required")
 		return
 	}
 	tx, err := g.DB.Begin(r.Context())
@@ -41,12 +43,12 @@ func (g *Handler) adminShopSettings(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 409, "permission_changed", "reload current permissions")
 		return
 	}
-	affected, err := adminStore.UpdateShopSettings(r.Context(), tx, g.Session.TenantID, id, strings.TrimSpace(in.Name), in.Slug, in.Welcome, in.Enabled)
+	affected, err := adminStore.UpdateShopSettings(r.Context(), tx, g.Session.TenantID, id, strings.TrimSpace(in.Name), in.Slug, in.Welcome, in.Enabled, strings.TrimSpace(in.Timezone))
 	if err != nil || affected != 1 {
 		httpapi.WriteError(w, 409, "shop_settings_conflict", "public slug unavailable or shop changed")
 		return
 	}
-	if err := auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "shop_settings", "shop", id, "", "", 0, "merchant configured customer channel", "success", map[string]any{"customer_chat_enabled": in.Enabled}); err != nil {
+	if err := auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "shop_settings", "shop", id, "", "", 0, "merchant configured customer channel", "success", map[string]any{"customer_chat_enabled": in.Enabled, "timezone": strings.TrimSpace(in.Timezone)}); err != nil {
 		httpapi.WriteError(w, 503, "audit_unavailable", "could not record shop settings audit")
 		return
 	}
@@ -55,4 +57,13 @@ func (g *Handler) adminShopSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"updated": true})
+}
+
+func validShopTimezone(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "Local" {
+		return false
+	}
+	_, err := time.LoadLocation(value)
+	return err == nil
 }
