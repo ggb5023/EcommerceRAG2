@@ -57,6 +57,25 @@ cd frontend && npm test && npm run build
 - 不用 `git add .`；提交身份 `EcommerceRAG Maintainers <maintainers@example.invalid>`；
   不 push、不 merge、不删分支。
 
+## 实际交付
+
+- `python/app/graph/prompts/`：control、generation_base、facts、plan、snapshot、
+  limits、delivery、applicability、reason、customer 共 10 个资产模块；
+  `registry.py` 维护 10 个 variant → `(module, "v1")` 清单与 `ASSETS`。
+- `workflow.py` 只 import `registry`；provider_understand 系统提示词、customer
+  补充段、context gate 提示词和全部 `_GENERATION_*` 文本均已移出。
+- 字面量 multiset 证据：baseline workflow 854 个字符串字面量，新 workflow 834；
+  **removed=20、added=0，且 removed 恰好等于 20 个提示词值**；20/20 个旧值与
+  registry ASSETS 逐字节相等（sha256 已逐一核对）。
+- prompt-matrix：9 个固定样本（base/facts/plan/snapshot/limits/delivery/
+  applicability/reason/customer）+ registry 完整性测试，共 10 条；`pytest -q` =
+  **402 passed / 30 skipped**。
+- 运行时：`app.ai_process` 启动 12:30:46，晚于 `d95abf1` 的 12:30:39。
+- 门禁：`check.sh` 40 PASS；`check.sh --smoke` 45 PASS，五条 smoke 与
+  `.local/w2/` 逐字节一致；`go build ./... && go vet ./...` OK；前端
+  `npm test` 46 passed、`npm run build` PASS。
+- `docs/refactor-input.md` 未发现提示词相关债务条目，未改。
+
 ## 未覆盖路径
 
 - 本包只验证字符串与变体选择，不验证真实模型在新资产加载后的回答质量；
