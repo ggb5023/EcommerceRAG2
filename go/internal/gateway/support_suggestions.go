@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 	"github.com/ggb5023/EcommerceRAG/go/internal/customer"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -175,17 +174,12 @@ func (g *gateway) copySuggestion(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}
-	var turnKind, conversationKind, executionStatus string
-	err = tx.QueryRow(ctx, `SELECT t.kind,c.kind,e.status
-		FROM conversation_execution e JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
-		JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`,
-		g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&turnKind, &conversationKind, &executionStatus)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	turnKind, conversationKind, executionStatus, found, err := loadSuggestionForCopy(ctx, tx, g.session.TenantID, g.session.UserID, g.session.Shop, requestID)
+	if err != nil {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}
-	if errors.Is(err, pgx.ErrNoRows) || turnKind != "suggestion" || conversationKind != "suggestion" {
+	if !found || turnKind != "suggestion" || conversationKind != "suggestion" {
 		httpapi.WriteError(w, 404, "not_found", "suggestion not found")
 		return
 	}
@@ -275,15 +269,4 @@ func (g *gateway) copySuggestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"text": text, "citations": citations})
-}
-
-func appendSuggestionCopyAudit(ctx context.Context, tx pgx.Tx, tenantID, userID int64, requestID, result, blocked, text string, citationCount int) error {
-	sum := sha256.Sum256([]byte(text))
-	store := admin.Store{}
-	return store.AppendAudit(ctx, tx, admin.AuditEntry{
-		TenantID: tenantID, UserID: userID, Action: "support.suggestion.copy",
-		ResourceType: "execution", ResourceID: requestID, Result: result,
-		Metadata: map[string]any{"reply_sha256": hex.EncodeToString(sum[:]),
-			"citation_count": citationCount, "blocked_reason": blocked},
-	})
 }

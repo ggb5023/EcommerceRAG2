@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 
@@ -46,4 +48,15 @@ func encodeDecisionList[T any](items []T) []byte {
 		return []byte("[]")
 	}
 	return payload
+}
+
+func appendSuggestionCopyAudit(ctx context.Context, tx pgx.Tx, tenantID, userID int64, requestID, result, blocked, text string, citationCount int) error {
+	sum := sha256.Sum256([]byte(text))
+	store := admin.Store{}
+	return store.AppendAudit(ctx, tx, admin.AuditEntry{
+		TenantID: tenantID, UserID: userID, Action: "support.suggestion.copy",
+		ResourceType: "execution", ResourceID: requestID, Result: result,
+		Metadata: map[string]any{"reply_sha256": hex.EncodeToString(sum[:]),
+			"citation_count": citationCount, "blocked_reason": blocked},
+	})
 }
