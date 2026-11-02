@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -21,14 +22,20 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from app.ingest.sparse import to_literal
+from app.providers.contracts import SparseWeight
+
 
 class RetrievalSchemaError(RuntimeError):
     """Raised when the migration-managed retrieval schema is unavailable."""
 
 
-# Temporary weight for the sparse branch; the rationale and the A/B plan live in
-# docs/decisions/0029-sparse-retrieval.md. Do not tune it without that record.
+# Default weight for the sparse branch; the rationale and the A/B plan live in
+# docs/decisions/0029-sparse-retrieval.md. SPARSE_RRF_WEIGHT in the runtime config
+# overrides it; do not tune either without that record.
 SPARSE_RRF_WEIGHT = 0.7
+
+_SPARSE_MODES = ("legacy", "sparsevec")
 
 # The sparse branch below ranks by a text heuristic; chunk.sparse_embedding is not
 # written yet (decisions/0029). Report that honestly instead of pretending the
@@ -59,11 +66,12 @@ class RetrievalRow:
     dense_rank: int
     sparse_rank: int
     metadata: dict[str, Any]
+    sparse_rrf_weight: float = SPARSE_RRF_WEIGHT
 
     @property
     def rrf_score(self) -> float:
         dense = 1 / (60 + self.dense_rank) if self.dense_rank else 0.0
-        sparse = SPARSE_RRF_WEIGHT / (60 + self.sparse_rank) if self.sparse_rank else 0.0
+        sparse = self.sparse_rrf_weight / (60 + self.sparse_rank) if self.sparse_rank else 0.0
         return dense + sparse
 
     def as_evidence(self) -> dict[str, Any]:
@@ -128,6 +136,8 @@ class PostgresRetriever:
         connect: Callable[..., Any] = psycopg.connect,
         dense_candidates: int = 32,
         sparse_candidates: int = 32,
+        sparse_retrieval: str | None = None,
+        sparse_rrf_weight: float | None = None,
     ) -> None:
         if not conn_string.strip():
             raise ValueError("retrieval connection string is required")
@@ -137,6 +147,16 @@ class PostgresRetriever:
         self._connect = connect
         self._dense_candidates = dense_candidates
         self._sparse_candidates = sparse_candidates
+        raw_mode = (sparse_retrieval if sparse_retrieval is not None else os.environ.get("SPARSE_RETRIEVAL")) or "legacy"
+        mode = raw_mode.strip()
+        if mode not in _SPARSE_MODES:
+            raise ValueError(f"SPARSE_RETRIEVAL must be one of {_SPARSE_MODES}")
+        self._sparse_retrieval = mode
+        raw_weight = sparse_rrf_weight if sparse_rrf_weight is not None else os.environ.get("SPARSE_RRF_WEIGHT")
+        weight = float(raw_weight) if raw_weight is not None and str(raw_weight).strip() else SPARSE_RRF_WEIGHT
+        if not math.isfinite(weight) or weight <= 0:
+            raise ValueError("SPARSE_RRF_WEIGHT must be a positive finite number")
+        self._sparse_rrf_weight = weight
         self._sparse_mode: str | None = None
         self._sparse_mode_checked_at = 0.0
         self.last_sparse_mode: str | None = None
@@ -230,6 +250,7 @@ class PostgresRetriever:
     @staticmethod
     def _row_to_candidate(
         row: Mapping[str, Any], *, rank: int, sparse_rank: int, tenant_id: str,
+        sparse_rrf_weight: float,
     ) -> RetrievalRow:
         metadata = row.get("meta_json") or {}
         if isinstance(metadata, str):
@@ -256,6 +277,7 @@ class PostgresRetriever:
             dense_rank=rank,
             sparse_rank=sparse_rank,
             metadata=metadata,
+            sparse_rrf_weight=sparse_rrf_weight,
         )
 
     def search(
@@ -267,6 +289,7 @@ class PostgresRetriever:
         response_purpose: str = "internal",
         business_date: str | None = None,
         limit: int = 8,
+        query_sparse: Sequence[SparseWeight] | None = None,
     ) -> list[dict[str, Any]]:
         if not query.strip():
             raise ValueError("query is required")
@@ -288,13 +311,25 @@ class PostgresRetriever:
             " AND c.embedding IS NOT NULL "
             "ORDER BY c.embedding <=> %s::halfvec(1024), c.id LIMIT %s"
         )
-        sparse_sql = (
+        # legacy keeps the text heuristic exactly as before; sparsevec asks the
+        # sparse column for real similarity. Both return the same row shape.
+        sparse_query_literal: str | None = None
+        if self._sparse_retrieval == "sparsevec":
+            sparse_query_literal, _ = to_literal(query_sparse)
+        legacy_sparse_sql = (
             "SELECT * FROM (SELECT " + columns + "c.embedding <=> %s::halfvec(1024) AS distance, "
             "GREATEST(similarity(c.embed_text, %s), COALESCE("
             "(SELECT avg((strpos(lower(c.embed_text), term) > 0)::int) "
             "FROM unnest(%s::text[]) AS query_terms(term)), 0)) AS sparse_score "
             "FROM chunk c " + where + " " + selected_sql +
             ") AS authorized WHERE sparse_score > 0 "
+            "ORDER BY sparse_score DESC, chunk_id LIMIT %s"
+        )
+        sparsevec_sql = (
+            "SELECT " + columns + "NULL::float8 AS distance, "
+            "-(c.sparse_embedding <#> %s::sparsevec) AS sparse_score "
+            "FROM chunk c " + where + " " + selected_sql +
+            " AND c.sparse_embedding IS NOT NULL "
             "ORDER BY sparse_score DESC, chunk_id LIMIT %s"
         )
         params_common = [tenant_db_id, shops, documents, *date_params]
@@ -304,20 +339,30 @@ class PostgresRetriever:
                 [vector, *params_common, *selected_params, vector, self._dense_candidates],
             )
             dense_rows = cursor.fetchall()
-            cursor.execute(
-                sparse_sql,
-                [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
-            )
-            sparse_rows = cursor.fetchall()
-            # Inside the connection scope: outside it the cursor is already closed.
-            self._report_sparse_mode(cursor)
+            sparse_rows: list[Mapping[str, Any]] = []
+            actual_mode = self._resolve_sparse_mode(cursor, sparse_query_literal)
+            if actual_mode == "sparsevec":
+                cursor.execute(
+                    sparsevec_sql,
+                    [sparse_query_literal, *params_common, *selected_params, sparse_query_literal, self._sparse_candidates],
+                )
+                sparse_rows = cursor.fetchall()
+            elif actual_mode == "text_heuristic":
+                cursor.execute(
+                    legacy_sparse_sql,
+                    [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
+                )
+                sparse_rows = cursor.fetchall()
+            # dense_only runs no sparse query: the merge below sees an empty set.
+            self.last_sparse_mode = actual_mode
 
         dense_by_id = {str(row["chunk_id"]): (row, rank) for rank, row in enumerate(dense_rows, 1)}
         sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
         combined: list[RetrievalRow] = []
         for chunk_id, (row, dense_rank) in dense_by_id.items():
             sparse_rank = sparse_rank_by_id.get(chunk_id, 0)
-            candidate = self._row_to_candidate(row, rank=dense_rank, sparse_rank=sparse_rank, tenant_id=tenant)
+            candidate = self._row_to_candidate(row, rank=dense_rank, sparse_rank=sparse_rank,
+                                                tenant_id=tenant, sparse_rrf_weight=self._sparse_rrf_weight)
             combined.append(candidate)
         for chunk_id, row in ((str(row["chunk_id"]), row) for row in sparse_rows):
             if chunk_id in dense_by_id:
@@ -328,43 +373,63 @@ class PostgresRetriever:
                 rank=0,
                 sparse_rank=sparse_rank,
                 tenant_id=tenant,
+                sparse_rrf_weight=self._sparse_rrf_weight,
             )
             combined.append(candidate)
         combined.sort(key=lambda item: (-item.rrf_score, item.id))
         return [item.as_evidence() for item in combined[:limit]]
 
-    def _report_sparse_mode(self, cursor: Any, ttl: float = SPARSE_MODE_TTL_SECONDS) -> None:
-        """Expose which sparse path ran, and warn once while the column stays empty.
+    def _sparse_column_populated(self, cursor: Any) -> bool:
+        """Report whether any chunk carries a sparse embedding.
 
-        The probe is cached for ``ttl`` seconds (``ttl=0`` forces a re-check), so a
-        long-lived process notices step 2 landing without a restart.
+        The probe is cached for ``SPARSE_MODE_TTL_SECONDS`` so a long-lived
+        process notices step 2 landing without a restart. A probe failure is
+        diagnostic and never fails a search over it.
         """
-        global _sparse_mode_reported
-        if self._sparse_mode is not None and ttl > 0 and time.monotonic() - self._sparse_mode_checked_at < ttl:
-            return
+        global _sparse_probe_failed_reported
+        if self._sparse_mode is not None and time.monotonic() - self._sparse_mode_checked_at < SPARSE_MODE_TTL_SECONDS:
+            return self._sparse_mode == "sparsevec"
         try:
             cursor.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL) AS populated")
             row = cursor.fetchone()
-        except psycopg.Error as error:  # the probe is diagnostic: never fail a search over it
-            global _sparse_probe_failed_reported
+        except psycopg.Error as error:
             if not _sparse_probe_failed_reported:
                 _sparse_probe_failed_reported = True
                 _log.warning("sparse mode probe failed: %s — the probe is not reporting", error)
-            return
-        # The connection uses dict_row, so read by name instead of position.
-        if isinstance(row, dict):
-            populated = bool(row.get("populated"))
-        else:
-            populated = bool(row[0]) if row else False
+            return False
+        populated = bool(row.get("populated")) if isinstance(row, dict) else bool(row[0]) if row else False
         self._sparse_mode = "sparsevec" if populated else "text_heuristic"
         self._sparse_mode_checked_at = time.monotonic()
-        self.last_sparse_mode = self._sparse_mode
-        if not populated and not _sparse_mode_reported:
-            _sparse_mode_reported = True
-            _log.warning(
-                "sparse retrieval is running on the text heuristic: chunk.sparse_embedding is never written "
-                "(see docs/decisions/0029-sparse-retrieval.md); sparse contribution is zero for vector terms"
-            )
+        return populated
+
+    def _resolve_sparse_mode(self, cursor: Any, sparse_query_literal: str | None) -> str:
+        """Choose and report which sparse path actually runs for this request."""
+        global _sparse_mode_reported
+        if self._sparse_retrieval == "legacy":
+            if not _sparse_mode_reported:
+                _sparse_mode_reported = True
+                _log.warning(
+                    "sparse retrieval is running on the text heuristic (SPARSE_RETRIEVAL=legacy); "
+                    "see docs/decisions/0029-sparse-retrieval.md"
+                )
+            return "text_heuristic"
+        if sparse_query_literal is None:
+            if not _sparse_mode_reported:
+                _sparse_mode_reported = True
+                _log.warning(
+                    "SPARSE_RETRIEVAL=sparsevec but the query produced no sparse weights; "
+                    "falling back to dense only"
+                )
+            return "dense_only"
+        if not self._sparse_column_populated(cursor):
+            if not _sparse_mode_reported:
+                _sparse_mode_reported = True
+                _log.warning(
+                    "SPARSE_RETRIEVAL=sparsevec but chunk.sparse_embedding is empty; "
+                    "falling back to dense only"
+                )
+            return "dense_only"
+        return "sparsevec"
 
     async def asearch(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Run blocking psycopg I/O outside the event loop used by gRPC."""

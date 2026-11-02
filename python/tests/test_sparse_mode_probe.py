@@ -9,13 +9,13 @@ from app.retrieval import postgres
 
 
 class FakeCursor:
-    def execute(self, *_args, **_kwargs):
-        self.executions += 1
-
     def __init__(self, populated: bool, as_dict: bool = False):
         self.populated = populated
         self.as_dict = as_dict
         self.executions = 0
+
+    def execute(self, *_args, **_kwargs):
+        self.executions += 1
 
     def fetchone(self):
         if self.as_dict:
@@ -23,101 +23,74 @@ class FakeCursor:
         return (self.populated,)
 
 
-def retriever():
-    # Build without the constructor: the probe only needs its own attributes.
-    return object.__new__(postgres.PostgresRetriever)
+def retriever(mode: str = "legacy"):
+    # Build without the constructor; the probe only needs its own attributes.
+    instance = object.__new__(postgres.PostgresRetriever)
+    instance._sparse_mode = None
+    instance._sparse_mode_checked_at = 0.0
+    instance._sparse_retrieval = mode
+    instance.last_sparse_mode = None
+    return instance
 
 
 @pytest.fixture(autouse=True)
 def reset_module_state(monkeypatch):
     monkeypatch.setattr(postgres, "_sparse_mode_reported", False)
+    monkeypatch.setattr(postgres, "_sparse_probe_failed_reported", False)
 
 
-def test_empty_column_reports_text_heuristic_and_warns_once(caplog):
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
+def test_legacy_mode_reports_text_heuristic_without_probe():
+    instance = retriever("legacy")
+    cursor = FakeCursor(populated=False)
+    assert instance._resolve_sparse_mode(cursor, None) == "text_heuristic"
+    assert cursor.executions == 0, "legacy mode must not probe the sparse column"
+
+
+def test_sparsevec_empty_column_falls_back_and_warns_once(caplog):
+    instance = retriever("sparsevec")
     cursor = FakeCursor(populated=False)
     with caplog.at_level(logging.WARNING):
-        instance._report_sparse_mode(cursor, ttl=0)
-        instance._report_sparse_mode(cursor, ttl=0)
-    assert instance.last_sparse_mode == "text_heuristic"
+        assert instance._resolve_sparse_mode(cursor, "{1:1}/65536") == "dense_only"
+        assert instance._resolve_sparse_mode(cursor, "{1:1}/65536") == "dense_only"
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 1, [record.getMessage() for record in warnings]
-    assert "sparse_embedding" in warnings[0].getMessage()
+    assert "sparse_embedding is empty" in warnings[0].getMessage()
 
 
-def test_populated_column_reports_sparsevec_without_warning(caplog):
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
+def test_sparsevec_populated_column_runs_sparsevec_without_warning(caplog):
+    instance = retriever("sparsevec")
     with caplog.at_level(logging.WARNING):
-        instance._report_sparse_mode(FakeCursor(populated=True), ttl=0)
-    assert instance.last_sparse_mode == "sparsevec"
+        assert instance._resolve_sparse_mode(FakeCursor(populated=True), "{1:1}/65536") == "sparsevec"
     assert [record for record in caplog.records if record.levelno == logging.WARNING] == []
 
 
-def test_ttl_caches_the_probe_and_zero_forces_a_recheck():
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
+def test_column_probe_is_cached_inside_the_ttl():
+    instance = retriever("sparsevec")
     cursor = FakeCursor(populated=False)
-    instance._report_sparse_mode(cursor, ttl=300)
-    instance._report_sparse_mode(cursor, ttl=300)
+    assert instance._sparse_column_populated(cursor) is False
+    assert instance._sparse_column_populated(cursor) is False
     assert cursor.executions == 1, "the probe must be cached inside the TTL"
-    instance._report_sparse_mode(cursor, ttl=0)
-    assert cursor.executions == 2, "ttl=0 must re-check"
+    instance._sparse_mode_checked_at = 0.0
+    assert instance._sparse_column_populated(cursor) is False
+    assert cursor.executions == 2, "a forced re-check must probe again"
 
 
 def test_dict_rows_are_supported():
     # The production connection uses dict_row; indexing by position would raise.
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
-    instance._report_sparse_mode(FakeCursor(populated=True, as_dict=True), ttl=0)
-    assert instance.last_sparse_mode == "sparsevec"
+    instance = retriever("sparsevec")
+    assert instance._sparse_column_populated(FakeCursor(populated=True, as_dict=True)) is True
 
 
-class ClosedAfterFirstUse:
-    """Simulates a cursor used after the with-block exited."""
-
-    def __init__(self, populated: bool):
-        self.populated = populated
-        self.executions = 0
-
-    def execute(self, *_args, **_kwargs):
-        self.executions += 1
-
-    def fetchone(self):
-        if self.executions > 1:
-            raise postgres.psycopg.OperationalError("the connection is closed")
-        return {"populated": self.populated}
-
-
-def test_probe_records_the_mode_on_first_use(monkeypatch):
-    monkeypatch.setattr(postgres, "_sparse_probe_failed_reported", False)
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
-    instance._report_sparse_mode(ClosedAfterFirstUse(populated=False), ttl=0)
-    assert instance.last_sparse_mode == "text_heuristic"
-
-
-def test_probe_failure_is_reported_not_silent(monkeypatch, caplog):
-    monkeypatch.setattr(postgres, "_sparse_probe_failed_reported", False)
-    instance = retriever()
-    instance._sparse_mode = None
-    instance._sparse_mode_checked_at = 0.0
-    instance.last_sparse_mode = None
+def test_probe_failure_is_reported_not_silent(caplog):
+    instance = retriever("sparsevec")
 
     class Broken:
         def execute(self, *_args, **_kwargs):
             raise postgres.psycopg.OperationalError("the connection is closed")
 
     with caplog.at_level(logging.WARNING):
-        instance._report_sparse_mode(Broken(), ttl=0)
-        instance._report_sparse_mode(Broken(), ttl=0)
-    assert instance.last_sparse_mode is None
+        assert instance._sparse_column_populated(Broken()) is False
+        assert instance._sparse_column_populated(Broken()) is False
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "sparse mode probe failed" in warnings[0].getMessage()

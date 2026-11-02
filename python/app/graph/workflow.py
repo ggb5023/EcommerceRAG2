@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from app.chains.fake import generation_chain, infer_fact_tools, understand_chain
 from app.chains.provider import ProviderChainSet
 from app.facts import ALLOWED_FACT_TOOLS
+from app.providers.contracts import SparseWeight
 
 from .fixtures import FIXTURE_CORPUS
 from .state import Evidence, GraphState, Scope
@@ -219,6 +220,10 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
         retrieved = await chains.retriever.asearch(
             query=query,
             query_vector=query_items[0]["dense"],
+            query_sparse=[
+                SparseWeight(token_id=int(weight["token_id"]), weight=float(weight["weight"]))
+                for weight in query_items[0]["sparse"]
+            ],
             scope=state["scope"],
             response_purpose=state.get("response_purpose", "internal"),
             business_date=state.get("business_date"),
