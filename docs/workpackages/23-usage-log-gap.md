@@ -6,7 +6,7 @@
 
 ## 根因（开工复现）
 
-- `graph/runtime.py` 构造真实 Provider 时调用 `build_provider(config)`；其签名默认
+- `python/app/graph/runtime.py` 构造真实 Provider 时调用 `build_provider(config)`；其签名默认
   `record_usage=True`，`aliyun_bailian.py` 也确实用 `UsageRecorder.from_environment(role="ai")`。
   **不是**“构造时漏传 record_usage”。
 - `usage.py.from_environment` 要求 `V2_USAGE_DSN` 或 `V2_AI_DSN`；当前 dev ai 子进程
@@ -49,7 +49,7 @@ bash scripts/check.sh --smoke
 ## 实际交付
 
 - 根因确认：
-  - `graph/runtime.py` 的 `build_provider(config)` 默认已是 `record_usage=True`，不是漏传；
+  - `python/app/graph/runtime.py` 的 `build_provider(config)` 默认已是 `record_usage=True`，不是漏传；
     真正的缺口是 ai 子进程没有 `V2_USAGE_DSN` / `V2_AI_DSN`，`UsageRecorder.from_environment`
     返回 None。
   - `workflow.scoped` 原先传租户别名；`usage_log.tenant_id` 是 BIGINT，scope 的
@@ -58,8 +58,8 @@ bash scripts/check.sh --smoke
 - 修复：
   - `scripts/dev/v2_services.py`：AI 子进程透传 `V2_AI_DSN` / `V2_USAGE_DSN`；缺失时
     回退 `V2_RETRIEVER_DSN`（同一 AI 角色库），不硬编码。
-  - `app/graph/workflow.py:scoped`：优先使用 `tenant_db_id`，缺少时回退别名。
-  - `app/graph/runtime.py`：显式 `record_usage=True`。
+  - `python/app/graph/workflow.py` 的 `scoped`：优先使用 `tenant_db_id`，缺少时回退别名。
+  - `python/app/graph/runtime.py`：显式 `record_usage=True`。
   - `eval/run_bailian_batch.py`：`--live` 在发出请求前检查 usage recorder；缺失抛
     `UsageDsnRequired(code="usage_dsn_required")`。
 - 真实 Provider 验证（临时真实栈，dev 库，租户 DB id=2）：
