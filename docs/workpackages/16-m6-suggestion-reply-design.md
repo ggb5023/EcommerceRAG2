@@ -45,9 +45,7 @@ M6 首版交互：
 ## 验收命令
 
 ```bash
-python3 scripts/check/check-docs.py
-python3 scripts/check/check-docs-drift.py
-python3 scripts/check/check-doc-paths.py
+# 文档门禁：check-docs / docs-drift / doc-paths（入口见 WP07）
 bash scripts/check.sh
 ```
 
@@ -58,6 +56,17 @@ bash scripts/check.sh
 - 研究至少对照 2 个成熟方案，并各有“不采用理由”；
 - 0031 的备选方案至少 2 个，含链接与不采用理由；
 - 纯文档，`check.sh` 40 项全绿。
+
+## 实际交付
+
+- [调研](../research/support-desk-suggestions.md)：Intercom Fin、Zendesk AI、
+  Salesforce Service Cloud Einstein、Freshdesk Freddy 四个候选的交互对照与不采用理由；
+  本仓库 `/support`、turn 引擎、`response_purpose`、`can_copy`、引用快照、审计盘点。
+- [决策 0031](../decisions/0031-m6-suggestion-reply.md)：复用 Go turn 引擎；
+  `customer_reply` 披露口径；引用只读 `evidence_snapshot`/`citation`；
+  复制由 Go 按 0005 判定并写 `admin_audit`；明确不自动发送、不写顾客消息、不做多轮建议。
+- 本包纯文档：未改代码、proto、迁移、评测集；`check.sh` 40 项全绿。
+- 决策编号 0031 已登记，INDEX 与 `CURRENT` 均指向本包。
 
 ## 未覆盖路径
 
