@@ -612,7 +612,11 @@ def run(revision: Path, limit: int | None) -> int:
             raise AbFailure("run seed first: the ab-test tenant does not have 36 published versions")
         tenant_id = int(row["id"])
         cursor.execute(
-            "SELECT logical_key FROM document WHERE tenant_id=%s AND status='active' ORDER BY logical_key",
+            "SELECT d.logical_key FROM document d JOIN document_version v "
+            "ON v.tenant_id=d.tenant_id AND v.id=d.active_version_id "
+            "WHERE d.tenant_id=%s AND d.status='active' AND v.status='active' "
+            "AND v.review_status='approved' AND v.disclosure_class='external_allowed' "
+            "ORDER BY d.logical_key",
             (tenant_id,),
         )
         documents = [item["logical_key"] for item in cursor.fetchall()]
