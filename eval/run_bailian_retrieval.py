@@ -31,8 +31,6 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from answer_point_evidence import validate_review
-from quality_capture import capture
-
 from app.providers import build_provider
 from app.providers.config import (
     ProviderConfigError,
@@ -40,6 +38,7 @@ from app.providers.config import (
     load_provider_config,
 )
 from app.providers.contracts import ProviderError
+from quality_capture import capture
 
 DEFAULT_CASES = ROOT / "eval" / "synthetic_cases.jsonl"
 DEFAULT_CORPUS = Path(
@@ -63,7 +62,16 @@ GENERATION_INSTRUCTION = (
     "missing identifier or state that the answer cannot be confirmed. For a "
     "policy or source conflict, preserve the conflict and route unresolved "
     "parts to the approved human process. Do not merge unrelated evidence, "
-    "turn a limitation into a guarantee, or cite chunk IDs in the answer."
+    "turn a limitation into a guarantee, or cite chunk IDs in the answer. "
+    "When evidence contains a relevant rule, public report or limited summary but lacks the latest "
+    "specific fact, state the supported rule/summary and its source date/version first, then the exact "
+    "gap; never answer only 'no evidence' or refuse wholesale. When asked what to check or clarify, "
+    "include the object, question type, time/date range, region and public-vs-store scope in answer_points; "
+    "do not substitute an unrelated order or generic retrieval method. For delivery questions, name the "
+    "delivery region and current promised-time capability (or its absence) before order identifiers. "
+    "For latest standards/rules, include issuing body, version, effective/publication date and scope, or "
+    "state the gap. For weak external demand, include the one-search default and source level. Preserve "
+    "high/low variants and required qualifiers."
 )
 GENERATION_SCHEMA = {
     "name": "answer",

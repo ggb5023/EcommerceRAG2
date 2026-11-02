@@ -9,7 +9,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-
 from app.graph.prompts import registry
 from app.graph.workflow import (
     _customer_messages,
@@ -96,6 +95,54 @@ SAMPLES = [
         {"customer", "customer_suffix"}, {"generation_instruction", "facts", "plan", "limits", "delivery"},
         id="customer",
     ),
+    pytest.param(
+        "base", "今天公开新闻里这类家电有什么召回消息？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="public-recall",
+    ),
+    pytest.param(
+        "base", "本月行业报道中可折叠屏的耐用性趋势是什么？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="public-foldable",
+    ),
+    pytest.param(
+        "base", "公开渠道推荐的儿童防晒成分有哪些？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="public-sunscreen",
+    ),
+    pytest.param(
+        "base", "最近有哪些关于锂电池运输的公开规则更新？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="public-battery",
+    ),
+    pytest.param(
+        "delivery", "客户问明天能否送到新区，该查什么信息？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "delivery"}, set(), id="delivery-check",
+    ),
+    pytest.param(
+        "base", "沿用上一问的标准，哪一条是最新版本？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="latest-standard",
+    ),
+    pytest.param(
+        "plan", "时效要求不明确时，外部补检的默认范围是什么？", EVIDENCE, [], False, "internal",
+        {"plan"}, {"generation_instruction"}, id="clarify-time",
+    ),
+    pytest.param(
+        "plan", "客户只说‘最近怎么样’，应该先澄清什么？", EVIDENCE, [], False, "internal",
+        {"plan"}, {"generation_instruction"}, id="clarify-recent",
+    ),
+    pytest.param(
+        "plan", "这个问题只给了‘那个’，客服应先问什么？", EVIDENCE, [], False, "internal",
+        {"plan"}, {"generation_instruction"}, id="clarify-that",
+    ),
+    pytest.param(
+        "base", "同一款收纳盒为什么有两个高度版本？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="storage-variants",
+    ),
+    pytest.param(
+        "base", "订单金额发生变化时应以哪个时间点的价格为准？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="order-price",
+    ),
+    pytest.param(
+        "base", "有没有关于可持续包装的公开研究？", EVIDENCE, [], False, "internal",
+        {"generation_instruction", "limits"}, set(), id="weak-external",
+    ),
 ]
 
 
@@ -128,3 +175,10 @@ def test_every_registry_variant_has_a_version_and_non_empty_text():
         assert texts, f"{variant}: no non-empty prompt text in {module_name}"
     assert registry.ASSETS, "registry has no assets"
     assert all(value.strip() for value in registry.ASSETS.values())
+
+
+def test_changed_prompt_variants_are_versioned():
+    assert registry.VARIANTS["generation_base"][1] == "v2"
+    assert registry.VARIANTS["generation_plan"][1] == "v2"
+    assert registry.VARIANTS["generation_limits"][1] == "v2"
+    assert registry.VARIANTS["generation_delivery"][1] == "v2"

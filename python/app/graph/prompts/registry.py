@@ -20,12 +20,12 @@ from . import (
 
 VARIANTS: dict[str, tuple[str, str]] = {
     "control": ("app.graph.prompts.control", "v1"),
-    "generation_base": ("app.graph.prompts.generation_base", "v1"),
+    "generation_base": ("app.graph.prompts.generation_base", "v2"),
     "generation_facts": ("app.graph.prompts.generation_facts", "v1"),
-    "generation_plan": ("app.graph.prompts.generation_plan", "v1"),
+    "generation_plan": ("app.graph.prompts.generation_plan", "v2"),
     "generation_snapshot": ("app.graph.prompts.generation_snapshot", "v1"),
-    "generation_limits": ("app.graph.prompts.generation_limits", "v1"),
-    "generation_delivery": ("app.graph.prompts.generation_delivery", "v1"),
+    "generation_limits": ("app.graph.prompts.generation_limits", "v2"),
+    "generation_delivery": ("app.graph.prompts.generation_delivery", "v2"),
     "generation_applicability": ("app.graph.prompts.generation_applicability", "v1"),
     "generation_reason": ("app.graph.prompts.generation_reason", "v1"),
     "generation_customer": ("app.graph.prompts.generation_customer", "v1"),
