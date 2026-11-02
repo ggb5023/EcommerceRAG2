@@ -113,7 +113,7 @@ onUnmounted(()=>{controller.abort();clearInterval(poll);viewport?.removeEventLis
 .chat-error{padding:10px 12px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface);color:var(--color-danger);font-size:13px}
 .enter-state{display:flex;justify-content:center;padding:24px 0}
 .jump-action{align-self:center;flex:none;background:var(--color-surface);box-shadow:var(--shadow-md)}
-.composer{flex:none;display:grid;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--color-border);background:var(--color-surface)}
+.composer{flex:none;display:grid;gap:8px;padding:10px 16px;border-top:1px solid var(--color-border);background:var(--color-surface)}
 .composer-row{display:flex;align-items:flex-end;gap:8px}
 .composer textarea{flex:1;min-width:0;min-height:52px;max-height:132px;resize:none;padding:10px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);font-size:16px;line-height:1.4}
 .send-action{flex:none;min-width:64px;border-color:var(--color-primary);background:var(--color-primary);color:var(--color-on-primary)}
