@@ -103,7 +103,7 @@ class CommandStore:
             self._identity(cursor, scope, row["action"])
             return rag_pb2.IngestCommandResult(**row["result_json"], idempotent=True)
 
-    def _version(self, cursor: Any, request: Any, action: str) -> dict[str, Any]:
+    def _load_version(self, cursor: Any, request: Any) -> tuple[dict[str, Any], int, int]:
         scope = request.context
         cursor.execute(
             "SELECT v.*,d.active_version_id,d.logical_key,s.shop_id FROM document_version v "
@@ -116,25 +116,31 @@ class CommandStore:
         if (row is None or row["source_hash"] != request.expected_hash
                 or row["fencing_epoch"] != request.expected_fencing_epoch):
             raise IngestConflictError("version hash or fencing epoch changed")
-        tenant, version = scope.tenant_db_id, int(request.resource_id)
-        if action == "version.review":
-            if (row["status"] != "ready" or row["review_status"] != "pending"
-                    or request.review_decision not in {"approved", "rejected"}
-                    or request.disclosure_class not in {"external_allowed", "internal_only", "unclassified"}
-                    or request.external_allowed != (request.disclosure_class == "external_allowed")
-                    or (request.review_decision == "approved" and request.disclosure_class == "unclassified")):
-                raise IngestConflictError("version is not reviewable")
-            cursor.execute(
-                "UPDATE document_version SET review_status=%s,reviewed_hash=source_hash,reviewed_by=%s,"
-                "reviewed_at=now(),review_reason=%s,disclosure_class=%s,external_allowed=%s,"
-                "quality_json=quality_json || jsonb_build_object('review',%s::text) WHERE tenant_id=%s AND id=%s",
-                (request.review_decision, scope.user_db_id, request.reason, request.disclosure_class,
-                 request.external_allowed, request.review_decision, tenant, version),
-            )
-            cursor.execute("UPDATE ingest_job_item SET stage='reviewed' WHERE tenant_id=%s AND document_version_id=%s",
-                           (tenant, version))
-            return {"status": row["status"], "review_status": request.review_decision,
-                    "reviewed_hash": row["source_hash"], "fencing_epoch": row["fencing_epoch"]}
+        return row, scope.tenant_db_id, int(request.resource_id)
+
+    def _review_version(self, cursor: Any, request: Any, row: dict[str, Any],
+                        tenant: int, version: int) -> dict[str, Any]:
+        scope = request.context
+        if (row["status"] != "ready" or row["review_status"] != "pending"
+                or request.review_decision not in {"approved", "rejected"}
+                or request.disclosure_class not in {"external_allowed", "internal_only", "unclassified"}
+                or request.external_allowed != (request.disclosure_class == "external_allowed")
+                or (request.review_decision == "approved" and request.disclosure_class == "unclassified")):
+            raise IngestConflictError("version is not reviewable")
+        cursor.execute(
+            "UPDATE document_version SET review_status=%s,reviewed_hash=source_hash,reviewed_by=%s,"
+            "reviewed_at=now(),review_reason=%s,disclosure_class=%s,external_allowed=%s,"
+            "quality_json=quality_json || jsonb_build_object('review',%s::text) WHERE tenant_id=%s AND id=%s",
+            (request.review_decision, scope.user_db_id, request.reason, request.disclosure_class,
+             request.external_allowed, request.review_decision, tenant, version),
+        )
+        cursor.execute("UPDATE ingest_job_item SET stage='reviewed' WHERE tenant_id=%s AND document_version_id=%s",
+                       (tenant, version))
+        return {"status": row["status"], "review_status": request.review_decision,
+                "reviewed_hash": row["source_hash"], "fencing_epoch": row["fencing_epoch"]}
+
+    @staticmethod
+    def _load_version_item(cursor: Any, tenant: int, version: int) -> dict[str, Any]:
         cursor.execute(
             "SELECT i.*,j.cancel_requested AS job_cancel FROM ingest_job_item i "
             "JOIN ingest_job j ON j.tenant_id=i.tenant_id AND j.id=i.job_id "
@@ -144,15 +150,24 @@ class CommandStore:
         item = cursor.fetchone()
         if item is None or item["cancel_requested"] or item["job_cancel"]:
             raise IngestConflictError("version task was cancelled")
-        if action == "version.revoke":
-            if row["status"] not in {"active", "superseded", "ready"}:
-                raise IngestConflictError("version is not revocable")
-            cursor.execute("UPDATE document SET active_version_id=NULL,status='pending' "
-                           "WHERE tenant_id=%s AND id=%s AND active_version_id=%s",
-                           (tenant, row["document_id"], version))
-            cursor.execute("UPDATE document_version SET status='revoked',fencing_epoch=fencing_epoch+1 "
-                           "WHERE tenant_id=%s AND id=%s", (tenant, version))
-            return {"status": "revoked", "fencing_epoch": row["fencing_epoch"] + 1}
+        return item
+
+    @staticmethod
+    def _revoke_version(cursor: Any, row: dict[str, Any], tenant: int,
+                        version: int) -> dict[str, Any]:
+        if row["status"] not in {"active", "superseded", "ready"}:
+            raise IngestConflictError("version is not revocable")
+        cursor.execute("UPDATE document SET active_version_id=NULL,status='pending' "
+                       "WHERE tenant_id=%s AND id=%s AND active_version_id=%s",
+                       (tenant, row["document_id"], version))
+        cursor.execute("UPDATE document_version SET status='revoked',fencing_epoch=fencing_epoch+1 "
+                       "WHERE tenant_id=%s AND id=%s", (tenant, version))
+        return {"status": "revoked", "fencing_epoch": row["fencing_epoch"] + 1}
+
+    def _publish_version(self, cursor: Any, request: Any, row: dict[str, Any],
+                         item: dict[str, Any], action: str, tenant: int,
+                         version: int) -> dict[str, Any]:
+        scope = request.context
         if (row["review_status"] != "approved" or row["reviewed_hash"] != row["source_hash"]
                 or row["external_allowed"] != (row["disclosure_class"] == "external_allowed")):
             raise IngestConflictError("version is not approved")
@@ -191,6 +206,15 @@ class CommandStore:
                            (tenant, item["job_id"], tenant, item["job_id"]))
         return {"status": "active", "review_status": "approved", "reviewed_hash": row["source_hash"],
                 "fencing_epoch": row["fencing_epoch"] + 1}
+
+    def _version(self, cursor: Any, request: Any, action: str) -> dict[str, Any]:
+        row, tenant, version = self._load_version(cursor, request)
+        if action == "version.review":
+            return self._review_version(cursor, request, row, tenant, version)
+        item = self._load_version_item(cursor, tenant, version)
+        if action == "version.revoke":
+            return self._revoke_version(cursor, row, tenant, version)
+        return self._publish_version(cursor, request, row, item, action, tenant, version)
 
     def _verify_artifacts(self, cursor, version, shop):
         cursor.execute("SELECT sf.content FROM source_file sf JOIN document d ON d.tenant_id=sf.tenant_id AND d.logical_key=sf.document_id "
