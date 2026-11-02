@@ -61,16 +61,18 @@ cd frontend && npm test && npm run build
 
 - `python/app/graph/prompts/`：control、generation_base、facts、plan、snapshot、
   limits、delivery、applicability、reason、customer 共 10 个资产模块；
-  `registry.py` 维护 10 个 variant → `(module, "v1")` 清单与 `ASSETS`。
+  `registry.py` 维护 10 个 variant → `(module, "v1")` 清单与 27 个 `ASSETS`。
 - `workflow.py` 只 import `registry`；provider_understand 系统提示词、customer
-  补充段、context gate 提示词和全部 `_GENERATION_*` 文本均已移出。
-- 字面量 multiset 证据：baseline workflow 854 个字符串字面量，新 workflow 834；
-  **removed=20、added=0，且 removed 恰好等于 20 个提示词值**；20/20 个旧值与
-  registry ASSETS 逐字节相等（sha256 已逐一核对）。
+  补充段、context gate 提示词、全部 `_GENERATION_*` 文本，以及三条件补充段和
+  generation 用户提醒均已移出；用户消息只保留日期/问题/证据等格式标签。
+- 字面量 multiset 证据：baseline workflow 854 个字符串字面量，新 workflow 827；
+  **removed=27，added=0，且 removed 恰好等于 27 个提示词值**。27/27 个旧值与
+  registry ASSETS 逐字节相等（sha256 已逐一核对）；4 组（无变体/Evidence/Facts/
+  两者）运行时用户消息与旧拼接逐字节相等。
 - prompt-matrix：9 个固定样本（base/facts/plan/snapshot/limits/delivery/
   applicability/reason/customer）+ registry 完整性测试，共 10 条；`pytest -q` =
   **402 passed / 30 skipped**。
-- 运行时：`app.ai_process` 启动 12:30:46，晚于 `d95abf1` 的 12:30:39。
+- 运行时：`app.ai_process` 启动 12:39:25，晚于 `49fa76a` 的 12:39:18。
 - 门禁：`check.sh` 40 PASS；`check.sh --smoke` 45 PASS，五条 smoke 与
   `.local/w2/` 逐字节一致；`go build ./... && go vet ./...` OK；前端
   `npm test` 46 passed、`npm run build` PASS。
