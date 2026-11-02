@@ -484,21 +484,7 @@ class AlibabaBailianProvider:
                     await asyncio.sleep(.05)
         raise AssertionError("unreachable bounded retry")
 
-    async def _call_once(
-        self,
-        slot: str,
-        payload: Mapping[str, Any],
-        *,
-        timeout_s: float | None,
-        cancel_event: Any | None,
-        tenant_id: int | None,
-    ) -> tuple[Mapping[str, Any], HTTPResponse]:
-        if _cancelled(cancel_event):
-            raise ProviderError("cancelled", "provider request cancelled", slot=slot)
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
-        deadline = asyncio.get_running_loop().time() + (timeout_s or self.config.timeout_s)
+    def _request_headers(self):
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -507,47 +493,33 @@ class AlibabaBailianProvider:
         }
         # Empty optional workspace headers are omitted; the key itself never
         # appears in error messages, logs or result objects.
-        headers = {key: value for key, value in headers.items() if value}
-        try:
-            response = await self.transport.request(
-                "POST",
-                self._url(self._path(slot)),
-                headers=headers,
-                body=body,
-                timeout_s=max(.001, deadline - asyncio.get_running_loop().time()),
-                cancel_event=cancel_event,
-            )
-        except ProviderError as error:
-            self._record_usage(slot, None, error.status, error.code, tenant_id)
-            messages = {
-                "cancelled": "provider request cancelled",
-                "timeout": "provider request timed out",
-                "rate_limited": "provider quota was exceeded",
-                "upstream_error": "provider service failed",
-            }
-            raise ProviderError(
-                error.code,
-                messages.get(error.code, "provider request failed"),
-                provider=self.provider_name,
-                slot=slot,
-                retryable=error.retryable,
-                status=error.status,
-                request_id=error.request_id,
-            ) from error
-        except TimeoutError as error:
-            self._record_usage(slot, None, None, "timeout", tenant_id)
-            raise ProviderError(
-                "timeout", "provider request timed out", slot=slot, retryable=True
-            ) from error
-        try:
-            data = _json(response, slot)
-        except ProviderError as error:
-            self._record_usage(slot, None, response.status, error.code, tenant_id)
-            raise
-        metadata = dict(data)
-        if not metadata.get("request_id") and not metadata.get("id"):
-            metadata["request_id"] = next((value for key, value in response.headers.items()
-                                           if key.lower() in {"x-request-id", "request-id"}), None)
+        return {key: value for key, value in headers.items() if value}
+
+    def _raise_transport_error(self, slot, error, tenant_id):
+        self._record_usage(slot, None, error.status, error.code, tenant_id)
+        messages = {
+            "cancelled": "provider request cancelled",
+            "timeout": "provider request timed out",
+            "rate_limited": "provider quota was exceeded",
+            "upstream_error": "provider service failed",
+        }
+        raise ProviderError(
+            error.code,
+            messages.get(error.code, "provider request failed"),
+            provider=self.provider_name,
+            slot=slot,
+            retryable=error.retryable,
+            status=error.status,
+            request_id=error.request_id,
+        ) from error
+
+    def _raise_timeout(self, slot, error, tenant_id):
+        self._record_usage(slot, None, None, "timeout", tenant_id)
+        raise ProviderError(
+            "timeout", "provider request timed out", slot=slot, retryable=True
+        ) from error
+
+    def _validate_envelope(self, slot, payload, data, response, tenant_id):
         # HTTP 200 is not a usable control decision or answer. Validate the
         # chat envelope before recording success so truncated/malformed JSON
         # keeps its usage and fingerprint but is classified as an error.
@@ -563,6 +535,41 @@ class AlibabaBailianProvider:
         except ProviderError as error:
             self._record_usage(slot, None, response.status, error.code, tenant_id)
             raise
+
+    async def _call_once(
+        self,
+        slot: str,
+        payload: Mapping[str, Any],
+        *,
+        timeout_s: float | None,
+        cancel_event: Any | None,
+        tenant_id: int | None,
+    ) -> tuple[Mapping[str, Any], HTTPResponse]:
+        if _cancelled(cancel_event):
+            raise ProviderError("cancelled", "provider request cancelled", slot=slot)
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        deadline = asyncio.get_running_loop().time() + (timeout_s or self.config.timeout_s)
+        try:
+            response = await self.transport.request(
+                "POST",
+                self._url(self._path(slot)),
+                headers=self._request_headers(),
+                body=body,
+                timeout_s=max(.001, deadline - asyncio.get_running_loop().time()),
+                cancel_event=cancel_event,
+            )
+        except ProviderError as error:
+            self._raise_transport_error(slot, error, tenant_id)
+        except TimeoutError as error:
+            self._raise_timeout(slot, error, tenant_id)
+        try:
+            data = _json(response, slot)
+        except ProviderError as error:
+            self._record_usage(slot, None, response.status, error.code, tenant_id)
+            raise
+        self._validate_envelope(slot, payload, data, response, tenant_id)
         usage = None
         try: usage = _usage(data.get("usage"), slot)
         except ProviderError: usage = None
@@ -642,6 +649,99 @@ class AlibabaBailianProvider:
             _usage(data.get("usage"), "generation"),
         )
 
+    @staticmethod
+    def _embedding_parameters(text_type: str, dimensions: int, output_type: str,
+                              instruct_version: str) -> dict[str, Any]:
+        parameters: dict[str, Any] = {
+            "text_type": text_type,
+            "dimension": dimensions,
+            "output_type": output_type,
+        }
+        if instruct_version:
+            parameters["instruct"] = instruct_version
+        return parameters
+
+    @staticmethod
+    def _embedding_rows(data: Mapping[str, Any], texts: Sequence[str]):
+        output = data.get("output")
+        rows = (
+            output.get("embeddings")
+            if isinstance(output, Mapping)
+            else data.get("embeddings")
+        )
+        if not isinstance(rows, list) or len(rows) != len(texts):
+            raise ProviderError(
+                "invalid_response",
+                "embedding output count does not match input",
+                slot="embedding",
+            )
+        return rows
+
+    @staticmethod
+    def _embedding_dense(row: Mapping[str, Any], output_type: str):
+        dense_value = row.get("embedding", row.get("dense"))
+        if isinstance(dense_value, Mapping):
+            dense_value = dense_value.get("dense")
+        if isinstance(dense_value, list) and all(
+            _finite(value) for value in dense_value
+        ):
+            dense = tuple(float(value) for value in dense_value)
+        else:
+            dense = ()
+        if output_type in {"dense", "dense&sparse"} and len(dense) != 1024:
+            raise ProviderError(
+                "invalid_response",
+                "embedding dense vector must contain 1024 finite values",
+                slot="embedding",
+            )
+        return dense
+
+    @staticmethod
+    def _embedding_sparse(row: Mapping[str, Any], output_type: str):
+        sparse_value = row.get("sparse_embedding", row.get("sparse", ()))
+        if isinstance(sparse_value, Mapping):
+            sparse_value = sparse_value.get("values", sparse_value.get("items", ()))
+        if sparse_value is None:
+            sparse_value = ()
+        if not isinstance(sparse_value, list):
+            raise ProviderError(
+                "invalid_response",
+                "embedding sparse vector is invalid",
+                slot="embedding",
+            )
+        sparse: list[SparseWeight] = []
+        seen: set[int] = set()
+        for item in sparse_value:
+            if not isinstance(item, Mapping):
+                raise ProviderError(
+                    "invalid_response",
+                    "embedding sparse item is invalid",
+                    slot="embedding",
+                )
+            token_id = item.get("token_id", item.get("index"))
+            weight = item.get("weight", item.get("value"))
+            if (
+                not isinstance(token_id, int)
+                or isinstance(token_id, bool)
+                or token_id < 0
+                or token_id in seen
+                or not _finite(weight)
+            ):
+                raise ProviderError(
+                    "invalid_response",
+                    "embedding sparse item is invalid",
+                    slot="embedding",
+                )
+            seen.add(token_id)
+            sparse.append(SparseWeight(token_id, float(weight)))
+        if output_type in {"sparse", "dense&sparse"} and not sparse:
+            raise ProviderError(
+                "invalid_response",
+                "embedding sparse output is missing",
+                slot="embedding",
+            )
+        return tuple(sparse)
+
     async def embed(
         self,
         texts: Sequence[str],
@@ -669,33 +769,15 @@ class AlibabaBailianProvider:
             raise ProviderError(
                 "invalid_input", "embedding input is invalid", slot="embedding"
             )
-        parameters: dict[str, Any] = {
-            "text_type": text_type,
-            "dimension": dimensions,
-            "output_type": output_type,
-        }
-        if instruct_version:
-            parameters["instruct"] = instruct_version
         payload = {
             "model": self.config.embedding_model,
             "input": {"texts": list(texts)},
-            "parameters": parameters,
+            "parameters": self._embedding_parameters(text_type, dimensions, output_type, instruct_version),
         }
         data, response = await self._call(
             "embedding", payload, timeout_s=None, cancel_event=cancel_event, tenant_id=tenant_id
         )
-        output = data.get("output")
-        rows = (
-            output.get("embeddings")
-            if isinstance(output, Mapping)
-            else data.get("embeddings")
-        )
-        if not isinstance(rows, list) or len(rows) != len(texts):
-            raise ProviderError(
-                "invalid_response",
-                "embedding output count does not match input",
-                slot="embedding",
-            )
+        rows = self._embedding_rows(data, texts)
         request_id = _request_id(response, data)
         usage = _usage(data.get("usage"), "embedding")
         result: list[EmbeddingResult] = []
@@ -704,67 +786,10 @@ class AlibabaBailianProvider:
                 raise ProviderError(
                     "invalid_response", "embedding item is invalid", slot="embedding"
                 )
-            dense_value = row.get("embedding", row.get("dense"))
-            if isinstance(dense_value, Mapping):
-                dense_value = dense_value.get("dense")
-            if isinstance(dense_value, list) and all(
-                _finite(value) for value in dense_value
-            ):
-                dense = tuple(float(value) for value in dense_value)
-            else:
-                dense = ()
-            if output_type in {"dense", "dense&sparse"} and len(dense) != 1024:
-                raise ProviderError(
-                    "invalid_response",
-                    "embedding dense vector must contain 1024 finite values",
-                    slot="embedding",
-                )
-            sparse_value = row.get("sparse_embedding", row.get("sparse", ()))
-            if isinstance(sparse_value, Mapping):
-                sparse_value = sparse_value.get("values", sparse_value.get("items", ()))
-            if sparse_value is None:
-                sparse_value = ()
-            if not isinstance(sparse_value, list):
-                raise ProviderError(
-                    "invalid_response",
-                    "embedding sparse vector is invalid",
-                    slot="embedding",
-                )
-            sparse: list[SparseWeight] = []
-            seen: set[int] = set()
-            for item in sparse_value:
-                if not isinstance(item, Mapping):
-                    raise ProviderError(
-                        "invalid_response",
-                        "embedding sparse item is invalid",
-                        slot="embedding",
-                    )
-                token_id = item.get("token_id", item.get("index"))
-                weight = item.get("weight", item.get("value"))
-                if (
-                    not isinstance(token_id, int)
-                    or isinstance(token_id, bool)
-                    or token_id < 0
-                    or token_id in seen
-                    or not _finite(weight)
-                ):
-                    raise ProviderError(
-                        "invalid_response",
-                        "embedding sparse item is invalid",
-                        slot="embedding",
-                    )
-                seen.add(token_id)
-                sparse.append(SparseWeight(token_id, float(weight)))
-            if output_type in {"sparse", "dense&sparse"} and not sparse:
-                raise ProviderError(
-                    "invalid_response",
-                    "embedding sparse output is missing",
-                    slot="embedding",
-                )
             result.append(
                 EmbeddingResult(
-                    dense,
-                    tuple(sparse),
+                    self._embedding_dense(row, output_type),
+                    self._embedding_sparse(row, output_type),
                     self.config.embedding_model,
                     1024,
                     request_id,
@@ -774,17 +799,8 @@ class AlibabaBailianProvider:
             )
         return result
 
-    async def rerank(
-        self,
-        query: str,
-        candidates: Sequence[str],
-        *,
-        top_n: int | None = None,
-        instruct: str = "",
-        timeout_s: float | None = None,
-        cancel_event: Any | None = None,
-        tenant_id: int | None = None,
-    ) -> RerankResult:
+    @staticmethod
+    def _validate_rerank(query: str, candidates: Sequence[str], top_n: int | None) -> None:
         if (
             not isinstance(query, str)
             or not query.strip()
@@ -804,19 +820,9 @@ class AlibabaBailianProvider:
                 "rerank top_n must be within candidate count",
                 slot="rerank",
             )
-        parameters: dict[str, Any] = {"return_documents": False}
-        if top_n is not None:
-            parameters["top_n"] = top_n
-        if instruct:
-            parameters["instruct"] = instruct
-        payload = {
-            "model": self.config.rerank_model,
-            "input": {"query": query, "documents": list(candidates)},
-            "parameters": parameters,
-        }
-        data, response = await self._call(
-            "rerank", payload, timeout_s=timeout_s, cancel_event=cancel_event, tenant_id=tenant_id
-        )
+
+    @staticmethod
+    def _rerank_rows(data: Mapping[str, Any], candidates: Sequence[str], top_n: int | None):
         output = data.get("output")
         rows = (
             output.get("results")
@@ -832,6 +838,10 @@ class AlibabaBailianProvider:
             raise ProviderError(
                 "invalid_response", "rerank result count is incomplete", slot="rerank"
             )
+        return rows
+
+    @staticmethod
+    def _rerank_items(rows: list[Any], candidates: Sequence[str]) -> list[RerankItem]:
         items: list[RerankItem] = []
         seen: set[int] = set()
         for row in rows:
@@ -856,8 +866,36 @@ class AlibabaBailianProvider:
                 )
             seen.add(index)
             items.append(RerankItem(index, float(score)))
+        return items
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: Sequence[str],
+        *,
+        top_n: int | None = None,
+        instruct: str = "",
+        timeout_s: float | None = None,
+        cancel_event: Any | None = None,
+        tenant_id: int | None = None,
+    ) -> RerankResult:
+        self._validate_rerank(query, candidates, top_n)
+        parameters: dict[str, Any] = {"return_documents": False}
+        if top_n is not None:
+            parameters["top_n"] = top_n
+        if instruct:
+            parameters["instruct"] = instruct
+        payload = {
+            "model": self.config.rerank_model,
+            "input": {"query": query, "documents": list(candidates)},
+            "parameters": parameters,
+        }
+        data, response = await self._call(
+            "rerank", payload, timeout_s=timeout_s, cancel_event=cancel_event, tenant_id=tenant_id
+        )
+        rows = self._rerank_rows(data, candidates, top_n)
         return RerankResult(
-            tuple(items),
+            tuple(self._rerank_items(rows, candidates)),
             self.config.rerank_model,
             _request_id(response, data),
             _usage(data.get("usage"), "rerank"),
