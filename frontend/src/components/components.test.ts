@@ -4,6 +4,8 @@ import { renderToString } from 'vue/server-renderer'
 import Badge from './Badge.vue'
 import Button from './Button.vue'
 import Card from './Card.vue'
+import DataTable from './DataTable.vue'
+import Drawer from './Drawer.vue'
 import Empty from './Empty.vue'
 import Input from './Input.vue'
 import Table from './Table.vue'
@@ -58,5 +60,27 @@ describe('design-system components', () => {
     expect(html).toContain('暂无内容')
     expect(html).toContain('请稍后再试。')
     expect(html).toContain('data-testid="empty-state"')
+  })
+
+  it('DataTable renders the title, search value and actions', async () => {
+    const html = await renderToString(h(DataTable, { title: '账号', modelValue: 'dev' }, {
+      subtitle: () => '搜索账号',
+      actions: () => '新增',
+      default: () => 'rows',
+    }))
+    expect(html).toContain('账号')
+    expect(html).toContain('搜索账号')
+    expect(html).toContain('value="dev"')
+    expect(html).toContain('新增')
+    expect(html).toContain('data-testid="data-table"')
+  })
+
+  it('Drawer renders only while open and exposes its dialog title', async () => {
+    const open = await renderToString(h(Drawer, { open: true, title: '编辑店铺' }, () => 'form'))
+    expect(open).toContain('data-testid="drawer"')
+    expect(open).toContain('aria-label="编辑店铺"')
+    expect(open).toContain('form')
+    const closed = await renderToString(h(Drawer, { open: false, title: '编辑店铺' }, () => 'form'))
+    expect(closed).not.toContain('data-testid="drawer"')
   })
 })
