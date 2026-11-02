@@ -7,7 +7,7 @@
 
 | 编号 | 标题 | 状态 | 阻塞 | 替代关系 | 最后提交 |
 | --- | --- | --- | --- | --- | --- |
-| 01 | 稀疏向量写入链路（0029 第二步） | implemented | 查询侧未做（`docs/contracts.md` 的稀疏查询契约 ❌） | — | `9ca35ec` |
+| 01 | 稀疏向量写入链路（0029 第二步） | implemented | 真实 provider 的 sparse token_id 超出 `sparsevec(65536)`，真实写入全 NULL（WP12 探针） | — | `9ca35ec` |
 | 02 | 决策理由落库（B6） | done | — | superseded-by 09 | `97717a7` |
 | 03 | 结果度量：自动解决率（B1） | done | — | — | `f91282b` |
 | 04 | 内容缺口闭环（B3） | done | — | — | `6a53936` |
@@ -17,7 +17,8 @@
 | 08 | 前端设计系统（M9 阶段 1） | done | — | — | `bad1225` |
 | 09 | 决策账本语义（重开 02） | done | — | — | `7675ad2` |
 | 10 | D2 前置代理示例（nginx/caddy） | done | — | — | `f65b6c4` |
-| 11 | 稀疏查询 A/B（0029 第三步） | implemented | A/B 证据缺：offline eval 不经 PostgresRetriever；待 WP12 检索 harness | — | `1408d53` |
+| 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实语义 A/B 阻塞：Bailian sparse token_id 超 65536；WP12 机制 A/B 53/53 已跑 | — | `1408d53` |
+| 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 机制 A/B 已跑；真实语义 A/B 被 sparsevec 维度阻塞 | — | 待提交 |
 
 ## 同步规则
 
