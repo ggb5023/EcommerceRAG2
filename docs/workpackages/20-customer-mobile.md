@@ -55,8 +55,42 @@ git grep -c data-testid frontend/src             # 与基线对照，只增不�
 
 ## 实际交付
 
-（完成后填写）
+- `CustomerChat.vue` 改为移动优先：`visualViewport` 高度 + `dvh` 回退；固定聊天壳、
+  全屏消息区、底部输入条；输入 16px、触控目标 44px、单次 `safe-area-inset-bottom`。
+- 顶部店铺名 + 状态；店铺说明折叠；错误提示在消息流内；发送中禁用输入/按钮。
+- 流式刷新保持贴底；用户上滑后暂停自动滚动并显示“回到最新”。
+- 引用：每条 AI 回答显示 `[1]` 角标（`aria-label="查看来源 1"`，保留旧测试选择器），
+  点击打开底部抽屉；抽屉 `role="complementary" aria-label="回答来源"`。
+- `CitationCard` 从 `SuggestionPanel` 提取，建议面板与顾客抽屉共用同一组件。
+- 复制：`can_copy` 字段存在时直接显示；顾客快照没有该字段时，按“AI 回答 + 至少
+  一条引用”显示可用，否则显示“没有可引用的资料依据”等原因。复制成功/失败提示
+  均在消息内显示。
+- `index.html` viewport 增加 `viewport-fit=cover`。
+- 新增 `frontend/tests/customer-mobile.browser.mjs`：iPhone 14（390×844，DPR3）与
+  Pixel 5（393×851，DPR2.75）；断言输入可见、无横向溢出、复制可用/禁用及原因、
+  抽屉开合、模拟键盘缩小视口后输入与输入条不被遮挡；输出 6 张截图与 JSON 到
+  `.local/wp20/`。
+- data-testid：基线 `3d852b8` 26 处 → 当前 27 处，新增 `citation-card` 1 处，无减少。
+- 前端：`npm test` **49 passed**；`npm run build` PASS，JS gzip **79.48KB**（≤90KB）。
+  6 个代码/测试提交逐个在独立 worktree 跑 `npm test` + `npm run build`，全部通过
+  （JS gzip 78.24–79.48KB）。
+- 设备用例：`{"status":"PASS", device_scale_factor:3/2.75, checks:8}`；
+  截图 `.local/wp20/{iphone-14,pixel-5}-{open,drawer,keyboard}.png`。
+- 门禁：`check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**；`--smoke`
+  **45 PASS**，五条 smoke 与 `.local/w2/` 基线逐字节一致。
+- 提交：文档 `e09c385`，代码/测试 `0171f1c`…`f78963c`。
 
 ## 未覆盖路径
 
-（完成后填写）
+- **键盘顶起未真机验证**：Playwright 无真实软键盘，用例通过缩小视口并触发
+  `visualViewport.resize` 模拟；iOS Safari 真机与地址栏收缩未测。
+- **抽屉复用 M6 卡片已确认**：`SuggestionPanel` 与顾客端都使用
+  `components/CitationCard.vue`；未另造卡片。
+- 顾客快照没有 `can_copy`/`blocked_reason`，复制可用性由前端按可观测条件推导；
+  0005 的 Go 判定只覆盖员工建议接口，本轮不改 API，二者语义未在服务端统一。
+- 设备用例使用 Playwright 路由 mock（固定三消息），不连真实顾客会话；未断言真实
+  AI 回答、SSE 流式、人工接管链路。
+- 未测 iPhone SE（375×667）、横屏切换、长回答滚动与“回到最新”的真实滚动行为。
+- 未做真实剪贴板写入断言，只验证按钮可用/禁用与原因；未跑完整
+  `customer-service.browser.mjs`（需 Keycloak/TLS 环境）。
+- 管理台移动适配、Go/Python/迁移/棘轮/基线均未触碰；smoke 未重采。
