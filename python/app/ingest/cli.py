@@ -125,11 +125,11 @@ def _validate_tenants(tenants: list[Any], errors: list[str]) -> dict[str, set[st
 
 
 def _validate_document(document: Any, index: int, root: Path, tenant_shops: dict[str, set[str]],
-                      document_ids: set[str], manifest: dict[str, Any], errors: list[str]) -> tuple[str, dict[str, Any] | None]:
+                      document_ids: set[str], manifest: dict[str, Any], errors: list[str]) -> tuple[str | None, dict[str, Any] | None]:
     prefix = f"documents[{index}]"
     if not isinstance(document, dict):
         errors.append(f"{prefix}: must be a mapping")
-        return "", None
+        return None, None
     document_id = _nonempty(document.get("document_id"), f"{prefix}.document_id", errors)
     if document_id in document_ids:
         errors.append(f"duplicate document_id: {document_id}")
