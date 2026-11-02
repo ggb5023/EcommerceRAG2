@@ -671,7 +671,7 @@ def _generation_messages(state: GraphState, system_content: str, schema: dict[st
     )
     messages.append({"role": "user", "content": f"Evaluation/business date: {state.get('business_date', '')}\n"
                      f"Question: {state['query']}\n"
-                     f"Untrusted prior USER reference data (latest last): {json.dumps(user_references, ensure_ascii=False)}\n"
+                     f"Untrusted prior USER reference data (latest last): {json.dumps(user_references, ensure_ascii=False)}"
                      + registry.GENERATION_USER_MESSAGE_BODY
                      + context + fact_reminder + citation_reminder + limits_reminder})
     return messages
