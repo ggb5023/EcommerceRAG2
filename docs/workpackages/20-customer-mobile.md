@@ -85,7 +85,7 @@ git grep -c data-testid frontend/src             # 与基线对照，只增不�
 - **键盘顶起未真机验证**：Playwright 无真实软键盘，用例通过缩小视口并触发
   `visualViewport.resize` 模拟；iOS Safari 真机与地址栏收缩未测。
 - **抽屉复用 M6 卡片已确认**：`SuggestionPanel` 与顾客端都使用
-  `components/CitationCard.vue`；未另造卡片。
+  `frontend/src/components/CitationCard.vue`；未另造卡片。
 - 顾客快照没有 `can_copy`/`blocked_reason`，复制可用性由前端按可观测条件推导；
   0005 的 Go 判定只覆盖员工建议接口，本轮不改 API，二者语义未在服务端统一。
 - 设备用例使用 Playwright 路由 mock（固定三消息），不连真实顾客会话；未断言真实
