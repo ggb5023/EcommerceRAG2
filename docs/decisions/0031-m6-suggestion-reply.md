@@ -1,6 +1,6 @@
 # 0031 M6 客服建议回复：生成链路、引用与复制
 
-- 状态：提议
+- 状态：已采纳
 - 日期：2026-11-02
 - 关联：[0005](0005-copyable-reply-policy.md)（复制条件）、[0028](0028-orchestration-boundary.md)（编排边界）、
   [0021](0021-usage-log-instead-of-budget.md)（只记 token）、[0030](0030-borrowables-adoption.md)（平台结论）、

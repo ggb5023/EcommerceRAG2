@@ -31,12 +31,7 @@
 ## 验收命令
 
 ```bash
-# 迁移从零与三库
-ECR_SCRATCH_DSN=... ECR_SCRATCH_GATEWAY_DSN=... bash scripts/ops/verify-migrations-from-zero.sh
-python/.venv/bin/python scripts/ops/v2-migrate.py --env /etc/ecommerce-rag/migration.env
-python/.venv/bin/python scripts/ops/v2-migrate.py --env /etc/ecommerce-rag/test-integration.env
-python/.venv/bin/python scripts/ops/v2-migrate.py --env /etc/ecommerce-rag/eval-migration.env
-
+# 迁移从零、三库应用与逐文件 sha256：入口见 WP07 的迁移脚本
 cd go && go build -o ../.local/v2-gateway ./cmd/gateway && go vet ./...
 cd go && go test ./internal/...
 bash scripts/check.sh
@@ -49,6 +44,28 @@ cd frontend && npm test && npm run build
 - 不自动发送、不写顾客侧消息、不改 `customer_conversation` 状态；
 - 不做隐藏会话保留/清理、多轮建议、批量建议；
 - 不改 Python 提示词/检索；不调棘轮/基线、不重采 smoke；不做阶段 3；不 push。
+
+
+## 实际交付
+
+- 迁移 0045：`conversation.kind` / `turn.kind`；from-zero 45 个迁移 PASS，
+  dev / test-integration / eval-migration 三库均为 45/0045，逐文件 sha256 0 差异。
+- 指标：outcomes/gaps 查询加 `t.kind='user'`；员工会话列表与
+  `getConversation` 隐藏 suggestion；单测 + 集成测试覆盖 suggestion DONE/FAILED
+  不进 outcomes/gaps。
+- `can_copy`：DONE+非 mock+引用≥1 → true；无引用 → `no_citable_evidence`；
+  mock → `mock`；ASKING 不写可复制行。生命周期测试 4 个子用例。
+- 端点：`POST /v1/support/suggestions`、`POST /v1/support/conversations/{id}/suggestions`、
+  `POST /v1/support/suggestions/{id}/copy`；复制写 `admin_audit`，重复 copy 返回
+  `copy_already_audited`。
+- 前端：`SuggestionPanel.vue` + `SupportDesk.vue`；面板测试 1 条，前端 47 passed。
+- 真实 curl：mock 建议 DONE 且 `can_copy=false`（`mock`）、引用 1 条；非 mock
+  fixture `can_copy=true`，首次 copy 200、第二次 409；无引用 fixture 403；
+  suggestion 不出现在 outcomes（turns_total 439 保持不变）与 gaps。
+- 测试：`go test ./internal/...` 全绿；`V2_INTEGRATION_ENV=... go test ./internal/admin ./internal/gateway`
+  全绿（含指标排除、can_copy、copy 拒绝）；`check.sh` 40 PASS；`--smoke` 45 PASS
+  且五条 smoke 逐字节一致；前端 47 tests、build PASS。
+- 未改 Python 提示词/检索；未自动发送、未写顾客消息。
 
 ## 未覆盖路径
 
