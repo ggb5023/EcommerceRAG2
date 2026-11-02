@@ -16,7 +16,7 @@
 | store 行类型与可空列 | 同侧 | `go/internal/admin/store_imports.go`（`JobRow` / `JobDetailRow` / `JobItemRow`） | —（同侧，Go 内部契约） | `go/internal/admin/store_imports_integration_test.go:TestJobRowAcceptsNullDatasetHash`、`TestJobDetailAcceptsNullDatasetHash` | ✅ |
 | domain 纯函数边界 | 同侧 | `go/internal/domain/`（`FilterEvidence` / `DecideClarification` / `ValidateCitation` / `RoutedOrderResource` + 助手 `IsOrderIdentifier` / `ResourceTokens`） | —（同侧） | `scripts/check/check-domain-imports.py`（禁 gateway/admin/httpapi/pgxpool/grpc 直接引用，禁导出函数接 `context.Context`）+ `go test ./internal/domain/ -cover`=96.3% | ✅ |
 | turn 决策记录 | 同侧 | `go/internal/admin/store_turn.go`（`AppendTurnDecision`，按 `tenant_id, execution_id` 建键，接调用方 tx，`ON CONFLICT DO UPDATE`） | —（同侧） | `go/internal/admin/store_turn_test.go`（nil tx / 同一 execution 覆盖为 DONE / 空数组非 NULL） | ✅ |
-| 稀疏写入契约 | 跨进程 | `sql/migrations/0037_sparse_vector_dimension.sql`（`sparsevec(65536)`）与 `0038_sparse_tokenizer_id.sql`（tokenizer 标记） | `python/app/ingest/sparse.py:to_literal` / `sparse_tokenizer_id`（写入 `chunk.sparse_embedding`） | `python/tests/test_sparse_write.py`（维度、索引越界、权重、非零上限） | ✅ |
+| 稀疏写入契约 | 跨进程 | `sql/migrations/0044_sparse_vector_wider.sql`（`sparsevec(131072)`；0037 为历史维度）与 `0038_sparse_tokenizer_id.sql`（tokenizer 标记） | `python/app/ingest/sparse.py:to_literal` / `sparse_tokenizer_id`（写入 `chunk.sparse_embedding`） | `python/tests/test_sparse_write.py`（维度、索引越界、权重、非零上限） | ✅ |
 | 稀疏查询契约 | 同侧 | `python/app/retrieval/postgres.py`（`SPARSE_RETRIEVAL` 开关、`<#>` sparsevec 分支、降级与 `last_sparse_mode` 探针） | —（同侧，Python 内部契约） | `python/tests/test_sparse_query_mode.py`、`python/tests/test_sparse_mode_probe.py` | ✅ |
 
 ## 维护规则

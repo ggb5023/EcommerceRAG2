@@ -19,6 +19,7 @@
 | 10 | D2 前置代理示例（nginx/caddy） | done | — | — | `f65b6c4` |
 | 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实语义 A/B 阻塞：Bailian sparse token_id 超 65536；WP12 机制 A/B 53/53 已跑 | — | `c573a0f` |
 | 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 机制 A/B 已跑；真实语义 A/B 被 sparsevec 维度阻塞 | — | `4d755c3` |
+| 13 | 稀疏维度扩大与真实语义 A/B | active | — | — | 待提交 |
 
 ## 同步规则
 
