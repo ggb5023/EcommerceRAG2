@@ -622,6 +622,7 @@ class AlibabaBailianProvider:
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
         tenant_id: int | None = None,
+        temperature: float | None = None,
     ) -> GenerationResult:
         payload: dict[str, Any] = {
             "model": self.config.generation_model,
@@ -629,6 +630,8 @@ class AlibabaBailianProvider:
             "max_tokens": 512,
             "enable_thinking": False,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         if response_schema is not None:
             payload["response_format"] = _response_format(response_schema, "generation")
         data, response = await self._call(
@@ -1100,8 +1103,9 @@ class MockProvider:
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
         tenant_id: int | None = None,
+        temperature: float | None = None,
     ) -> GenerationResult:
-        _ = timeout_s
+        _ = timeout_s, temperature
         checked = _messages(messages)
         if _cancelled(cancel_event):
             raise ProviderError(

@@ -138,4 +138,5 @@ class GenerationProvider(Protocol):
         response_schema: Mapping[str, Any] | None = None,
         timeout_s: float | None = None,
         cancel_event: Any | None = None,
+        temperature: float | None = None,
     ) -> GenerationResult: ...
