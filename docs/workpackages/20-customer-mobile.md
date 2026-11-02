@@ -64,21 +64,21 @@ git grep -c data-testid frontend/src             # 与基线对照，只增不�
 - `CitationCard` 从 `SuggestionPanel` 提取，建议面板与顾客抽屉共用同一组件。
 - 复制：`can_copy` 字段存在时直接显示；顾客快照没有该字段时，按“AI 回答 + 至少
   一条引用”显示可用，否则显示“没有可引用的资料依据”等原因。复制成功/失败提示
-  均在消息内显示。
+  均在消息内显示；AI 回答支持 600ms 长按复制。
 - `index.html` viewport 增加 `viewport-fit=cover`。
 - 新增 `frontend/tests/customer-mobile.browser.mjs`：iPhone 14（390×844，DPR3）与
-  Pixel 5（393×851，DPR2.75）；断言输入可见、无横向溢出、复制可用/禁用及原因、
+  Pixel 5（393×851，DPR2.75）；断言输入可见、无横向溢出、复制可用/禁用及原因、长按复制反馈、
   抽屉开合、模拟键盘缩小视口后输入与输入条不被遮挡；输出 6 张截图与 JSON 到
   `.local/wp20/`。
 - data-testid：基线 `3d852b8` 26 处 → 当前 27 处，新增 `citation-card` 1 处，无减少。
-- 前端：`npm test` **49 passed**；`npm run build` PASS，JS gzip **79.48KB**（≤90KB）。
-  6 个代码/测试提交逐个在独立 worktree 跑 `npm test` + `npm run build`，全部通过
-  （JS gzip 78.24–79.48KB）。
-- 设备用例：`{"status":"PASS", device_scale_factor:3/2.75, checks:8}`；
+- 前端：`npm test` **49 passed**；`npm run build` PASS，JS gzip **79.54KB**（≤90KB）。
+  8 个代码/测试提交逐个在独立 worktree 跑 `npm test` + `npm run build`，全部通过
+  （JS gzip 78.24–79.54KB）。
+- 设备用例：`{"status":"PASS", device_scale_factor:3/2.75, checks:10}`；
   截图 `.local/wp20/{iphone-14,pixel-5}-{open,drawer,keyboard}.png`。
 - 门禁：`check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**；`--smoke`
   **45 PASS**，五条 smoke 与 `.local/w2/` 基线逐字节一致。
-- 提交：文档 `e09c385`，代码/测试 `0171f1c`…`f78963c`。
+- 提交：文档 `e09c385`，代码/测试 `0171f1c`…`48262a7`。
 
 ## 未覆盖路径
 
