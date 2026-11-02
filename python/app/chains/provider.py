@@ -72,22 +72,7 @@ class ProviderChainSet:
     retriever: Any | None = None
 
 
-def build_provider_chains(
-    *,
-    control: ControlProvider,
-    embedding: EmbeddingProvider,
-    rerank: RerankProvider,
-    generation: GenerationProvider,
-    retriever: Any | None = None,
-) -> ProviderChainSet:
-    """Build async-only Runnables around typed Provider implementations.
-
-    Provider calls are intentionally exposed through ``ainvoke``.  Calling a
-    network provider from a synchronous LangGraph or gRPC handler would hide
-    cancellation and event-loop ownership; the v2 service therefore uses its
-    explicit async entrypoint for this chain set.
-    """
-
+def _control_runner(control: ControlProvider):
     async def run_control(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "control")
         require_scope(value)
@@ -105,7 +90,10 @@ def build_provider_chains(
             ),
             "finish_reason": result.finish_reason,
         }
+    return run_control
 
+
+def _embedding_runner(embedding: EmbeddingProvider):
     async def run_embedding(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "embedding")
         require_scope(value)
@@ -140,7 +128,10 @@ def build_provider_chains(
                 for item in results
             ]
         }
+    return run_embedding
 
+
+def _rerank_runner(rerank: RerankProvider):
     async def run_rerank(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "rerank")
         require_scope(value)
@@ -159,7 +150,10 @@ def build_provider_chains(
                 model=result.model, request_id=result.request_id, usage=result.usage
             ),
         }
+    return run_rerank
 
+
+def _generation_runner(generation: GenerationProvider):
     async def run_generation(payload: object) -> dict[str, Any]:
         value = _mapping(payload, "generation")
         require_scope(value)
@@ -178,14 +172,32 @@ def build_provider_chains(
             ),
             "finish_reason": result.finish_reason,
         }
+    return run_generation
 
-    def sync_only(_: object) -> None:
-        raise RuntimeError("provider LangChain chains require ainvoke")
 
+def _sync_only(_: object) -> None:
+    raise RuntimeError("provider LangChain chains require ainvoke")
+
+
+def build_provider_chains(
+    *,
+    control: ControlProvider,
+    embedding: EmbeddingProvider,
+    rerank: RerankProvider,
+    generation: GenerationProvider,
+    retriever: Any | None = None,
+) -> ProviderChainSet:
+    """Build async-only Runnables around typed Provider implementations.
+
+    Provider calls are intentionally exposed through ``ainvoke``.  Calling a
+    network provider from a synchronous LangGraph or gRPC handler would hide
+    cancellation and event-loop ownership; the v2 service therefore uses its
+    explicit async entrypoint for this chain set.
+    """
     return ProviderChainSet(
-        control=RunnableLambda(sync_only, afunc=run_control, name="provider-control"),
-        embedding=RunnableLambda(sync_only, afunc=run_embedding, name="provider-embedding"),
-        rerank=RunnableLambda(sync_only, afunc=run_rerank, name="provider-rerank"),
-        generation=RunnableLambda(sync_only, afunc=run_generation, name="provider-generation"),
+        control=RunnableLambda(_sync_only, afunc=_control_runner(control), name="provider-control"),
+        embedding=RunnableLambda(_sync_only, afunc=_embedding_runner(embedding), name="provider-embedding"),
+        rerank=RunnableLambda(_sync_only, afunc=_rerank_runner(rerank), name="provider-rerank"),
+        generation=RunnableLambda(_sync_only, afunc=_generation_runner(generation), name="provider-generation"),
         retriever=retriever,
     )
