@@ -247,6 +247,82 @@ def _rollback(store: ObjectStore, keys: Iterable[str]) -> bool:
     return clean
 
 
+def _validate_bundle_inputs(items: tuple[ArtifactInput, ...], tenant_id: str,
+                            shop_id: str, document_version_id: str) -> None:
+    if not items:
+        raise ArtifactBundleError("artifact bundle must contain an artifact")
+    for value in (tenant_id, shop_id, document_version_id):
+        if not isinstance(value, str) or not value.strip():
+            raise ArtifactBundleError("artifact bundle identity is invalid")
+    if not all(isinstance(item, ArtifactInput) for item in items):
+        raise ArtifactBundleError("artifact bundle contains an invalid item")
+    for item in items:
+        _validate_input(item)
+    artifact_types = [item.artifact_type for item in items]
+    if len(set(artifact_types)) != len(artifact_types):
+        raise ArtifactBundleError("artifact types must be unique")
+
+
+def _store_artifact_records(store: ObjectStore, items: tuple[ArtifactInput, ...], *,
+                            tenant_id: str, shop_id: str, document_version_id: str,
+                            written_keys: list[str]) -> list[ArtifactRecord]:
+    # object_key performs the same segment and hash validation as both storage
+    # adapters, so identifiers cannot introduce path traversal or separators.
+    records: list[ArtifactRecord] = []
+    for item in sorted(items, key=lambda value: value.artifact_type):
+        digest = _sha256(item.data)
+        key = object_key(
+            tenant_id, shop_id, document_version_id, item.artifact_type, digest
+        )
+        metadata = store.put_bytes(
+            key,
+            item.data,
+            content_type=item.content_type,
+            expected_sha256=digest,
+        )
+        records.append(_record_from_metadata(item, key, digest, metadata))
+        written_keys.append(key)
+    return records
+
+
+def _store_manifest(store: ObjectStore, records: list[ArtifactRecord], *,
+                    tenant_id: str, shop_id: str, document_version_id: str,
+                    parser_version: str, chunk_rule_version: str) -> tuple[ArtifactRecord, str]:
+    record_payload = [record.as_dict() for record in records]
+    artifact_set_sha256 = _sha256(_canonical({"artifacts": record_payload}))
+    manifest_body = {
+        "manifest_version": "artifact-manifest-v1",
+        "tenant_id": tenant_id,
+        "shop_id": shop_id,
+        "document_version_id": document_version_id,
+        "parser_version": parser_version,
+        "chunk_rule_version": chunk_rule_version,
+        "artifacts": record_payload,
+        "artifact_set_sha256": artifact_set_sha256,
+        "real_service_acceptance": False,
+    }
+    manifest_data = _canonical(manifest_body)
+    manifest_digest = _sha256(manifest_data)
+    manifest_key = object_key(
+        tenant_id,
+        shop_id,
+        document_version_id,
+        _ARTIFACT_MANIFEST_TYPE,
+        manifest_digest,
+    )
+    manifest_metadata = store.put_bytes(
+        manifest_key,
+        manifest_data,
+        content_type="application/json",
+        expected_sha256=manifest_digest,
+    )
+    manifest_item = ArtifactInput(_ARTIFACT_MANIFEST_TYPE, manifest_data, "application/json")
+    manifest_record = _record_from_metadata(
+        manifest_item, manifest_key, manifest_digest, manifest_metadata
+    )
+    return manifest_record, artifact_set_sha256
+
+
 def store_artifact_bundle(
     store: ObjectStore,
     *,
@@ -265,71 +341,19 @@ def store_artifact_bundle(
     """
 
     items = tuple(artifacts)
-    if not items:
-        raise ArtifactBundleError("artifact bundle must contain an artifact")
-    for value in (tenant_id, shop_id, document_version_id):
-        if not isinstance(value, str) or not value.strip():
-            raise ArtifactBundleError("artifact bundle identity is invalid")
-    if not all(isinstance(item, ArtifactInput) for item in items):
-        raise ArtifactBundleError("artifact bundle contains an invalid item")
-    for item in items:
-        _validate_input(item)
-    artifact_types = [item.artifact_type for item in items]
-    if len(set(artifact_types)) != len(artifact_types):
-        raise ArtifactBundleError("artifact types must be unique")
-
-    # object_key performs the same segment and hash validation as both storage
-    # adapters, so identifiers cannot introduce path traversal or separators.
-    records: list[ArtifactRecord] = []
+    _validate_bundle_inputs(items, tenant_id, shop_id, document_version_id)
     written_keys: list[str] = []
     try:
-        for item in sorted(items, key=lambda value: value.artifact_type):
-            digest = _sha256(item.data)
-            key = object_key(
-                tenant_id, shop_id, document_version_id, item.artifact_type, digest
-            )
-            metadata = store.put_bytes(
-                key,
-                item.data,
-                content_type=item.content_type,
-                expected_sha256=digest,
-            )
-            records.append(_record_from_metadata(item, key, digest, metadata))
-            written_keys.append(key)
-
-        record_payload = [record.as_dict() for record in records]
-        artifact_set_sha256 = _sha256(_canonical({"artifacts": record_payload}))
-        manifest_body = {
-            "manifest_version": "artifact-manifest-v1",
-            "tenant_id": tenant_id,
-            "shop_id": shop_id,
-            "document_version_id": document_version_id,
-            "parser_version": parser_version,
-            "chunk_rule_version": chunk_rule_version,
-            "artifacts": record_payload,
-            "artifact_set_sha256": artifact_set_sha256,
-            "real_service_acceptance": False,
-        }
-        manifest_data = _canonical(manifest_body)
-        manifest_digest = _sha256(manifest_data)
-        manifest_key = object_key(
-            tenant_id,
-            shop_id,
-            document_version_id,
-            _ARTIFACT_MANIFEST_TYPE,
-            manifest_digest,
+        records = _store_artifact_records(
+            store, items, tenant_id=tenant_id, shop_id=shop_id,
+            document_version_id=document_version_id, written_keys=written_keys,
         )
-        manifest_metadata = store.put_bytes(
-            manifest_key,
-            manifest_data,
-            content_type="application/json",
-            expected_sha256=manifest_digest,
+        manifest_record, artifact_set_sha256 = _store_manifest(
+            store, records, tenant_id=tenant_id, shop_id=shop_id,
+            document_version_id=document_version_id, parser_version=parser_version,
+            chunk_rule_version=chunk_rule_version,
         )
-        manifest_item = ArtifactInput(_ARTIFACT_MANIFEST_TYPE, manifest_data, "application/json")
-        manifest_record = _record_from_metadata(
-            manifest_item, manifest_key, manifest_digest, manifest_metadata
-        )
-        written_keys.append(manifest_key)
+        written_keys.append(manifest_record.object_key)
         return ArtifactBundle(
             tenant_id=tenant_id,
             shop_id=shop_id,
@@ -348,7 +372,6 @@ def store_artifact_bundle(
         if not clean:
             raise ArtifactBundleError("artifact bundle failed and cleanup was incomplete") from exc
         raise ArtifactBundleError("artifact bundle write failed") from exc
-
 
 def read_manifest(store: ObjectStore, bundle: ArtifactBundle) -> dict[str, object]:
     """Read and verify a previously stored bundle manifest."""
