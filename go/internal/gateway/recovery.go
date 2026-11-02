@@ -48,17 +48,31 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 	if err != nil {
 		return err
 	}
+	canCopy := false
+	blocked := "incomplete"
 	if state == "DONE" {
 		if _, err = tx.Exec(ctx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, id.tenantID, id.turnID, answer); err != nil {
 			return err
 		}
-		blocked := "provider_not_approved"
+		blocked = "provider_not_approved"
 		if id.mock {
 			blocked = "mock"
+		} else {
+			var citations int
+			if err = tx.QueryRow(ctx, `SELECT count(*) FROM citation WHERE tenant_id=$1 AND execution_id=$2`,
+				id.tenantID, id.executionID).Scan(&citations); err != nil {
+				return err
+			}
+			if citations > 0 {
+				canCopy = true
+				blocked = ""
+			} else {
+				blocked = "no_citable_evidence"
+			}
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO customer_reply(tenant_id,execution_id,text_plain,is_mock,can_copy,blocked_reason)
-			VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=false,blocked_reason=EXCLUDED.blocked_reason`,
-			id.tenantID, id.executionID, answer, id.mock, blocked)
+			VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,execution_id) DO UPDATE SET text_plain=EXCLUDED.text_plain,is_mock=EXCLUDED.is_mock,can_copy=EXCLUDED.can_copy,blocked_reason=EXCLUDED.blocked_reason`,
+			id.tenantID, id.executionID, answer, id.mock, canCopy, blocked)
 	} else {
 		_, err = tx.Exec(ctx, `UPDATE customer_reply SET text_plain='',can_copy=false,blocked_reason='incomplete' WHERE tenant_id=$1 AND execution_id=$2`, id.tenantID, id.executionID)
 	}
@@ -86,7 +100,7 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 			return err
 		}
 	}
-	return appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": id.mock, "can_copy": false})
+	return appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": id.mock, "can_copy": canCopy})
 }
 
 // Only run with exclusive database ownership, before accepting HTTP requests.

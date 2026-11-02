@@ -90,6 +90,8 @@ func cleanupLifecycleFixture(t *testing.T, db *pgxpool.Pool, tenantID int64) {
 		`DELETE FROM conversation_execution WHERE tenant_id=$1`,
 		`DELETE FROM turn WHERE tenant_id=$1`,
 		`DELETE FROM conversation WHERE tenant_id=$1`,
+		`DELETE FROM shop WHERE tenant_id=$1`,
+		`DELETE FROM admin_audit WHERE tenant_id=$1`,
 		`DELETE FROM app_user WHERE tenant_id=$1`,
 		`DELETE FROM tenant WHERE id=$1`,
 	} {
@@ -213,4 +215,99 @@ func TestTurnDecisionRecoveryWritesLedger(t *testing.T) {
 	if got := lifecycleLedgerState(t, db, f.tenantID, f.executionID); got != "FAILED" {
 		t.Fatalf("ledger state = %q, want FAILED", got)
 	}
+}
+
+func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
+	ctx := context.Background()
+	migration, gatewayDB := lifecycleDBs(t)
+	persist := func(t *testing.T, f lifecycleFixture, state string, addCitation, mock bool) (bool, string) {
+		t.Helper()
+		tx, err := gatewayDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if addCitation {
+			if _, err = tx.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,content,disclosure_class,customer_eligible,citation_index)
+				VALUES($1,$2,$3,'copyable body','external_allowed',true,1)`, f.tenantID, f.executionID, "ev-"+f.stamp); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
+				VALUES($1,$2,$3,1)`, f.tenantID, f.executionID, "ev-"+f.stamp); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, mock: mock}, state, "", "suggestion body"); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var canCopy bool
+		var blocked string
+		err = gatewayDB.QueryRow(ctx, `SELECT can_copy,blocked_reason FROM customer_reply WHERE tenant_id=$1 AND execution_id=$2`,
+			f.tenantID, f.executionID).Scan(&canCopy, &blocked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return canCopy, blocked
+	}
+
+	t.Run("done with citation", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		canCopy, blocked := persist(t, f, "DONE", true, false)
+		if !canCopy || blocked != "" {
+			t.Fatalf("can_copy=%v blocked=%q, want true/empty", canCopy, blocked)
+		}
+	})
+
+	t.Run("done without citation", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		canCopy, blocked := persist(t, f, "DONE", false, false)
+		if canCopy || blocked != "no_citable_evidence" {
+			t.Fatalf("can_copy=%v blocked=%q, want false/no_citable_evidence", canCopy, blocked)
+		}
+	})
+
+	t.Run("mock done", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		canCopy, blocked := persist(t, f, "DONE", true, true)
+		if canCopy || blocked != "mock" {
+			t.Fatalf("can_copy=%v blocked=%q, want false/mock", canCopy, blocked)
+		}
+	})
+
+	t.Run("asking is never copyable", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := gatewayDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp}, "ASKING", "", "clarify"); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var count int
+		if err = gatewayDB.QueryRow(ctx, `SELECT count(*) FROM customer_reply WHERE tenant_id=$1 AND execution_id=$2 AND can_copy`,
+			f.tenantID, f.executionID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("ASKING wrote a copyable reply row")
+		}
+	})
 }
