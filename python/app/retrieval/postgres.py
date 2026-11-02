@@ -344,7 +344,7 @@ class PostgresRetriever:
             if actual_mode == "sparsevec":
                 cursor.execute(
                     sparsevec_sql,
-                    [sparse_query_literal, *params_common, *selected_params, sparse_query_literal, self._sparse_candidates],
+                    [sparse_query_literal, *params_common, *selected_params, self._sparse_candidates],
                 )
                 sparse_rows = cursor.fetchall()
             elif actual_mode == "text_heuristic":

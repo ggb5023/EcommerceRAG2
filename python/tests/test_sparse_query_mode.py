@@ -6,8 +6,73 @@ column probe is replaced by a fake cursor, so the three reported modes
 """
 from __future__ import annotations
 
+import time
+
 from app.providers.contracts import SparseWeight
 from app.retrieval.postgres import PostgresRetriever, RetrievalRow
+
+
+class _RecordingCursor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+
+    def fetchone(self):
+        return {"populated": True}
+
+    def fetchall(self):
+        return []
+
+
+class _RecordingConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = _RecordingCursor()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def cursor(self):
+        return self.cursor_instance
+
+
+def test_sparsevec_sql_placeholder_count_matches_parameters():
+    # Regression: the sparsevec branch passed the query literal twice while the
+    # SQL referenced it once, so every real sparsevec search failed with
+    # "the query has 8 placeholders but 9 parameters were passed".
+    connection = _RecordingConnection()
+    retriever = PostgresRetriever(
+        "postgresql://unused", sparse_retrieval="sparsevec",
+        connect=lambda *_args, **_kwargs: connection,
+    )
+    retriever._sparse_mode = "sparsevec"
+    retriever._sparse_mode_checked_at = time.monotonic()
+    retriever._sparse_column_populated = lambda _cursor: True
+    retriever.search(
+        query="query",
+        query_vector=[0.0] * 1024,
+        scope={
+            "tenant_id": "tenant", "tenant_db_id": "1", "allowed_shop_ids": ["shop"],
+            "allowed_document_ids": ["doc"], "shop_id": "shop", "role": "operator",
+        },
+        response_purpose="internal",
+        business_date="2026-09-29",
+        query_sparse=[SparseWeight(token_id=1, weight=1.0)],
+    )
+    sparse_calls = [call for call in connection.cursor_instance.calls if "<#>" in call[0]]
+    assert sparse_calls, "the sparsevec branch must execute a sparse query"
+    for sql, params in sparse_calls:
+        assert sql.count("%s") == len(params), (sql.count("%s"), len(params), sql)
 
 
 class _ProbeCursor:
