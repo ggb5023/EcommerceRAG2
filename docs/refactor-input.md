@@ -47,6 +47,10 @@
     修法：把 `setTrace` 提前到检索阶段结束时调用一次（`rejected` 在那时已知），
     生成阶段再补 chosen。属 B6 第三步，不在本轮范围。
 
+17. 顾客端没有与 0005 等价的 `can_copy` / `blocked_reason` 服务端字段；WP20 的前端按
+    "AI 回答 + 至少一条引用"推导，0005 的 Go 判定仍只覆盖员工建议接口。统一口径需要
+    单独设计（顾客回答是否允许复制、由哪一层判定、快照如何暴露），本轮不实现。
+
 ## 已完成（仅供参考，无需再处理）
 
 - `scripts/check.sh` 已移除 `provider-budget.py` 路径。**已核实**：`grep -c provider-budget scripts/check.sh` = 0；
