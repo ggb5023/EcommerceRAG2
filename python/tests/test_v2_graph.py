@@ -118,3 +118,15 @@ def test_context_keeps_low_score_prerequisites_and_preserves_signed_snapshot():
     assert [e['id'] for e in context_gate_node(dict(state, evidence=low))['evidence']] == ['0', '1', '2', '3']
     private = [dict(rows[0], disclosure_class='internal_only'), rows[1]]
     assert context_gate_node(dict(state, evidence=private))['evidence'] == [rows[1]]
+
+
+def test_scope_business_date_wins_over_process_fallback_and_invalid_is_rejected():
+    service = LangGraphRagService(business_date="2026-10-01")
+    assert service._business_date({"business_date": "2026-11-03"}) == "2026-11-03"
+    assert service._business_date({}) == "2026-10-01"
+    try:
+        service._business_date({"business_date": "2026-02-30"})
+    except ValueError as error:
+        assert "business date" in str(error)
+    else:
+        raise AssertionError("invalid scope business date must fail closed")

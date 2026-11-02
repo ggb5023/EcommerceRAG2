@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from app.chains.provider import ProviderChainSet
@@ -33,6 +33,15 @@ class LangGraphRagService:
         self.provider_chains = provider_chains
         self.checkpoint_store = checkpoint_store or InMemoryCheckpointStore()
         self.business_date = business_date or os.environ.get("SYNTHETIC_BUSINESS_DATE") or datetime.now(UTC).date().isoformat()
+
+    def _business_date(self, scope: Scope) -> str:
+        """Use the signed shop-local date before any process fallback."""
+        value = str(scope.get("business_date") or "").strip() or self.business_date
+        try:
+            date.fromisoformat(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("business date is invalid") from error
+        return value
 
     def save_asking_checkpoint(self, scope: Scope) -> Checkpoint:
         """Persist only the minimal identity needed to resume an ASKING turn."""
@@ -73,7 +82,7 @@ class LangGraphRagService:
             "scope": scope,
             "response_purpose": response_purpose,
             "is_mock": selected_chains is None,
-            "business_date": self.business_date,
+            "business_date": self._business_date(scope),
         }
         if cancel_event is not None:
             payload["cancel_event"] = cancel_event
@@ -119,7 +128,7 @@ class LangGraphRagService:
             "facts": checked_facts,
             "history_summary": self._validate_history(history_summary),
             "is_mock": selected_chains is None,
-            "business_date": self.business_date,
+            "business_date": self._business_date(scope),
         }
         if cancel_event is not None:
             payload["cancel_event"] = cancel_event
@@ -163,6 +172,7 @@ class LangGraphRagService:
             "history_summary": self._validate_history(history_summary),
             "scope": scope,
             "response_purpose": response_purpose,
+            "business_date": self._business_date(scope),
         }, phase)
 
     @staticmethod

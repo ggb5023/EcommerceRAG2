@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 class Scope(TypedDict, total=False):
     request_id: str
     tenant_id: str
+    business_date: str
     tenant_db_id: str
     user_id: str
     allowed_shop_ids: list[str]
