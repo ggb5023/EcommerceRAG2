@@ -78,6 +78,122 @@ def _load_yaml(path: Path, errors: list[str]) -> dict[str, Any]:
     return value
 
 
+def _validate_principals(principals: Any, prefix: str, tenant_id: str, shops: list[str],
+                         principal_keys: set[tuple[str, str]], errors: list[str]) -> None:
+    if not isinstance(principals, list):
+        errors.append(f"{prefix}.principals: must be a list")
+        return
+    for pindex, principal in enumerate(principals):
+        pfx = f"{prefix}.principals[{pindex}]"
+        if not isinstance(principal, dict):
+            errors.append(f"{pfx}: must be a mapping")
+            continue
+        user_id = _nonempty(principal.get("user_id"), f"{pfx}.user_id", errors)
+        role = _nonempty(principal.get("role"), f"{pfx}.role", errors)
+        if role not in ALLOWED_ROLES:
+            errors.append(f"{pfx}.role: unsupported role {role!r}")
+        pshops = principal.get("shop_ids")
+        if not isinstance(pshops, list) or not all(isinstance(s, str) and s for s in pshops):
+            errors.append(f"{pfx}.shop_ids: must be a list of strings")
+            pshops = []
+        if not set(pshops).issubset(set(shops)):
+            errors.append(f"{pfx}.shop_ids: contains shop outside tenant")
+        key = (tenant_id, user_id)
+        if key in principal_keys:
+            errors.append(f"duplicate principal: {tenant_id}/{user_id}")
+        principal_keys.add(key)
+
+
+def _validate_tenants(tenants: list[Any], errors: list[str]) -> dict[str, set[str]]:
+    tenant_shops: dict[str, set[str]] = {}
+    principal_keys: set[tuple[str, str]] = set()
+    for index, tenant in enumerate(tenants):
+        prefix = f"tenants[{index}]"
+        if not isinstance(tenant, dict):
+            errors.append(f"{prefix}: must be a mapping")
+            continue
+        tenant_id = _nonempty(tenant.get("tenant_id"), f"{prefix}.tenant_id", errors)
+        shops = tenant.get("shops")
+        if not isinstance(shops, list) or not shops or not all(isinstance(s, str) and s for s in shops):
+            errors.append(f"{prefix}.shops: must be a non-empty list of strings")
+            shops = []
+        if tenant_id in tenant_shops:
+            errors.append(f"duplicate tenant_id: {tenant_id}")
+        tenant_shops[tenant_id] = set(shops)
+        _validate_principals(tenant.get("principals"), prefix, tenant_id, shops, principal_keys, errors)
+    return tenant_shops
+
+
+def _validate_document(document: Any, index: int, root: Path, tenant_shops: dict[str, set[str]],
+                      document_ids: set[str], manifest: dict[str, Any], errors: list[str]) -> tuple[str, dict[str, Any] | None]:
+    prefix = f"documents[{index}]"
+    if not isinstance(document, dict):
+        errors.append(f"{prefix}: must be a mapping")
+        return "", None
+    document_id = _nonempty(document.get("document_id"), f"{prefix}.document_id", errors)
+    if document_id in document_ids:
+        errors.append(f"duplicate document_id: {document_id}")
+    document_ids.add(document_id)
+    relative = document.get("path")
+    if not _is_safe_relative(relative):
+        errors.append(f"{prefix}.path: must be a safe relative POSIX path")
+        return document_id, None
+    fmt = _nonempty(document.get("format"), f"{prefix}.format", errors)
+    if fmt not in ALLOWED_FORMATS:
+        errors.append(f"{prefix}.format: unsupported format {fmt!r}")
+    extensions = {".csv"} if fmt == "csv" else ({".md", ".markdown"} if fmt == "markdown" else {".yaml", ".yml"})
+    if Path(relative).suffix.lower() not in extensions:
+        errors.append(f"{prefix}.path: extension does not match format")
+    tenant_id = _nonempty(document.get("tenant_id"), f"{prefix}.tenant_id", errors)
+    shop_id = _nonempty(document.get("shop_id"), f"{prefix}.shop_id", errors)
+    if shop_id not in tenant_shops.get(tenant_id, set()):
+        errors.append(f"{prefix}: shop is not registered under tenant")
+    disclosure = _nonempty(document.get("disclosure_class"), f"{prefix}.disclosure_class", errors)
+    if disclosure not in ALLOWED_DISCLOSURE:
+        errors.append(f"{prefix}.disclosure_class: unsupported value {disclosure!r}")
+    source_type = _nonempty(document.get("source_type"), f"{prefix}.source_type", errors)
+    if source_type != "synthetic":
+        errors.append(f"{prefix}.source_type: must be synthetic")
+    start = _date(document.get("effective_from"), f"{prefix}.effective_from", errors)
+    end = _date(document.get("effective_to"), f"{prefix}.effective_to", errors)
+    if start and end and end <= start:
+        errors.append(f"{prefix}: effective_to must be after effective_from")
+    target = root / relative
+    try:
+        target.relative_to(root)
+    except ValueError:
+        errors.append(f"{prefix}.path: escapes manifest directory")
+        return document_id, None
+    if not target.is_file():
+        errors.append(f"{prefix}.path: file not found: {relative}")
+        return document_id, None
+    content = target.read_bytes()
+    actual_sha256 = sha256_bytes(content)
+    declared_sha256 = document.get("sha256")
+    if not isinstance(declared_sha256, str) or not SHA256_RE.fullmatch(declared_sha256):
+        errors.append(f"{prefix}.sha256: must be 64 lowercase hexadecimal characters")
+    elif declared_sha256 != actual_sha256:
+        errors.append(f"{prefix}.sha256: mismatch (declared does not match file)")
+    file_info = {
+        "document_id": document_id,
+        "path": relative,
+        "format": fmt,
+        "tenant_id": tenant_id,
+        "shop_id": shop_id,
+        "disclosure_class": disclosure,
+        "effective_from": document.get("effective_from").isoformat() if isinstance(document.get("effective_from"), date) else document.get("effective_from"),
+        "effective_to": document.get("effective_to").isoformat() if isinstance(document.get("effective_to"), date) else document.get("effective_to"),
+        "sha256": actual_sha256,
+        "size_bytes": len(content),
+    }
+    for marker in ("synthetic", "provisional", "license"):
+        if marker == "license":
+            continue
+        if marker not in manifest or manifest[marker] is not True:
+            errors.append(f"{prefix}: inherits missing {marker}=true marker")
+    return document_id, file_info
+
+
 def validate_manifest(manifest_path: Path) -> ValidationResult:
     manifest_path = manifest_path.resolve()
     errors: list[str] = []
@@ -94,7 +210,6 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
         errors.append("manifest: synthetic and provisional must both be true")
     if manifest.get("license") != "internal-generated":
         errors.append("manifest: license must be internal-generated")
-
     tenants = manifest.get("tenants")
     documents = manifest.get("documents")
     if not isinstance(tenants, list) or not tenants:
@@ -103,120 +218,17 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
     if not isinstance(documents, list) or not documents:
         errors.append("documents: must be a non-empty list")
         documents = []
-
-    tenant_shops: dict[str, set[str]] = {}
-    principal_keys: set[tuple[str, str]] = set()
-    for index, tenant in enumerate(tenants):
-        prefix = f"tenants[{index}]"
-        if not isinstance(tenant, dict):
-            errors.append(f"{prefix}: must be a mapping")
-            continue
-        tenant_id = _nonempty(tenant.get("tenant_id"), f"{prefix}.tenant_id", errors)
-        shops = tenant.get("shops")
-        if not isinstance(shops, list) or not shops or not all(isinstance(s, str) and s for s in shops):
-            errors.append(f"{prefix}.shops: must be a non-empty list of strings")
-            shops = []
-        if tenant_id in tenant_shops:
-            errors.append(f"duplicate tenant_id: {tenant_id}")
-        tenant_shops[tenant_id] = set(shops)
-        principals = tenant.get("principals")
-        if not isinstance(principals, list):
-            errors.append(f"{prefix}.principals: must be a list")
-            principals = []
-        for pindex, principal in enumerate(principals):
-            pfx = f"{prefix}.principals[{pindex}]"
-            if not isinstance(principal, dict):
-                errors.append(f"{pfx}: must be a mapping")
-                continue
-            user_id = _nonempty(principal.get("user_id"), f"{pfx}.user_id", errors)
-            role = _nonempty(principal.get("role"), f"{pfx}.role", errors)
-            if role not in ALLOWED_ROLES:
-                errors.append(f"{pfx}.role: unsupported role {role!r}")
-            pshops = principal.get("shop_ids")
-            if not isinstance(pshops, list) or not all(isinstance(s, str) and s for s in pshops):
-                errors.append(f"{pfx}.shop_ids: must be a list of strings")
-                pshops = []
-            if not set(pshops).issubset(set(shops)):
-                errors.append(f"{pfx}.shop_ids: contains shop outside tenant")
-            key = (tenant_id, user_id)
-            if key in principal_keys:
-                errors.append(f"duplicate principal: {tenant_id}/{user_id}")
-            principal_keys.add(key)
-
+    tenant_shops = _validate_tenants(tenants, errors)
     document_ids: set[str] = set()
     files: dict[str, dict[str, Any]] = {}
     for index, document in enumerate(documents):
-        prefix = f"documents[{index}]"
-        if not isinstance(document, dict):
-            errors.append(f"{prefix}: must be a mapping")
-            continue
-        document_id = _nonempty(document.get("document_id"), f"{prefix}.document_id", errors)
-        if document_id in document_ids:
-            errors.append(f"duplicate document_id: {document_id}")
-        document_ids.add(document_id)
-        relative = document.get("path")
-        if not _is_safe_relative(relative):
-            errors.append(f"{prefix}.path: must be a safe relative POSIX path")
-            continue
-        fmt = _nonempty(document.get("format"), f"{prefix}.format", errors)
-        if fmt not in ALLOWED_FORMATS:
-            errors.append(f"{prefix}.format: unsupported format {fmt!r}")
-        extensions = {".csv"} if fmt == "csv" else ({".md", ".markdown"} if fmt == "markdown" else {".yaml", ".yml"})
-        if Path(relative).suffix.lower() not in extensions:
-            errors.append(f"{prefix}.path: extension does not match format")
-        tenant_id = _nonempty(document.get("tenant_id"), f"{prefix}.tenant_id", errors)
-        shop_id = _nonempty(document.get("shop_id"), f"{prefix}.shop_id", errors)
-        if shop_id not in tenant_shops.get(tenant_id, set()):
-            errors.append(f"{prefix}: shop is not registered under tenant")
-        disclosure = _nonempty(document.get("disclosure_class"), f"{prefix}.disclosure_class", errors)
-        if disclosure not in ALLOWED_DISCLOSURE:
-            errors.append(f"{prefix}.disclosure_class: unsupported value {disclosure!r}")
-        source_type = _nonempty(document.get("source_type"), f"{prefix}.source_type", errors)
-        if source_type != "synthetic":
-            errors.append(f"{prefix}.source_type: must be synthetic")
-        start = _date(document.get("effective_from"), f"{prefix}.effective_from", errors)
-        end = _date(document.get("effective_to"), f"{prefix}.effective_to", errors)
-        if start and end and end <= start:
-            errors.append(f"{prefix}: effective_to must be after effective_from")
-        target = root / relative
-        try:
-            target.relative_to(root)
-        except ValueError:
-            errors.append(f"{prefix}.path: escapes manifest directory")
-            continue
-        if not target.is_file():
-            errors.append(f"{prefix}.path: file not found: {relative}")
-            continue
-        content = target.read_bytes()
-        actual_sha256 = sha256_bytes(content)
-        declared_sha256 = document.get("sha256")
-        if not isinstance(declared_sha256, str) or not SHA256_RE.fullmatch(declared_sha256):
-            errors.append(f"{prefix}.sha256: must be 64 lowercase hexadecimal characters")
-        elif declared_sha256 != actual_sha256:
-            errors.append(f"{prefix}.sha256: mismatch (declared does not match file)")
-        file_info = {
-            "document_id": document_id,
-            "path": relative,
-            "format": fmt,
-            "tenant_id": tenant_id,
-            "shop_id": shop_id,
-            "disclosure_class": disclosure,
-            "effective_from": document.get("effective_from").isoformat() if isinstance(document.get("effective_from"), date) else document.get("effective_from"),
-            "effective_to": document.get("effective_to").isoformat() if isinstance(document.get("effective_to"), date) else document.get("effective_to"),
-            "sha256": actual_sha256,
-            "size_bytes": len(content),
-        }
-        files[document_id] = file_info
-        for marker in ("synthetic", "provisional", "license"):
-            if marker == "license":
-                continue
-            if marker not in manifest or manifest[marker] is not True:
-                errors.append(f"{prefix}: inherits missing {marker}=true marker")
+        document_id, file_info = _validate_document(document, index, root, tenant_shops, document_ids, manifest, errors)
+        if file_info is not None:
+            files[document_id] = file_info
     if not document_ids.intersection({"syn-policy-a", "syn-faq-a"}):
         errors.append("documents: expected policy or FAQ document is missing")
     document_material = json.dumps({"manifest_sha256": sha256_bytes(raw_manifest), "files": files}, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
     return ValidationResult(manifest, root, files, errors, sha256_bytes(raw_manifest), sha256_bytes(document_material))
-
 
 def _state_root() -> Path:
     return Path(__file__).resolve().parents[3] / STATE_ROOT
