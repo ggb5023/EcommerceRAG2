@@ -51,8 +51,36 @@ cd frontend && npm test && npm run build
 
 ## 实际交付
 
-（完成后填写）
+- 真实 batch：`run_bailian_batch.py --live` **PASS**；53 可评分、7 排除；
+  `actual_request_count=236`，`limits={max_requests:240,max_requests_per_minute:60}`；
+  输出 `.local/wp22/bailian-batch-usage.json`，捕获在仓外 0700 目录。
+- usage_log（eval DB）：基线 0 行 → **236 行**；输入 **132439** tokens、输出 **4177**
+  tokens、失败 0。分槽：embedding 130 行 / 50321 输入；rerank 53 / 57832 输入；
+  generation 53 / 24286 输入 / 4177 输出。
+- 真实检索（batch 的 `rerank_top5`）：Recall@5 **1.000000**、MRR **0.981132**、
+  nDCG@5 0.986073；`embedding_top5` 为 Recall@5 0.962264、MRR 0.884277。
+- aligned-53 离线词法检索：Recall@5 **0.981132**、MRR **0.981132**、nDCG@5 0.981132；
+  与批次的 rerank 对比：Recall 更高（1.0 vs 0.981），MRR 持平；embedding 更低。
+- 错答率：batch 的 `answer_quality_status=NOT_RUN`；没有人工/agent 语义复核，
+  因此**不能给出错答率**。精确答案点匹配诊断为 0/53（全部
+  `generation_rewrite_mismatch`），属于字符串/改写诊断，不作为质量结论。
+- M6 真实建议（`新区配送需要核对哪些信息？`）：create **202**，turn **DONE**，
+  `customer_reply.can_copy=true`、`blocked_reason=""`、citations **1**，
+  copy **200**、copy citations **1**；完整响应在 `.local/wp22/m6-suggestion-delivery.json`。
+  真实 Provider 栈启动在临时端口，验证后已停止并恢复 dev（当前 profile mock）。
+- 前端未改：`npm test` **49 passed**，`npm run build` **79.54KB** gzip。
+- 门禁：`check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**；`--smoke` **45 PASS**。
 
 ## 未覆盖路径
 
-（完成后填写）
+- **真实模型成本**：第一次 batch（236 请求）因 usage DSN 未正确导出而没有记入 usage_log，
+  修正后重跑 236 请求；加 3 条 M6 建议，实际约 **484 次 Provider 请求**（以平台账单为准）。
+  不要把 236 行 usage_log 误读成总调用量。
+- **错答率未测**：无人工/agent 复核；`answer_quality_status=NOT_RUN`，不把
+  `DONE` 或精确字符串匹配当成正确率。
+- M6 的 AI 子进程由 supervisor 启动时未获得 usage DSN，故 M6 调用没有新增
+  `usage_log` 行；上面 236 行只对应 batch。这是本轮实测到的记录缺口。
+- 未跑完整 live lifecycle（37 文档重导入/发布）、HTTP/SSE 53 例和 7 条 safety HTTP；
+  M6 使用开发库现有 37 个 active 文档与临时真实 Provider 栈。
+- 临时真实栈使用 dev 库，写入过 M6 建议会话；dev 服务已恢复为 mock profile。
+- 未改评测集/真值/对齐/契约、代码、棘轮/基线/smoke；未 push。
