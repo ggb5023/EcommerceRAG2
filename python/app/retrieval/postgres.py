@@ -281,6 +281,88 @@ class PostgresRetriever:
             sparse_rrf_weight=sparse_rrf_weight,
         )
 
+    def _execute_search(
+        self,
+        *,
+        dense_sql: str,
+        legacy_sparse_sql: str,
+        sparsevec_sql: str,
+        skipped_sql: str,
+        vector: str,
+        query: str,
+        sparse_query_literal: str | None,
+        query_sparse_tokenizer: str | None,
+        params_common: list[Any],
+        selected_params: list[Any],
+        tokenizer_params: list[Any],
+    ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+        self.last_sparse_skipped_tokenizer = 0
+        with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                dense_sql,
+                [vector, *params_common, *selected_params, vector, self._dense_candidates],
+            )
+            dense_rows = cursor.fetchall()
+            sparse_rows: list[Mapping[str, Any]] = []
+            actual_mode = self._resolve_sparse_mode(cursor, sparse_query_literal)
+            if actual_mode == "sparsevec":
+                cursor.execute(
+                    sparsevec_sql,
+                    [sparse_query_literal, *params_common, *selected_params,
+                     *tokenizer_params, self._sparse_candidates],
+                )
+                sparse_rows = cursor.fetchall()
+                if query_sparse_tokenizer:
+                    cursor.execute(
+                        skipped_sql,
+                        [*params_common, *selected_params, query_sparse_tokenizer],
+                    )
+                    skipped = cursor.fetchone()
+                    self.last_sparse_skipped_tokenizer = int(
+                        skipped.get("skipped", 0) if isinstance(skipped, Mapping)
+                        else (skipped[0] if skipped else 0)
+                    )
+            elif actual_mode == "text_heuristic":
+                cursor.execute(
+                    legacy_sparse_sql,
+                    [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
+                )
+                sparse_rows = cursor.fetchall()
+            # dense_only runs no sparse query: the merge below sees an empty set.
+            self.last_sparse_mode = actual_mode
+        return dense_rows, sparse_rows
+
+    def _merge_results(
+        self,
+        dense_rows: list[Mapping[str, Any]],
+        sparse_rows: list[Mapping[str, Any]],
+        *,
+        tenant: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        dense_by_id = {str(row["chunk_id"]): (row, rank) for rank, row in enumerate(dense_rows, 1)}
+        sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
+        combined: list[RetrievalRow] = []
+        for chunk_id, (row, dense_rank) in dense_by_id.items():
+            sparse_rank = sparse_rank_by_id.get(chunk_id, 0)
+            candidate = self._row_to_candidate(row, rank=dense_rank, sparse_rank=sparse_rank,
+                                                tenant_id=tenant, sparse_rrf_weight=self._sparse_rrf_weight)
+            combined.append(candidate)
+        for chunk_id, row in ((str(row["chunk_id"]), row) for row in sparse_rows):
+            if chunk_id in dense_by_id:
+                continue
+            sparse_rank = sparse_rank_by_id[chunk_id]
+            candidate = self._row_to_candidate(
+                row,
+                rank=0,
+                sparse_rank=sparse_rank,
+                tenant_id=tenant,
+                sparse_rrf_weight=self._sparse_rrf_weight,
+            )
+            combined.append(candidate)
+        combined.sort(key=lambda item: (-item.rrf_score, item.id))
+        return [item.as_evidence() for item in combined[:limit]]
+
     def search(
         self,
         *,
@@ -344,64 +426,21 @@ class PostgresRetriever:
             " AND c.sparse_embedding IS NOT NULL "
             "AND c.sparse_tokenizer_id IS DISTINCT FROM %s"
         )
-        self.last_sparse_skipped_tokenizer = 0
         params_common = [tenant_db_id, shops, documents, *date_params]
-        with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                dense_sql,
-                [vector, *params_common, *selected_params, vector, self._dense_candidates],
-            )
-            dense_rows = cursor.fetchall()
-            sparse_rows: list[Mapping[str, Any]] = []
-            actual_mode = self._resolve_sparse_mode(cursor, sparse_query_literal)
-            if actual_mode == "sparsevec":
-                cursor.execute(
-                    sparsevec_sql,
-                    [sparse_query_literal, *params_common, *selected_params,
-                     *tokenizer_params, self._sparse_candidates],
-                )
-                sparse_rows = cursor.fetchall()
-                if query_sparse_tokenizer:
-                    cursor.execute(
-                        skipped_sql,
-                        [*params_common, *selected_params, query_sparse_tokenizer],
-                    )
-                    skipped = cursor.fetchone()
-                    self.last_sparse_skipped_tokenizer = int(
-                        skipped.get("skipped", 0) if isinstance(skipped, Mapping)
-                        else (skipped[0] if skipped else 0)
-                    )
-            elif actual_mode == "text_heuristic":
-                cursor.execute(
-                    legacy_sparse_sql,
-                    [vector, query, sorted(_terms(query)), *params_common, *selected_params, self._sparse_candidates],
-                )
-                sparse_rows = cursor.fetchall()
-            # dense_only runs no sparse query: the merge below sees an empty set.
-            self.last_sparse_mode = actual_mode
-
-        dense_by_id = {str(row["chunk_id"]): (row, rank) for rank, row in enumerate(dense_rows, 1)}
-        sparse_rank_by_id = {str(row["chunk_id"]): rank for rank, row in enumerate(sparse_rows, 1)}
-        combined: list[RetrievalRow] = []
-        for chunk_id, (row, dense_rank) in dense_by_id.items():
-            sparse_rank = sparse_rank_by_id.get(chunk_id, 0)
-            candidate = self._row_to_candidate(row, rank=dense_rank, sparse_rank=sparse_rank,
-                                                tenant_id=tenant, sparse_rrf_weight=self._sparse_rrf_weight)
-            combined.append(candidate)
-        for chunk_id, row in ((str(row["chunk_id"]), row) for row in sparse_rows):
-            if chunk_id in dense_by_id:
-                continue
-            sparse_rank = sparse_rank_by_id[chunk_id]
-            candidate = self._row_to_candidate(
-                row,
-                rank=0,
-                sparse_rank=sparse_rank,
-                tenant_id=tenant,
-                sparse_rrf_weight=self._sparse_rrf_weight,
-            )
-            combined.append(candidate)
-        combined.sort(key=lambda item: (-item.rrf_score, item.id))
-        return [item.as_evidence() for item in combined[:limit]]
+        dense_rows, sparse_rows = self._execute_search(
+            dense_sql=dense_sql,
+            legacy_sparse_sql=legacy_sparse_sql,
+            sparsevec_sql=sparsevec_sql,
+            skipped_sql=skipped_sql,
+            vector=vector,
+            query=query,
+            sparse_query_literal=sparse_query_literal,
+            query_sparse_tokenizer=query_sparse_tokenizer,
+            params_common=params_common,
+            selected_params=selected_params,
+            tokenizer_params=tokenizer_params,
+        )
+        return self._merge_results(dense_rows, sparse_rows, tenant=tenant, limit=limit)
 
     def _sparse_column_populated(self, cursor: Any) -> bool:
         """Report whether any chunk carries a sparse embedding.
