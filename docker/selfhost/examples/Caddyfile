@@ -14,7 +14,9 @@ shop.example.com {
     tls /etc/ecommerce-rag/web.crt /etc/ecommerce-rag/web.key
 
     # R4-4: same-origin API paths, no rewrite. /v1/* covers /v1/customer.
-    @api path /v1/* /admin/v1/* /v1/customer /v1/customer/*
+    # /healthz is forwarded too so load-balancer probes reach the gateway
+    # instead of the SPA fallback.
+    @api path /v1/* /admin/v1/* /v1/customer /v1/customer/* /healthz
     handle @api {
         reverse_proxy 127.0.0.1:8080 {
             # R4-3: stream SSE without buffering.
