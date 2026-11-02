@@ -55,7 +55,7 @@ WORKSPACE_URL=http://127.0.0.1:5174 bash scripts/dev/admin-visual-shots.sh
 
 ## 实际交付
 
-- tokens：亮/暗 slate + indigo 变量与 `--color-primary-hover/active`；`html.dark` 与
+- tokens：亮/暗 slate + indigo 变量与 `--color-primary-hover` 与 `--color-primary-active`；`html.dark` 与
   `html.light` 覆盖，默认跟随 `prefers-color-scheme`；选择存 `ecr-theme`。
 - 管理台顶栏 `data-testid="theme-toggle"`；`main.ts` 在任意页面（含登录页）应用主题。
 - 展示层拆分：`AdminShell`（rail + header + slot）、`AdminPageRouter`、`AdminDialogs`、
