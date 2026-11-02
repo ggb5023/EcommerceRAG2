@@ -17,7 +17,7 @@
 | 08 | 前端设计系统（M9 阶段 1） | done | — | — | `bad1225` |
 | 09 | 决策账本语义（重开 02） | done | — | — | `7675ad2` |
 | 10 | D2 前置代理示例（nginx/caddy） | done | — | — | `f65b6c4` |
-| 11 | 稀疏查询 A/B（0029 第三步） | active | — | — | `139b8d3` |
+| 11 | 稀疏查询 A/B（0029 第三步） | implemented | A/B 证据缺：offline eval 不经 PostgresRetriever；待 WP12 检索 harness | — | `1408d53` |
 
 ## 同步规则
 
