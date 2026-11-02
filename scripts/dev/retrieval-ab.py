@@ -483,10 +483,13 @@ def _embeddings(provider, texts: list[str], text_type: str, tenant_id: int,
 
 
 def _query_embeddings(queries: list[str], model: str, tenant_id: int,
-                      limiter: RequestLimiter) -> list[tuple[tuple[float, ...], tuple[Any, ...]]]:
+                      limiter: RequestLimiter) -> list[tuple[tuple[float, ...], tuple[Any, ...], str]]:
+    from app.ingest.sparse import sparse_tokenizer_id
+
     provider = _provider_for_model(model)
     results = _embeddings(provider, queries, "query", tenant_id, limiter)
-    return [(tuple(item.dense), tuple(item.sparse)) for item in results]
+    tokenizer = sparse_tokenizer_id(getattr(provider, "provider_name", "provider"), results[0].model)
+    return [(tuple(item.dense), tuple(item.sparse), tokenizer) for item in results]
 
 
 def reembed(model: str | None = None, limiter: RequestLimiter | None = None) -> int:
@@ -591,8 +594,9 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _evaluate(mode: str, cases: list[dict[str, Any]], vectors: list[tuple[Any, Any]],
-              scope: dict[str, Any], sparse_rrf_weight: float) -> tuple[list[dict[str, Any]], int]:
+def _evaluate(mode: str, cases: list[dict[str, Any]],
+              vectors: list[tuple[Any, Any, str]], scope: dict[str, Any],
+              sparse_rrf_weight: float) -> tuple[list[dict[str, Any]], int, int]:
     from app.retrieval.postgres import PostgresRetriever
 
     dsn = _dsn("V2_RETRIEVER_DSN", env_file=DEV_ENV)
@@ -602,17 +606,20 @@ def _evaluate(mode: str, cases: list[dict[str, Any]], vectors: list[tuple[Any, A
     expected_mode = "text_heuristic" if mode == "legacy" else "sparsevec"
     rows = []
     wrong_mode = 0
-    for item, (dense, sparse) in zip(cases, vectors):
+    skipped_tokenizer = 0
+    for item, (dense, sparse, tokenizer) in zip(cases, vectors):
         case = item["case"]
         results = asyncio.run(retriever.asearch(
             query=case["query"],
             query_vector=dense,
             query_sparse=sparse,
+            query_sparse_tokenizer=tokenizer,
             scope=scope,
             response_purpose="internal",
             business_date=case["business_date"],
             limit=8,
         ))
+        skipped_tokenizer += retriever.last_sparse_skipped_tokenizer
         if retriever.last_sparse_mode != expected_mode:
             wrong_mode += 1
         top, rank = _rank(results, item["expected"])
@@ -621,7 +628,7 @@ def _evaluate(mode: str, cases: list[dict[str, Any]], vectors: list[tuple[Any, A
             **_score(rank, top, item["expected"]),
             "actual_sparse_mode": retriever.last_sparse_mode,
         })
-    return rows, wrong_mode
+    return rows, wrong_mode, skipped_tokenizer
 
 
 def _print_table(label: str, rows: list[dict[str, Any]]) -> None:
@@ -675,8 +682,12 @@ def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None
         [item["case"]["query"] for item in cases], embedding_model, tenant_id, limiter,
     )
     scope = _scope(tenant_id, documents)
-    legacy, legacy_wrong = _evaluate("legacy", cases, vectors, scope, sparse_rrf_weight)
-    sparse, sparse_wrong = _evaluate("sparsevec", cases, vectors, scope, sparse_rrf_weight)
+    legacy, legacy_wrong, legacy_skipped = _evaluate(
+        "legacy", cases, vectors, scope, sparse_rrf_weight,
+    )
+    sparse, sparse_wrong, sparse_skipped = _evaluate(
+        "sparsevec", cases, vectors, scope, sparse_rrf_weight,
+    )
     legacy_metrics = _metrics(legacy)
     sparse_metrics = _metrics(sparse)
     _print_table("MODE legacy", legacy)
@@ -702,6 +713,8 @@ def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None
         },
         "legacy_wrong_mode": legacy_wrong,
         "sparsevec_wrong_mode": sparse_wrong,
+        "skipped_tokenizer_mismatch": sparse_skipped,
+        "legacy_skipped_tokenizer_mismatch": legacy_skipped,
         "provider_requests": limiter.used,
     }
     print("\nSUMMARY " + json.dumps(summary, ensure_ascii=False, sort_keys=True))

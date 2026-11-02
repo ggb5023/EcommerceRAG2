@@ -160,6 +160,7 @@ class PostgresRetriever:
         self._sparse_mode: str | None = None
         self._sparse_mode_checked_at = 0.0
         self.last_sparse_mode: str | None = None
+        self.last_sparse_skipped_tokenizer = 0
 
     def verify_schema(self) -> None:
         """Fail closed unless the checksum migration has installed retrieval tables."""
@@ -290,6 +291,7 @@ class PostgresRetriever:
         business_date: str | None = None,
         limit: int = 8,
         query_sparse: Sequence[SparseWeight] | None = None,
+        query_sparse_tokenizer: str | None = None,
     ) -> list[dict[str, Any]]:
         if not query.strip():
             raise ValueError("query is required")
@@ -325,13 +327,24 @@ class PostgresRetriever:
             ") AS authorized WHERE sparse_score > 0 "
             "ORDER BY sparse_score DESC, chunk_id LIMIT %s"
         )
+        tokenizer_sql = ""
+        tokenizer_params: list[Any] = []
+        if query_sparse_tokenizer:
+            tokenizer_sql = " AND c.sparse_tokenizer_id = %s"
+            tokenizer_params = [query_sparse_tokenizer]
         sparsevec_sql = (
             "SELECT " + columns + "NULL::float8 AS distance, "
             "-(c.sparse_embedding <#> %s::sparsevec) AS sparse_score "
-            "FROM chunk c " + where + " " + selected_sql +
+            "FROM chunk c " + where + " " + selected_sql + tokenizer_sql +
             " AND c.sparse_embedding IS NOT NULL "
             "ORDER BY sparse_score DESC, chunk_id LIMIT %s"
         )
+        skipped_sql = (
+            "SELECT count(*) AS skipped FROM chunk c " + where + " " + selected_sql +
+            " AND c.sparse_embedding IS NOT NULL "
+            "AND c.sparse_tokenizer_id IS DISTINCT FROM %s"
+        )
+        self.last_sparse_skipped_tokenizer = 0
         params_common = [tenant_db_id, shops, documents, *date_params]
         with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
             cursor.execute(
@@ -344,9 +357,20 @@ class PostgresRetriever:
             if actual_mode == "sparsevec":
                 cursor.execute(
                     sparsevec_sql,
-                    [sparse_query_literal, *params_common, *selected_params, self._sparse_candidates],
+                    [sparse_query_literal, *params_common, *selected_params,
+                     *tokenizer_params, self._sparse_candidates],
                 )
                 sparse_rows = cursor.fetchall()
+                if query_sparse_tokenizer:
+                    cursor.execute(
+                        skipped_sql,
+                        [*params_common, *selected_params, query_sparse_tokenizer],
+                    )
+                    skipped = cursor.fetchone()
+                    self.last_sparse_skipped_tokenizer = int(
+                        skipped.get("skipped", 0) if isinstance(skipped, Mapping)
+                        else (skipped[0] if skipped else 0)
+                    )
             elif actual_mode == "text_heuristic":
                 cursor.execute(
                     legacy_sparse_sql,

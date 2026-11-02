@@ -140,3 +140,107 @@ def test_query_sparse_literal_is_reused_from_ingest():
     literal, reason = to_literal([SparseWeight(token_id=0, weight=1.0)])
     assert reason is None
     assert literal == "{1:1}/131072"
+
+
+_SEARCH_ROW = {
+    "chunk_id": 1,
+    "content": "authorized content",
+    "chunk_hash": "hash",
+    "source_ref": "db://chunk/1",
+    "document_id": "doc-1",
+    "version_id": 1,
+    "shop_id": "shop",
+    "disclosure_class": "external_allowed",
+    "external_allowed": True,
+    "meta_json": {},
+    "distance": 0.1,
+}
+
+
+class _SearchCursor:
+    def __init__(self, sparse_row, skipped):
+        self.sparse_row = sparse_row
+        self.skipped = skipped
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+
+    def fetchall(self):
+        sql = self.calls[-1][0]
+        if "<#>" in sql:
+            return [self.sparse_row] if self.sparse_row else []
+        return [dict(_SEARCH_ROW)]
+
+    def fetchone(self):
+        sql = self.calls[-1][0]
+        if "AS skipped" in sql:
+            return {"skipped": self.skipped}
+        return {"populated": True}
+
+
+class _SearchConnection:
+    def __init__(self, cursor):
+        self.cursor_instance = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def cursor(self):
+        return self.cursor_instance
+
+
+def _search_retriever(cursor):
+    retriever = PostgresRetriever(
+        "postgresql://unused", sparse_retrieval="sparsevec", sparse_rrf_weight=0.7,
+        connect=lambda *_args, **_kwargs: _SearchConnection(cursor),
+    )
+    retriever._sparse_mode = "sparsevec"
+    retriever._sparse_mode_checked_at = time.monotonic()
+    return retriever
+
+
+def _search_kwargs():
+    return dict(
+        query="query",
+        query_vector=[0.0] * 1024,
+        query_sparse=[SparseWeight(token_id=1, weight=1.0)],
+        query_sparse_tokenizer="mock:mock-embedding:sparse",
+        scope={
+            "tenant_id": "tenant", "tenant_db_id": "1", "allowed_shop_ids": ["shop"],
+            "allowed_document_ids": ["doc-1"], "shop_id": "shop", "role": "operator",
+        },
+        response_purpose="internal",
+        business_date="2026-09-29",
+        limit=8,
+    )
+
+
+def test_sparsevec_keeps_chunks_with_the_same_tokenizer_version():
+    cursor = _SearchCursor(dict(_SEARCH_ROW), skipped=0)
+    retriever = _search_retriever(cursor)
+    results = retriever.search(**_search_kwargs())
+    assert [item["id"] for item in results] == ["db-chunk-1"]
+    assert retriever.last_sparse_skipped_tokenizer == 0
+    sparse_sql, sparse_params = next(call for call in cursor.calls if "<#>" in call[0])
+    assert "c.sparse_tokenizer_id = %s" in sparse_sql
+    assert "mock:mock-embedding:sparse" in sparse_params
+    assert sparse_sql.count("%s") == len(sparse_params)
+
+
+def test_sparsevec_skips_and_counts_a_different_tokenizer_version():
+    cursor = _SearchCursor(None, skipped=2)
+    retriever = _search_retriever(cursor)
+    results = retriever.search(**_search_kwargs())
+    assert [item["id"] for item in results] == ["db-chunk-1"]
+    assert all(item["sparse_rank"] == 0 for item in results)
+    assert retriever.last_sparse_skipped_tokenizer == 2

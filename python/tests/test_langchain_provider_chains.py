@@ -51,6 +51,7 @@ async def _provider_chains_keep_metadata_and_embedding_contract():
     })
     assert len(embedding["items"][0]["dense"]) == 1024
     assert embedding["items"][0]["provider"]["model"] == "mock-embedding"
+    assert embedding["items"][0]["sparse_tokenizer_id"] == "mock:mock-embedding:sparse"
 
 
 async def _provider_graph_is_async_and_remains_non_copyable():
@@ -241,6 +242,7 @@ def test_provider_graph_uses_persistent_retriever_without_fixture_candidates():
         assert len(retriever.calls) == 1
         assert retriever.calls[0]["scope"]["allowed_document_ids"] == ["persist-doc"]
         assert retriever.calls[0]["limit"] == 20
+        assert retriever.calls[0]["query_sparse_tokenizer"] == "mock:mock-embedding:sparse"
 
     asyncio.run(run())
 

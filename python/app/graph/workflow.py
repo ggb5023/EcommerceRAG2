@@ -165,6 +165,9 @@ def _validate_embedding_batch(value: object, expected_count: int, label: str) ->
             raise ValueError(f"provider {label} embedding dense values are invalid")
         if not isinstance(sparse, list) or not sparse:
             raise ValueError(f"provider {label} embedding sparse values are invalid")
+        tokenizer_id = item.get("sparse_tokenizer_id")
+        if not isinstance(tokenizer_id, str) or not tokenizer_id.strip():
+            raise ValueError(f"provider {label} sparse tokenizer id is invalid")
         for weight in sparse:
             if not isinstance(weight, Mapping):
                 raise TypeError(f"provider {label} sparse item is invalid")
@@ -224,6 +227,7 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
                 SparseWeight(token_id=int(weight["token_id"]), weight=float(weight["weight"]))
                 for weight in query_items[0]["sparse"]
             ],
+            query_sparse_tokenizer=query_items[0]["sparse_tokenizer_id"],
             scope=state["scope"],
             response_purpose=state.get("response_purpose", "internal"),
             business_date=state.get("business_date"),
@@ -235,6 +239,9 @@ async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) ->
                 "retrieval_mode": "pgvector_trigram_rrf",
                 "query": query_items[0].get("provider", {}),
                 "candidate_count": len(retrieved),
+                "skipped_tokenizer_mismatch": getattr(
+                    chains.retriever, "last_sparse_skipped_tokenizer", 0
+                ),
             },
         }
     document_value = await chains.embedding.ainvoke(scoped(state, {

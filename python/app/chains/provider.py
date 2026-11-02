@@ -13,6 +13,7 @@ from typing import Any
 
 from langchain_core.runnables import Runnable, RunnableLambda
 
+from app.ingest.sparse import sparse_tokenizer_id
 from app.providers.contracts import (
     ControlProvider,
     EmbeddingProvider,
@@ -127,6 +128,9 @@ def build_provider_chains(
                         for weight in item.sparse
                     ],
                     "dimensions": item.dimensions,
+                    "sparse_tokenizer_id": sparse_tokenizer_id(
+                        getattr(embedding, "provider_name", "provider"), item.model
+                    ),
                     "provider": _metadata(
                         model=item.model,
                         request_id=item.request_id,
