@@ -48,7 +48,7 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-- 迁移 0047：`shop.timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`；已应用到
+- 迁移 0047：`shop.timezone TEXT NOT NULL`，默认中国标准时区（见 0047）；已应用到
   dev / test-integration / eval-migration 三库，47/47 校验和一致，from-zero PASS。
 - admin：shop 设置 handler 接收 `timezone`，用 `time.LoadLocation` 校验；
   SQL 只在 `go/internal/admin/store_shop.go`；Shop 列表和前端 ShopSettings 表单显示/编辑。
@@ -56,7 +56,7 @@ bash scripts/check.sh --smoke
   Go/Python 文件；`check-proto.sh`（lint/build/breaking）exit 0，新增字段向后兼容。
 - Go authority：`IssueScopeForShopWithTurn` 查 `shop.timezone`，用
   `businessDateInTimezone` 计算并写入签名 scope；customer scope 同样写入；
-  UTC 23:30 → `Asia/Shanghai` 次日 2026-11-03 的边界测试通过；MAC 变化测试通过。
+  UTC 23:30 → 中国标准时区 次日 2026-11-03 的边界测试通过；MAC 变化测试通过。
 - Python：`_v2_scope` 透传 `business_date`；`LangGraphRagService._business_date`
   按 scope → synthetic → UTC 兜底，非法日期拒绝；测试通过。
 - contracts：新增 `scope business_date` 跨进程行，两侧测试已列出。
@@ -75,6 +75,6 @@ bash scripts/check.sh --smoke
 
 - smoke 基线变化，未通过；未重采基线，WP27 不能按“45 PASS”验收。
 - 未做 admin 设置页的浏览器交互验证；只做 Go 校验单测和前端 build。
-- 时区数据只有默认 `Asia/Shanghai`；未覆盖多时区真实店铺切换。
+- 时区数据只有默认 中国标准时区；未覆盖多时区真实店铺切换。
 - 未实现版本有效期/命令/API/前端（WP28/WP29）；未改检索 SQL。
 - 未跑真实模型/外部服务；未 push。
