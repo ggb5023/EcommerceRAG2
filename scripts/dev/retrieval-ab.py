@@ -592,12 +592,12 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _evaluate(mode: str, cases: list[dict[str, Any]], vectors: list[tuple[Any, Any]],
-              scope: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+              scope: dict[str, Any], sparse_rrf_weight: float) -> tuple[list[dict[str, Any]], int]:
     from app.retrieval.postgres import PostgresRetriever
 
     dsn = _dsn("V2_RETRIEVER_DSN", env_file=DEV_ENV)
     retriever = PostgresRetriever(
-        dsn, sparse_retrieval=mode, sparse_rrf_weight=SPARSE_RRF_WEIGHT,
+        dsn, sparse_retrieval=mode, sparse_rrf_weight=sparse_rrf_weight,
     )
     expected_mode = "text_heuristic" if mode == "legacy" else "sparsevec"
     rows = []
@@ -632,7 +632,8 @@ def _print_table(label: str, rows: list[dict[str, Any]]) -> None:
               f"{row['ndcg_at_5']:.4f}\t{','.join(row['top5'])}")
 
 
-def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None) -> int:
+def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None,
+        sparse_rrf_weight: float = SPARSE_RRF_WEIGHT) -> int:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -674,8 +675,8 @@ def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None
         [item["case"]["query"] for item in cases], embedding_model, tenant_id, limiter,
     )
     scope = _scope(tenant_id, documents)
-    legacy, legacy_wrong = _evaluate("legacy", cases, vectors, scope)
-    sparse, sparse_wrong = _evaluate("sparsevec", cases, vectors, scope)
+    legacy, legacy_wrong = _evaluate("legacy", cases, vectors, scope, sparse_rrf_weight)
+    sparse, sparse_wrong = _evaluate("sparsevec", cases, vectors, scope, sparse_rrf_weight)
     legacy_metrics = _metrics(legacy)
     sparse_metrics = _metrics(sparse)
     _print_table("MODE legacy", legacy)
@@ -692,6 +693,7 @@ def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None
     summary = {
         "case_count": len(cases),
         "embedding_model": embedding_model,
+        "sparse_rrf_weight": sparse_rrf_weight,
         "changed_case_count": changed,
         "legacy": legacy_metrics,
         "sparsevec": sparse_metrics,
@@ -720,10 +722,13 @@ def main() -> int:
     parser.add_argument("--model", help="embedding model for reembed (default: providers.env)")
     parser.add_argument("--max-requests", type=int, default=300)
     parser.add_argument("--max-requests-per-minute", type=int, default=30)
+    parser.add_argument("--sparse-rrf-weight", type=float, default=SPARSE_RRF_WEIGHT)
     args = parser.parse_args()
     try:
         if not args.revision_root.is_dir():
             raise AbFailure(f"approved revision is unavailable: {args.revision_root}")
+        if not math.isfinite(args.sparse_rrf_weight) or args.sparse_rrf_weight <= 0:
+            raise AbFailure("--sparse-rrf-weight must be a positive finite number")
         limiter = RequestLimiter(args.max_requests, args.max_requests_per_minute)
         if args.command == "seed":
             return seed(args.revision_root)
@@ -731,7 +736,7 @@ def main() -> int:
             return reembed(args.model, limiter)
         if args.limit is not None and args.limit < 1:
             raise AbFailure("--limit must be positive")
-        return run(args.revision_root, args.limit, limiter)
+        return run(args.revision_root, args.limit, limiter, args.sparse_rrf_weight)
     except AbFailure as error:
         print(f"FAIL {error}")
         return 1
