@@ -157,3 +157,65 @@ func TestResolutionSummarySQLReconciliation(t *testing.T) {
 		t.Fatalf("summary = %+v, want turns=9 solved=3 clarified=1 abandoned=1 failed=1 cancelled=1 pending=1 unknown=1", summary)
 	}
 }
+
+func TestSuggestionTurnsExcludedFromOutcomesAndGaps(t *testing.T) {
+	_, migration, gateway, _, handler := integrationHandlerWithIngest(t, false)
+	ctx := context.Background()
+	tenant := handler.Session.TenantID
+	var userID int64
+	if err := migration.QueryRow(ctx, `SELECT id FROM app_user WHERE tenant_id=$1 ORDER BY id LIMIT 1`, tenant).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	var conversationID int64
+	if err := migration.QueryRow(ctx, `INSERT INTO conversation(tenant_id,user_id,title,kind) VALUES($1,$2,'suggestion-hidden','suggestion') RETURNING id`,
+		tenant, userID).Scan(&conversationID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, statement := range []string{
+			`DELETE FROM turn_decision WHERE tenant_id=$1`,
+			`DELETE FROM conversation_execution WHERE tenant_id=$1`,
+			`DELETE FROM turn WHERE tenant_id=$1`,
+			`DELETE FROM conversation WHERE tenant_id=$1`,
+		} {
+			if _, err := migration.Exec(context.Background(), statement, tenant); err != nil {
+				t.Logf("suggestion analytics cleanup skipped: %v", err)
+			}
+		}
+	})
+	now := time.Now()
+	from := now.Add(-time.Hour)
+	for index, state := range []string{"DONE", "FAILED"} {
+		var turnID int64
+		if err := migration.QueryRow(ctx, `INSERT INTO turn(tenant_id,conversation_id,turn_no,request_id,user_query,status,kind)
+			VALUES($1,$2,$3,$4,'suggestion probe',$5,'suggestion') RETURNING id`,
+			tenant, conversationID, index+1, fmt.Sprintf("suggestion-%d-%d", now.UnixNano(), index), state).Scan(&turnID); err != nil {
+			t.Fatal(err)
+		}
+		var executionID int64
+		if err := migration.QueryRow(ctx, `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,finished_at)
+			VALUES($1,$2,1,$3,$4,true,$5) RETURNING id`,
+			tenant, turnID, fmt.Sprintf("suggestion-exec-%d-%d", now.UnixNano(), index), state, now.Add(-time.Minute)).Scan(&executionID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := migration.Exec(ctx, `INSERT INTO turn_decision(tenant_id,execution_id,conversation_id,turn_id,state,chosen,rejected)
+			VALUES($1,$2,$3,$4,$5,'[]','[]')`,
+			tenant, executionID, strconv.FormatInt(conversationID, 10), strconv.FormatInt(turnID, 10), state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := adminStore.ResolutionSummary(ctx, gateway, tenant, from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.TurnsTotal != 0 || summary.ScoredTotal != 0 || summary.Solved != 0 || summary.Failed != 0 {
+		t.Fatalf("suggestion turns entered outcomes: %+v", summary)
+	}
+	gaps, _, err := adminStore.KnowledgeGaps(ctx, gateway, tenant, from, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gaps) != 0 {
+		t.Fatalf("suggestion turns entered gaps: %+v", gaps)
+	}
+}

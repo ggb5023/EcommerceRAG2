@@ -43,6 +43,46 @@ type ResolutionSummary struct {
 // The query asks for one extra row only to detect that the bound was hit.
 const resolutionFetchLimit = 50000
 
+// Suggestion turns are internal M6 workbench executions, not merchant outcomes
+// or knowledge gaps. Both analytics queries filter them at the source.
+const resolutionSummarySQL = `SELECT t.id, t.conversation_id, t.parent_turn_id, t.created_at,
+			latest.state, latest.finished_at
+		FROM turn t
+		LEFT JOIN LATERAL (
+			SELECT td.state, e.finished_at
+			FROM conversation_execution e
+			LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
+			WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
+			ORDER BY e.execution_no DESC
+			LIMIT 1
+		) latest ON true
+		WHERE t.tenant_id=$1 AND t.created_at>=$2 AND t.kind='user'
+		ORDER BY t.created_at DESC
+		LIMIT $3`
+
+const knowledgeGapsSQL = `WITH latest AS (
+			SELECT t.id, t.conversation_id, t.parent_turn_id, t.created_at, t.user_query,
+				decision.state, decision.finished_at
+			FROM turn t
+			LEFT JOIN LATERAL (
+				SELECT td.state, e.finished_at
+				FROM conversation_execution e
+				LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
+				WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
+				ORDER BY e.execution_no DESC
+				LIMIT 1
+			) decision ON true
+			WHERE t.tenant_id=$1 AND t.created_at>=$2 AND t.kind='user'
+		)
+		SELECT id, conversation_id, parent_turn_id, created_at, user_query, state, finished_at
+		FROM latest
+		WHERE state IN ('FAILED','ASKING')
+		   OR (state='DONE' AND id IN (
+		       SELECT parent_turn_id FROM latest WHERE state='ASKING' AND parent_turn_id IS NOT NULL
+		   ))
+		ORDER BY created_at DESC
+		LIMIT $3`
+
 // pendingGrace is the right-censoring window for ASKING turns: younger than
 // this from the ASKING terminal state, the customer may still answer.
 const pendingGrace = 10 * time.Minute
@@ -71,20 +111,7 @@ type resolutionTurn struct {
 // state is read from the turn's latest execution; rows that 0042 could not map
 // (NULL execution_id) are excluded.
 func (s *Store) ResolutionSummary(ctx context.Context, db *pgxpool.Pool, tenantID int64, from time.Time) (ResolutionSummary, error) {
-	rows, err := db.Query(ctx, `SELECT t.id, t.conversation_id, t.parent_turn_id, t.created_at,
-			latest.state, latest.finished_at
-		FROM turn t
-		LEFT JOIN LATERAL (
-			SELECT td.state, e.finished_at
-			FROM conversation_execution e
-			LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
-			WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
-			ORDER BY e.execution_no DESC
-			LIMIT 1
-		) latest ON true
-		WHERE t.tenant_id=$1 AND t.created_at>=$2
-		ORDER BY t.created_at DESC
-		LIMIT $3`, tenantID, from, resolutionFetchLimit+1)
+	rows, err := db.Query(ctx, resolutionSummarySQL, tenantID, from, resolutionFetchLimit+1)
 	if err != nil {
 		return ResolutionSummary{}, err
 	}
@@ -245,28 +272,7 @@ type KnowledgeGap struct {
 // as ResolutionSummary; the query also fetches DONE children of ASKING turns so
 // parent-linked clarification can be evaluated in Go.
 func (s *Store) KnowledgeGaps(ctx context.Context, db *pgxpool.Pool, tenantID int64, from time.Time, minCount int64) ([]KnowledgeGap, bool, error) {
-	rows, err := db.Query(ctx, `WITH latest AS (
-			SELECT t.id, t.conversation_id, t.parent_turn_id, t.created_at, t.user_query,
-				decision.state, decision.finished_at
-			FROM turn t
-			LEFT JOIN LATERAL (
-				SELECT td.state, e.finished_at
-				FROM conversation_execution e
-				LEFT JOIN turn_decision td ON td.tenant_id=e.tenant_id AND td.execution_id=e.id
-				WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id
-				ORDER BY e.execution_no DESC
-				LIMIT 1
-			) decision ON true
-			WHERE t.tenant_id=$1 AND t.created_at>=$2
-		)
-		SELECT id, conversation_id, parent_turn_id, created_at, user_query, state, finished_at
-		FROM latest
-		WHERE state IN ('FAILED','ASKING')
-		   OR (state='DONE' AND id IN (
-		       SELECT parent_turn_id FROM latest WHERE state='ASKING' AND parent_turn_id IS NOT NULL
-		   ))
-		ORDER BY created_at DESC
-		LIMIT $3`, tenantID, from, resolutionFetchLimit+1)
+	rows, err := db.Query(ctx, knowledgeGapsSQL, tenantID, from, resolutionFetchLimit+1)
 	if err != nil {
 		return nil, false, err
 	}

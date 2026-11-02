@@ -20,7 +20,7 @@ func loadHistorySummary(ctx context.Context, db *pgxpool.Pool, tenantID int64, p
 	conversationID, currentTurnID int64) string {
 	rows, err := db.Query(ctx, `SELECT m.Role, COALESCE(m.content,'')
 		FROM message m JOIN turn t ON t.tenant_id=m.tenant_id AND t.id=m.turn_id
-		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND t.status IN ('DONE','ASKING') AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4 AND e.execution_no=(SELECT max(latest.execution_no) FROM conversation_execution latest WHERE latest.tenant_id=t.tenant_id AND latest.turn_id=t.id))
+		WHERE t.tenant_id=$1 AND t.conversation_id=$2 AND t.id<>$3 AND t.kind='user' AND t.status IN ('DONE','ASKING') AND EXISTS (SELECT 1 FROM conversation_execution e WHERE e.tenant_id=t.tenant_id AND e.turn_id=t.id AND e.permission_revision=$4 AND e.execution_no=(SELECT max(latest.execution_no) FROM conversation_execution latest WHERE latest.tenant_id=t.tenant_id AND latest.turn_id=t.id))
 		ORDER BY t.turn_no DESC,m.created_at DESC LIMIT 6`, tenantID, conversationID, currentTurnID, permissionRevision)
 	if err != nil {
 		return ""

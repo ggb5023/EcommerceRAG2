@@ -302,7 +302,7 @@ func (g *gateway) getSession(w http.ResponseWriter, _ *http.Request) {
 
 func (g *gateway) listConversations(w http.ResponseWriter, r *http.Request) {
 	rows, err := g.db.Query(r.Context(), `SELECT id, COALESCE(title,''), shop_id, created_at
-		FROM conversation c WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3
+		FROM conversation c WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND c.kind='user'
         AND NOT EXISTS(SELECT 1 FROM turn t JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
 			WHERE t.tenant_id=c.tenant_id AND t.conversation_id=c.id AND e.permission_revision IS DISTINCT FROM $4)
 		ORDER BY created_at DESC LIMIT 100`, g.session.TenantID, g.session.UserID, g.session.Shop, g.authority().CurrentRevision())

@@ -246,3 +246,14 @@ func TestResolutionSummaryIdentityHolds(t *testing.T) {
 		t.Fatalf("assisted_rate = %v, want 4/7", summary.AssistedRate)
 	}
 }
+
+func TestAnalyticsQueriesExcludeSuggestionTurns(t *testing.T) {
+	for name, query := range map[string]string{
+		"outcomes": resolutionSummarySQL,
+		"gaps":     knowledgeGapsSQL,
+	} {
+		if !strings.Contains(query, "t.kind='user'") {
+			t.Fatalf("%s query does not exclude suggestion turns: %s", name, query)
+		}
+	}
+}
