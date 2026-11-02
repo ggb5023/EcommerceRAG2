@@ -205,11 +205,7 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def safe_extract_zip(raw: bytes, destination: Path, *, max_members: int = 10000,
-                     max_uncompressed: int = 512 * 1024 * 1024) -> list[Path]:
-    """Atomically extract a result archive after validating member paths."""
-    if max_members <= 0 or max_uncompressed <= 0:
-        raise ValueError("archive limits must be positive")
+def _archive_destination(destination: Path) -> tuple[Path, Path]:
     destination = destination.absolute()
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination_parent = destination.parent.resolve()
@@ -217,6 +213,81 @@ def safe_extract_zip(raw: bytes, destination: Path, *, max_members: int = 10000,
     if destination.exists():
         raise ProviderError("artifact_destination_exists", "MinerU artifact destination already exists",
                             provider="mineru")
+    return destination, destination_parent
+
+
+def _validate_archive_members(archive: zipfile.ZipFile, *, max_members: int,
+                              max_uncompressed: int) -> list[tuple[zipfile.ZipInfo, str]]:
+    members = archive.infolist()
+    if len(members) > max_members:
+        raise ProviderError("result_archive_too_large", "MinerU result has too many files", provider="mineru")
+    validated: list[tuple[zipfile.ZipInfo, str]] = []
+    seen: set[str] = set()
+    file_names: set[str] = set()
+    total = 0
+    for member in members:
+        name = member.filename.replace("\\", "/")
+        normalized = posixpath.normpath(name).rstrip("/")
+        if not name or normalized in {".", ""}:
+            continue
+        raw_parts = name.split("/")
+        if ("\x00" in name or any(part in {".", ".."} for part in raw_parts)
+                or normalized.startswith("../") or normalized == ".." or name.startswith("/")):
+            raise ProviderError("unsafe_result_archive", "MinerU result contains an unsafe path", provider="mineru")
+        mode = (member.external_attr >> 16) & 0o170000
+        is_dir = member.is_dir() or mode == stat.S_IFDIR
+        if mode not in {0, stat.S_IFREG, stat.S_IFDIR}:
+            raise ProviderError("unsafe_result_archive", "MinerU result contains a special file", provider="mineru")
+        if normalized in seen:
+            raise ProviderError("unsafe_result_archive", "MinerU result contains duplicate paths", provider="mineru")
+        seen.add(normalized)
+        if not is_dir:
+            file_names.add(normalized)
+        if member.file_size < 0 or member.compress_size < 0:
+            raise ProviderError("invalid_result_archive", "MinerU archive metadata is invalid", provider="mineru")
+        total += member.file_size
+        if total > max_uncompressed:
+            raise ProviderError("result_archive_too_large", "MinerU result expands beyond the size limit", provider="mineru")
+        validated.append((member, normalized))
+    for _, name in validated:
+        parts = name.split("/")
+        if any("/".join(parts[:index]) in file_names for index in range(1, len(parts))):
+            raise ProviderError("unsafe_result_archive", "MinerU result has conflicting paths", provider="mineru")
+    return validated
+
+
+def _extract_archive_members(archive: zipfile.ZipFile,
+                             validated: list[tuple[zipfile.ZipInfo, str]],
+                             temporary: Path, max_uncompressed: int) -> list[Path]:
+    extracted_relative: list[Path] = []
+    written_total = 0
+    for member, name in validated:
+        target = temporary / name
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True, mode=0o700)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        written = 0
+        with archive.open(member) as source, target.open("xb") as output:
+            while block := source.read(1024 * 1024):
+                written += len(block)
+                written_total += len(block)
+                if written > member.file_size or written_total > max_uncompressed:
+                    raise ProviderError("result_archive_too_large", "MinerU result expands beyond the size limit", provider="mineru")
+                output.write(block)
+        if written != member.file_size:
+            raise ProviderError("invalid_result_archive", "MinerU archive is truncated", provider="mineru")
+        target.chmod(0o600)
+        extracted_relative.append(Path(name))
+    return extracted_relative
+
+
+def safe_extract_zip(raw: bytes, destination: Path, *, max_members: int = 10000,
+                     max_uncompressed: int = 512 * 1024 * 1024) -> list[Path]:
+    """Atomically extract a result archive after validating member paths."""
+    if max_members <= 0 or max_uncompressed <= 0:
+        raise ValueError("archive limits must be positive")
+    destination, destination_parent = _archive_destination(destination)
     try:
         archive = zipfile.ZipFile(io.BytesIO(raw))
     except (OSError, zipfile.BadZipFile) as error:
@@ -224,63 +295,14 @@ def safe_extract_zip(raw: bytes, destination: Path, *, max_members: int = 10000,
     temporary: Path | None = None
     try:
         with archive:
-            members = archive.infolist()
-            if len(members) > max_members:
-                raise ProviderError("result_archive_too_large", "MinerU result has too many files", provider="mineru")
-            validated: list[tuple[zipfile.ZipInfo, str]] = []
-            seen: set[str] = set()
-            file_names: set[str] = set()
-            total = 0
-            for member in members:
-                name = member.filename.replace("\\", "/")
-                normalized = posixpath.normpath(name).rstrip("/")
-                if not name or normalized in {".", ""}:
-                    continue
-                raw_parts = name.split("/")
-                if ("\x00" in name or any(part in {".", ".."} for part in raw_parts)
-                        or normalized.startswith("../") or normalized == ".." or name.startswith("/")):
-                    raise ProviderError("unsafe_result_archive", "MinerU result contains an unsafe path", provider="mineru")
-                mode = (member.external_attr >> 16) & 0o170000
-                is_dir = member.is_dir() or mode == stat.S_IFDIR
-                if mode not in {0, stat.S_IFREG, stat.S_IFDIR}:
-                    raise ProviderError("unsafe_result_archive", "MinerU result contains a special file", provider="mineru")
-                if normalized in seen:
-                    raise ProviderError("unsafe_result_archive", "MinerU result contains duplicate paths", provider="mineru")
-                seen.add(normalized)
-                if not is_dir:
-                    file_names.add(normalized)
-                if member.file_size < 0 or member.compress_size < 0:
-                    raise ProviderError("invalid_result_archive", "MinerU archive metadata is invalid", provider="mineru")
-                total += member.file_size
-                if total > max_uncompressed:
-                    raise ProviderError("result_archive_too_large", "MinerU result expands beyond the size limit", provider="mineru")
-                validated.append((member, normalized))
-            for _, name in validated:
-                parts = name.split("/")
-                if any("/".join(parts[:index]) in file_names for index in range(1, len(parts))):
-                    raise ProviderError("unsafe_result_archive", "MinerU result has conflicting paths", provider="mineru")
+            validated = _validate_archive_members(
+                archive, max_members=max_members, max_uncompressed=max_uncompressed
+            )
             temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination_parent))
             temporary.chmod(0o700)
-            extracted_relative: list[Path] = []
-            written_total = 0
-            for member, name in validated:
-                target = temporary / name
-                if member.is_dir():
-                    target.mkdir(parents=True, exist_ok=True, mode=0o700)
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                written = 0
-                with archive.open(member) as source, target.open("xb") as output:
-                    while block := source.read(1024 * 1024):
-                        written += len(block)
-                        written_total += len(block)
-                        if written > member.file_size or written_total > max_uncompressed:
-                            raise ProviderError("result_archive_too_large", "MinerU result expands beyond the size limit", provider="mineru")
-                        output.write(block)
-                if written != member.file_size:
-                    raise ProviderError("invalid_result_archive", "MinerU archive is truncated", provider="mineru")
-                target.chmod(0o600)
-                extracted_relative.append(Path(name))
+            extracted_relative = _extract_archive_members(
+                archive, validated, temporary, max_uncompressed
+            )
         if destination.exists():
             raise ProviderError("artifact_destination_exists", "MinerU artifact destination already exists", provider="mineru")
         temporary.rename(destination)
@@ -292,7 +314,6 @@ def safe_extract_zip(raw: bytes, destination: Path, *, max_members: int = 10000,
     finally:
         if temporary is not None and temporary.exists():
             shutil.rmtree(temporary, ignore_errors=True)
-
 
 def normalize_content_list(content: Any, *, document_id: str, version_id: str) -> list[dict[str, Any]]:
     """Map common MinerU content-list fields to the internal element contract."""
