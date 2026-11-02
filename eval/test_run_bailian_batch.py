@@ -737,5 +737,5 @@ def test_offline_checkpoint_export_never_loads_provider_config(tmp_path, monkeyp
 def test_live_requires_usage_dsn(monkeypatch):
     monkeypatch.delenv("V2_USAGE_DSN", raising=False)
     monkeypatch.delenv("V2_AI_DSN", raising=False)
-    with pytest.raises(MODULE.BatchPlanError, match="usage_dsn_required"):
+    with pytest.raises(MODULE.UsageDsnRequired, match="usage_dsn_required"):
         MODULE.require_usage_recorder()

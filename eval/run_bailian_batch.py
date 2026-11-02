@@ -71,6 +71,12 @@ class BatchPlanError(ValueError):
     """A deterministic plan or budget cannot be trusted."""
 
 
+class UsageDsnRequired(BatchPlanError):
+    """Live evaluation cannot proceed without a durable usage recorder."""
+
+    code = "usage_dsn_required"
+
+
 class RequestBudgetExceeded(RuntimeError):
     """The configured request or cost-equivalent budget was exhausted."""
 
@@ -972,7 +978,7 @@ async def main_async(args: argparse.Namespace) -> int:
 def require_usage_recorder() -> None:
     """Live eval must fail before the first request if usage is unrecordable."""
     if UsageRecorder.from_environment(role="ai") is None:
-        raise BatchPlanError("usage_dsn_required")
+        raise UsageDsnRequired("usage_dsn_required")
 
 
 def parse_args() -> argparse.Namespace:
