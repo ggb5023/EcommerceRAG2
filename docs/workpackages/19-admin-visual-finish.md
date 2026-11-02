@@ -66,7 +66,8 @@ WORKSPACE_URL=http://127.0.0.1:5174 bash scripts/dev/admin-visual-shots.sh
 - data-testid：baseline（`3994f1e`）与当前逐文件对照，无减少；新增
   `data-testid="data-table"` 与 `data-testid="drawer"` 各 1。
 - 前端：`npm test` **49 passed**（新增 DataTable/Drawer 2 条）；`npm run build`
-  PASS，JS gzip **78.24KB**（≤90KB）。每个页面提交后均跑 `npm run build`。
+  PASS，JS gzip **78.24KB**（≤90KB）。14 个代码/测试提交逐个在独立 worktree 中跑
+  `npm test` + `npm run build`，全部 **49 passed**，JS gzip 77.19–78.30KB。
 - 浏览器：`scripts/dev/admin-visual-shots.sh` 在 5174 `--force` 上跑 **10 路由 ×
   4 视口** 全部 PASS；主题切换 `"" → "dark"`。矩阵 JSON 在
   `.local/redesign/browser-matrix.json`。
