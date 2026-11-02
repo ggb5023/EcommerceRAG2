@@ -17,20 +17,20 @@
   corpus 回查；结论分「检索没召回」「召回了但 generation 没看见」「fail-closed 误触发」。
 - 若根因是检索漏召，停止，不在这里改检索；若证据本身不含答案点，不编造，记录为
   数据/冻结输入缺口。
-- 提示词修改遵守 WP15：先升 `prompts/registry.py` 版本，再改文本，同时更新
+- 提示词修改遵守 WP15：先升 `python/app/graph/prompts/registry.py` 版本，再改文本，同时更新
   `python/tests/test_prompt_matrix.py` 与新增 ≥12 个反例样本。
 - `wrong_answer_rate` 只由 LLM-judge 语义评审给出；partial 单列，不并入 wrong。
 - 真实模型重评限流 `--max-requests 300`、`30 RPM`，逐次写 usage_log；不改 0021 口径。
 
 ## 计划修复面
 
-- 公开类拒答：`syn-025/027/028`，修改外部来源能力片段，要求“先给已有资料规则/摘要，
+- 公开类拒答：`syn-025`、`syn-027`、`syn-028`，修改外部来源能力片段，要求“先给已有资料规则/摘要，
   再说明缺口”，不编造具体公告。
-- 答非所问：`syn-017/029/031/046`，收紧 CLARIFICATION_WORKFLOW/needs_plan 与
+- 答非所问：`syn-017`、`syn-029`、`syn-031`、`syn-046`，收紧 CLARIFICATION_WORKFLOW/needs_plan 与
   delivery/external 能力提示，避免事实问句被改写成订单/通用流程。
-- 格式/字段：`syn-037` 与 partial `012/020/040/054`，强化 limits/plan/schema
+- 格式/字段：`syn-037` 与 partial `012`、`020`、`040`、`054`，强化 limits/plan/schema
   必填字段和关键字段枚举。
-- `syn-007/019/026` 先定性；若属历史/数据缺口，只记录不硬改。
+- `syn-007`、`syn-019`、`syn-026` 先定性；若属历史/数据缺口，只记录不硬改。
 
 ## 验收命令
 
