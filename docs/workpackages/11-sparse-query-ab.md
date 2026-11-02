@@ -54,3 +54,19 @@ bash eval/run.sh offline          # legacy 与 sparsevec 各一次
 - 查询侧 tokenizer 版本比对未实现（查询链不返回 tokenizer_id），写入侧的
   `sparse_tokenizer_id` 已记录，跨版本不混用的完整闭环留给后续。
 - `EXPLAIN` 计划需真实 sparsevec 数据；当前空列只能证明无索引时走 seq scan。
+
+## 实际交付 vs 计划
+
+- 开关与配置：`SPARSE_RETRIEVAL`、`SPARSE_RRF_WEIGHT` 进 `CONFIG_KEYS` 白名单与
+  `docs/development.md`；`PostgresRetriever.__init__` 从环境变量读（默认 legacy / 0.7）。
+- sparsevec 分支：`chunk.sparse_embedding <#>` 查询 + `query_sparse` 入参 + 降级（无查询稀疏 /
+  列全 NULL → 纯稠密）；`last_sparse_mode` 三态；`workflow.py` 把查询的 `dense&sparse` 结果里的
+  `sparse` 传给 `asearch`。
+- 单测：`test_sparse_query_mode.py`（8 条）+ 重写 `test_sparse_mode_probe.py` 适配新探针 API；
+  `pytest -q` = **387 passed / 30 skipped**。
+- 契约：稀疏查询契约 ❌ → ✅（同侧）；`CONTRACTS_SAME` 3 → 4（单独提交 `4fae6df`）。
+- 评测：aligned-53 两套数字相同（recall@5=0.981 / mrr=0.981 / ndcg@5=0.981），
+  因离线评测是 keyword-only、不经过 `PostgresRetriever`；结论与原因见 0029「第三步结果」。
+- `EXPLAIN`：`chunk.sparse_embedding` 无索引 → Seq Scan（rows≈68），符合 0029 d 的 ≤50k 规模线。
+- 遗留：查询侧 tokenizer 版本比对未实现；真实 sparsevec A/B 需线上稀疏语料 harness。
+- WP11 保持 `active`；是否转 `done` 等主 agent 复核。

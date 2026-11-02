@@ -81,3 +81,33 @@ b) **验证性导入不要发布**：用 `--publish` 造验证数据会让该文
 c) **Go 侧改动的验证前置**：先 `go build` 再重启，并用 `strings .local/v2-gateway | grep -c <新符号>` 确认二进制包含改动；
    否则 smoke 通过只证明旧二进制还能跑。同理，新建表的迁移必须同时给运行时角色授权，
    否则写入只会留下一条被 `log.Printf` 吞掉的 permission denied。
+
+## 第三步结果（实测，2026-11-02）
+
+**实现**：`SPARSE_RETRIEVAL=legacy|sparsevec`（默认 `legacy`）开关；`SPARSE_RRF_WEIGHT` 接配置（默认 0.7）；
+`PostgresRetriever.search` 新增 `query_sparse` 入参，sparsevec 分支用 `chunk.sparse_embedding <#>`
+查询 sparsevec 替代文本启发式；查询无稀疏权重或列全 NULL 时退回纯稠密；
+`last_sparse_mode` 报告 `text_heuristic|dense_only|sparsevec` 实际模式。
+
+**基线 vs sparsevec**（`bash eval/run.sh offline`，两套数字完全相同）：
+
+| 模式 | aligned-53 recall@5 | mrr | ndcg@5 | frozen-60 |
+| --- | --- | --- | --- | --- |
+| legacy | 0.981 | 0.981 | 0.981 | PASS |
+| sparsevec | 0.981 | 0.981 | 0.981 | PASS |
+
+**结论**：两套数字完全一致，**不是**因为 sparsevec 与 legacy 等质，而是因为 `run_aligned_retrieval.py`
+的 `model_version` 是 `deterministic-keyword-v1`——它用纯分词重叠对合成语料打分，**不经过
+`PostgresRetriever`**，因此 `SPARSE_RETRIEVAL` 对该评测无任何影响。真实 sparsevec 的召回对比需要
+带真实 sparsevec 语料的线上检索 harness，本机（mock 离线档）不具备，本步未产出真实 A/B 结论。
+
+**模式自检（本机 dev 库）**：`legacy → text_heuristic`；`sparsevec + 查询有稀疏 + 列非空 → sparsevec`；
+`sparsevec + 查询无稀疏 → dense_only`。dev 库 70 个 chunk 中仅 1 个 `sparse_embedding` 非空
+（`mock:mock-embedding:sparse`）。
+
+**查询计划**：`chunk.sparse_embedding` 无索引，sparsevec 分支对 `chunk` 做 Seq Scan
+（`Filter: sparse_embedding IS NOT NULL`，rows≈68）。与 d) 的规模线一致：≤50k chunk 可接受，
+超线再评估 HNSW/IVFFlat 或倒排索引迁移。
+
+**未闭合**：查询侧 tokenizer 版本比对未实现（查询链不回传 `sparse_tokenizer_id`）；
+写入侧版本已记录，跨版本不混用的完整闭环留待后续。
