@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 )
 
 // ensureSuggestionConversation returns the one hidden suggestion conversation
@@ -61,6 +63,87 @@ func suggestionActive(ctx context.Context, tx pgx.Tx, tenantID, conversationID i
 	return active, err
 }
 
+const suggestionTurnRetention = 50
+
+// pruneSuggestionTurns keeps only the newest suggestionTurnRetention turns in
+// one hidden suggestion conversation. The schema has no ON DELETE CASCADE on
+// these tables, so every dependent row is removed explicitly in FK order.
+func pruneSuggestionTurns(ctx context.Context, tx pgx.Tx, tenantID, conversationID int64) error {
+	rows, err := tx.Query(ctx, `SELECT id,request_id FROM turn
+		WHERE tenant_id=$1 AND conversation_id=$2 AND kind='suggestion'
+		ORDER BY turn_no DESC OFFSET $3`, tenantID, conversationID, suggestionTurnRetention)
+	if err != nil {
+		return err
+	}
+	turnIDs := []int64{}
+	requestIDs := []string{}
+	turnTextIDs := []string{}
+	for rows.Next() {
+		var id int64
+		var requestID string
+		if err = rows.Scan(&id, &requestID); err != nil {
+			rows.Close()
+			return err
+		}
+		turnIDs = append(turnIDs, id)
+		requestIDs = append(requestIDs, requestID)
+		turnTextIDs = append(turnTextIDs, fmt.Sprintf("%d", id))
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil || len(turnIDs) == 0 {
+		return err
+	}
+
+	rows, err = tx.Query(ctx, `SELECT id FROM conversation_execution
+		WHERE tenant_id=$1 AND turn_id=ANY($2::bigint[])`, tenantID, turnIDs)
+	if err != nil {
+		return err
+	}
+	executionIDs := []int64{}
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		executionIDs = append(executionIDs, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+
+	adminStore := admin.Store{}
+	if err = adminStore.DeleteTurnDecisions(ctx, tx, tenantID, executionIDs, turnTextIDs); err != nil {
+		return err
+	}
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM citation WHERE tenant_id=$1 AND execution_id=ANY($2::bigint[])`, []any{tenantID, executionIDs}},
+		{`DELETE FROM evidence_snapshot WHERE tenant_id=$1 AND execution_id=ANY($2::bigint[])`, []any{tenantID, executionIDs}},
+		{`DELETE FROM customer_reply WHERE tenant_id=$1 AND execution_id=ANY($2::bigint[])`, []any{tenantID, executionIDs}},
+		{`DELETE FROM sse_event WHERE tenant_id=$1 AND execution_id=ANY($2::bigint[])`, []any{tenantID, executionIDs}},
+		{`DELETE FROM retrieval_trace WHERE tenant_id=$1 AND request_id=ANY($2::text[])`, []any{tenantID, requestIDs}},
+		{`DELETE FROM routing_trace WHERE tenant_id=$1 AND request_id=ANY($2::text[])`, []any{tenantID, requestIDs}},
+		{`DELETE FROM tool_call_trace WHERE tenant_id=$1 AND request_id=ANY($2::text[])`, []any{tenantID, requestIDs}},
+		{`DELETE FROM feedback WHERE tenant_id=$1 AND turn_id=ANY($2::bigint[])`, []any{tenantID, turnIDs}},
+		{`DELETE FROM message WHERE tenant_id=$1 AND turn_id=ANY($2::bigint[])`, []any{tenantID, turnIDs}},
+		{`DELETE FROM turn_idempotency WHERE tenant_id=$1 AND turn_id=ANY($2::bigint[])`, []any{tenantID, turnIDs}},
+		{`DELETE FROM conversation_execution WHERE tenant_id=$1 AND turn_id=ANY($2::bigint[])`, []any{tenantID, turnIDs}},
+		{`DELETE FROM turn WHERE tenant_id=$1 AND id=ANY($2::bigint[])`, []any{tenantID, turnIDs}},
+	}
+	for _, statement := range statements {
+		if _, err = tx.Exec(ctx, statement.query, statement.args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // insertSuggestionTurn creates the suggestion turn/execution and its
 // idempotency row. It is deliberately separate from createTurn so a normal
 // user turn can never be marked as a hidden suggestion by a caller mistake.
@@ -85,9 +168,14 @@ func insertSuggestionTurn(ctx context.Context, tx pgx.Tx, tenantID, conversation
 		VALUES($1,$2,$3,$4,$5,$6)`, tenantID, conversationID, key, payloadHash, turnID, executionID); err != nil {
 		return 0, 0, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`,
-		tenantID, turnID, query)
-	return turnID, executionID, err
+	if _, err = tx.Exec(ctx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`,
+		tenantID, turnID, query); err != nil {
+		return 0, 0, err
+	}
+	if err = pruneSuggestionTurns(ctx, tx, tenantID, conversationID); err != nil {
+		return 0, 0, err
+	}
+	return turnID, executionID, nil
 }
 
 // loadSuggestionForCopy locks the suggestion execution before copy audit so two

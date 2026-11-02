@@ -22,6 +22,19 @@ type TurnDecision struct {
 	Confidence     *float64
 }
 
+// DeleteTurnDecisions removes ledger rows for turns being pruned by hidden
+// suggestion retention. It lives in admin because turn_decision is an admin
+// store write, and runs in the caller's transaction.
+func (s *Store) DeleteTurnDecisions(ctx context.Context, tx pgx.Tx, tenantID int64, executionIDs []int64, turnTextIDs []string) error {
+	if tx == nil {
+		return ErrStoreNeedsTransaction
+	}
+	_, err := tx.Exec(ctx, `DELETE FROM turn_decision WHERE tenant_id=$1
+		AND (execution_id=ANY($2::bigint[]) OR (execution_id IS NULL AND turn_id=ANY($3::text[])))`,
+		tenantID, executionIDs, turnTextIDs)
+	return err
+}
+
 // AppendTurnDecision records the decision for one execution inside the caller's
 // transaction. The execution key makes a replayed terminal write overwrite the
 // same row instead of silently keeping an earlier state.
