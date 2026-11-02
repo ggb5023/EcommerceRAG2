@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {ref} from 'vue'
 import type {SuggestionView} from './customer-api'
+import CitationCard from './components/CitationCard.vue'
 defineProps<{suggestion:SuggestionView|null; busy:boolean; error:string}>()
 defineEmits<{generate:[text:string]; copy:[]}>()
 const text=ref('')
@@ -19,9 +20,7 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
       <p class="message-text">{{suggestion.answer}}</p>
       <ul v-if="suggestion.citations.length" class="citation-list">
         <li v-for="citation in suggestion.citations" :key="citation.evidence_id" data-testid="suggestion-citation">
-          <strong>{{citation.title||'引用资料'}}</strong>
-          <span> · {{citation.version_id}} · 引用 {{citation.citation_index}}</span>
-          <p>{{citation.snippet}}</p>
+          <CitationCard :citation="citation"/>
         </li>
       </ul>
       <button type="button" data-testid="suggestion-copy" :disabled="busy||!suggestion.can_copy" @click="$emit('copy')">复制建议</button>
@@ -34,8 +33,7 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
 .suggestion-panel{margin-top:1rem;padding:1rem;border:1px solid #c9d8d2;border-radius:8px;background:#f7fbf9}
 .suggestion-panel textarea{min-height:72px;margin-bottom:.5rem}
 .suggestion-panel button[disabled]{opacity:.5;cursor:default}
-.citation-list{padding-left:1.2rem}
-.citation-list li{margin:.45rem 0}
-.citation-list p{margin:.2rem 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.citation-list{display:grid;gap:.45rem;padding-left:0;list-style:none}
+.citation-list li{margin:0}
 .copy-blocked{color:#6b5a1f}
 </style>

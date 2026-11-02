@@ -15,7 +15,7 @@ defineProps<{ citation: CitationCardView }>()
       <span class="citation-index">[{{ citation.citation_index }}]</span>
       <strong>{{ citation.title || '引用资料' }}</strong>
     </header>
-    <small>资料版本 {{ citation.version_id }}</small>
+    <small>资料版本 {{ citation.version_id }} · 引用 {{ citation.citation_index }}</small>
     <p>{{ citation.snippet }}</p>
   </article>
 </template>
