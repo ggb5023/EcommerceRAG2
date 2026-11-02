@@ -37,3 +37,20 @@ CAPABILITY_EXTERNAL = (
 CAPABILITY_RECALL = (
     '实际召回缺口须请求型号/批次、带日期的公告原文及抓取记录。'
 )
+
+FACT_REMINDER = (
+    '\n本轮Go已完成上述资源的授权事实查询。直接回答Facts的本次观测值、observed_at和mock限制。省略历史库存或价格数值，不再索要已知标识或接口；与本题无关的配送能力无需展开。若问题另含政策知识，保留相关证据并准确引用。'
+)
+
+CITATION_REMINDER = (
+    '\n本轮已有相关Evidence。即使只能说明有限摘要、规则或缺口，citation_ids也必须引用实际支持该内容的正文ID，不能为空；不要把证据ID写进answer。'
+)
+
+LIMITS_REMINDER = (
+    '\nevidence_limits保留上面相关正文的完整条件句与枚举，含否定和默认次数触发条件、标注规则；优先主题正文的条件枚举，不用通用来源质量规则代替它。不重复frontmatter或来源标签。next_inputs只请求解除真实缺口的输'
+    '入。'
+)
+
+USER_MESSAGE_BODY = (
+    '\n若当前问题指前文唯一选择，按该选择直接回答；多个候选不能猜。仅写来源支持的内容和必要缺口/澄清，不写营销建议或催促操作。\nEvidence:\n'
+)

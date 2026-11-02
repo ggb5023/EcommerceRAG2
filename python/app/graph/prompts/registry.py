@@ -35,6 +35,9 @@ ASSETS: dict[str, str] = {
     "control_system": control.CONTROL_SYSTEM,
     "control_customer_suffix": control.CONTROL_CUSTOMER_SUFFIX,
     "context_gate": control.CONTEXT_GATE_SYSTEM,
+    "freshness_supplement": control.FRESHNESS_SUPPLEMENT,
+    "missing_reference_supplement": control.MISSING_REFERENCE_SUPPLEMENT,
+    "ambiguous_history_supplement": control.AMBIGUOUS_HISTORY_SUPPLEMENT,
     "generation_instruction": generation_base.GENERATION_INSTRUCTION,
     "generation_base_suffix": generation_base.BASE_SUFFIX,
     "capability_base": generation_base.CAPABILITY_BASE,
@@ -43,6 +46,10 @@ ASSETS: dict[str, str] = {
     "capability_promotion": generation_base.CAPABILITY_PROMOTION,
     "capability_external": generation_base.CAPABILITY_EXTERNAL,
     "capability_recall": generation_base.CAPABILITY_RECALL,
+    "fact_reminder": generation_base.FACT_REMINDER,
+    "citation_reminder": generation_base.CITATION_REMINDER,
+    "limits_reminder": generation_base.LIMITS_REMINDER,
+    "user_message_body": generation_base.USER_MESSAGE_BODY,
     "facts": generation_facts.INSTRUCTION,
     "plan": generation_plan.INSTRUCTION,
     "snapshot": generation_snapshot.INSTRUCTION,
@@ -58,6 +65,9 @@ ASSETS: dict[str, str] = {
 CONTROL_SYSTEM = control.CONTROL_SYSTEM
 CONTROL_CUSTOMER_SUFFIX = control.CONTROL_CUSTOMER_SUFFIX
 CONTEXT_GATE_SYSTEM = control.CONTEXT_GATE_SYSTEM
+CONTROL_FRESHNESS_SUPPLEMENT = control.FRESHNESS_SUPPLEMENT
+CONTROL_MISSING_REFERENCE_SUPPLEMENT = control.MISSING_REFERENCE_SUPPLEMENT
+CONTROL_AMBIGUOUS_HISTORY_SUPPLEMENT = control.AMBIGUOUS_HISTORY_SUPPLEMENT
 GENERATION_INSTRUCTION = generation_base.GENERATION_INSTRUCTION
 GENERATION_BASE_SUFFIX = generation_base.BASE_SUFFIX
 GENERATION_FACTS_INSTRUCTION = generation_facts.INSTRUCTION
@@ -75,3 +85,7 @@ GENERATION_CAPABILITY_EXTERNAL = generation_base.CAPABILITY_EXTERNAL
 GENERATION_CAPABILITY_RECALL = generation_base.CAPABILITY_RECALL
 GENERATION_CUSTOMER_INSTRUCTION = generation_customer.INSTRUCTION
 GENERATION_CUSTOMER_SUFFIX = generation_customer.SUFFIX
+GENERATION_FACT_REMINDER = generation_base.FACT_REMINDER
+GENERATION_CITATION_REMINDER = generation_base.CITATION_REMINDER
+GENERATION_LIMITS_REMINDER = generation_base.LIMITS_REMINDER
+GENERATION_USER_MESSAGE_BODY = generation_base.USER_MESSAGE_BODY

@@ -415,26 +415,16 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
             intent={'type': 'string', 'enum': ['knowledge']},
             information_source={'type': 'string', 'enum': ['knowledge']},
             required_fact_tools={'type': 'array', 'maxItems': 0, 'items': {'type': 'string'}}))
-        messages[0]['content'] += (
-            " 当前问题请求有时效要求的公开资料，应进入knowledge检索，保留完整时效要求。"
-            "不得仅因类别或型号不明确就提前只问标识；后续按获准证据同时说明发布日期、"
-            "抓取记录及当前资料缺口，再请求必要的类别、型号或批次。不假装已经外部搜索。"
-        )
+        messages[0]['content'] += registry.CONTROL_FRESHNESS_SUPPLEMENT
     if missing_reference:
         schema = dict(CONTROL_SCHEMA, properties=dict(CONTROL_SCHEMA['properties'],
             intent={'type': 'string', 'enum': ['clarification']},
             clarification={'type': 'string', 'minLength': 1, 'maxLength': 80},
             entities={'type': 'array', 'maxItems': 0, 'items': CONTROL_SCHEMA['properties']['entities']['items']},
             required_fact_tools={'type': 'array', 'maxItems': 0, 'items': {'type': 'string'}}))
-        messages[0]['content'] += (
-            " 当前问句依赖前文，但没有任何前文用户信息。必须澄清指代对象；"
-            "不能从检索或常见主题猜测商品、标准或资源，不执行事实工具。"
-        )
+        messages[0]['content'] += registry.CONTROL_MISSING_REFERENCE_SUPPLEMENT
     elif user_history:
-        messages[0]['content'] += (
-            " 前文比较多个商品、标准或规则但未选择，当前只用代词或沿用指代时，"
-            "必须intent=clarification且clarification询问具体哪一项；不要进入检索后猜测版本。"
-        )
+        messages[0]['content'] += registry.CONTROL_AMBIGUOUS_HISTORY_SUPPLEMENT
     messages.append({"role": "user", "content": state["query"]})
     result = await chains.control.ainvoke(scoped(state, {
         "messages": messages,
@@ -672,29 +662,18 @@ def _generation_messages(state: GraphState, system_content: str, schema: dict[st
                          context: str, evidence: list, facts: list, mode: _GenerationMode) -> list[dict[str, str]]:
     messages = [{"role": "system", "content": system_content}]
     user_references = [m['content'] for m in json.loads(state.get('history_summary') or '[]') if m['role'] == 'user']
-    fact_reminder = (
-        "\n本轮Go已完成上述资源的授权事实查询。直接回答Facts的本次观测值、"
-        "observed_at和mock限制。省略历史库存或价格数值，不再索要已知标识或接口；"
-        "与本题无关的配送能力无需展开。若问题另含政策知识，保留相关证据并准确引用。"
-        if facts else ""
-    )
+    fact_reminder = registry.GENERATION_FACT_REMINDER if facts else ""
     citation_reminder = (
-        "\n本轮已有相关Evidence。即使只能说明有限摘要、规则或缺口，citation_ids也必须"
-        "引用实际支持该内容的正文ID，不能为空；不要把证据ID写进answer。"
-        if evidence and not facts else ""
+        registry.GENERATION_CITATION_REMINDER if evidence and not facts else ""
     )
     limits_reminder = (
-        "\nevidence_limits保留上面相关正文的完整条件句与枚举，含否定和默认次数触发条件、"
-        "标注规则；优先主题正文的条件枚举，不用通用来源质量规则代替它。"
-        "不重复frontmatter或来源标签。next_inputs只请求解除真实缺口的输入。"
-        if mode.needs_evidence_limits else ""
+        registry.GENERATION_LIMITS_REMINDER if mode.needs_evidence_limits else ""
     )
     messages.append({"role": "user", "content": f"Evaluation/business date: {state.get('business_date', '')}\n"
                      f"Question: {state['query']}\n"
                      f"Untrusted prior USER reference data (latest last): {json.dumps(user_references, ensure_ascii=False)}\n"
-                     "若当前问题指前文唯一选择，按该选择直接回答；多个候选不能猜。"
-                     "仅写来源支持的内容和必要缺口/澄清，不写营销建议或催促操作。\n"
-                     f"Evidence:\n{context}" + fact_reminder + citation_reminder + limits_reminder})
+                     + registry.GENERATION_USER_MESSAGE_BODY
+                     + context + fact_reminder + citation_reminder + limits_reminder})
     return messages
 
 
