@@ -14,15 +14,17 @@
 
 - 插入新建议 turn 的同一事务内，删除该 conversation 超出 50 的最旧 suggestion turn。
 - 已核对 FK：`turn` / `conversation_execution` 的依赖表均**没有 ON DELETE CASCADE**，
-  因此不追加 0046，不修改历史迁移；在 `store_suggestion.go` 内按依赖顺序显式删除：
+  因此不改 FK，也不修改历史迁移；在 `store_suggestion.go` 内按依赖顺序显式删除：
   `turn_decision` → `citation` → `evidence_snapshot` → `customer_reply` →
   `sse_event` → `retrieval_trace` / `routing_trace` / `tool_call_trace` →
   `feedback` → `message` → `turn_idempotency` → `conversation_execution` → `turn`。
 - 所有删除都带 `tenant_id`；只写 `turn*` / `conversation_execution` / `message` /
   `sse_event` 等 gateway 表，走 ownership 语义。
 - 保留策略删除旧 `turn_idempotency` 行，因此被清理的旧幂等键不再能重放；新请求不受影响。
+- 显式删除需要 `turn_decision` 与 `retrieval_trace` 的 DELETE 权限；追加 **0046** 只做
+  两条 GRANT（不改 schema / FK），已应用 dev、test-integration、eval 三库并从零验证。
 - 测试：同一 suggestion conversation 连续插入 52 个 turn，断言只保留最新 50 个，
-  最旧 turn 及其 evidence/citation/message/sse_event/turn_decision 均无残留。
+  最旧 turn 及其 evidence/citation/message/sse_event/turn_decision/trace/feedback 均无残留。
 
 ## SSE 完成帧
 
@@ -74,8 +76,34 @@ Python 变更后：重启 ai，核对进程启动时间晚于最后提交。
 
 ## 实际交付
 
-（完成后填写）
+- 保留策略：`insertSuggestionTurn` 在同一事务末尾调用 `pruneSuggestionTurns`；N=50，
+  按 `turn_no` 保留最新；删除 `turn_decision` 走 `admin.Store.DeleteTurnDecisions`，
+  其余依赖在 `store_suggestion.go` 内按 FK 顺序显式删除，并带 `tenant_id`。
+- FK 检查：依赖表均无 `ON DELETE CASCADE`；未改 FK。新增 `0046` 只授予
+  `turn_decision` / `retrieval_trace` 的 DELETE，已应用 dev、test-integration、
+  eval 三库（sha256 全匹配）并通过 from-zero（46 files）。
+- SSE：基线 `dbda785` 已把 `completed.can_copy` 接到 `canCopy`；本轮只补回归断言，
+  确认 DONE 有/无引用、mock 与 ASKING 的 completed 帧和 `customer_reply` 一致。
+- 长函数：拆完 11 个文件中的 14 个 >80 行函数（validate_manifest、embed、rerank、
+  _call_once、_fetch_once、search、build_provider_chains、bundle_dataset、
+  store_artifact_bundle、Submit、_version、safe_extract_zip、parse_persisted_package、
+  _claim 等）；`provider_understand_node` 开工即 52 行，未改。当前 `app/` 无 >80 行函数。
+- 字面量 multiset：before 4832 / after 4827；removed 仅
+  `request_id`、`x-request-id`、`request-id`、`id`（均为键名，来自删除的死 helper），added 0。
+- 测试：`go test ./internal/...`（带 `V2_INTEGRATION_ENV`）全绿；
+  `python pytest -q` **402 passed / 30 skipped**；`ruff check app` PASS。
+- 门禁：`check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**；`--smoke`
+  **45 PASS**，五条 smoke 与 `.local/w2/` 逐字节一致。
+- 前端未改：`npm test` **49 passed**，`npm run build` PASS，JS gzip **79.54KB**。
+- 重启：Go 重建 `.local/v2-gateway`，`strings` 命中 `DELETE FROM turn_decision`；
+  `ecommerce-rag-dev` 重启后 Go/Python 进程启动时间晚于最后代码提交（见汇报验证结果）。
 
 ## 未覆盖路径
 
-（完成后填写）
+- 保留策略的删除**不含 FK 变更**；用显式 DELETE + 0046 权限补齐。删除旧 turn 会
+  丢掉对应 `turn_idempotency` 行，旧幂等键不能重放（新请求不受影响）。
+- **真实模型未验证**（WP22）；只跑 mock/离线 pytest 与 DB 生命周期测试。
+- 顾客端 `can_copy` 统一未实现，已记入 `docs/refactor-input.md` 第 17 条。
+- Python 只做了 AST 行数与字符串 multiset 静态对比；没有逐函数 coverage 对比。
+- 未跑 `--db` 全层（迁移已单独三库应用、sha256 与 from-zero 验证）。
+- 外部提交 `81ff2e0`（0032 文档）出现在本轮 HEAD，本 agent 未修改其内容。
