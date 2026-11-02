@@ -35,12 +35,12 @@ WP13 的真实 A/B 在 `SPARSE_RRF_WEIGHT=0.7` 下得到 sparsevec 略差的结�
 
 ## 改动范围
 
-- `scripts/dev/retrieval-ab.py`：`--sparse-rrf-weight`（仅 harness）与
+- WP12 的 A/B harness：`--sparse-rrf-weight`（仅 harness）与
   `query_sparse_tokenizer` 传递；summary 增加 `skipped_tokenizer_mismatch`。
 - `python/app/chains/provider.py`：embedding 输出增加 `sparse_tokenizer_id`。
 - `python/app/graph/workflow.py`：校验该字段并传给 `asearch`；trace 暴露跳过数。
 - `python/app/retrieval/postgres.py`：sparsevec 版本过滤、跳过计数与自检属性。
-- 对应单测；`docs/decisions/0029` 第五步、wp13 指针、wp14 实际交付。
+- 对应单测；`docs/decisions/0029-sparse-retrieval.md` 第五步、wp13 指针、wp14 实际交付。
 
 ## 验收命令
 
@@ -57,6 +57,24 @@ bash scripts/check.sh --smoke
 - 不建 sparse 索引（仍 ≤50k）；不改写入侧；不调 `SPARSE_RRF_WEIGHT` 默认值；
   不改评测集；不重采 smoke 基线；不调棘轮。
 - 不做 WP15；不 push、不 merge、不删分支。
+
+## 实际交付
+
+- 权重敏感性：harness 新增 `--sparse-rrf-weight`（仅 dev 工具），用真实
+  aligned-53 跑 0.3 / 0.5 / 0.7 / 0.9；产品默认仍 0.7，未切换。
+- 结果：四个权重下 sparsevec recall@5 均为 0.9623，legacy 均为 0.9811；
+  sparsevec 的 MRR/nDCG 也始终低于同权重 legacy。**没有权重使 sparsevec ≥
+  legacy**；最终策略为默认保持 legacy。完整表见 0029「第五步收尾」。
+- tokenizer 闭环：`python/app/chains/provider.py` 输出 `sparse_tokenizer_id`；
+  `workflow.py` 校验并传给 `asearch`，trace 增加
+  `skipped_tokenizer_mismatch`；`postgres.py` 在 sparsevec 分支过滤并计数。
+- 单测：同版本参与检索、不同版本跳过并计数；embedding 链版本串；
+  workflow 传参断言。`pytest -q` = **392 passed / 30 skipped**。
+- 真实 0.7 复跑：指标与 WP13 一致，`skipped_tokenizer_mismatch=0`；
+  ab-test 74/74 chunks 的 tokenizer 版本一致。
+- 真实调用：20 次（4 权重 × 4 + 0.7 复跑 4），7020 input tokens；
+  `usage_log` 57→77 行、12238→19258 tokens，均记在 ab-test；单次最大 4 请求。
+- 未改 0037/0038、写入侧规则、评测集、smoke 基线或默认权重。
 
 ## 未覆盖路径
 

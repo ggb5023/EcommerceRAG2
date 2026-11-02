@@ -62,6 +62,8 @@ bash scripts/check.sh --smoke
 - 不建 sparse 索引；不 publish 进 dev 租户；不重采 smoke 基线；不调棘轮。
 - 不做 WP14；不 push、不 merge、不删分支。
 
+后续：权重敏感性与 tokenizer 版本比对见 `docs/workpackages/14-sparse-finish.md`。
+
 ## 实际交付
 
 - 文档：0029 c 维度改为 `sparsevec(131072)`；contracts 稀疏写入行改指 0044。

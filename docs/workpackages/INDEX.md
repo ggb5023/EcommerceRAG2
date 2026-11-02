@@ -20,7 +20,7 @@
 | 11 | 稀疏查询 A/B（0029 第三步） | done | — | — | `2e65296` |
 | 12 | 检索 A/B harness（补齐 0029 证据） | done | — | — | `2e65296` |
 | 13 | 稀疏维度扩大与真实语义 A/B | done | — | — | `2e65296` |
-| 14 | 稀疏收尾：权重敏感性与 tokenizer 版本比对 | active | — | — | 待提交 |
+| 14 | 稀疏收尾：权重敏感性与 tokenizer 版本比对 | implemented | 权重 0.3–0.9 均 sparsevec < legacy；默认保持 legacy；待主 agent 复核 | — | 待提交 |
 
 ## 同步规则
 

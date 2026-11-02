@@ -201,3 +201,39 @@ sparsevec 未命中。净效果是 sparsevec 少 1 例命中、MRR 略低。
 
 **未覆盖**：查询侧 tokenizer 版本比对、稀疏索引计划、权重/其他 tokenizer 的
 敏感性实验。
+
+## 第五步收尾：权重敏感性与 tokenizer 比对（WP14，2026-11-02）
+
+### 权重敏感性（真实模型，aligned-53）
+
+固定真实语料与查询嵌入，仅改变 harness 的 `SPARSE_RRF_WEIGHT`；产品默认仍为
+0.7，未写入配置、未切换。
+
+| 权重 | legacy recall@5 | legacy MRR | legacy nDCG@5 | sparsevec recall@5 | sparsevec MRR | sparsevec nDCG@5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.3 | 0.9811 | 0.9220 | 0.9368 | 0.9623 | 0.9104 | 0.9237 |
+| 0.5 | 0.9811 | 0.9245 | 0.9389 | 0.9623 | 0.9104 | 0.9237 |
+| 0.7 | 0.9811 | 0.9151 | 0.9319 | 0.9623 | 0.8947 | 0.9118 |
+| 0.9 | 0.9811 | 0.9245 | 0.9389 | 0.9623 | 0.8947 | 0.9118 |
+
+四个权重下 sparsevec 的 recall@5 始终少 1 例（0.9623 < 0.9811），MRR/nDCG 也
+始终低于同权重 legacy；**没有任何权重使 sparsevec ≥ legacy**。legacy 自身的
+MRR 在 0.5/0.9 最好（0.9245），0.7 为 0.9151；本轮只测不切，默认保持 0.7。
+最终开关策略：**默认 `SPARSE_RETRIEVAL=legacy`，sparsevec 保留为可切换的
+对照实现**；改变默认需要新的质量证据与单独决策。
+
+### tokenizer 版本比对
+
+查询 embedding 链现在输出 `sparse_tokenizer_id`
+（`<provider>:<model>:sparse`，与写入侧 0038 同一函数），
+`PostgresRetriever` 在 sparsevec 分支用 `chunk.sparse_tokenizer_id = 查询版本`
+过滤；不一致（含 NULL）的 chunk 跳过，`last_sparse_skipped_tokenizer` 计数，
+并进入 `provider_trace.skipped_tokenizer_mismatch`。不报错、不失败关闭。
+ab-test 的 74/74 chunks 版本为 `aliyun-bailian:qwen3.7-text-embedding:sparse`；
+WP14 的真实 0.7 复跑 skipped=0，指标与 WP13 逐位一致。版本不一致路径由单测
+覆盖（跳过且计数），写入侧规则未改。
+
+**成本**：WP14 真实调用 20 次（4 权重 × 4 + 0.7 复跑 4），输入 7020 tokens，
+全部写 `usage_log`；单次最大 4 请求，低于 300 请求 / 30 RPM。
+
+**仍未覆盖**：其他 tokenizer/provider 的迁移流程、跨版本回填、稀疏索引计划。
