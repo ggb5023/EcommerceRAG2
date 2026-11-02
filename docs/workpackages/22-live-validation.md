@@ -51,7 +51,7 @@ cd frontend && npm test && npm run build
 
 ## 实际交付
 
-- 真实 batch：`run_bailian_batch.py --live` **PASS**；53 可评分、7 排除；
+- 真实 batch：`run_bailian_batch.py --live` **PASS**；53 可评分、7 排除（7 条未执行，见限制）；
   `actual_request_count=236`，`limits={max_requests:240,max_requests_per_minute:60}`；
   输出 `.local/wp22/bailian-batch-usage.json`，捕获在仓外 0700 目录。
 - usage_log（eval DB）：基线 0 行 → **236 行**；输入 **132439** tokens、输出 **4177**
@@ -80,6 +80,8 @@ cd frontend && npm test && npm run build
   `DONE` 或精确字符串匹配当成正确率。
 - M6 的 AI 子进程由 supervisor 启动时未获得 usage DSN，故 M6 调用没有新增
   `usage_log` 行；上面 236 行只对应 batch。这是本轮实测到的记录缺口。
+- 冻结 60 例中只执行了 53 条可评分 batch；7 条 safety 预拒绝用例需要 live lifecycle/e2e 报告，本轮未跑，
+  因此不能宣称“60 例全部通过”。
 - 未跑完整 live lifecycle（37 文档重导入/发布）、HTTP/SSE 53 例和 7 条 safety HTTP；
   M6 使用开发库现有 37 个 active 文档与临时真实 Provider 栈。
 - 临时真实栈使用 dev 库，写入过 M6 建议会话；dev 服务已恢复为 mock profile。
