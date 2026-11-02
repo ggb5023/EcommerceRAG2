@@ -229,8 +229,12 @@ type RequestContext struct {
 	CustomerId        string `protobuf:"bytes,23,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
 	CustomerSessionId string `protobuf:"bytes,24,opt,name=customer_session_id,json=customerSessionId,proto3" json:"customer_session_id,omitempty"`
 	ConversationEpoch uint64 `protobuf:"varint,25,opt,name=conversation_epoch,json=conversationEpoch,proto3" json:"conversation_epoch,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Business date (YYYY-MM-DD) computed by Go in the shop's IANA timezone.
+	// It is part of the signed scope and the only authoritative date for
+	// effective_from/effective_to retrieval filtering.
+	BusinessDate  string `protobuf:"bytes,26,opt,name=business_date,json=businessDate,proto3" json:"business_date,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RequestContext) Reset() {
@@ -436,6 +440,13 @@ func (x *RequestContext) GetConversationEpoch() uint64 {
 		return x.ConversationEpoch
 	}
 	return 0
+}
+
+func (x *RequestContext) GetBusinessDate() string {
+	if x != nil {
+		return x.BusinessDate
+	}
+	return ""
 }
 
 type Evidence struct {
@@ -3761,7 +3772,7 @@ var File_rag_v1_rag_proto protoreflect.FileDescriptor
 
 const file_rag_v1_rag_proto_rawDesc = "" +
 	"\n" +
-	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\xb0\a\n" +
+	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\xd5\a\n" +
 	"\x0eRequestContext\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
@@ -3793,7 +3804,8 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\vcustomer_id\x18\x17 \x01(\tR\n" +
 	"customerId\x12.\n" +
 	"\x13customer_session_id\x18\x18 \x01(\tR\x11customerSessionId\x12-\n" +
-	"\x12conversation_epoch\x18\x19 \x01(\x04R\x11conversationEpoch\"\x8c\x03\n" +
+	"\x12conversation_epoch\x18\x19 \x01(\x04R\x11conversationEpoch\x12#\n" +
+	"\rbusiness_date\x18\x1a \x01(\tR\fbusinessDate\"\x8c\x03\n" +
 	"\bEvidence\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1f\n" +

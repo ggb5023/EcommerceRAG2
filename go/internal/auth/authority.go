@@ -221,6 +221,25 @@ func MAC(key []byte, scope *ragv1.RequestContext) []byte {
 	return mac.Sum(nil)
 }
 
+// businessDateInTimezone returns the merchant's local calendar date. It is
+// deterministic for tests and never uses the caller's local timezone.
+func businessDateInTimezone(timezone string, now time.Time) (string, error) {
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return "", err
+	}
+	return now.In(location).Format("2006-01-02"), nil
+}
+
+func (g *Authority) businessDate(ctx context.Context, shop string) (string, error) {
+	var timezone string
+	if err := g.DB.QueryRow(ctx, `SELECT COALESCE(timezone,'Asia/Shanghai') FROM shop WHERE tenant_id=$1 AND id=$2`,
+		g.Session.TenantID, shop).Scan(&timezone); err != nil {
+		return "", err
+	}
+	return businessDateInTimezone(timezone, time.Now())
+}
+
 func (g *Authority) IssueScope(ctx context.Context, requestID string) (*ragv1.RequestContext, error) {
 	return g.IssueScopeForShopWithTurn(ctx, requestID, g.Session.Shop, "", "", "")
 }
@@ -252,12 +271,17 @@ func (g *Authority) IssueScopeForShopWithTurn(ctx context.Context, requestID, sh
 		}
 	}
 	slices.Sort(ids)
+	businessDate, err := g.businessDate(ctx, shop)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "shop_timezone_unavailable")
+	}
 	scope := &ragv1.RequestContext{RequestId: requestID, TenantId: g.Session.Tenant, UserId: g.Session.User,
 		ShopId: shop, Role: g.Session.Role, AllowedShopIds: append([]string(nil), g.Session.AllowedShops...),
 		AllShops: g.Session.AllShops, PermissionRevision: g.CurrentRevision(),
 		AllowedDocumentIds: ids, EnforceDocumentScope: true, ScopeExpiresAt: time.Now().Add(ScopeTTL).Unix(),
 		TenantDbId: g.Session.TenantID, UserDbId: g.Session.UserID,
-		ConversationId: conversationID, TurnId: turnID, ExecutionId: executionID, ScopeAudience: "ai"}
+		ConversationId: conversationID, TurnId: turnID, ExecutionId: executionID, ScopeAudience: "ai",
+		BusinessDate: businessDate}
 	scope.ScopeSignature = hex.EncodeToString(MAC(g.SigningKey, scope))
 	if g.RegisterScopeIdentity != nil {
 		if err = g.RegisterScopeIdentity(scope); err != nil {

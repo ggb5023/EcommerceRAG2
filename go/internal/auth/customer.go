@@ -41,14 +41,15 @@ func CustomerDocuments(ctx context.Context, db *pgxpool.Pool, tenant int64, shop
 }
 
 func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessionID, conversationID, executionID string) (*ragv1.RequestContext, error) {
+	var timezone string
 	scope := &ragv1.RequestContext{RequestId: executionID, ConversationId: conversationID, TurnId: executionID, ExecutionId: executionID,
 		SubjectType: "customer", CustomerSessionId: sessionID, Role: "customer", ScopeAudience: "ai", EnforceDocumentScope: true}
-	err := db.QueryRow(ctx, `SELECT c.tenant_id,t.external_id,c.shop_id,c.customer_id,c.epoch,sh.public_permission_revision
+	err := db.QueryRow(ctx, `SELECT c.tenant_id,t.external_id,c.shop_id,c.customer_id,c.epoch,sh.public_permission_revision,COALESCE(sh.timezone,'Asia/Shanghai')
  FROM customer_conversation c JOIN customer_session cs ON cs.customer_id=c.customer_id AND cs.tenant_id=c.tenant_id AND cs.shop_id=c.shop_id
  JOIN tenant t ON t.id=c.tenant_id JOIN shop sh ON sh.tenant_id=c.tenant_id AND sh.id=c.shop_id
  WHERE c.id=$1 AND cs.id=$2 AND c.state='AI' AND c.active_execution=$3 AND cs.revoked_at IS NULL
  AND cs.expires_at>now() AND cs.idle_until>now() AND t.status='active' AND sh.status='active' AND sh.customer_chat_enabled`, conversationID, sessionID, executionID).
-		Scan(&scope.TenantDbId, &scope.TenantId, &scope.ShopId, &scope.CustomerId, &scope.ConversationEpoch, &scope.PermissionRevision)
+		Scan(&scope.TenantDbId, &scope.TenantId, &scope.ShopId, &scope.CustomerId, &scope.ConversationEpoch, &scope.PermissionRevision, &timezone)
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, "customer_scope_invalid")
 	}
@@ -60,6 +61,10 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 	}
 	if len(scope.AllowedDocumentIds) == 0 {
 		return nil, errors.New("knowledge_missing")
+	}
+	scope.BusinessDate, err = businessDateInTimezone(timezone, time.Now())
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "authorization_unavailable")
 	}
 	scope.ScopeExpiresAt = time.Now().Add(ScopeTTL).Unix()
 	scope.ScopeSignature = hex.EncodeToString(MAC(key, scope))

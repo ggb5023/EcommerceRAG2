@@ -35,6 +35,10 @@ message RequestContext {
   string customer_id = 23;
   string customer_session_id = 24;
   uint64 conversation_epoch = 25;
+  // Business date (YYYY-MM-DD) computed by Go in the shop's IANA timezone.
+  // It is part of the signed scope and the only authoritative date for
+  // effective_from/effective_to retrieval filtering.
+  string business_date = 26;
 }
 message Evidence {
   string id = 1;

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -79,4 +80,36 @@ func TestValidateScopeRejectsWidenedShops(t *testing.T) {
 // hmacEqualForTest mirrors the check ValidateScope performs, without the DB.
 func hmacEqualForTest(key []byte, scope *ragv1.RequestContext, signature []byte) bool {
 	return hex.EncodeToString(MAC(key, scope)) == hex.EncodeToString(signature)
+}
+
+func TestBusinessDateUsesTheShopTimezoneAtTheUTCDayBoundary(t *testing.T) {
+	now := time.Date(2026, 11, 2, 23, 30, 0, 0, time.UTC)
+	got, err := businessDateInTimezone("Asia/Shanghai", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2026-11-03" {
+		t.Fatalf("Asia/Shanghai date = %q, want 2026-11-03", got)
+	}
+	got, err = businessDateInTimezone("UTC", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2026-11-02" {
+		t.Fatalf("UTC date = %q, want 2026-11-02", got)
+	}
+	if _, err = businessDateInTimezone("Mars/Olympus", now); err == nil {
+		t.Fatal("invalid timezone must fail")
+	}
+}
+
+func TestBusinessDateIsCoveredByTheScopeMAC(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	scope := signedScope(t, key)
+	first := MAC(key, scope)
+	scope.BusinessDate = "2026-11-03"
+	second := MAC(key, scope)
+	if hmac.Equal(first, second) {
+		t.Fatal("business_date must be part of the signed scope")
+	}
 }
