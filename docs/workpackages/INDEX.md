@@ -17,9 +17,9 @@
 | 08 | 前端设计系统（M9 阶段 1） | done | — | — | `bad1225` |
 | 09 | 决策账本语义（重开 02） | done | — | — | `7675ad2` |
 | 10 | D2 前置代理示例（nginx/caddy） | done | — | — | `f65b6c4` |
-| 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实 A/B 已完成：legacy 0.9811 vs sparsevec 0.9623；待主 agent 判定 done | — | `c573a0f` |
-| 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 真实 A/B 已补齐；待主 agent 判定 done | — | `59c1b7a` |
-| 13 | 稀疏维度扩大与真实语义 A/B | implemented | 三库 44/131072；真实 A/B 完成；待主 agent 复核 | — | 待提交 |
+| 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实 A/B 已完成：legacy 0.9811 vs sparsevec 0.9623；待主 agent 判定 done | — | `2e65296` |
+| 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 真实 A/B 已补齐；待主 agent 判定 done | — | `2e65296` |
+| 13 | 稀疏维度扩大与真实语义 A/B | implemented | 三库 44/131072；真实 A/B 完成；待主 agent 复核 | — | `2e65296` |
 
 ## 同步规则
 
