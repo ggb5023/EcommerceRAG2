@@ -69,6 +69,13 @@ try {
     assert.ok(await page.getByText('没有可引用的资料依据').count(), `${name}: blocked reason missing`)
     report.checks.push(`${name}: copy enabled with citation and disabled with reason without citation`)
 
+    const citedAnswer = page.locator('article.assistant').first()
+    await citedAnswer.dispatchEvent('pointerdown')
+    await page.waitForTimeout(700)
+    await citedAnswer.dispatchEvent('pointerup')
+    await page.getByText(/已复制回答。|复制失败，请手动选择文本。/).waitFor()
+    report.checks.push(`${name}: long press copies or reports a copy failure without throwing`)
+
     await page.getByRole('button', { name: '查看来源 1' }).click()
     const drawer = page.getByRole('complementary', { name: '回答来源' })
     await drawer.waitFor()
