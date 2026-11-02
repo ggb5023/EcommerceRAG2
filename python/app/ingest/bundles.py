@@ -47,6 +47,100 @@ def _delete_bundles(store: ObjectStore, bundles: Iterable[ArtifactBundle]) -> bo
     return clean
 
 
+def _bundle_document(
+    result: ValidationResult,
+    store: ObjectStore,
+    document_id: str,
+    info: dict[str, Any],
+    *,
+    parser_version: str,
+    chunk_rule_version: str,
+) -> tuple[ArtifactBundle | None, dict[str, Any]]:
+    version_id = _version_id(info["sha256"], result.manifest["pipeline_version"])
+    base = {
+        "document_id": document_id,
+        "document_version_id": version_id,
+        "format": info["format"],
+        "source_hash": info["sha256"],
+        "tenant_id": info["tenant_id"],
+        "shop_id": info["shop_id"],
+    }
+    if info["format"] == "yaml":
+        return None, {**base, "status": "SKIPPED_CONTROL", "artifact_count": 0}
+    path = result.root / info["path"]
+    metadata = {
+        **info,
+        "title": document_id,
+        "source_hash": info["sha256"],
+    }
+    try:
+        elements = parser_for(info["format"]).parse(
+            path,
+            document_id=document_id,
+            version_id=version_id,
+            metadata=metadata,
+        )
+        chunks = chunk_elements_v2(elements, rule_version=chunk_rule_version)
+        artifacts = build_ingestion_artifacts(
+            raw=path.read_bytes(),
+            elements=elements,
+            chunks=chunks,
+            parse_report={
+                "status": "PASS",
+                "document_id": document_id,
+                "document_version_id": version_id,
+                "source_hash": info["sha256"],
+                "parser_version": parser_version,
+                "chunk_rule_version": chunk_rule_version,
+                "element_count": len(elements),
+                "chunk_count": len(chunks),
+                "real_service_acceptance": False,
+            },
+        )
+        bundle = store_artifact_bundle(
+            store,
+            tenant_id=info["tenant_id"],
+            shop_id=info["shop_id"],
+            document_version_id=version_id,
+            parser_version=parser_version,
+            chunk_rule_version=chunk_rule_version,
+            artifacts=artifacts,
+        )
+    except (ArtifactBundleError, OSError, UnicodeError, ValueError, KeyError) as exc:
+        raise BundleRunError(f"{document_id}: {type(exc).__name__}") from exc
+    return bundle, {
+        **base,
+        "status": "PASS",
+        "artifact_count": len(bundle.records),
+        "artifact_set_sha256": bundle.artifact_set_sha256,
+        "manifest_sha256": bundle.manifest.sha256,
+        "chunks": len(chunks),
+        "elements": len(elements),
+    }
+
+
+def _bundle_report(result: ValidationResult, documents: list[dict[str, Any]], *,
+                   parser_version: str, chunk_rule_version: str) -> dict[str, Any]:
+    return {
+        "report_version": "synthetic-ingestion-bundle-v1",
+        "dataset_id": result.manifest["dataset_id"],
+        "pipeline_version": result.manifest["pipeline_version"],
+        "manifest_sha256": result.manifest_sha256,
+        "dataset_sha256": result.dataset_sha256,
+        "parser_version": parser_version,
+        "chunk_rule_version": chunk_rule_version,
+        "documents": documents,
+        "summary": {
+            "documents": len(documents),
+            "bundled": sum(item["status"] == "PASS" for item in documents),
+            "skipped_control": sum(item["status"] == "SKIPPED_CONTROL" for item in documents),
+            "failed": 0,
+        },
+        "raw_content_saved": False,
+        "real_service_acceptance": False,
+    }
+
+
 def bundle_dataset(
     result: ValidationResult,
     store: ObjectStore,
@@ -69,96 +163,21 @@ def bundle_dataset(
     documents: list[dict[str, Any]] = []
     try:
         for document_id, info in sorted(result.files.items()):
-            version_id = _version_id(info["sha256"], result.manifest["pipeline_version"])
-            base = {
-                "document_id": document_id,
-                "document_version_id": version_id,
-                "format": info["format"],
-                "source_hash": info["sha256"],
-                "tenant_id": info["tenant_id"],
-                "shop_id": info["shop_id"],
-            }
-            if info["format"] == "yaml":
-                documents.append({**base, "status": "SKIPPED_CONTROL", "artifact_count": 0})
-                continue
-
-            path = result.root / info["path"]
-            metadata = {
-                **info,
-                "title": document_id,
-                "source_hash": info["sha256"],
-            }
-            try:
-                elements = parser_for(info["format"]).parse(
-                    path,
-                    document_id=document_id,
-                    version_id=version_id,
-                    metadata=metadata,
-                )
-                chunks = chunk_elements_v2(elements, rule_version=chunk_rule_version)
-                artifacts = build_ingestion_artifacts(
-                    raw=path.read_bytes(),
-                    elements=elements,
-                    chunks=chunks,
-                    parse_report={
-                        "status": "PASS",
-                        "document_id": document_id,
-                        "document_version_id": version_id,
-                        "source_hash": info["sha256"],
-                        "parser_version": parser_version,
-                        "chunk_rule_version": chunk_rule_version,
-                        "element_count": len(elements),
-                        "chunk_count": len(chunks),
-                        "real_service_acceptance": False,
-                    },
-                )
-                bundle = store_artifact_bundle(
-                    store,
-                    tenant_id=info["tenant_id"],
-                    shop_id=info["shop_id"],
-                    document_version_id=version_id,
-                    parser_version=parser_version,
-                    chunk_rule_version=chunk_rule_version,
-                    artifacts=artifacts,
-                )
-            except (ArtifactBundleError, OSError, UnicodeError, ValueError, KeyError) as exc:
-                raise BundleRunError(f"{document_id}: {type(exc).__name__}") from exc
-            bundles.append(bundle)
-            documents.append({
-                **base,
-                "status": "PASS",
-                "artifact_count": len(bundle.records),
-                "artifact_set_sha256": bundle.artifact_set_sha256,
-                "manifest_sha256": bundle.manifest.sha256,
-                "chunks": len(chunks),
-                "elements": len(elements),
-            })
+            bundle, document = _bundle_document(
+                result, store, document_id, info,
+                parser_version=parser_version, chunk_rule_version=chunk_rule_version,
+            )
+            if bundle is not None:
+                bundles.append(bundle)
+            documents.append(document)
     except Exception as exc:
         if not _delete_bundles(store, bundles):
             raise BundleRunError("bundle failed and cleanup was incomplete") from exc
         if isinstance(exc, BundleRunError):
             raise
         raise BundleRunError("bundle run failed") from exc
-
-    return {
-        "report_version": "synthetic-ingestion-bundle-v1",
-        "dataset_id": result.manifest["dataset_id"],
-        "pipeline_version": result.manifest["pipeline_version"],
-        "manifest_sha256": result.manifest_sha256,
-        "dataset_sha256": result.dataset_sha256,
-        "parser_version": parser_version,
-        "chunk_rule_version": chunk_rule_version,
-        "documents": documents,
-        "summary": {
-            "documents": len(documents),
-            "bundled": sum(item["status"] == "PASS" for item in documents),
-            "skipped_control": sum(item["status"] == "SKIPPED_CONTROL" for item in documents),
-            "failed": 0,
-        },
-        "raw_content_saved": False,
-        "real_service_acceptance": False,
-    }
-
+    return _bundle_report(result, documents, parser_version=parser_version,
+                          chunk_rule_version=chunk_rule_version)
 
 def write_report(report: dict[str, Any], output: Path) -> None:
     """Write a metadata-only report atomically."""
