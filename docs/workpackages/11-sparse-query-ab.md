@@ -5,7 +5,7 @@
 
 ## 目标
 
-把 `python/app/retrieval/postgres.py` 的稀疏分支从文本启发式换成真正的
+把检索实现（`postgres.py`）的稀疏分支从文本启发式换成真正的
 `sparsevec` 相似度查询，用 `SPARSE_RETRIEVAL=legacy|sparsevec` 切换并如实 A/B。
 
 ## 口径（0029 抄录，不新增）
@@ -20,10 +20,10 @@
 
 ## 改动范围
 
-- `python/app/retrieval/postgres.py`：开关、sparsevec 查询分支、`query_sparse` 入参、
+- `postgres.py`（检索实现）：开关、sparsevec 查询分支、`query_sparse` 入参、
   可配置 RRF 权重、降级与探针。
-- `python/app/graph/workflow.py`：把查询的 `dense&sparse` 结果里的 `sparse` 传给 `asearch`。
-- `scripts/dev/v2_services.py`：`CONFIG_KEYS` 白名单加 `SPARSE_RETRIEVAL`、`SPARSE_RRF_WEIGHT`。
+- `workflow.py`（编排）：把查询的 `dense&sparse` 结果里的 `sparse` 传给 `asearch`。
+- `v2_services.py`（运行配置白名单）：`CONFIG_KEYS` 加 `SPARSE_RETRIEVAL`、`SPARSE_RRF_WEIGHT`。
 - `docs/development.md`：运行配置一节补这两个键（单一出处）。
 - `docs/contracts.md`：稀疏查询契约 ❌ → ✅（同侧，检索实现全在 Python）。
 - `docs/decisions/0029-sparse-retrieval.md`：文末追加「第三步结果」。
@@ -42,7 +42,6 @@ cd python && uv run --frozen pytest -q
 bash scripts/check.sh
 bash scripts/check.sh --smoke
 bash eval/run.sh offline          # legacy 与 sparsevec 各一次
-python3 scripts/check/check-contracts.py
 ```
 
 ## 未覆盖路径
