@@ -256,6 +256,15 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var eventCopy bool
+		if err = gatewayDB.QueryRow(ctx, `SELECT (data_json->>'can_copy')::boolean FROM sse_event
+			WHERE tenant_id=$1 AND execution_id=$2 AND event_type='completed'
+			ORDER BY sequence DESC LIMIT 1`, f.tenantID, f.executionID).Scan(&eventCopy); err != nil {
+			t.Fatal(err)
+		}
+		if eventCopy != canCopy {
+			t.Fatalf("completed can_copy=%v, customer_reply can_copy=%v", eventCopy, canCopy)
+		}
 		return canCopy, blocked
 	}
 
@@ -313,6 +322,15 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 		}
 		if count != 0 {
 			t.Fatalf("ASKING wrote a copyable reply row")
+		}
+		var eventCopy bool
+		if err = gatewayDB.QueryRow(ctx, `SELECT (data_json->>'can_copy')::boolean FROM sse_event
+			WHERE tenant_id=$1 AND execution_id=$2 AND event_type='completed'
+			ORDER BY sequence DESC LIMIT 1`, f.tenantID, f.executionID).Scan(&eventCopy); err != nil {
+			t.Fatal(err)
+		}
+		if eventCopy {
+			t.Fatal("ASKING completed frame is copyable")
 		}
 	})
 }
