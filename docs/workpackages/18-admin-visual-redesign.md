@@ -69,6 +69,8 @@ WORKSPACE_URL=http://127.0.0.1:5174 bash scripts/dev/admin-visual-shots.sh
   4 视口全部 PASS，主题切换前后 `"" → "dark"`；矩阵 JSON 在
   `.local/redesign/browser-matrix.json`。
 - 截图：`.local/redesign/{light,dark}-{outcomes,gaps,login}.png` 各 3 张。
+- 暗色第二轮：VS Code Dark+ 中性底（#1e1e1e / #252526 / #3c3c3c）+ 蓝强调
+  `#3794ff`；light/dark × outcomes/gaps/login 六张已覆盖旧图。
 - 门禁：`check.sh` 40 PASS；`--smoke` 45 PASS；未重启 Go/Python。
 - 逐页提交：11 个页面各一个提交，每个提交后 `npm run build` PASS；最终矩阵在
   全部页面接线后统一跑一次。
