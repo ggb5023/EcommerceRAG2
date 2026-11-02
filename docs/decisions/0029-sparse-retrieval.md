@@ -111,3 +111,35 @@ c) **Go 侧改动的验证前置**：先 `go build` 再重启，并用 `strings 
 
 **未闭合**：查询侧 tokenizer 版本比对未实现（查询链不回传 `sparse_tokenizer_id`）；
 写入侧版本已记录，跨版本不混用的完整闭环留待后续。
+
+## WP12 真实检索 A/B（2026-11-02）
+
+WP11 的离线数字不经过检索实现，不能证明分支执行。WP12 建了专用租户 `ab-test`
+（`ab-shop`），把 37 篇对齐语料走真实 ingest 管道写入，再对 aligned-53 的同一批
+查询直接调用 `PostgresRetriever.asearch`，只切换 `SPARSE_RETRIEVAL`。
+
+**分支执行**：53/53 例 legacy 的 `last_sparse_mode=text_heuristic`，sparsevec 的
+`last_sparse_mode=sparsevec`；降级计数 0。过程中发现并修复 WP11 的 sparsevec SQL
+参数错位（8 个占位符、9 个参数），该缺陷会让真实 sparsevec 调用每次都抛
+`ProgrammingError`，此前没有测试覆盖到。
+
+**mock 语料 A/B**（同一 scope、同一候选数、`SPARSE_RRF_WEIGHT=0.7`）：
+
+| 模式 | recall@5 | MRR | nDCG@5 |
+| --- | --- | --- | --- |
+| legacy | 0.6981 | 0.3783 | 0.4575 |
+| sparsevec | 0.1132 | 0.0343 | 0.0535 |
+| 差值 | -0.5849 | -0.3440 | -0.4040 |
+
+这组数字**不是质量结论**：mock tokenizer 的稀疏权重是内容哈希字节，不携带语义。
+它证明的是 SQL 分支、降级判断和 RRF 融合真的执行，且两路径返回结构一致。
+
+**真实 provider 阻塞**：用 `providers.env` 的 Bailian `qwen3.7-text-embedding`
+直接探针返回 203 个稀疏项，`min_token_id=141`、`max_token_id=113496`；
+`to_literal` 对 `token_id=97124` 报 `outside [0,65536)`。`reembed` 对 74 个 chunk
+的真实稀疏向量全部被拒绝（`missing_sparse=74`），按本决策的降级规则只能写 NULL。
+因此 **`sparsevec(65536)` 与真实 provider 的词表不兼容，真实语义 A/B 无法进行**。
+要闭合该步必须先决定：扩大 sparsevec 维度（新迁移）、换 provider/词表，或接受
+真实环境 sparse 永远 NULL。该决策不属于 WP12 授权范围；WP11 不能转 `done`。
+
+**未覆盖**：真实语义质量、查询侧 tokenizer 版本比对、稀疏索引计划。

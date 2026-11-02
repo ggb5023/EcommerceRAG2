@@ -69,4 +69,15 @@ bash eval/run.sh offline          # legacy 与 sparsevec 各一次
   因离线评测是 keyword-only、不经过 `PostgresRetriever`；结论与原因见 0029「第三步结果」。
 - `EXPLAIN`：`chunk.sparse_embedding` 无索引 → Seq Scan（rows≈68），符合 0029 d 的 ≤50k 规模线。
 - 遗留：查询侧 tokenizer 版本比对未实现；真实 sparsevec A/B 需线上稀疏语料 harness。
-- WP11 保持 `active`；是否转 `done` 等主 agent 复核。
+- WP11 保持 `implemented`；是否转 `done` 等主 agent 复核。
+
+## WP12 复核补充（2026-11-02）
+
+- WP12 的 `scripts/dev/retrieval-ab.py` 已让 53/53 例真实经过 `PostgresRetriever`；
+  legacy/sparsevec 的 `last_sparse_mode` 分别 53/53 命中，mock 语料 A/B 已产出
+  （legacy recall@5=0.6981，sparsevec=0.1132；仅证分支执行，不证语义质量）。
+- WP12 发现本包 sparsevec SQL 多传一个查询字面量（8 个占位符、9 个参数），
+  真实调用必失败；已修复并加回归测试。
+- 真实 provider 探针显示 Bailian sparse token_id 最大 113496 > 65536，
+  74/74 个真实稀疏向量被 0029 的维度规则拒绝；真实语义 A/B 被维度阻塞，
+  需新迁移或换 provider。WP11 因此不能转 `done`。
