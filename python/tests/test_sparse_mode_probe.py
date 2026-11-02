@@ -50,8 +50,8 @@ def test_sparsevec_empty_column_falls_back_and_warns_once(caplog):
     instance = retriever("sparsevec")
     cursor = FakeCursor(populated=False)
     with caplog.at_level(logging.WARNING):
-        assert instance._resolve_sparse_mode(cursor, "{1:1}/65536") == "dense_only"
-        assert instance._resolve_sparse_mode(cursor, "{1:1}/65536") == "dense_only"
+        assert instance._resolve_sparse_mode(cursor, "{1:1}/131072") == "dense_only"
+        assert instance._resolve_sparse_mode(cursor, "{1:1}/131072") == "dense_only"
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 1, [record.getMessage() for record in warnings]
     assert "sparse_embedding is empty" in warnings[0].getMessage()
@@ -60,7 +60,7 @@ def test_sparsevec_empty_column_falls_back_and_warns_once(caplog):
 def test_sparsevec_populated_column_runs_sparsevec_without_warning(caplog):
     instance = retriever("sparsevec")
     with caplog.at_level(logging.WARNING):
-        assert instance._resolve_sparse_mode(FakeCursor(populated=True), "{1:1}/65536") == "sparsevec"
+        assert instance._resolve_sparse_mode(FakeCursor(populated=True), "{1:1}/131072") == "sparsevec"
     assert [record for record in caplog.records if record.levelno == logging.WARNING] == []
 
 

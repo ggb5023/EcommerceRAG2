@@ -1,7 +1,7 @@
 """Serialize provider sparse weights into a pgvector `sparsevec` literal.
 
-0029 step 2: the dimension is pinned by migration 0037 (`sparsevec(65536)`), the
-non-zero budget is 2048, and an unusable payload is written as NULL — never
+0029 step 2: the dimension is pinned by migration 0044 (`sparsevec(131072)`),
+the non-zero budget is 2048, and an unusable payload is written as NULL — never
 silently. Every rejection returns a reason so the caller can log one warning with
 the chunk id; "written NULL without a word" is the failure mode this module exists
 to prevent.
@@ -13,8 +13,9 @@ from collections.abc import Sequence
 
 from app.providers.contracts import SparseWeight
 
-# Must match sql/migrations/0037_sparse_vector_dimension.sql.
-SPARSE_DIMENSION = 65536
+# Must match sql/migrations/0044_sparse_vector_wider.sql; this is the single
+# Python-side source of the token bound.
+SPARSE_DIMENSION = 131072
 SPARSE_MAX_NNZ = 2048
 SPARSE_TOKENIZER_SUFFIX = ":sparse"
 
@@ -30,8 +31,9 @@ def to_literal(weights: Sequence[SparseWeight] | None, *, dimension: int = SPARS
 
     The literal uses pgvector's `{index:value,...}/dimension` form. pgvector is
     1-based, this module is 0-based: the boundary adds +1 when writing, so the read
-    side must subtract 1. With dimension 65536 the range 0..65535 maps exactly onto
-    1..65536. Duplicate token ids are rejected (the provider contract says unique).
+    side must subtract 1. With dimension 131072 the range 0..131071 maps exactly
+    onto 1..131072. Duplicate token ids are rejected (the provider contract says
+    unique).
     """
     if not weights:
         return None, "provider returned no sparse weights"

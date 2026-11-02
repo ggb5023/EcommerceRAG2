@@ -450,7 +450,8 @@ class IngestWorker:
                     chunk["embedding"] = "[" + ",".join(str(float(v)) for v in vector) + "]"
                     # 0029: the sparse payload never fails the import; an unusable
                     # payload is written as NULL and counted for one batch warning.
-                    literal, reason = sparse.to_literal(getattr(result, "sparse", None))
+                    literal, reason = sparse.to_literal(
+                        getattr(result, "sparse", None), dimension=sparse.SPARSE_DIMENSION)
                     chunk["sparse_embedding"] = literal
                     if literal is None:
                         bucket = "invalid" if reason and "no sparse" not in reason else "no_sparse"

@@ -12,7 +12,7 @@ from app.providers.contracts import SparseWeight
 def test_literal_shape_and_sorting():
     literal, reason = sparse.to_literal([SparseWeight(7, 0.5), SparseWeight(2, 1.25)])
     assert reason is None
-    assert literal == "{3:1.25,8:0.5}/65536"  # pgvector indexes are 1-based
+    assert literal == "{3:1.25,8:0.5}/131072"  # pgvector indexes are 1-based
 
 
 def test_tokenizer_identity_names_the_producer():
@@ -23,6 +23,18 @@ def test_token_id_outside_the_dictionary_is_rejected():
     literal, reason = sparse.to_literal([SparseWeight(sparse.SPARSE_DIMENSION, 1.0)])
     assert literal is None and "outside" in reason
     assert sparse.to_literal([SparseWeight(-1, 1.0)])[0] is None
+
+
+def test_widened_upper_bound_is_131072():
+    assert sparse.SPARSE_DIMENSION == 131072
+    literal, reason = sparse.to_literal([SparseWeight(sparse.SPARSE_DIMENSION - 1, 1.0)])
+    assert reason is None
+    assert literal == "{131072:1}/131072"
+
+
+def test_token_id_at_the_widened_bound_is_rejected():
+    literal, reason = sparse.to_literal([SparseWeight(131072, 1.0)])
+    assert literal is None and "outside [0,131072)" in reason
 
 
 def test_nnz_over_the_budget_is_rejected():
@@ -49,7 +61,7 @@ def test_exactly_the_limits_are_accepted():
     assert len(weights) == sparse.SPARSE_MAX_NNZ + 1
     assert sparse.to_literal(weights)[0] is None  # one over the budget
     literal, reason = sparse.to_literal(weights[:-1])
-    assert reason is None and literal.endswith("/65536")
+    assert reason is None and literal.endswith("/131072")
 
 
 def _dsn():
@@ -71,7 +83,9 @@ def test_literal_round_trips_through_postgres():
     """A literal that only looks right is not right: send it to PostgreSQL."""
     import psycopg
 
-    literal, reason = sparse.to_literal([SparseWeight(0, 1.0), SparseWeight(65535, 2.0)])
+    literal, reason = sparse.to_literal([
+        SparseWeight(0, 1.0), SparseWeight(sparse.SPARSE_DIMENSION - 1, 2.0),
+    ])
     assert reason is None
     with psycopg.connect(_dsn()) as conn:
         # vector_dims() does not accept sparsevec; the dimension comes from the
@@ -79,6 +93,6 @@ def test_literal_round_trips_through_postgres():
         text = conn.execute("SELECT %s::sparsevec::text", (literal,)).fetchone()[0]
         nnz = len(text.strip("{}").split("/")[0].split(","))
         dims = int(text.rsplit("/", 1)[1])
-    assert dims == 65536, dims
+    assert dims == 131072, dims
     assert nnz == 2, nnz
-    assert text.startswith("{1:1,65536:2}"), text
+    assert text.startswith("{1:1,131072:2}"), text

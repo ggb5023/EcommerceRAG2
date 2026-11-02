@@ -117,12 +117,12 @@ def test_sparsevec_without_query_sparse_falls_back_to_dense_only():
 
 def test_sparsevec_with_empty_column_falls_back_to_dense_only():
     retriever = PostgresRetriever("postgresql://unused", sparse_retrieval="sparsevec")
-    assert retriever._resolve_sparse_mode(_ProbeCursor(False), "{1:1}/65536") == "dense_only"
+    assert retriever._resolve_sparse_mode(_ProbeCursor(False), "{1:1}/131072") == "dense_only"
 
 
 def test_sparsevec_with_populated_column_runs_sparsevec():
     retriever = PostgresRetriever("postgresql://unused", sparse_retrieval="sparsevec")
-    assert retriever._resolve_sparse_mode(_ProbeCursor(True), "{1:1}/65536") == "sparsevec"
+    assert retriever._resolve_sparse_mode(_ProbeCursor(True), "{1:1}/131072") == "sparsevec"
 
 
 def test_custom_rrf_weight_reaches_the_score():
@@ -139,4 +139,4 @@ def test_query_sparse_literal_is_reused_from_ingest():
     from app.ingest.sparse import to_literal
     literal, reason = to_literal([SparseWeight(token_id=0, weight=1.0)])
     assert reason is None
-    assert literal == "{1:1}/65536"
+    assert literal == "{1:1}/131072"
