@@ -50,7 +50,7 @@ def load_provider_service(
     config = load_provider_config(path)
     if config.profile == "aliyun-bailian":
         ensure_secure_config_file(path)
-    provider = build_provider(config)
+    provider = build_provider(config, record_usage=True)
     retriever = _load_retriever(connections)
     chains = build_provider_chains(
         control=provider,

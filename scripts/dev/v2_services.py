@@ -30,14 +30,15 @@ SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
                 "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE"},
-    "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
+    "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_AI_DSN", "V2_USAGE_DSN",
+           "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
            "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE",
            "V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
            "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS", "V2_INGEST_WORKER_ID"}
           | STORAGE_KEYS | PROVIDER_KEYS,
 }
 CONFIG_KEYS = set().union(*SERVICE_KEYS.values(), COMMON_KEYS) | {
-    "V2_AI_DSN", "V2_MIGRATION_DSN", "V2_START_TIMEOUT_SECONDS", "V2_STOP_TIMEOUT_SECONDS",
+    "V2_AI_DSN", "V2_USAGE_DSN", "V2_MIGRATION_DSN", "V2_START_TIMEOUT_SECONDS", "V2_STOP_TIMEOUT_SECONDS",
     "SPARSE_RETRIEVAL", "SPARSE_RRF_WEIGHT",
 }
 
@@ -93,6 +94,10 @@ def configure(values: dict[str, str]) -> dict[str, str]:
     for key in ("V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN"):
         if not values.get(key):
             values[key] = values.get("V2_AI_DSN", "")
+    # The AI child writes usage_log as rag_v2_ai. Keep the explicit usage DSN
+    # when configured; otherwise use the AI-role retriever DSN.
+    if not values.get("V2_AI_DSN"):
+        values["V2_AI_DSN"] = values.get("V2_USAGE_DSN") or values.get("V2_RETRIEVER_DSN", "")
     required = {"V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_INGEST_DSN"}
     identity_profile = values.setdefault("V2_IDENTITY_PROFILE", "development")
     if identity_profile == "development":

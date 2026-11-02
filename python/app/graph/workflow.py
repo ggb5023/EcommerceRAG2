@@ -167,7 +167,9 @@ def _cosine(left: list[float], right: list[float]) -> float:
 def scoped(state: GraphState, payload: dict[str, Any]) -> dict[str, Any]:
     """Attach the authoritative tenant/shop to every provider chain call."""
     scope = state.get("scope") or {}
-    tenant = scope.get("tenant_id")
+    # usage_log stores the numeric tenant database id; the alias remains the
+    # authorization identity and is only a fallback for legacy fixtures.
+    tenant = scope.get("tenant_db_id") or scope.get("tenant_id")
     shop = scope.get("shop_id")
     if tenant is None or isinstance(tenant, bool) or not isinstance(tenant, (int, str)) or (isinstance(tenant, str) and not tenant.strip()):
         raise ValueError("provider chain requires tenant_id")

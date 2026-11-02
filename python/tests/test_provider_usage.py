@@ -48,3 +48,18 @@ def test_worker_embedding_writes_one_summed_tenant_row():
     import asyncio
     asyncio.run(worker._embed(parsed,claim,__import__("threading").Event()))
     assert len(rows)==1 and rows[0]["tenant_id"]==42 and rows[0]["input_tokens"]==6
+
+
+def test_provider_record_usage_flag_controls_recorder(monkeypatch):
+    from app.providers.aliyun_bailian import AlibabaBailianProvider
+    from app.providers.config import ProviderConfig
+
+    monkeypatch.setenv("V2_AI_DSN", "postgresql://usage.test/db")
+    config = ProviderConfig(
+        profile="aliyun-bailian", endpoint="https://provider.test", region="test",
+        control_model="control", embedding_model="embedding", rerank_model="rerank",
+        generation_model="generation", embedding_dimensions=1024, timeout_s=1,
+        quota_rpm=1, api_key="secret",
+    )
+    assert AlibabaBailianProvider(config, transport=object(), record_usage=True).usage is not None
+    assert AlibabaBailianProvider(config, transport=object(), record_usage=False).usage is None

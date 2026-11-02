@@ -732,3 +732,10 @@ def test_offline_checkpoint_export_never_loads_provider_config(tmp_path, monkeyp
     assert report["status"] == "FAILED" and report["new_provider_requests"] == 0
     assert args.output.stat().st_mode & 0o777 == 0o600
     assert asyncio.run(MODULE.main_async(args)) == 2
+
+
+def test_live_requires_usage_dsn(monkeypatch):
+    monkeypatch.delenv("V2_USAGE_DSN", raising=False)
+    monkeypatch.delenv("V2_AI_DSN", raising=False)
+    with pytest.raises(MODULE.BatchPlanError, match="usage_dsn_required"):
+        MODULE.require_usage_recorder()

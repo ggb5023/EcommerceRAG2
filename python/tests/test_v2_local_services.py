@@ -48,6 +48,7 @@ def test_real_children_receive_only_their_service_credentials(tmp_path):
             # The merged ai process serves three facets, so it holds both roles;
             # the gateway role and the migration role stay outside it.
             assert received["V2_RETRIEVER_DSN"] == received["V2_CHECKPOINT_DSN"] == "ai-connection"
+            assert received["V2_AI_DSN"] == "ai-connection"
             assert received["V2_INGEST_DSN"] == "ingest-connection"
             assert received["V2_INGEST_GRPC_ADDR"] and received["V2_GRPC_ADDR"]
             assert received["INGEST_STORAGE_PROFILE"] == "filesystem"
@@ -167,3 +168,11 @@ def test_business_date_only_reaches_ai_not_permission_authority():
     assert services.service_environment("ai", values)["SYNTHETIC_BUSINESS_DATE"] == "2026-09-29"
     for name in ("gateway",):
         assert "SYNTHETIC_BUSINESS_DATE" not in services.service_environment(name, values)
+
+
+def test_ai_usage_dsn_falls_back_to_the_ai_role_dsn(tmp_path):
+    configured = values(tmp_path)
+    configured.pop("V2_AI_DSN")
+    configured = services.configure(configured)
+    environment = services.service_environment("ai", configured)
+    assert environment["V2_AI_DSN"] == environment["V2_RETRIEVER_DSN"] == "ai-connection"

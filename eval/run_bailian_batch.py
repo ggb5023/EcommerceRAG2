@@ -40,6 +40,7 @@ from app.providers.config import (
     load_provider_config,
 )
 from app.providers.contracts import ProviderError
+from app.providers.usage import UsageRecorder
 
 DEFAULT_CONTEXT_REVIEW = Path(
     "/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/"
@@ -934,6 +935,7 @@ async def main_async(args: argparse.Namespace) -> int:
         return 0
     try:
         ensure_secure_config_file(args.env)
+        require_usage_recorder()
         config = load_provider_config(args.env)
         if config.profile != "aliyun-bailian":
             raise ProviderConfigError("provider profile is not aliyun-bailian")
@@ -965,6 +967,12 @@ async def main_async(args: argparse.Namespace) -> int:
         retrieval.write_report(args.output, report)
     print(json.dumps({key: report[key] for key in ("status", "eligible_case_count", "excluded_case_count", "actual_request_count", "real_service_acceptance")}, ensure_ascii=False))
     return 0
+
+
+def require_usage_recorder() -> None:
+    """Live eval must fail before the first request if usage is unrecordable."""
+    if UsageRecorder.from_environment(role="ai") is None:
+        raise BatchPlanError("usage_dsn_required")
 
 
 def parse_args() -> argparse.Namespace:
