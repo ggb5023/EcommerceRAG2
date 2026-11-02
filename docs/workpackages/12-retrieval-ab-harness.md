@@ -30,12 +30,14 @@ WP11 的 aligned-53 评测是纯关键词重排，不经过 `PostgresRetriever`�
 ## 不新增的输入
 
 - 不改 `eval/` 冻结用例、答案点、alignment、语料；
-- 不重采 smoke 基线、不调棘轮/预算、不改产品检索代码；
+- 不重采 smoke 基线、不调棘轮/预算；除修复 sparsevec SQL 参数缺陷外不改产品检索语义；
 - 不做 WP13；不 push。
 
 ## 改动范围
 
-- `scripts/dev/retrieval-ab.py`：seed + run 两个子命令；直连 dev retrieval DSN。
+- `scripts/dev/retrieval-ab.py`：seed + reembed + run 三个子命令；直连 dev retrieval DSN。
+- `python/app/retrieval/postgres.py`：删除 sparsevec SQL 多传的查询字面量；
+  `python/tests/test_sparse_query_mode.py`：占位符/参数数量回归测试。
 - `docs/workpackages/12-retrieval-ab-harness.md`：本文件。
 - `docs/workpackages/INDEX.md`、`docs/workpackages/CURRENT`：状态指针。
 - `docs/decisions/0029-sparse-retrieval.md`、`docs/workpackages/11-sparse-query-ab.md`：
