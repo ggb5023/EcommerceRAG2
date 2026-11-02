@@ -31,7 +31,7 @@
 | 22 | 真实模型质量验证（--live） | implemented | usage_log 缺口（ai 进程服务不记用量）+ 错答率未实测；见 WP23/WP24 | — | `44c3b2a` |
 | 23 | 线上回答 usage_log 缺口修复（0021） | done | — | — | `9230b8b` |
 | 24 | 真实错答率语义评测（LLM-judge） | done | — | — | `0ad8788` |
-| 25 | 答案质量改进：修 false refusal 与答非所问 | implemented | — | — | `b97b3b8` |
+| 25 | 答案质量改进：修 false refusal 与答非所问 | done | — | — | `b97b3b8` |
 
 ## 同步规则
 
