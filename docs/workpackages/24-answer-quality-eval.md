@@ -50,7 +50,7 @@ bash scripts/check.sh --smoke
 ## 实际交付
 
 - 新增 `eval/judge_answer_quality.py`：固定提示词、`temperature=0`，逐例输出
-  `correct/partial/wrong` + 一句理由；输出 `.local/wp24/answer-quality.json`（0600）。
+  `correct`、`partial`、`wrong` + 一句理由；输出 `.local/wp24/answer-quality.json`（0600）。
 - 数据绑定：`.local/wp22/bailian-batch.json` 的 53 个 capture（SHA-256 校验）+
   冻结 revision 的问题/答案点；capture 查询哈希与 case 绑定校验通过。
 - 真实 judge：模型 `qwen3.7-plus`，`temperature=0`，53 次请求，

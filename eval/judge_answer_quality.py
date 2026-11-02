@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """LLM semantic judge for the 53 real batch answers (WP24)."""
 from __future__ import annotations
 
@@ -8,23 +7,23 @@ import hashlib
 import json
 import os
 import re
-import stat
 import tempfile
 import time
 from collections import Counter, deque
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "python") not in __import__("sys").path:
     __import__("sys").path.insert(0, str(ROOT / "python"))
 
-from app.providers import build_provider  # noqa: E402
-from app.providers.config import (  # noqa: E402
+from app.providers import build_provider
+from app.providers.config import (
     ensure_secure_config_file,
     load_provider_config,
 )
-from app.providers.usage import UsageRecorder  # noqa: E402
+from app.providers.usage import UsageRecorder
 
 DEFAULT_REPORT = ROOT / ".local/wp22/bailian-batch.json"
 DEFAULT_CASES = Path("/var/lib/ecommerce-rag/eval/synthetic-m2-v1-aligned-provisional/synthetic-m2-v1-revision-1.jsonl")
