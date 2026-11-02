@@ -291,14 +291,13 @@ def _atomic_write(path: Path, data: bytes | str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _fetch_once(
+def _fetch_response(
     url: str,
     policy: SourcePolicy,
-    root: Path,
     *,
     allow_private: bool,
     cancel_event: Any | None,
-) -> dict[str, object]:
+) -> tuple[bytes, str, Any, str]:
     current = validate_url(url, policy, allow_private=allow_private)
     visited = {current}
     body: bytes | None = None
@@ -371,6 +370,18 @@ def _fetch_once(
         break
     if body is None:
         raise CrawlError("empty_response")
+    return body, content_type, response_headers, final_url
+
+
+def _snapshot_manifest(
+    url: str,
+    policy: SourcePolicy,
+    root: Path,
+    body: bytes,
+    content_type: str,
+    response_headers: Any,
+    final_url: str,
+) -> dict[str, object]:
     text = re.sub(
         r"<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>",
         " ",
@@ -422,6 +433,21 @@ def _fetch_once(
     _atomic_write(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     return manifest
 
+
+def _fetch_once(
+    url: str,
+    policy: SourcePolicy,
+    root: Path,
+    *,
+    allow_private: bool,
+    cancel_event: Any | None,
+) -> dict[str, object]:
+    body, content_type, response_headers, final_url = _fetch_response(
+        url, policy, allow_private=allow_private, cancel_event=cancel_event
+    )
+    return _snapshot_manifest(
+        url, policy, root, body, content_type, response_headers, final_url
+    )
 
 def fetch_snapshot(
     url: str,
