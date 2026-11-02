@@ -54,26 +54,24 @@ bash scripts/check.sh --smoke
   SQL 只在 `go/internal/admin/store_shop.go`；Shop 列表和前端 ShopSettings 表单显示/编辑。
 - proto：`RequestContext.business_date = 26`；`bash scripts/dev/generate-proto.sh` 生成
   Go/Python 文件；`check-proto.sh`（lint/build/breaking）exit 0，新增字段向后兼容。
-- Go authority：`IssueScopeForShopWithTurn` 查 `shop.timezone`，用
-  `businessDateInTimezone` 计算并写入签名 scope；customer scope 同样写入；
-  UTC 23:30 → 中国标准时区 次日 2026-11-03 的边界测试通过；MAC 变化测试通过。
+- Go authority：`IssueScopeForShopWithTurn` / customer scope 统一走
+  `businessDateForLocation`：`SYNTHETIC_BUSINESS_DATE`（合法时）优先，否则按
+  `shop.timezone` + now；结果写入签名 scope。UTC 23:30 → 中国标准时区次日的边界测试
+  与 synthetic 优先测试通过；MAC 变化测试通过。
 - Python：`_v2_scope` 透传 `business_date`；`LangGraphRagService._business_date`
   按 scope → synthetic → UTC 兜底，非法日期拒绝；测试通过。
 - contracts：新增 `scope business_date` 跨进程行，两侧测试已列出。
 - Go：`go test ./...` 全绿；Python：**419 passed / 30 skipped**。
 - 快速层：`bash scripts/check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**。
-- **smoke 未通过且未重采基线**：
-  - `smoke-answer` 的 `answer_sha256` 从 `bdba...` 变为 `4552...`；
-  - `smoke-facts` 的 `answer_sha256` 从 `1231...` 变为 `e636...`；
-  - 两者的 `structure_sha256` 未变；
-  - 原因是 scope 中的店铺本地日期优先于 dev 的 `SYNTHETIC_BUSINESS_DATE=2026-09-29`，
-    生成文本中的业务日期变化；按约定不重采 `.local/w2/` 基线，停下报告。
-- 重启：Go 重建并 strings 命中 `shop_timezone_unavailable`；Go/Python 进程在
-  2026-11-03 00:10:07 启动（晚于代码提交 `b18a2f8`）。
+- gateway 环境：`v2_services.py` 将 `SYNTHETIC_BUSINESS_DATE` 同时透传给 gateway；
+  进程 `/proc/<pid>/environ` 已确认该值可见。
+- **smoke 已恢复**：`bash scripts/check.sh --smoke` = **45 PASS / 0 UNCONFIGURED /
+  0 FAILED**；五条 smoke 与 `.local/w2/` 逐字节一致，未重采任何基线。
+- 重启：Go 重建并 strings 命中 `synthetic_business_date_invalid`；Go/Python 进程在
+  2026-11-03 00:21:38 启动（晚于代码提交 `dad5c9b`）。
 
 ## 未覆盖路径
 
-- smoke 基线变化，未通过；未重采基线，WP27 不能按“45 PASS”验收。
 - 未做 admin 设置页的浏览器交互验证；只做 Go 校验单测和前端 build。
 - 时区数据只有默认 中国标准时区；未覆盖多时区真实店铺切换。
 - 未实现版本有效期/命令/API/前端（WP28/WP29）；未改检索 SQL。
