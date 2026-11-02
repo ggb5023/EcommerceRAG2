@@ -18,7 +18,7 @@
 | `pending` | `ASKING` 且从最新 execution 的 `finished_at` 起算不足 10 分钟；`finished_at` 为 NULL 时回退 `turn.created_at`；单列，不进入任何分母 | 已实现：最新 execution 的 `finished_at`（缺失回退 `created_at`），10 分钟宽限 |
 | `clarified` | 窗口内存在更晚的轮次，其 `parent_turn_id = 本轮 t.id`，且其最新 execution 状态为 `DONE`；同会话无关 DONE 不算 | 已实现：按 `parent_turn_id` 关联，不按 conversation 推断 |
 | `CANCELLED` | 单独成桶，不并入 `failed` | 已实现：`cancelled` 独立字段；`failed` 不含取消 |
-| `wrong_answer_rate` | 只能来自离线评测或人工标注；不得从 `DONE` 推断 | 实测：**20.75%**（LLM-judge，53 例，2026-11-02；correct 38、partial 4、wrong 11；语义评审，非精确答案点匹配；partial 单列） |
+| `wrong_answer_rate` | 只能来自离线评测或人工标注；不得从 `DONE` 推断 | 实测：**13.21%**（LLM-judge，53 例，2026-11-02；WP25 v2：correct 39、partial 7、wrong 7；此前 v1 为 20.75%；语义评审，非精确答案点匹配；partial 单列） |
 
 ## ASKING 的判定优先级
 

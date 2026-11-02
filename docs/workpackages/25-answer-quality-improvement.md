@@ -49,10 +49,63 @@ bash scripts/check.sh --smoke
 - 不把 judge 结果当门禁阈值；不把 LLM-judge 写成人工复核；
 - 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
 
+## 三例证据类定性（只调查）
+
+| case | evidence | 结论 |
+| --- | --- | --- |
+| syn-007 | 8 chunks，含 `aligned-product-storage-v1` 的尺寸段和“晴野蓝色收纳箱规格”标题段 | **召回了、generation 没看见/误触发**：蓝色与尺寸都在证据里；batch 没有前文实体，模型仍拒答。提示词可缓解，但无历史时不能保证指代成功。 |
+| syn-019 | 8 chunks，含 `SKU-EAR-200` 库存快照与澄清规则 | **输入缺少前文**：batch harness 没有传 `quality-scenarios.v2` 的前置对话；模型按无历史澄清是正确行为。不改检索/不猜实体。 |
+| syn-026 | 8 chunks，含 USB-C 通用规则但无具体标准版本、日期和接口 | **语料/答案点缺口**：检索命中了相关文档，但文档本身没有答案点要求的细节；fail-closed 正确，不用提示词编造。 |
+
+结论：syn-026 不是检索漏召而是证据内容不足；syn-019 是 batch 未带前文；
+syn-007 是 generation 误判可用证据。后两类没有靠提示词强行改写为“正确”。
+
 ## 实际交付
 
-（完成后填写）
+- 公开类、答非所问、格式字段的提示词已更新，registry 版本：
+  `generation_base=v2`、`generation_plan=v2`、`generation_limits=v2`、
+  `generation_delivery=v2`。
+- prompt-matrix 原有 9 个样本，新增 **12 个**反例样本（公开 4、答非所问 4、
+  格式/partial 4），参数样本共 21；另有 registry 版本断言。`pytest` 为
+  **418 passed / 30 skipped**。
+- 新 batch（新输出/新 capture）236 请求 PASS；新 judge 53 请求。
+- 结果对比：
+
+| 指标 | WP24 v1 | WP25 v2 |
+| --- | ---: | ---: |
+| correct | 38 | **39** |
+| partial | 4 | 7 |
+| wrong | 11 | **7** |
+| wrong_answer_rate | 20.75% | **13.21%** |
+| partial_rate | 7.55% | 13.21% |
+
+- 逐例 verdict 变化：
+
+| case | 旧 | 新 | 备注 |
+| --- | --- | --- | --- |
+| syn-008 | correct | partial | 未直接回答哪把更适合海边 |
+| syn-012 | partial | correct | 低/高款区分已补 |
+| syn-017 | wrong | partial | 仍缺“配送区域/承诺时效接口” |
+| syn-025 | wrong | correct | 先给已有规则与缺口 |
+| syn-027 | wrong | correct | 报道摘要不再整段拒答 |
+| syn-031 | wrong | correct | 指出缺标准名称/版本/日期 |
+| syn-043 | correct | partial | 缺“按来源等级和授权处理” |
+| syn-052 | correct | partial | 缺“标记冲突/不隐藏证据” |
+
+- 仍非 correct：syn-007/019/026（上述定性）、syn-028、syn-029、syn-037、syn-046
+  （wrong）与 syn-017/020/040/043/052/054/008（partial）。原因见
+  `.local/wp25/answer-quality.json`。
+- usage_log（eval DB）：WP25 新 batch 236 行 / 140833 输入 / 4350 输出；
+  judge 53 行 / 12173 输入 / 2263 输出；累计行数 289 → 578。
+- 真实模型成本：WP25 共 236 + 53 = 289 次 Provider 请求；token 为真实响应值。
+- 未被 retry 改变的 smoke：`--smoke` 45 逐字节一致；`check.sh` 40 PASS。
 
 ## 未覆盖路径
 
-（完成后填写）
+- wrong 率从 20.75% 降至 13.21%，correct 从 38 增至 39；但 **syn-008/043/052 从
+  correct 退为 partial**，属于逐例 regression，不能只说总数改善。
+- syn-007/019 的根因包含 batch 未带历史；syn-026 是冻结语料缺答案点细节。
+  本轮没有改检索、没有编造事实，也没有强行把这些判成 correct。
+- 真实模型成本：WP25 236 次 batch + 53 次 judge，不含此前 WP22/WP24 的调用。
+- LLM-judge 仍是语义评审，不是人工；judge 有模型偏差，partial 单列不做门禁。
+- 未重跑 7 条 safety、HTTP/SSE 53 例；未改冻结集/答案点/检索；未引依赖；未 push。
