@@ -151,3 +151,53 @@ WP11 的离线数字不经过检索实现，不能证明分支执行。WP12 建�
 真实环境 sparse 永远 NULL。该决策不属于 WP12 授权范围；WP11 不能转 `done`。
 
 **未覆盖**：真实语义质量、查询侧 tokenizer 版本比对、稀疏索引计划。
+
+## 第四步结果：真实语义 A/B（WP13，2026-11-02）
+
+**维度落地**：迁移 0044 用 `USING regexp_replace(... '/65536$' -> '/131072')`
+把 `chunk.sparse_embedding` 扩到 `sparsevec(131072)`；dev/test-integration/
+eval-migration 三库均为 44 条迁移 / `sparsevec(131072)`，逐文件 sha256 无差异。
+dev 原有 74 个非 NULL 稀疏行全部存活，值逐 token 不变；真实语料 max token_id
+实测 113799，Bailian 探针 max 113496，均低于 131072。
+
+**真实 A/B**：`ab-test` 的 74/74 chunks 用 Bailian `qwen3.7-text-embedding`
+重新嵌入（dense 与 sparse 一起），legacy 与 sparsevec 使用同一批真实查询嵌入、
+同一 scope、同一候选数、`SPARSE_RRF_WEIGHT=0.7`。53/53 例两分支均命中预期模式，
+无降级。
+
+| 模式 | recall@5 | MRR | nDCG@5 |
+| --- | --- | --- | --- |
+| legacy（真实 dense + 文本启发式稀疏） | 0.9811 | 0.9151 | 0.9319 |
+| sparsevec（真实 dense + Qwen 稀疏） | 0.9623 | 0.8947 | 0.9118 |
+| 差值 | -0.0189 | -0.0204 | -0.0202 |
+
+53 例中 51 例的 top5/排名发生变化，但只有 3 例命中结果翻转：
+`syn-019` legacy 未命中 → sparsevec 命中；`syn-036`、`syn-038` legacy 命中 →
+sparsevec 未命中。净效果是 sparsevec 少 1 例命中、MRR 略低。
+
+**原因分析（不改权重、不调参）**：
+
+- 两条路径的**稠密通道完全相同**（同一真实 dense 向量），差异只在稀疏通道，
+  因此这是干净的稀疏对照。
+- `syn-019` 期望文档 `aligned-fact-inventory-earbuds-v1` 的 dense 排名为 2；
+  legacy 的文本启发式没有给它稀疏排名，RRF 被其他有稀疏排名的文档挤出 top5；
+  Qwen 稀疏把它排到第 1，sparsevec 恢复命中。
+- `syn-036` 期望文档 `aligned-web-waterproof-v1` 的 dense 排名为 7；
+  legacy 的文本启发式把它排到稀疏第 1，RRF 将其抬到 top3；Qwen 稀疏排第 8，
+  RRF 后落到文档第 7，跌出 top5。`syn-038` 同理（dense 6、legacy 稀疏 5、
+  Qwen 稀疏 7）。
+- aligned-53 的查询与源文档共享大量字面词；legacy 的 `similarity + strpos`
+  恰好放大了这种精确词面重合。Qwen 稀疏是语义-词法权重，反而把
+  routing/policy/refusal 等共享模板词的文档排得更靠前，挤压了期望文档。
+- `SPARSE_RRF_WEIGHT=0.7` 是固定值；本轮没有为了提升数字而调权重。若后续要
+  改权重或换 tokenizer，必须按 (b) 另开实验并如实报告。
+
+**结论**：真实稀疏在本数据集上**略差**（recall -1 例、MRR -0.020），不是
+“不低于基线”才收工；legacy 仍是默认。结论只覆盖 aligned-53 与 ab-test 的
+74 个 chunk，不代表生产全量语料。
+
+**成本**：真实调用共 15 次（reembed 5、run 4+4、差异分析 2），输入
+7601 tokens，每次均写 `usage_log`；单次最大 5 请求，低于 300 请求 / 30 RPM 上限。
+
+**未覆盖**：查询侧 tokenizer 版本比对、稀疏索引计划、权重/其他 tokenizer 的
+敏感性实验。

@@ -73,7 +73,7 @@ bash eval/run.sh offline          # legacy 与 sparsevec 各一次
 
 ## WP12 复核补充（2026-11-02）
 
-- WP12 的 `scripts/dev/retrieval-ab.py` 已让 53/53 例真实经过 `PostgresRetriever`；
+- WP12 的检索 A/B harness 已让 53/53 例真实经过 `PostgresRetriever`；
   legacy/sparsevec 的 `last_sparse_mode` 分别 53/53 命中，mock 语料 A/B 已产出
   （legacy recall@5=0.6981，sparsevec=0.1132；仅证分支执行，不证语义质量）。
 - WP12 发现本包 sparsevec SQL 多传一个查询字面量（8 个占位符、9 个参数），
@@ -81,3 +81,14 @@ bash eval/run.sh offline          # legacy 与 sparsevec 各一次
 - 真实 provider 探针显示 Bailian sparse token_id 最大 113496 > 65536，
   74/74 个真实稀疏向量被 0029 的维度规则拒绝；真实语义 A/B 被维度阻塞，
   需新迁移或换 provider。WP11 因此不能转 `done`。
+
+## WP13 真实语义 A/B（2026-11-02）
+
+- 0044 已把维度扩到 `sparsevec(131072)`；ab-test 的 74/74 chunks 用
+  Bailian `qwen3.7-text-embedding` 重新嵌入，sparse 非空 74/74。
+- 53/53 例 legacy 与 sparsevec 均执行预期分支；真实 A/B：
+  legacy recall@5=0.9811、MRR 0.9151、nDCG@5=0.9319；
+  sparsevec=0.9623 / 0.8947 / 0.9118，**sparsevec 略差**（净少 1 例命中）。
+- 差异案例：`syn-019` sparsevec 恢复命中；`syn-036`、`syn-038` sparsevec
+  跌出 top5。原因与逐候选排名见 0029「第四步结果」。
+- WP11 保持 `implemented`；是否转 `done` 由主 agent 复核真实数字后决定。

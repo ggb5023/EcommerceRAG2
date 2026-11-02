@@ -107,9 +107,17 @@ rejected: token_id 97124 is outside [0,65536)
 稀疏词表不兼容，**真实语义 A/B 无法在本包内完成**；需要新迁移改维度或换 provider，
 属于 WP13 的决策，不在 WP12 授权内。真实探针的用量已写入 `usage_log`。
 
+## WP13 真实 A/B（2026-11-02）
+
+- WP13 的 0044 已解除维度阻塞；同一 harness 的 `reembed` 与 `run` 产出真实
+  BaiLian 稀疏 A/B：legacy 0.9811 / 0.9151 / 0.9319，sparsevec
+  0.9623 / 0.8947 / 0.9118（recall@5 / MRR / nDCG@5）。
+- 53/53 例分支模式正确；sparsevec 略差，逐例原因见 0029「第四步结果」。
+- WP12 保持 `implemented`；是否转 `done` 由主 agent 复核真实数字后决定。
+
 ## 未覆盖路径
 
-- 真实语义 A/B：被上述维度阻塞；mock A/B 只证机制，不证质量。
+- 真实语义 A/B 已由 WP13 补齐；mock A/B 仅保留为机制回归。
 - 语料发布因同一数据库只允许一个 gateway 持有 advisory lock（742019,1），
   seed 用 SQL 写入与产品发布相同的 review 字段（reviewed_hash/reviewed_by/
   fencing_epoch/active_version_id），未走 Go admin 发布命令；只作用于 ab-test。

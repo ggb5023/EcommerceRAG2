@@ -7,7 +7,7 @@
 
 | 编号 | 标题 | 状态 | 阻塞 | 替代关系 | 最后提交 |
 | --- | --- | --- | --- | --- | --- |
-| 01 | 稀疏向量写入链路（0029 第二步） | implemented | 真实 provider 的 sparse token_id 超出 `sparsevec(65536)`，真实写入全 NULL（WP12 探针） | — | `9ca35ec` |
+| 01 | 稀疏向量写入链路（0029 第二步） | implemented | —（维度已由 0044 扩到 131072；待复核） | — | `04924b6` |
 | 02 | 决策理由落库（B6） | done | — | superseded-by 09 | `97717a7` |
 | 03 | 结果度量：自动解决率（B1） | done | — | — | `f91282b` |
 | 04 | 内容缺口闭环（B3） | done | — | — | `6a53936` |
@@ -17,9 +17,9 @@
 | 08 | 前端设计系统（M9 阶段 1） | done | — | — | `bad1225` |
 | 09 | 决策账本语义（重开 02） | done | — | — | `7675ad2` |
 | 10 | D2 前置代理示例（nginx/caddy） | done | — | — | `f65b6c4` |
-| 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实语义 A/B 阻塞：Bailian sparse token_id 超 65536；WP12 机制 A/B 53/53 已跑 | — | `c573a0f` |
-| 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 机制 A/B 已跑；真实语义 A/B 被 sparsevec 维度阻塞 | — | `4d755c3` |
-| 13 | 稀疏维度扩大与真实语义 A/B | active | — | — | 待提交 |
+| 11 | 稀疏查询 A/B（0029 第三步） | implemented | 真实 A/B 已完成：legacy 0.9811 vs sparsevec 0.9623；待主 agent 判定 done | — | `c573a0f` |
+| 12 | 检索 A/B harness（补齐 0029 证据） | implemented | 真实 A/B 已补齐；待主 agent 判定 done | — | `59c1b7a` |
+| 13 | 稀疏维度扩大与真实语义 A/B | implemented | 三库 44/131072；真实 A/B 完成；待主 agent 复核 | — | 待提交 |
 
 ## 同步规则
 
