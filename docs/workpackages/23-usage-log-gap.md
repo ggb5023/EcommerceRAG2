@@ -72,7 +72,7 @@ bash scripts/check.sh --smoke
 - ingest 回归：`test_worker_embedding_writes_one_summed_tenant_row` 通过；ingest 仍
   `role="ingest"` 独立记一次，未改。
 - 测试：`pytest -q` **405 passed / 30 skipped**；eval pytest **289 passed**。
-- 重启：ai/gateway 启动时间 `2026-11-02 22:22:12`，晚于代码提交 `9230b8b`。
+- 重启：ai/gateway 启动时间晚于最后代码提交（最终时间见汇报 §3）。
 - 门禁：`check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**；`--smoke` **45 PASS**。
 - dev 已恢复 `v2_langchain_mock`；临时真实栈已停止。
 
