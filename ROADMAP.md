@@ -65,4 +65,4 @@ M5 收尾：gateway 健康检查与合并准备。
 
 ## 暂缓清单
 
-Medusa 集成、公开数据集双轨（Open Food Facts、UCI 等）、爬虫、OCR、PDF、多租户、多实例。重新启用前需要先写决策记录。
+Medusa 集成、公开数据集双轨（Open Food Facts、UCI 等）、OCR、PDF、多租户、多实例。重新启用前需要先写决策记录。爬虫已解冻为 intelligence 域公开数据抓取，见 0032。

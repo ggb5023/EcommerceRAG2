@@ -55,7 +55,7 @@
 - 自建电商平台，或对接 Medusa 等电商系统；
 - 多商家 SaaS、计费、多实例高可用；
 - 通用工作流编排、Agent 平台；
-- 网页爬虫、OCR、图片检索、PDF 解析；
+- OCR、图片检索、PDF 解析；网页爬虫解冻为 intelligence 域公开数据抓取，见 [0032](decisions/0032-intelligence-domain-and-crawling.md)；
 - 公开数据集双轨、实时订单、库存和价格查询；
 - 某个平台的专用深度对接。
 
