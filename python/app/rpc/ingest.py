@@ -52,12 +52,7 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             shop_id=request.shop_id or context.shop_id,
         )
 
-    def Submit(self, request, context):
-        self._authorize(request.context, context)
-        if self.database is None:
-            context.abort(
-                grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"
-            )
+    def _submission_shop(self, request, context):
         context_shop = request.context.shop_id
         shop_id = request.shop_id or context_shop
         if (
@@ -74,6 +69,10 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
                 grpc.StatusCode.PERMISSION_DENIED,
                 "submission shop is outside the signed scope",
             )
+        return shop_id
+
+    @staticmethod
+    def _validate_identity(request, context) -> None:
         try:
             if request.tenant_db_id and int(request.tenant_db_id) != request.context.tenant_db_id:
                 context.abort(
@@ -89,11 +88,9 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT, "database identity is invalid"
             )
-        if not request.idempotency_key:
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, "idempotency key is required"
-            )
-        package = _inspect_package(self._submission_request(request), context)
+
+    @staticmethod
+    def _identity_pks(request, context) -> tuple[int, int]:
         try:
             tenant_pk = int(request.tenant_db_id or str(request.context.tenant_db_id))
             user_pk = int(request.user_db_id or str(request.context.user_db_id))
@@ -101,6 +98,11 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT, "database identity is invalid"
             )
+        return tenant_pk, user_pk
+
+    def _submit_package(self, request, context, shop_id: str) -> rag_pb2.SubmitResponse:
+        package = _inspect_package(self._submission_request(request), context)
+        tenant_pk, user_pk = self._identity_pks(request, context)
         package_sha = package_payload_hash(
             tenant_pk, shop_id, package["manifest_sha256"], package["uploaded"]
         )
@@ -141,6 +143,20 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
             package_sha256=result.package_sha256,
             item_count=result.item_count,
         )
+
+    def Submit(self, request, context):
+        self._authorize(request.context, context)
+        if self.database is None:
+            context.abort(
+                grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"
+            )
+        shop_id = self._submission_shop(request, context)
+        self._validate_identity(request, context)
+        if not request.idempotency_key:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "idempotency key is required"
+            )
+        return self._submit_package(request, context, shop_id)
 
     def GetStatus(self, request, context):
         self._authorize(request.context, context)
