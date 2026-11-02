@@ -49,6 +49,28 @@ class AbFailure(RuntimeError):
     """A fixed diagnostic suitable for stdout."""
 
 
+class RequestLimiter:
+    """Hard stop for real provider calls: total and rolling one-minute caps."""
+
+    def __init__(self, max_requests: int, max_per_minute: int) -> None:
+        if max_requests < 1 or max_per_minute < 1:
+            raise AbFailure("provider request limits must be positive")
+        self.max_requests = max_requests
+        self.max_per_minute = max_per_minute
+        self.used = 0
+        self.timestamps: list[float] = []
+
+    def before_request(self) -> None:
+        now = time.monotonic()
+        self.timestamps = [stamp for stamp in self.timestamps if now - stamp < 60]
+        if self.used >= self.max_requests:
+            raise AbFailure(f"provider request limit {self.max_requests} reached")
+        if len(self.timestamps) >= self.max_per_minute:
+            raise AbFailure(f"provider rate limit {self.max_per_minute}/minute reached")
+        self.used += 1
+        self.timestamps.append(now)
+
+
 def _env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
@@ -448,9 +470,10 @@ def _provider_for_model(model: str):
 
 
 def _embeddings(provider, texts: list[str], text_type: str, tenant_id: int,
-                batch_size: int = 16) -> list[Any]:
+                limiter: RequestLimiter, batch_size: int = 16) -> list[Any]:
     results = []
     for start in range(0, len(texts), batch_size):
+        limiter.before_request()
         batch = texts[start:start + batch_size]
         results.extend(asyncio.run(provider.embed(
             batch, text_type=text_type, dimensions=1024, output_type="dense&sparse",
@@ -459,19 +482,19 @@ def _embeddings(provider, texts: list[str], text_type: str, tenant_id: int,
     return results
 
 
-def _query_embeddings(queries: list[str], model: str,
-                      tenant_id: int) -> list[tuple[tuple[float, ...], tuple[Any, ...]]]:
+def _query_embeddings(queries: list[str], model: str, tenant_id: int,
+                      limiter: RequestLimiter) -> list[tuple[tuple[float, ...], tuple[Any, ...]]]:
     provider = _provider_for_model(model)
-    results = _embeddings(provider, queries, "query", tenant_id)
+    results = _embeddings(provider, queries, "query", tenant_id, limiter)
     return [(tuple(item.dense), tuple(item.sparse)) for item in results]
 
 
-def reembed(model: str | None = None) -> int:
+def reembed(model: str | None = None, limiter: RequestLimiter | None = None) -> int:
     """Replace the ab-test chunk vectors with the selected embedding model."""
     import psycopg
     from psycopg.rows import dict_row
 
-    from app.ingest.sparse import sparse_tokenizer_id, to_literal
+    from app.ingest.sparse import SPARSE_DIMENSION, sparse_tokenizer_id, to_literal
     from app.retrieval.postgres import _vector_literal
 
     dsn = _dsn("V2_INGEST_DSN", env_file=DEV_ENV)
@@ -494,14 +517,19 @@ def reembed(model: str | None = None) -> int:
             os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")
         ).embedding_model
     provider = _provider_for_model(model)
-    results = _embeddings(provider, [chunk["content"] for chunk in chunks], "document", tenant_id)
+    limiter = limiter or RequestLimiter(300, 30)
+    results = _embeddings(
+        provider, [chunk["content"] for chunk in chunks], "document", tenant_id, limiter,
+    )
+    prepared = []
+    for chunk, result in zip(chunks, results):
+        literal, reason = to_literal(result.sparse, dimension=SPARSE_DIMENSION)
+        if literal is None:
+            raise AbFailure(f"chunk {chunk['id']} sparse rejected: {reason}")
+        prepared.append((chunk, result, literal))
     written = 0
-    missing = 0
     with psycopg.connect(dsn) as connection, connection.cursor() as cursor:
-        for chunk, result in zip(chunks, results):
-            literal, _reason = to_literal(result.sparse)
-            if literal is None:
-                missing += 1
+        for chunk, result, literal in prepared:
             cursor.execute(
                 "UPDATE chunk SET embedding=%s::halfvec,sparse_embedding=%s::sparsevec,"
                 "sparse_tokenizer_id=%s WHERE tenant_id=%s AND id=%s",
@@ -513,10 +541,19 @@ def reembed(model: str | None = None) -> int:
             "UPDATE document_version SET embedding_model=%s WHERE tenant_id=%s",
             (results[0].model, tenant_id),
         )
+        cursor.execute(
+            "SELECT count(*),count(*) FILTER (WHERE sparse_embedding IS NOT NULL) "
+            "FROM chunk WHERE tenant_id=%s",
+            (tenant_id,),
+        )
+        total, sparse_count = cursor.fetchone()
+        if total != 74 or sparse_count != 74:
+            raise AbFailure(f"expected 74/74 sparse chunks, found {sparse_count}/{total}")
         connection.commit()
     print(json.dumps({
-        "tenant": TENANT_EXTERNAL_ID, "chunks": written, "missing_sparse": missing,
-        "embedding_model": results[0].model,
+        "tenant": TENANT_EXTERNAL_ID, "chunks": written, "missing_sparse": 0,
+        "sparse_chunks": sparse_count, "embedding_model": results[0].model,
+        "provider_requests": limiter.used,
     }, ensure_ascii=False, sort_keys=True))
     return 0
 
@@ -595,7 +632,7 @@ def _print_table(label: str, rows: list[dict[str, Any]]) -> None:
               f"{row['ndcg_at_5']:.4f}\t{','.join(row['top5'])}")
 
 
-def run(revision: Path, limit: int | None) -> int:
+def run(revision: Path, limit: int | None, limiter: RequestLimiter | None = None) -> int:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -632,7 +669,10 @@ def run(revision: Path, limit: int | None) -> int:
     cases = _eligible_cases(revision, tenant_id)
     if limit is not None:
         cases = cases[:limit]
-    vectors = _query_embeddings([item["case"]["query"] for item in cases], embedding_model, tenant_id)
+    limiter = limiter or RequestLimiter(300, 30)
+    vectors = _query_embeddings(
+        [item["case"]["query"] for item in cases], embedding_model, tenant_id, limiter,
+    )
     scope = _scope(tenant_id, documents)
     legacy, legacy_wrong = _evaluate("legacy", cases, vectors, scope)
     sparse, sparse_wrong = _evaluate("sparsevec", cases, vectors, scope)
@@ -660,6 +700,7 @@ def run(revision: Path, limit: int | None) -> int:
         },
         "legacy_wrong_mode": legacy_wrong,
         "sparsevec_wrong_mode": sparse_wrong,
+        "provider_requests": limiter.used,
     }
     print("\nSUMMARY " + json.dumps(summary, ensure_ascii=False, sort_keys=True))
     if legacy_wrong or sparse_wrong:
@@ -677,17 +718,20 @@ def main() -> int:
     parser.add_argument("--revision-root", type=Path, default=DEFAULT_REVISION)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--model", help="embedding model for reembed (default: providers.env)")
+    parser.add_argument("--max-requests", type=int, default=300)
+    parser.add_argument("--max-requests-per-minute", type=int, default=30)
     args = parser.parse_args()
     try:
         if not args.revision_root.is_dir():
             raise AbFailure(f"approved revision is unavailable: {args.revision_root}")
+        limiter = RequestLimiter(args.max_requests, args.max_requests_per_minute)
         if args.command == "seed":
             return seed(args.revision_root)
         if args.command == "reembed":
-            return reembed(args.model)
+            return reembed(args.model, limiter)
         if args.limit is not None and args.limit < 1:
             raise AbFailure("--limit must be positive")
-        return run(args.revision_root, args.limit)
+        return run(args.revision_root, args.limit, limiter)
     except AbFailure as error:
         print(f"FAIL {error}")
         return 1
