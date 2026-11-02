@@ -21,7 +21,7 @@
 | 12 | 检索 A/B harness（补齐 0029 证据） | done | — | — | `2e65296` |
 | 13 | 稀疏维度扩大与真实语义 A/B | done | — | — | `28b0bb8` |
 | 14 | 稀疏收尾：权重敏感性与 tokenizer 版本比对 | done | — | — | `94bd0d0` |
-| 15 | 提示词资产化与 prompt-matrix | implemented | 文本零变更；matrix 10 条；待主 agent 复核 | — | 待提交 |
+| 15 | 提示词资产化与 prompt-matrix | implemented | 文本零变更；matrix 10 条；待主 agent 复核 | — | `3674bbe` |
 
 ## 同步规则
 
