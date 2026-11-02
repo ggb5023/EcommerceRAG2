@@ -37,8 +37,8 @@
 
 ```bash
 cd frontend && npm test && npm run build        # gzip ≤90KB
-# 临时 vite（5174 --force）跑完停
-WORKSPACE_URL=http://127.0.0.1:5174 node tests/customer-mobile.browser.mjs
+# 临时 vite（5174 --force）跑完停；用例默认连接 5174
+node tests/customer-mobile.browser.mjs
 bash scripts/check.sh                            # 40
 bash scripts/check.sh --smoke                    # 45
 git grep -c data-testid frontend/src             # 与基线对照，只增不减
