@@ -231,13 +231,23 @@ func businessDateInTimezone(timezone string, now time.Time) (string, error) {
 	return now.In(location).Format("2006-01-02"), nil
 }
 
+func businessDateForLocation(timezone string, now time.Time) (string, error) {
+	if synthetic := strings.TrimSpace(os.Getenv("SYNTHETIC_BUSINESS_DATE")); synthetic != "" {
+		if _, err := time.Parse("2006-01-02", synthetic); err != nil {
+			return "", errors.New("synthetic_business_date_invalid")
+		}
+		return synthetic, nil
+	}
+	return businessDateInTimezone(timezone, now)
+}
+
 func (g *Authority) businessDate(ctx context.Context, shop string) (string, error) {
 	var timezone string
 	if err := g.DB.QueryRow(ctx, `SELECT COALESCE(timezone,'Asia/Shanghai') FROM shop WHERE tenant_id=$1 AND id=$2`,
 		g.Session.TenantID, shop).Scan(&timezone); err != nil {
 		return "", err
 	}
-	return businessDateInTimezone(timezone, time.Now())
+	return businessDateForLocation(timezone, time.Now())
 }
 
 func (g *Authority) IssueScope(ctx context.Context, requestID string) (*ragv1.RequestContext, error) {

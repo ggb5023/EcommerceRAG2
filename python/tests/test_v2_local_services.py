@@ -163,11 +163,10 @@ def test_sigterm_stops_ready_stack_without_killing_unrelated_process(tmp_path):
         unrelated.wait(timeout=5)
 
 
-def test_business_date_only_reaches_ai_not_permission_authority():
+def test_business_date_reaches_both_date_consumers():
     values = {"SYNTHETIC_BUSINESS_DATE": "2026-09-29"}
-    assert services.service_environment("ai", values)["SYNTHETIC_BUSINESS_DATE"] == "2026-09-29"
-    for name in ("gateway",):
-        assert "SYNTHETIC_BUSINESS_DATE" not in services.service_environment(name, values)
+    for name in ("ai", "gateway"):
+        assert services.service_environment(name, values)["SYNTHETIC_BUSINESS_DATE"] == "2026-09-29"
 
 
 def test_ai_usage_dsn_falls_back_to_the_ai_role_dsn(tmp_path):

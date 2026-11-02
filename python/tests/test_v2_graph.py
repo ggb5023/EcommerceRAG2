@@ -130,3 +130,10 @@ def test_scope_business_date_wins_over_process_fallback_and_invalid_is_rejected(
         assert "business date" in str(error)
     else:
         raise AssertionError("invalid scope business date must fail closed")
+
+
+def test_scope_date_wins_and_synthetic_is_only_fallback(monkeypatch):
+    monkeypatch.setenv("SYNTHETIC_BUSINESS_DATE", "2026-09-29")
+    service = LangGraphRagService()
+    assert service._business_date({"business_date": "2026-11-03"}) == "2026-11-03"
+    assert service._business_date({}) == "2026-09-29"

@@ -113,3 +113,14 @@ func TestBusinessDateIsCoveredByTheScopeMAC(t *testing.T) {
 		t.Fatal("business_date must be part of the signed scope")
 	}
 }
+
+func TestSyntheticBusinessDateOverridesTheShopTimezone(t *testing.T) {
+	t.Setenv("SYNTHETIC_BUSINESS_DATE", "2026-09-29")
+	got, err := businessDateForLocation("America/Los_Angeles", time.Date(2026, 11, 2, 23, 30, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2026-09-29" {
+		t.Fatalf("synthetic date = %q, want 2026-09-29", got)
+	}
+}
