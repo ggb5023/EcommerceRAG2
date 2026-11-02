@@ -98,6 +98,73 @@ def _package_for_parse(
     return package
 
 
+def _parse_document(spec: dict[str, Any], by_path: dict[str, bytes], *, tenant: str,
+                    shop: str, chunk_total: int) -> tuple[dict[str, Any], dict[str, Any], int]:
+    temporary_root = Path("/tmp") / f"ecr-v2-{uuid4().hex}"
+    target = temporary_root / PurePosixPath(spec["path"])
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(by_path[spec["path"]])
+        metadata = {
+            "tenant_id": tenant,
+            "shop_id": shop,
+            "title": spec["title"],
+            "disclosure_class": spec["disclosure_class"],
+            "effective_from": spec["effective_from"] or None,
+            "effective_to": spec["effective_to"] or None,
+            "source_hash": spec["source_hash"],
+        }
+        elements = parser_for(spec["format"]).parse(
+            target,
+            document_id=spec["document_id"],
+            version_id=spec["version_id"],
+            metadata=metadata,
+        )
+        chunks = chunk_elements_v2(elements)
+    except (OSError, UnicodeError, ValueError, KeyError, RuntimeError) as error:
+        raise PackageValidationError("document could not be parsed") from error
+    finally:
+        shutil.rmtree(temporary_root, ignore_errors=True)
+    if not chunks:
+        raise PackageValidationError("document produced no content chunks")
+    serialized_chunks: list[dict[str, Any]] = []
+    for index, chunk in enumerate(chunks):
+        chunk_total += 1
+        if chunk_total > MAX_CHUNKS:
+            raise PackageValidationError("parsed package exceeds the chunk limit")
+        position = chunk.source_position
+        serialized_chunks.append(
+            {
+                "chunk_index": index,
+                "section_seq": chunk.section_seq,
+                "section_chunk_index": chunk.chunk_index,
+                "char_start": int(position.get("char_start", 0)),
+                "char_end": int(position.get("char_end", len(chunk.content))),
+                "title": chunk.title,
+                "heading_path": " / ".join(chunk.heading),
+                "content": chunk.content,
+                "token_count": max(1, len(chunk.content.split())),
+                "content_type": chunk.content_type,
+                "split_reason": chunk.split_reason,
+                "chunk_hash": chunk.chunk_hash,
+                # New versions retain parser-native locations. Offsets are
+                # relative to the normalized parsed element, not file bytes.
+                "metadata": {**chunk.metadata, "source_position": dict(position)},
+            }
+        )
+    parsed = {
+        "spec": spec, "chunks": serialized_chunks,
+        "artifacts": build_ingestion_artifacts(raw=by_path[spec["path"]], elements=elements,
+            chunks=chunks, parse_report={"parser_version": "local-parser-v2", "parse_status": "passed"}),
+    }
+    dataset_row = {
+        "document_id": spec["document_id"],
+        "source_hash": spec["source_hash"],
+        "chunks": len(serialized_chunks),
+    }
+    return parsed, dataset_row, chunk_total
+
+
 def parse_persisted_package(
     manifest_yaml: str,
     files: tuple[ClaimedFile, ...],
@@ -113,70 +180,11 @@ def parse_persisted_package(
     dataset_rows: list[dict[str, Any]] = []
     chunk_total = 0
     for spec in package["documents"]:
-        temporary_root = Path("/tmp") / f"ecr-v2-{uuid4().hex}"
-        target = temporary_root / PurePosixPath(spec["path"])
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(by_path[spec["path"]])
-            metadata = {
-                "tenant_id": tenant,
-                "shop_id": shop,
-                "title": spec["title"],
-                "disclosure_class": spec["disclosure_class"],
-                "effective_from": spec["effective_from"] or None,
-                "effective_to": spec["effective_to"] or None,
-                "source_hash": spec["source_hash"],
-            }
-            elements = parser_for(spec["format"]).parse(
-                target,
-                document_id=spec["document_id"],
-                version_id=spec["version_id"],
-                metadata=metadata,
-            )
-            chunks = chunk_elements_v2(elements)
-        except (OSError, UnicodeError, ValueError, KeyError, RuntimeError) as error:
-            raise PackageValidationError("document could not be parsed") from error
-        finally:
-            shutil.rmtree(temporary_root, ignore_errors=True)
-        if not chunks:
-            raise PackageValidationError("document produced no content chunks")
-        serialized_chunks: list[dict[str, Any]] = []
-        for index, chunk in enumerate(chunks):
-            chunk_total += 1
-            if chunk_total > MAX_CHUNKS:
-                raise PackageValidationError("parsed package exceeds the chunk limit")
-            position = chunk.source_position
-            serialized_chunks.append(
-                {
-                    "chunk_index": index,
-                    "section_seq": chunk.section_seq,
-                    "section_chunk_index": chunk.chunk_index,
-                    "char_start": int(position.get("char_start", 0)),
-                    "char_end": int(position.get("char_end", len(chunk.content))),
-                    "title": chunk.title,
-                    "heading_path": " / ".join(chunk.heading),
-                    "content": chunk.content,
-                    "token_count": max(1, len(chunk.content.split())),
-                    "content_type": chunk.content_type,
-                    "split_reason": chunk.split_reason,
-                    "chunk_hash": chunk.chunk_hash,
-                    # New versions retain parser-native locations. Offsets are
-                    # relative to the normalized parsed element, not file bytes.
-                    "metadata": {**chunk.metadata, "source_position": dict(position)},
-                }
-            )
-        parsed_documents.append({
-            "spec": spec, "chunks": serialized_chunks,
-            "artifacts": build_ingestion_artifacts(raw=by_path[spec["path"]], elements=elements,
-                chunks=chunks, parse_report={"parser_version": "local-parser-v2", "parse_status": "passed"}),
-        })
-        dataset_rows.append(
-            {
-                "document_id": spec["document_id"],
-                "source_hash": spec["source_hash"],
-                "chunks": len(serialized_chunks),
-            }
+        parsed, dataset_row, chunk_total = _parse_document(
+            spec, by_path, tenant=tenant, shop=shop, chunk_total=chunk_total
         )
+        parsed_documents.append(parsed)
+        dataset_rows.append(dataset_row)
     canonical = json.dumps(
         {"manifest_sha256": package["manifest_sha256"], "documents": dataset_rows},
         sort_keys=True,
@@ -285,6 +293,75 @@ class IngestWorker:
             # A heartbeat cannot turn a transient database outage into a worker crash.
             return
 
+    def _lock_job(self, cursor: Any, owner: str) -> tuple[dict[str, Any] | None, int]:
+        cursor.execute(
+            "SELECT j.tenant_id,j.id,j.source_id,sm.id AS manifest_id,j.submitted_by,"
+            "j.fencing_epoch,j.retry_count,j.max_attempts,sm.manifest_yaml,sm.manifest_sha256,"
+            "s.shop_id FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id "
+            "JOIN source_manifest sm ON sm.tenant_id=j.tenant_id AND sm.source_id=j.source_id "
+            "AND sm.manifest_sha256=j.manifest_sha256 WHERE NOT j.cancel_requested "
+            "AND j.next_attempt_at<=now() AND (j.status='pending' OR "
+            "(j.status='running' AND j.lease_expires_at<=now())) "
+            "ORDER BY j.next_attempt_at,j.created_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED",
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None, 0
+        epoch = int(row["fencing_epoch"]) + 1
+        cursor.execute(
+            "UPDATE ingest_job SET status='running',stage='parsing',owner_token=%s,"
+            "fencing_epoch=%s,lease_expires_at=now()+%s::interval,updated_at=now(),error_code=NULL "
+            "WHERE tenant_id=%s AND id=%s",
+            (
+                owner,
+                epoch,
+                f"{self.lease_seconds} seconds",
+                row["tenant_id"],
+                row["id"],
+            ),
+        )
+        return row, epoch
+
+    def _claim_files(self, cursor: Any, row: dict[str, Any], owner: str) -> tuple[ClaimedFile, ...]:
+        cursor.execute(
+            "SELECT i.id,i.fencing_epoch,i.data_id,sf.relative_path,sf.content_sha256,sf.content "
+            "FROM ingest_job_item i JOIN source_file sf ON sf.tenant_id=i.tenant_id "
+            "AND sf.document_id=i.data_id JOIN source_manifest sm ON sm.tenant_id=sf.tenant_id "
+            "AND sm.id=sf.source_manifest_id AND sm.id=%s WHERE i.tenant_id=%s AND i.job_id=%s "
+            "AND i.status IN ('pending','running') AND NOT i.cancel_requested ORDER BY sf.relative_path",
+            (row["manifest_id"], row["tenant_id"], row["id"]),
+        )
+        files = []
+        for item in cursor.fetchall():
+            item_epoch = int(item["fencing_epoch"]) + 1
+            item_owner = f"{owner}:item:{item['id']}"
+            cursor.execute(
+                "UPDATE ingest_job_item SET status='running',stage='parsing',owner_token=%s,"
+                "fencing_epoch=%s,lease_expires_at=now()+%s::interval,error_code=NULL,error=NULL "
+                "WHERE tenant_id=%s AND id=%s AND status IN ('pending','running') "
+                "AND NOT cancel_requested",
+                (
+                    item_owner,
+                    item_epoch,
+                    f"{self.lease_seconds} seconds",
+                    row["tenant_id"],
+                    item["id"],
+                ),
+            )
+            files.append(
+                ClaimedFile(
+                    item_id=int(item["id"]),
+                    item_epoch=item_epoch,
+                    document_id=str(item["data_id"]),
+                    relative_path=str(item["relative_path"]),
+                    content_sha256=str(item["content_sha256"]),
+                    content=bytes(item["content"]),
+                )
+            )
+        if not files:
+            raise RuntimeError("queued ingestion job has no claimable files")
+        return tuple(files)
+
     def _claim(self) -> IngestClaim | None:
         owner = f"{self.worker_id}:{uuid4().hex}"
         with (
@@ -292,69 +369,10 @@ class IngestWorker:
             connection.transaction(),
             connection.cursor() as cursor,
         ):
-            cursor.execute(
-                "SELECT j.tenant_id,j.id,j.source_id,sm.id AS manifest_id,j.submitted_by,"
-                "j.fencing_epoch,j.retry_count,j.max_attempts,sm.manifest_yaml,sm.manifest_sha256,"
-                "s.shop_id FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id "
-                "JOIN source_manifest sm ON sm.tenant_id=j.tenant_id AND sm.source_id=j.source_id "
-                "AND sm.manifest_sha256=j.manifest_sha256 WHERE NOT j.cancel_requested "
-                "AND j.next_attempt_at<=now() AND (j.status='pending' OR "
-                "(j.status='running' AND j.lease_expires_at<=now())) "
-                "ORDER BY j.next_attempt_at,j.created_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED",
-            )
-            row = cursor.fetchone()
+            row, epoch = self._lock_job(cursor, owner)
             if row is None:
                 return None
-            epoch = int(row["fencing_epoch"]) + 1
-            cursor.execute(
-                "UPDATE ingest_job SET status='running',stage='parsing',owner_token=%s,"
-                "fencing_epoch=%s,lease_expires_at=now()+%s::interval,updated_at=now(),error_code=NULL "
-                "WHERE tenant_id=%s AND id=%s",
-                (
-                    owner,
-                    epoch,
-                    f"{self.lease_seconds} seconds",
-                    row["tenant_id"],
-                    row["id"],
-                ),
-            )
-            cursor.execute(
-                "SELECT i.id,i.fencing_epoch,i.data_id,sf.relative_path,sf.content_sha256,sf.content "
-                "FROM ingest_job_item i JOIN source_file sf ON sf.tenant_id=i.tenant_id "
-                "AND sf.document_id=i.data_id JOIN source_manifest sm ON sm.tenant_id=sf.tenant_id "
-                "AND sm.id=sf.source_manifest_id AND sm.id=%s WHERE i.tenant_id=%s AND i.job_id=%s "
-                "AND i.status IN ('pending','running') AND NOT i.cancel_requested ORDER BY sf.relative_path",
-                (row["manifest_id"], row["tenant_id"], row["id"]),
-            )
-            files = []
-            for item in cursor.fetchall():
-                item_epoch = int(item["fencing_epoch"]) + 1
-                item_owner = f"{owner}:item:{item['id']}"
-                cursor.execute(
-                    "UPDATE ingest_job_item SET status='running',stage='parsing',owner_token=%s,"
-                    "fencing_epoch=%s,lease_expires_at=now()+%s::interval,error_code=NULL,error=NULL "
-                    "WHERE tenant_id=%s AND id=%s AND status IN ('pending','running') "
-                    "AND NOT cancel_requested",
-                    (
-                        item_owner,
-                        item_epoch,
-                        f"{self.lease_seconds} seconds",
-                        row["tenant_id"],
-                        item["id"],
-                    ),
-                )
-                files.append(
-                    ClaimedFile(
-                        item_id=int(item["id"]),
-                        item_epoch=item_epoch,
-                        document_id=str(item["data_id"]),
-                        relative_path=str(item["relative_path"]),
-                        content_sha256=str(item["content_sha256"]),
-                        content=bytes(item["content"]),
-                    )
-                )
-            if not files:
-                raise RuntimeError("queued ingestion job has no claimable files")
+            files = self._claim_files(cursor, row, owner)
             return IngestClaim(
                 tenant_id=int(row["tenant_id"]),
                 job_id=int(row["id"]),
@@ -368,7 +386,7 @@ class IngestWorker:
                 manifest=str(row["manifest_yaml"]),
                 manifest_sha256=str(row["manifest_sha256"]),
                 shop_id=str(row["shop_id"]),
-                files=tuple(files),
+                files=files,
             )
 
     def _process(self, claim: IngestClaim) -> None:
