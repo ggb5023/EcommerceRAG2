@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/ggb5023/EcommerceRAG/go/internal/admin"
 )
 
 // ensureSuggestionConversation returns the one hidden suggestion conversation
@@ -115,8 +113,7 @@ func pruneSuggestionTurns(ctx context.Context, tx pgx.Tx, tenantID, conversation
 		return err
 	}
 
-	adminStore := admin.Store{}
-	if err = adminStore.DeleteTurnDecisions(ctx, tx, tenantID, executionIDs, turnTextIDs); err != nil {
+	if err = deleteTurnDecisions(ctx, tx, tenantID, executionIDs, turnTextIDs); err != nil {
 		return err
 	}
 	statements := []struct {

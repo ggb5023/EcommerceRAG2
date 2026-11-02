@@ -48,6 +48,10 @@
 | `customer_conversation` | `customer` | `customer`、`admin` | 顾客会话归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
 | `customer_execution` | `customer` | `customer`、`admin` | 顾客执行状态归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
 | `customer_message` | `customer` | `customer`、`admin` | 顾客消息归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
+| `feedback` | `gateway` | `admin`、`gateway` | 轮次反馈由网关在自己的事务内写；隐藏 suggestion 保留策略按 turn_id 清理 | `scripts/check/check-ownership.py` |
+| `routing_trace` | `gateway` | `gateway` | 路由追踪随轮次由网关写；隐藏 suggestion 保留策略按 request_id 清理 | `scripts/check/check-ownership.py` |
+| `tool_call_trace` | `gateway` | `gateway` | 工具调用追踪随轮次由网关写；隐藏 suggestion 保留策略按 request_id 清理 | `scripts/check/check-ownership.py` |
+| `retrieval_trace` | `retrieval`、`gateway` | `gateway`、`retrieval` | Python 检索写追踪；隐藏 suggestion 保留策略需要网关按 request_id 删除孤儿 | `scripts/check/check-ownership.py` |
 
 ## 维护规则
 

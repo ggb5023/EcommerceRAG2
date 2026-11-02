@@ -39,6 +39,11 @@ func appendTurnDecision(ctx context.Context, tx pgx.Tx, ident turnEventIdentity,
 
 // encodeDecisionList always writes a JSON array, so an empty list stays [] and
 // never becomes SQL NULL.
+func deleteTurnDecisions(ctx context.Context, tx pgx.Tx, tenantID int64, executionIDs []int64, turnTextIDs []string) error {
+	store := admin.Store{}
+	return store.DeleteTurnDecisions(ctx, tx, tenantID, executionIDs, turnTextIDs)
+}
+
 func encodeDecisionList[T any](items []T) []byte {
 	if len(items) == 0 {
 		return []byte("[]")
