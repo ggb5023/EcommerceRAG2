@@ -37,6 +37,8 @@ bash scripts/dev/install-git-hooks.sh
 - 四个 DSN：`V2_GATEWAY_DSN`、`V2_RETRIEVER_DSN`、`V2_CHECKPOINT_DSN`、`V2_INGEST_DSN`；`ai` 是单进程，同时持有后三个并各开一个角色绑定连接池，`gateway` 仍然拿不到任何 Python 角色
 - 开发身份：`V2_IDENTITY_TENANT`、`V2_IDENTITY_USER`（填 `external_id`，不是自增主键）
 - `SCOPE_SIGNING_KEY_FILE`：Go 签发 scope 用的密钥文件，`0600`、内容 ≥ 32 字节
+- 稀疏检索开关（0029 第三步）：`SPARSE_RETRIEVAL=legacy|sparsevec`（默认 `legacy`）、
+  `SPARSE_RRF_WEIGHT`（融合权重，默认现值 0.7）；只有显式写进运行时配置才会覆盖默认
 - 在线档另需 `V2_PROVIDER_CONFIG`；模型花费由商家平台控制，本工程只记 token 用量
 
 `V2_RPC_TLS` 留空表示进程间明文；只有显式写了取值才会走 mTLS，并需要同时给出 CA、证书和密钥三个路径。
