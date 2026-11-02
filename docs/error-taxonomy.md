@@ -57,6 +57,11 @@
 | `invalid_min_count` | 400 | 否 | 不展示 | `go/internal/admin/gaps.go:adminGaps` |
 | `gaps_unavailable` | 503 | 是 | 不展示 | `go/internal/admin/gaps.go:adminGaps`、`go/internal/admin/gaps.go:adminGapsExport` |
 | `gap_export_failed` | 500 | 否 | 不展示 | `go/internal/admin/gaps.go:adminGapsExport` |
+| `suggestion_unavailable` | 503 | 是 | 建议生成暂不可用 | `go/internal/gateway/support_suggestions.go:createSuggestion` / `createSupportSuggestion` |
+| `no_customer_message` | 409 | 否 | 该会话还没有顾客消息 | `go/internal/gateway/support_suggestions.go:createSupportSuggestion` |
+| `copy_not_allowed` | 403 | 否 | 该建议不可复制 | `go/internal/gateway/support_suggestions.go:copySuggestion` |
+| `copy_already_audited` | 409 | 否 | 该建议已复制过 | `go/internal/gateway/support_suggestions.go:copySuggestion` |
+| `copy_unavailable` | 503 | 是 | 复制暂不可用，请重试 | `go/internal/gateway/support_suggestions.go:copySuggestion` |
 
 ## 维护规则
 

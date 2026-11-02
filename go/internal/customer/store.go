@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func emit(ctx context.Context, tx pgx.Tx, c conversation, kind string, data map[string]any) error {
@@ -339,4 +340,24 @@ func (s *Service) Reap(ctx context.Context) {
 			_ = s.requeue(ctx, `(state='AI' AND active_execution IS NOT NULL AND EXISTS(SELECT 1 FROM customer_execution e WHERE e.id=active_execution AND e.created_at<now()-interval '90 seconds')) OR state='HUMAN' AND (lease_until<=now() OR NOT EXISTS(SELECT 1 FROM app_user u WHERE u.tenant_id=customer_conversation.tenant_id AND u.id=owner_user_id AND u.revoked_at IS NULL AND u.role IN ('owner','admin','operator') AND customer_conversation.shop_id=ANY(u.shop_ids)))`, nil, "agent_unavailable")
 		}
 	}
+}
+
+// ErrNoCustomerMessage means an accessible support conversation has no customer
+// message to use as a suggestion prompt.
+var ErrNoCustomerMessage = errors.New("no_customer_message")
+
+// ErrSupportConversationNotFound hides whether the conversation exists when the
+// staff member is outside its tenant or shop.
+var ErrSupportConversationNotFound = errors.New("support_conversation_not_found")
+
+func lastCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenantID int64, shop, conversationID string) (string, error) {
+	var text string
+	err := db.QueryRow(ctx, `SELECT m.content FROM customer_message m
+		JOIN customer_conversation c ON c.tenant_id=m.tenant_id AND c.id=m.conversation_id
+		WHERE m.tenant_id=$1 AND c.shop_id=$2 AND m.conversation_id=$3 AND m.source='customer'
+		ORDER BY m.created_at DESC, m.id DESC LIMIT 1`, tenantID, shop, conversationID).Scan(&text)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNoCustomerMessage
+	}
+	return text, err
 }

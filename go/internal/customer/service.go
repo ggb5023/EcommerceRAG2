@@ -690,3 +690,29 @@ func (s *Service) staffAction(w http.ResponseWriter, r *http.Request, staff Staf
 	}
 	output(w, 200, result)
 }
+
+// LastCustomerMessage returns the latest customer message for a support
+// conversation after the same staff tenant/shop/role checks as the staff view.
+func (s *Service) LastCustomerMessage(ctx context.Context, staff Staff, conversationID string) (string, error) {
+	if staff.Check != nil {
+		if err := staff.Check(ctx); err != nil {
+			return "", err
+		}
+	}
+	if staff.Role == "viewer" {
+		return "", ErrSupportConversationNotFound
+	}
+	var tenantID int64
+	var shop string
+	if err := s.DB.QueryRow(ctx, `SELECT tenant_id,shop_id FROM customer_conversation WHERE id=$1`, conversationID).Scan(&tenantID, &shop); err != nil {
+		return "", ErrSupportConversationNotFound
+	}
+	allowed := false
+	for _, candidate := range staff.Shops {
+		allowed = allowed || candidate == shop
+	}
+	if tenantID != staff.Tenant || !allowed {
+		return "", ErrSupportConversationNotFound
+	}
+	return lastCustomerMessage(ctx, s.DB, tenantID, shop, conversationID)
+}

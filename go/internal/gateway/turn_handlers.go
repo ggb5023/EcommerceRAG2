@@ -448,7 +448,7 @@ func (g *gateway) getConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	var title string
 	err = g.db.QueryRow(r.Context(), `SELECT COALESCE(title,'') FROM conversation
-		WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND id=$4`,
+		WHERE tenant_id=$1 AND user_id=$2 AND shop_id=$3 AND id=$4 AND kind='user'`,
 		g.session.TenantID, g.session.UserID, g.session.Shop, id).Scan(&title)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.WriteError(w, 404, "not_found", "conversation not found")

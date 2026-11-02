@@ -18,6 +18,9 @@ func (g *gateway) registerCustomerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/turns/{id}", g.getTurn)
 	mux.HandleFunc("GET /v1/turns/{id}/events", g.events)
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
+	mux.HandleFunc("POST /v1/support/suggestions", g.createSuggestion)
+	mux.HandleFunc("POST /v1/support/suggestions/{id}/copy", g.copySuggestion)
+	mux.HandleFunc("POST /v1/support/conversations/{id}/suggestions", g.createSupportSuggestion)
 	if g.customer != nil {
 		mux.HandleFunc("/v1/support/", func(w http.ResponseWriter, r *http.Request) {
 			if !g.requireWriteRole(w) {
