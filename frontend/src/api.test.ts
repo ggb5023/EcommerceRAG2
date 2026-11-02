@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createSSRApp, h } from 'vue'
+import { renderToString } from '@vue/server-renderer'
+import SuggestionPanel from './SuggestionPanel.vue'
 import { api, type TurnEvent } from './api'
 import { isTurnActive, isTurnTerminal } from './turnState'
 
@@ -139,5 +142,33 @@ describe('workspace contracts', () => {
     expect(isTurnTerminal('ASKING')).toBe(true)
     expect(isTurnTerminal('CANCELLED')).toBe(true)
     expect(isTurnTerminal('GENERATING')).toBe(false)
+  })
+})
+
+
+describe('suggestion panel', () => {
+  it('renders the generate form, citation cards and the blocked copy state', async () => {
+    const html = await renderToString(createSSRApp({
+      render: () => h(SuggestionPanel, {
+        busy: false,
+        error: '',
+        suggestion: {
+          request_id: 'suggestion-1',
+          answer: '建议回复正文',
+          can_copy: false,
+          blocked_reason: 'mock',
+          citations: [{
+            evidence_id: 'e1', citation_index: 1, title: '示例资料',
+            version_id: 'v1', snippet: '资料片段',
+          }],
+        },
+      }),
+    }))
+    expect(html).toContain('生成建议')
+    expect(html).toContain('复制建议')
+    expect(html).toContain('disabled')
+    expect(html).toContain('示例资料')
+    expect(html).toContain('引用 1')
+    expect(html).toContain('本地测试结果不可复制')
   })
 })

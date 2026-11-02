@@ -31,3 +31,11 @@ export async function watchChannel(path: string, signal: AbortSignal, changed: (
     await new Promise<void>(resolve=>{ const timer=setTimeout(resolve,1000); signal.addEventListener('abort',()=>{clearTimeout(timer);resolve()},{once:true}) })
   }
 }
+
+export type SuggestionCitation = {evidence_id:string; citation_index:number; title:string; version_id:string; snippet:string}
+export type SuggestionView = {request_id:string; answer:string; can_copy:boolean; blocked_reason:string; citations:SuggestionCitation[]}
+export type SuggestionReceipt = {request_id:string; events_url:string; status:string}
+export type TurnEvidence = {id:string; documentId?:string; versionId?:string; snippet?:string; title?:string}
+export type TurnCitation = {evidence_id:string; citation_index:number}
+export type TurnView = {status:string; answer?:string; evidence?:TurnEvidence[]; citations?:TurnCitation[];
+  customer_reply?:{text_plain?:string; can_copy?:boolean; blocked_reason?:string}}
