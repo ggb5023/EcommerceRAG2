@@ -61,14 +61,13 @@ bash scripts/check.sh --smoke
 - Python：`_v2_scope` 透传 `business_date`；`LangGraphRagService._business_date`
   按 scope → synthetic → UTC 兜底，非法日期拒绝；测试通过。
 - contracts：新增 `scope business_date` 跨进程行，两侧测试已列出。
-- Go：`go test ./...` 全绿；Python：**419 passed / 30 skipped**。
+- Go：`go test ./...` 全绿；Python：**420 passed / 30 skipped**。
 - 快速层：`bash scripts/check.sh` **40 PASS / 0 UNCONFIGURED / 0 FAILED**。
 - gateway 环境：`v2_services.py` 将 `SYNTHETIC_BUSINESS_DATE` 同时透传给 gateway；
   进程 `/proc/<pid>/environ` 已确认该值可见。
 - **smoke 已恢复**：`bash scripts/check.sh --smoke` = **45 PASS / 0 UNCONFIGURED /
   0 FAILED**；五条 smoke 与 `.local/w2/` 逐字节一致，未重采任何基线。
-- 重启：Go 重建并 strings 命中 `synthetic_business_date_invalid`；Go/Python 进程在
-  2026-11-03 00:21:38 启动（晚于代码提交 `dad5c9b`）。
+- 重启：Go 重建并 strings 命中 `synthetic_business_date_invalid`；Go/Python 进程最终重启时间晚于最后提交（见汇报验证结果）。
 
 ## 未覆盖路径
 
