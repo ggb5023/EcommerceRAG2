@@ -5,16 +5,23 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 const base = (process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5174').replace(/\/$/, '')
 const out = process.env.REDESIGN_OUT ?? '../.local/redesign'
 const routes = [
-  ['/admin/overview', '运行状态'], ['/admin/merchant/outcomes', '结果度量'],
-  ['/admin/merchant/gaps', '内容缺口'], ['/admin/access/accounts', '账号与权限'],
-  ['/admin/access/requests', '权限申请'], ['/admin/access/audit', '授权审计'],
-  ['/admin/merchant/shops', '店铺范围'], ['/admin/merchant/sources', '资料来源'],
-  ['/admin/merchant/ingestion', '摄取任务'], ['/admin/merchant/reviews', '版本审核'],
+  ['/admin/overview', '运行状态', 'overview'],
+  ['/admin/merchant/outcomes', '结果度量', 'outcomes'],
+  ['/admin/merchant/gaps', '内容缺口', 'gaps'],
+  ['/admin/access/accounts', '账号与权限', 'accounts'],
+  ['/admin/access/requests', '权限申请', 'requests'],
+  ['/admin/access/audit', '授权审计', 'audit'],
+  ['/admin/merchant/shops', '店铺范围', 'shops'],
+  ['/admin/merchant/sources', '资料来源', 'sources'],
+  ['/admin/merchant/ingestion', '摄取任务', 'ingestion'],
+  ['/admin/merchant/reviews', '版本审核', 'reviews'],
 ]
 const viewports = [{width:1440,height:900},{width:1280,height:800},{width:1024,height:768},{width:390,height:844}]
+const themes = ['light', 'dark']
 const browser = await chromium.launch({headless:true})
 const page = await browser.newPage({viewport:viewports[0]})
 const results = []
+const screenshots = []
 try {
   mkdirSync(out, {recursive:true})
   for (const viewport of viewports) {
@@ -38,19 +45,26 @@ try {
   await toggle.click()
   const after = await page.evaluate(() => document.documentElement.className)
   assert.notEqual(before, after, 'theme toggle did not change the root class')
-  for (const theme of ['light','dark']) {
+  for (const theme of themes) {
     const context = await browser.newContext({viewport:{width:1440,height:900}})
     await context.addInitScript((value) => localStorage.setItem('ecr-theme', value), theme)
     const shot = await context.newPage()
-    for (const [name,path] of [['outcomes','/admin/merchant/outcomes'],['gaps','/admin/merchant/gaps'],['login','/login']]) {
+    for (const [path,title,slug] of routes) {
       await shot.goto(base+path,{waitUntil:'networkidle'})
-      await shot.waitForTimeout(1200)
-      await shot.screenshot({path:`${out}/${theme}-${name}.png`,fullPage:true})
+      await shot.getByRole('heading',{name:title,level:1}).waitFor()
+      await shot.waitForTimeout(500)
+      const name = `${slug}-${theme}.png`
+      await shot.screenshot({path:`${out}/${name}`,fullPage:true})
+      screenshots.push(name)
     }
+    await shot.goto(base+'/login',{waitUntil:'networkidle'})
+    await shot.waitForTimeout(500)
+    const loginName = `login-${theme}.png`
+    await shot.screenshot({path:`${out}/${loginName}`,fullPage:true})
+    screenshots.push(loginName)
     await context.close()
   }
-  const report = {status:'PASS',route_count:routes.length,viewports,results,theme:{before,after},
-    screenshots:['light-outcomes.png','light-gaps.png','light-login.png','dark-outcomes.png','dark-gaps.png','dark-login.png']}
+  const report = {status:'PASS',route_count:routes.length,viewports,themes,results,theme:{before,after},screenshots}
   writeFileSync(`${out}/browser-matrix.json`, JSON.stringify(report,null,2))
-  console.log(JSON.stringify({status:'PASS',route_count:routes.length,viewports,theme:report.theme}))
+  console.log(JSON.stringify({status:'PASS',route_count:routes.length,viewports,themes,theme:report.theme,screenshot_count:screenshots.length}))
 } finally { await browser.close() }
