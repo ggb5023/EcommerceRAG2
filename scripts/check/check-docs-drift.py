@@ -29,7 +29,9 @@ DEPRECATED = ("V2_ONLINE_BUDGET", "provider-budget")
 # An instruction is a script invocation (with its arguments) or an environment
 # assignment. Bare flags are only counted when they follow a script path on the
 # same line, so unrelated tools do not collide.
-SCRIPT = re.compile(r"(?:bash |python3 )?((?:scripts|eval)/[a-z0-9][a-z0-9/_-]*\.(?:sh|py))([^\n`]*)")
+# The left boundary keeps a path segment from matching inside a longer word:
+# `retrieval/postgres.py` must not be read as `eval/postgres.py`.
+SCRIPT = re.compile(r"(?:bash |python3 )?(?<![\w/.-])((?:scripts|eval)/[a-z0-9][a-z0-9/_-]*\.(?:sh|py))([^\n`]*)")
 ENV = re.compile(r"(?<![\w-])([A-Z][A-Z0-9_]{2,})=([^\s`'\"]*)")
 COMMENT = re.compile(r"\s+#.*$")
 PLACEHOLDER = re.compile(r"^(?:\.{2,}|…|<[^>]*>)$")
