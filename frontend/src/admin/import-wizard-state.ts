@@ -8,3 +8,18 @@ export function commandStateLabel(state: string | undefined, error?: string): st
 export function canRevokeImport(status: string | undefined, revokedAt: string | null | undefined): boolean {
   return !revokedAt && (status === 'staged' || status === 'confirmed')
 }
+
+export type ImportRowError={row:number;column:string;code:string;severity:string;value:string;message:string;suggested_action:string}
+
+export function rowErrors(item:any):ImportRowError[]{
+  const rows=item?.precheck_detail?.row_errors
+  return Array.isArray(rows)?rows:[]
+}
+
+export function hasBlockingPrecheck(item:any):boolean{
+  return (item?.precheck_result??[]).some((issue:any)=>issue?.severity==='block')||rowErrors(item).some(issue=>issue.severity==='block')
+}
+
+export function rowErrorsTruncated(item:any):boolean{
+  return item?.precheck_detail?.truncated===true
+}

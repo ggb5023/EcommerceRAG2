@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import {onUnmounted,ref} from 'vue'
+import {computed,onUnmounted,ref} from 'vue'
 import {get,post,request} from './api'
 import {knowledgePackage} from './knowledge-package'
-import {canRevokeImport,commandStateLabel} from './import-wizard-state'
+import {canRevokeImport,commandStateLabel,hasBlockingPrecheck,rowErrors,rowErrorsTruncated} from './import-wizard-state'
 import Button from '../components/Button.vue'
 import Input from '../components/Input.vue'
 const props=defineProps<{shops:string[]}>();const emit=defineEmits<{imported:[]}>()
 const shop=ref(props.shops[0]??'');const businessDate=ref(new Date().toISOString().slice(0,10));const files=ref<File[]>([]);const manifestFile=ref<File|null>(null);const batchId=ref('');const preview=ref<any>(null);const notice=ref('');const busy=ref(false);const jobId=ref('');const jobState=ref('');const jobError=ref('');const revokedAt=ref<string|null>(null);let timer:ReturnType<typeof setTimeout>|undefined
+const blocking=computed(()=>(preview.value?.items??[]).some((item:any)=>hasBlockingPrecheck(item)))
+function downloadTemplate(name:string){const link=document.createElement('a');link.href=`/admin/v1/merchant/import/templates/${name}`;link.download=`${name}.csv`;link.click()}
 function stopPolling(){if(timer)clearTimeout(timer);timer=undefined}
 async function pollJob(){if(!jobId.value)return;try{const job=await get<any>(`/admin/v1/merchant/commands/${jobId.value}`);jobState.value=job.state??job.command_status??'';jobError.value=job.error_code??'';if(jobState.value==='done'||jobState.value==='failed'||jobState.value==='cancelled'){stopPolling();return}}catch{jobError.value='job_lookup_failed'}timer=setTimeout(pollJob,1500)}
 async function upload(){busy.value=true;notice.value='';try{
@@ -29,10 +31,12 @@ onUnmounted(stopPolling)
 <template><section class="import-form" :class="{revoked:!!revokedAt}"><h2>导入预检（三步）</h2>
 <p v-if="!batchId">第一步：上传资料包。R1–R4 本地规则预检只给建议，不会发布或写入审核结论；模型辅助默认关闭。</p>
 <p v-else>第二步：核对片段与问题；确认后才会创建待审核版本。</p>
+<div v-if="!batchId" class="form-actions"><Button variant="secondary" data-testid="template-product-table" @click="downloadTemplate('product_table_v1')">下载商品表模板</Button><Button variant="secondary" data-testid="template-size-chart" @click="downloadTemplate('size_chart_v1')">下载尺码表模板</Button></div>
 <div class="form-grid"><label>店铺<select v-model="shop"><option v-for="s in shops" :key="s">{{s}}</option></select></label><label>业务日期<Input v-model="businessDate" type="date"/></label></div>
-<form v-if="!batchId" @submit.prevent="upload"><label>manifest.yaml（可选；提供时按原 manifest 预检）<input type="file" accept=".yaml,.yml" @change="manifestFile=($event.target as HTMLInputElement).files?.[0]??null"></label><label>资料文件<input type="file" multiple accept=".docx,.markdown,.md,.csv" @change="files=Array.from(($event.target as HTMLInputElement).files??[])"></label><Button type="submit" variant="primary" :disabled="busy||!shop||!files.length">开始预检</Button></form>
-<div v-else><p v-for="(item,index) in preview?.items??[]" :key="item.item_id" class="precheck-item"><strong>{{Number(index)+1}}. {{item.precheck_detail?.title}}</strong><details v-for="issue in item.precheck_result" :key="issue.issue_code"><summary>{{issue.issue_code}}（{{issue.severity}}）</summary><span>{{issue.snippet}} — {{issue.suggested_action}}</span></details></p>
+<form v-if="!batchId" @submit.prevent="upload"><label>manifest.yaml（可选；提供时按原 manifest 预检）<input type="file" accept=".yaml,.yml" @change="manifestFile=($event.target as HTMLInputElement).files?.[0]??null"></label><label>资料文件<input type="file" multiple accept=".docx,.markdown,.md,.csv,.xlsx" @change="files=Array.from(($event.target as HTMLInputElement).files??[])"></label><Button type="submit" variant="primary" :disabled="busy||!shop||!files.length">开始预检</Button></form>
+<div v-else><p v-for="(item,index) in preview?.items??[]" :key="item.item_id" class="precheck-item"><strong>{{Number(index)+1}}. {{item.precheck_detail?.title}}</strong><details v-for="issue in item.precheck_result" :key="issue.issue_code"><summary>{{issue.issue_code}}（{{issue.severity}}）</summary><span>{{issue.snippet}} — {{issue.suggested_action}}</span></details><details v-if="rowErrors(item).length" data-testid="row-errors"><summary>逐行问题（{{item.precheck_detail?.error_count??rowErrors(item).length}}）</summary><ul><li v-for="issue in rowErrors(item)" :key="`${issue.row}:${issue.column}:${issue.code}`" data-testid="row-error"><span>第 {{issue.row}} 行</span><span v-if="issue.column"> · {{issue.column}}</span><strong> · {{issue.code}}（{{issue.severity}}）</strong><span> — {{issue.message}} {{issue.suggested_action}}</span></li></ul><p v-if="rowErrorsTruncated(item)" data-testid="row-errors-truncated">仅显示前 200 条，请修正后重新预检。</p></details></p>
+<p v-if="blocking" data-testid="precheck-blocked">存在 block 级预检问题，确认导入已禁用；请修正后重新预检。</p>
 <p>批次状态：<strong>{{revokedAt?'已撤回':preview?.status}}</strong><span v-if="revokedAt"> · 撤回时间：{{revokedAt}}</span></p>
 <p v-if="jobId">摄取任务：{{commandStateLabel(jobState,jobError)}}<span v-if="jobError">（{{jobError}}）</span></p>
-<p><Button variant="primary" :disabled="busy||!!revokedAt" @click="confirm">确认导入</Button> <Button variant="secondary" :disabled="busy||!canRevokeImport(preview?.status,revokedAt)" @click="revoke">撤回整包</Button> <Button variant="secondary" @click="reset">关闭</Button></p><small>本地规则预检仅供参考，发布前请确认。</small></div>
+<p><Button variant="primary" data-testid="confirm-import" :disabled="busy||!!revokedAt||blocking" @click="confirm">确认导入</Button> <Button variant="secondary" :disabled="busy||!canRevokeImport(preview?.status,revokedAt)" @click="revoke">撤回整包</Button> <Button variant="secondary" @click="reset">关闭</Button></p><small>本地规则预检仅供参考，发布前请确认。</small></div>
 <p role="status">{{notice}}</p></section></template>
