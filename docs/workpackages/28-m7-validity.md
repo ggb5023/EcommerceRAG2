@@ -39,8 +39,30 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-（完成后填写）
+- 迁移 0048：`document_version.effective_from/effective_to` 与范围约束；三库 48/48
+  应用、sha256 无差异，from-zero PASS（48 files）。
+- proto：新增 `INGEST_COMMAND_ACTION_VALIDITY = 7`；`ExecuteCommandRequest` 新增
+  `effective_from = 11` / `effective_to = 12`；`IngestCommandResult` 新增
+  `effective_from = 10` / `effective_to = 11`；`buf lint/build/breaking` exit 0。
+- ingest：`version.validity` 在同一事务更新 version 两列 + 全部 chunk 两列 +
+  `meta_json` 同名字段；旧 `expected_fencing_epoch` 拒绝；结果写 command result。
+- admin：新增 `POST /admin/v1/merchant/versions/{id}/validity`；日期校验、
+  confirm、permission revision、expected fence、审计；实际写入经 ingest command，
+  admin 不写 SQL。旧 fence 重放返回 409 `precondition_failed`。
+- 实测（dev 多 chunk 版本 38，2 chunks）：
+  - 设置 `2026-01-01` / `2027-01-01` 返回 **200**，`fencing_epoch` 1→2；
+  - document_version 日期一致；2/2 chunks 的列与 `meta_json` 一致；
+  - admin_audit 新增 `version.validity` success，metadata 日期一致；
+  - 用旧 fence=1 重放返回 **409**，`status=rejected`、`code=precondition_failed`；
+  - 同 Idempotency-Key 重放返回 `idempotent=true`。
+- Go `go test ./...` 全绿；Python **421 passed / 30 skipped**；proto exit 0。
+- 重启 Go/Python 后启动时间晚于最后提交（见汇报验证结果）。
+- 门禁：`check.sh` 40 PASS；`--smoke` 45 PASS，五条逐字节一致。
 
 ## 未覆盖路径
 
-（完成后填写）
+- 只验证一个 ready 版本；未在 active/superseded 版本上逐状态验证。
+- 未做 WP29 的过期/即将过期提示前端；未自动下架；未改检索 SQL。
+- 日期校验是日期字符串，不做时区换算；业务日期语义仍由 0033/scope 负责。
+- 未做真实模型或浏览器 UI 验证；未 push。
+
