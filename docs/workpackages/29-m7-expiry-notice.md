@@ -56,7 +56,7 @@ bash scripts/check.sh --smoke
 
 - Go 领域函数：`validityStatus` 按业务日期计算三态与剩余天数；`go test ./...`
   全绿，`TestValidityStatusBoundaries` 覆盖 `NULL`、失效当天、过去、第 30 天、
-  第 31 天（`expired/0`、`expired/-1`、`expiring_in_30/30`、`active/31`）。
+  第 31 天（`expired` 0 天、`expired` -1 天、`expiring_in_30` 30 天、`active` 31 天）。
 - `auth.ShopBusinessDate`：读取 `shop.timezone` 后走既有
   `businessDateForLocation`，保留 `SYNTHETIC_BUSINESS_DATE` 优先级；
   admin 列表与详情逐店缓存业务日期。
