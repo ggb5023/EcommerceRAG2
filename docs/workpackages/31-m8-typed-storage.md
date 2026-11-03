@@ -66,8 +66,30 @@ data-ownership 与 migration-grants 守卫通过。
 
 ## 实际交付
 
-（实现与验证完成后填写；未完成项必须在汇报第 4 节点名。）
+- XLSX：openpyxl 3.1.5 + et-xmlfile 2.0.0（MIT），`read_only`；只读第一个工作表，
+  公式/宏/合并单元格/隐藏工作表/超限行列均明确报错；CSV 与 XLSX 共用行元素构造。
+- manifest：支持 `product_table`/`size_chart` + `product_table_v1`/`size_chart_v1`；
+  `document.doc_type` 落库；旧 manifest 保持 format 行为；chunk `meta_json` 带
+  `table_schema`、`catalog_row_key`、`sku_code`/`chart_code`、`source_row`。
+- 迁移 0049：`catalog_sku`、`catalog_size_chart` 全部列/约束/索引/GRANT；
+  from-zero **PASS 49 files**；dev/test-integration/eval 三库均 49 行，0049 与文件
+  sha256 无差异。
+- ingest：解析后构造类型化行，与 chunk/版本同一事务写两张表；未知属性保留并 warning；
+  SKU 大小写不敏感唯一、尺码表复合唯一、价格缺观测日拒绝。
+- 发布：active 商品表唯一性检查；商品行引用未 active 尺码表/尺码时拒绝发布。
+- 验证：`pytest -q` **440 passed / 33 skipped**；隔离集成套件 **28 passed**；
+  `check.sh` **40 PASS**；`--smoke` **45 PASS**，五条 diff 无输出。
+- 实测 dev 导入合成 `products.csv` 的 7 行本店子集：版本 93，`doc_type=product_table`，
+  `catalog_sku` 7 行、chunk 7 行；`meta_json` 四个投影字段均存在；重复 SKU 触发
+  `UniqueViolation`，价格缺 `price_observed_at` 触发 `CheckViolation`（均回滚）。
+- dev 进程已重启；最终启动时间在最终提交之后，见交付汇报。
 
 ## 未覆盖路径
 
-（实现与验证完成后填写。）
+- WP32 的预检/模板/逐行错误与 WP33 的检索过滤未开始；本轮没有模板文件或前端入口。
+- 没有做真实 XLSX 端到端导入（只做解析/包校验/单元测试）；没有真实平台导出列。
+- 没有在 dev 发布商品表（避免污染 smoke）；发布校验由隔离集成测试覆盖。
+- `catalog_size_chart` 的 dev 实库只验证了表和空计数，尺码映射/发布顺序由集成测试覆盖。
+- 未运行 `--db`、`--e2e`、`--all`；未改 facts provider、检索 SQL 或自动发布/下架。
+- 合成 `products.csv` 的 `price_cents` 作为未知属性保留并 warning，不冒充
+  `list_price_cents`（缺少观测日）。
