@@ -17,15 +17,46 @@
 - **带出处的回答**：每条结论绑定来源片段；资料撤回后，旧回答随之失效。
 - **不确定就收手**：最多追问一次，仍然不足就转人工，不编造。
 - **客服工作台**：人工队列、原子领取、人工回复；AI 辅助只给建议，不替客服发送。
-- **可度量**：内置电商评测集，统计回答质量和模型费用。
+- **可度量**：内置电商评测集，统计回答质量和模型 token 用量。
 
-正在开发中的能力（商品表结构化、活动时效、一键复制、知识缺口）见 [路线图](ROADMAP.md)。
+更多能力与后续计划见 [路线图](ROADMAP.md)。
 
 ## 快速开始
 
-需要 Linux、Docker Engine 和 Compose v2，以及一个阿里云百炼账号。完整步骤见 [安装](docs/install.md)。
+本地演示使用固定合成店铺，不需要模型账号；生产部署的证书、模型配置和完整步骤见
+[安装](docs/install.md)。
 
-部署后的入口：
+前置：Linux、Python 3.12 + uv、Node.js/npm、curl；隔离栈使用 26081–26083，先确认
+端口空闲。首次准备依赖：
+
+```bash
+uv sync --project python --frozen
+npm ci --prefix frontend
+```
+
+启动演示店铺。首次运行会启动隔离栈并导入 `demo-store-v1`，完成预检、审核和发布；
+重复执行幂等：
+
+```bash
+bash scripts/dev/demo-shop.sh --ports 26081
+```
+
+生成五段评测报告（JSON + Markdown）：
+
+```bash
+python3 scripts/dev/demo-report.py \
+  --base-url http://127.0.0.1:26081 \
+  --output-dir .local/demo-report
+```
+
+预期看到 active 5 个演示文档、`wrong_answer_rate=0.132075`（13.21%）、
+`handoff_rate=null`（演示栈暂无 customer 消息，不写成 0），以及按问题数归一的
+每千次 token/调用量；报告只统计 token 与次数，不含货币、金额、汇率或价格表；
+质量或转人工数据缺失时写 `NOT_MEASURED`/`null`。完整字段和口径见
+[0035](docs/decisions/0035-demo-report.md)。若系统 `python3` 未安装 PyYAML，
+可将 `python3` 换成 `python/.venv/bin/python`。
+
+生产安装、证书和模型配置见 [安装](docs/install.md)。生产部署后的入口：
 
 | 地址 | 用途 |
 | --- | --- |

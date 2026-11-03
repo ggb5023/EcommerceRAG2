@@ -60,7 +60,7 @@ LangSmith/Promptfoo 的价值在“报告结构和可比较性”，不在新增
 
 ## 4. 报告形态
 
-推荐 CLI 为唯一计算入口（阶段 2）：`scripts/dev/demo-report.py`（待建；名称实现时定稿），
+推荐 CLI 为唯一计算入口（已实现；命令见 [README 快速开始](../../README.md#快速开始)），
 输出 JSON + Markdown；管理台只读同一 JSON/只展示，不重算。报告分成五段：
 
 1. **输入**：git commit、演示包 sha256、manifest/version id、business_date、人群

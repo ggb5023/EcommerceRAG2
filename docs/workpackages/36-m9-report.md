@@ -50,13 +50,11 @@ shop scope，不接收客户端 tenant。
 ```bash
 cd go && go test ./... && go vet ./...
 cd python && uv run --frozen pytest -q
-bash scripts/dev/demo-report.py --base-url http://127.0.0.1:26081 \
-  --output-dir .local/wp36-a
-bash scripts/dev/demo-report.py --base-url http://127.0.0.1:26081 \
-  --previous .local/wp36-a/demo-report.json --output-dir .local/wp36-b
 bash scripts/check.sh
 bash scripts/check.sh --smoke
 ```
+
+报告命令按 README 快速开始执行两次。
 
 另需：Go 重建后 `strings` 验证 handoff 标记并重启；两次报告计数/分母/比率 diff；
 报告目录/权限；`grep` 确认无货币符号；缺质量报告时 `NOT_MEASURED`；handoff 分母 0
