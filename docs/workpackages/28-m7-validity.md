@@ -11,7 +11,7 @@
 
 ## 口径（0033）
 
-- `document_version` 增加可空 `effective_from/effective_to`；chunk 保留物化字段。
+- `document_version` 增加可空 `effective_from` 与 `effective_to`；chunk 保留物化字段。
 - admin 只做授权、日期校验、confirm 和审计转发；实际 SQL 由 ingest command 在
   同一事务内写 `document_version` + 全部 chunk + `meta_json`。
 - `expected_fencing_epoch` 不匹配拒绝；日期 `to > from`，空表示无界。
@@ -19,17 +19,9 @@
 
 ## 验收命令
 
-```bash
-# 0048 三库 + sha256；from-zero
-bash scripts/dev/generate-proto.sh
-python3 scripts/check/check-proto.sh
-cd go && go test ./...
-cd python && uv run --frozen pytest -q
-# 造多 chunk 版本，设日期，SQL 断言版本/全部 chunk/meta 一致；旧 fence 重放拒绝
-# curl 设置接口贴完整响应
-bash scripts/check.sh
-bash scripts/check.sh --smoke
-```
+迁移 0048 三库 sha256 与 from-zero；proto 生成与 lint/build/breaking；Go/Python
+全测；多 chunk 版本设置后 SQL 断言；接口 curl；快速层 40 与 smoke 45。
+
 
 ## 不做
 
