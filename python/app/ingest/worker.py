@@ -26,6 +26,7 @@ from psycopg.rows import dict_row
 
 from app.ingest import sparse
 from app.ingest.artifacts import build_ingestion_artifacts, store_artifact_bundle
+from app.ingest.catalog import CatalogValidationError, build_typed_rows
 from app.ingest.database import IngestDatabase
 from app.ingest.object_journal import JournaledStore, cleanup_orphans
 from app.ingest.package_validation import MAX_CHUNKS, _inspect_package
@@ -123,6 +124,11 @@ def _parse_document(spec: dict[str, Any], by_path: dict[str, bytes], *, tenant: 
             metadata=metadata,
         )
         chunks = chunk_elements_v2(elements)
+        catalog_sku, catalog_size_chart, catalog_warnings = build_typed_rows(
+            elements, chunks, spec,
+        )
+    except CatalogValidationError as error:
+        raise PackageValidationError(str(error)) from error
     except (OSError, UnicodeError, ValueError, KeyError, RuntimeError) as error:
         raise PackageValidationError("document could not be parsed") from error
     finally:
@@ -156,6 +162,9 @@ def _parse_document(spec: dict[str, Any], by_path: dict[str, bytes], *, tenant: 
         )
     parsed = {
         "spec": spec, "chunks": serialized_chunks,
+        "catalog_sku": catalog_sku,
+        "catalog_size_chart": catalog_size_chart,
+        "catalog_warnings": catalog_warnings,
         "artifacts": build_ingestion_artifacts(raw=by_path[spec["path"]], elements=elements,
             chunks=chunks, parse_report={"parser_version": "local-parser-v2", "parse_status": "passed"}),
     }
@@ -570,6 +579,9 @@ class IngestWorker:
                         "quality_gate": "passed",
                         "chunk_count": len(document["chunks"]),
                         "empty_chunk_count": 0,
+                        "catalog_sku_count": len(document.get("catalog_sku", [])),
+                        "catalog_size_chart_count": len(document.get("catalog_size_chart", [])),
+                        "catalog_warnings": document.get("catalog_warnings", []),
                     },
                     ensure_ascii=False,
                 ),
@@ -630,6 +642,37 @@ class IngestWorker:
                 ),
             )
 
+    def _insert_catalog(self, cursor, claim: IngestClaim, document: dict[str, Any],
+                        version_id: int) -> None:
+        for row in document.get("catalog_sku", []):
+            cursor.execute(
+                "INSERT INTO catalog_sku(tenant_id,shop_id,version_id,source_row,chunk_index,"
+                "sku_code,spu_code,title,category,brand,color,size_label,size_chart_code,"
+                "attributes,list_price_cents,currency,price_observed_at) "
+                "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
+                (
+                    claim.tenant_id, claim.shop_id, version_id, row["source_row"],
+                    row["chunk_index"], row["sku_code"], row["spu_code"], row["title"],
+                    row["category"], row["brand"], row["color"], row["size_label"],
+                    row["size_chart_code"],
+                    json.dumps(row["attributes"], ensure_ascii=False, sort_keys=True),
+                    row["list_price_cents"], row["currency"], row["price_observed_at"],
+                ),
+            )
+        for row in document.get("catalog_size_chart", []):
+            cursor.execute(
+                "INSERT INTO catalog_size_chart(tenant_id,shop_id,version_id,source_row,"
+                "chunk_index,chart_code,size_label,size_system,measurements,fit_note) "
+                "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)",
+                (
+                    claim.tenant_id, claim.shop_id, version_id, row["source_row"],
+                    row["chunk_index"], row["chart_code"], row["size_label"],
+                    row["size_system"],
+                    json.dumps(row["measurements"], ensure_ascii=False, sort_keys=True),
+                    row["fit_note"],
+                ),
+            )
+
     def _mark_item_reviewable(self, cursor, claim: IngestClaim, file: Any, version_id: int) -> None:
         cursor.execute(
             "UPDATE ingest_job_item SET status='awaiting_review',stage='review',document_version_id=%s,"
@@ -674,6 +717,7 @@ class IngestWorker:
             raise RuntimeError("document row disappeared during ingestion")
         version_id = self._insert_version(cursor, claim, parsed, document, document_row[0])
         self._insert_chunks(cursor, claim, document, document_row[0], version_id)
+        self._insert_catalog(cursor, claim, document, version_id)
         self._mark_item_reviewable(cursor, claim, file, version_id)
         return version_id
 

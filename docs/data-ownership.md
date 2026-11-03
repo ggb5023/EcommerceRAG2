@@ -32,6 +32,8 @@
 | `customer_session` | `customer` | `customer`、`auth` | 顾客匿名会话与员工会话的鉴权模型不同，各自拥有 | `scripts/check/check-ownership.py` |
 | `document` | `ingest` | `retrieval`、`admin`、`auth`、`customer` | 资料由 Python 摄取侧写入；Go 只读，用于审核与授权 | `scripts/check/check-ownership.py` |
 | `document_version` | `ingest` | `retrieval`、`admin`、`auth` | 版本状态迁移（审核/发布/回滚/撤回）在摄取侧执行 | `scripts/check/check-ownership.py` |
+| `catalog_sku` | `ingest` | `retrieval`、`admin`、`gateway` | 商品表的类型化 SKU 行必须与 chunk、版本在同一摄取事务写入；Go/检索只读，不能绕过审核与发布 | `scripts/check/check-ownership.py` |
+| `catalog_size_chart` | `ingest` | `retrieval`、`admin`、`gateway` | 尺码表行与商品行同属一个摄取版本；写入方只有 Python ingest，Go/检索只读 | `scripts/check/check-ownership.py` |
 | `source_file` | `ingest` | `ingest`、`admin` | 上传清单的文件行由摄取侧建立，只增不改 | `scripts/check/check-ownership.py` |
 | `source_manifest` | `ingest` | `ingest`、`admin` | 同上，清单哈希在摄取侧落库 | `scripts/check/check-ownership.py` |
 | `usage_log` | `providers` | `providers`、`admin` | 0021：只记 token 用量，由 Python 的 ai 与 ingest 角色写入，Go 网关只读 | `scripts/check/check-ownership.py` |

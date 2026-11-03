@@ -93,6 +93,8 @@ class IngestDatabase:
             "document",
             "document_version",
             "chunk",
+            "catalog_sku",
+            "catalog_size_chart",
             "ingest_event",
             "ingest_artifact_object",
             "ingest_command_result",
@@ -109,10 +111,10 @@ class IngestDatabase:
             )
             found = {row[0] for row in cursor.fetchall()}
             cursor.execute(
-                "SELECT version FROM schema_migration WHERE version IN ('0010','0013','0022','0023')"
+                "SELECT version FROM schema_migration WHERE version IN ('0010','0013','0022','0023','0049')"
             )
             migrations = {row[0] for row in cursor.fetchall()}
-        if not required.issubset(found) or not {"0010", "0013", "0022", "0023"}.issubset(migrations):
+        if not required.issubset(found) or not {"0010", "0013", "0022", "0023", "0049"}.issubset(migrations):
             raise IngestSchemaIncompleteError("ingest schema incomplete")
 
     @staticmethod

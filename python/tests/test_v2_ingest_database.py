@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+
 from app.ingest.commands import CommandStore, command_action, payload_digest
 from app.ingest.database import (
     IngestAuthorizationError,
@@ -209,7 +210,7 @@ def test_killed_worker_recovers_after_real_lease_expiry(db):
         else:
             raise AssertionError("target job was not claimed")
 
-        async def held_embedding(_parsed, _cancel):
+        async def held_embedding(_parsed, _claim, _cancel):
             child.send(claim)
             threading.Event().wait()
 
@@ -517,3 +518,153 @@ def test_merged_pools_keep_two_role_bound_writers(db):
     finally:
         ai.close()
         ingest.close()
+
+
+def typed_submit(db, content: bytes, document_id: str, doc_type: str, table_schema: str):
+    path = f"{document_id}.csv"
+    sha = hashlib.sha256(content).hexdigest()
+    manifest = (
+        "schema_version: 1\nsource:\n  id: typed-docs\n  name: Typed docs\n"
+        f"pipeline_version: v2-test\ndocuments:\n  - document_id: {document_id}\n"
+        f"    title: {document_id}\n    path: {path}\n    format: csv\n"
+        f"    doc_type: {doc_type}\n    table_schema: {table_schema}\n"
+        f"    sha256: {sha}\n    disclosure_class: external_allowed\n"
+    )
+    manifest_sha = hashlib.sha256(manifest.encode()).hexdigest()
+    scope = db.scope()
+    return db.store.submit(
+        tenant_id=scope.tenant_id, user_id=scope.user_id, shop_id=scope.shop_id,
+        tenant_db_id=str(db.tenant), user_db_id=str(db.user),
+        permission_revision=scope.permission_revision, idempotency_key=uuid4().hex,
+        source_id="typed-docs", source_name="Typed docs", pipeline_version="v2-test",
+        manifest_yaml=manifest, manifest_sha256=manifest_sha,
+        package_sha256=package_payload_hash(db.tenant, "shop-test", manifest_sha, {path: content}),
+        documents=[{
+            "document_id": document_id, "title": document_id, "path": path,
+            "source_hash": sha, "format": "csv", "doc_type": doc_type,
+            "table_schema": table_schema, "disclosure_class": "external_allowed",
+            "effective_from": "", "effective_to": "",
+        }],
+        files={path: content},
+    )
+
+
+def ingest_typed(db, content: bytes, document_id: str, doc_type: str, table_schema: str):
+    job = typed_submit(db, content, document_id, doc_type, table_schema)
+    for _ in range(100):
+        claim = db.worker._claim()
+        assert claim is not None
+        db.worker._process(claim)
+        if claim.job_id == job.job_id:
+            break
+    row = version(db, job.job_id)
+    assert row is not None
+    return job, row
+
+
+def test_typed_product_import_writes_catalog_chunks_and_unique_index(db):
+    content = (
+        "sku_code,title,size_label,size_chart_code\n"
+        "SKU-1,商品一,M,C1\n"
+    ).encode()
+    _job, row = ingest_typed(db, content, "typed-products", "product_table", "product_table_v1")
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM catalog_sku WHERE tenant_id=%s AND version_id=%s",
+            (db.tenant, row[0]),
+        ).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT d.doc_type FROM document d JOIN document_version v ON v.tenant_id=d.tenant_id AND v.id=%s "
+            "WHERE d.tenant_id=%s", (row[0], db.tenant),
+        ).fetchone() == ("product_table",)
+        metadata = conn.execute(
+            "SELECT meta_json FROM chunk WHERE tenant_id=%s AND version_id=%s ORDER BY chunk_index LIMIT 1",
+            (db.tenant, row[0]),
+        ).fetchone()[0]
+    assert metadata["table_schema"] == "product_table_v1"
+    assert metadata["catalog_row_key"] == "sku:SKU-1"
+    assert metadata["sku_code"] == "SKU-1"
+    assert metadata["source_row"] == 2
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO catalog_sku(tenant_id,shop_id,version_id,source_row,chunk_index,"
+                "sku_code,title,attributes) VALUES(%s,'shop-test',%s,3,0,'sku-1','duplicate','{}')",
+                (db.tenant, row[0]),
+            )
+        conn.rollback()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO catalog_sku(tenant_id,shop_id,version_id,source_row,chunk_index,"
+                "sku_code,title,attributes,list_price_cents,currency) "
+                "VALUES(%s,'shop-test',%s,4,0,'SKU-PRICE','price','{}',1,'CNY')",
+                (db.tenant, row[0]),
+            )
+        conn.rollback()
+
+
+def test_product_table_publish_requires_active_size_chart(db):
+    _job, product = ingest_typed(
+        db,
+        b"sku_code,title,size_label,size_chart_code\nSKU-1,\xe5\x95\x86\xe5\x93\x81,M,C1\n",
+        "product-with-chart", "product_table", "product_table_v1",
+    )
+    approved, _ = db.execute(
+        rag_pb2.INGEST_COMMAND_ACTION_REVIEW, product[0],
+        expected_hash=product[1], expected_fencing_epoch=product[2],
+        review_decision="approved", disclosure_class="external_allowed", external_allowed=True,
+    )
+    assert not approved.error_code
+    rejected, _ = db.execute(
+        rag_pb2.INGEST_COMMAND_ACTION_PUBLISH, product[0],
+        expected_hash=product[1], expected_fencing_epoch=product[2],
+    )
+    assert rejected.status == "rejected"
+    assert "size chart" in rejected.error_message
+    _job, chart = ingest_typed(
+        db,
+        b"chart_code,size_label,size_system,chest_cm\nC1,M,unisex,90\n",
+        "typed-size-chart", "size_chart", "size_chart_v1",
+    )
+    approve_publish(db, chart)
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        assert conn.execute(
+            "SELECT count(*), min(size_system), min((measurements->>'chest_cm')::numeric) FROM catalog_size_chart "
+            "WHERE tenant_id=%s AND chart_code='C1' AND size_label='M'",
+            (db.tenant,),
+        ).fetchone() == (1, "unisex", 90)
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO catalog_size_chart(tenant_id,shop_id,version_id,source_row,chunk_index,"
+                "chart_code,size_label,size_system,measurements) "
+                "VALUES(%s,'shop-test',%s,2,0,'C1','M','unisex','{}')",
+                (db.tenant, chart[0]),
+            )
+        conn.rollback()
+    published, _ = db.execute(
+        rag_pb2.INGEST_COMMAND_ACTION_PUBLISH, product[0],
+        expected_hash=product[1], expected_fencing_epoch=product[2],
+    )
+    assert published.status == "active", published
+
+
+def test_second_active_product_table_is_rejected(db):
+    _first_job, first = ingest_typed(
+        db, b"sku_code,title\nSKU-A,A\n", "product-a", "product_table", "product_table_v1",
+    )
+    approve_publish(db, first)
+    _second_job, second = ingest_typed(
+        db, b"sku_code,title\nSKU-B,B\n", "product-b", "product_table", "product_table_v1",
+    )
+    approved, _ = db.execute(
+        rag_pb2.INGEST_COMMAND_ACTION_REVIEW, second[0],
+        expected_hash=second[1], expected_fencing_epoch=second[2],
+        review_decision="approved", disclosure_class="external_allowed", external_allowed=True,
+    )
+    assert not approved.error_code
+    rejected, _ = db.execute(
+        rag_pb2.INGEST_COMMAND_ACTION_PUBLISH, second[0],
+        expected_hash=second[1], expected_fencing_epoch=second[2],
+    )
+    assert rejected.status == "rejected"
+    assert "another product table" in rejected.error_message

@@ -109,7 +109,7 @@ class CommandStore:
     def _load_version(self, cursor: Any, request: Any) -> tuple[dict[str, Any], int, int]:
         scope = request.context
         cursor.execute(
-            "SELECT v.*,d.active_version_id,d.logical_key,s.shop_id FROM document_version v "
+            "SELECT v.*,d.active_version_id,d.logical_key,d.doc_type,s.shop_id FROM document_version v "
             "JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id "
             "JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id "
             "WHERE v.tenant_id=%s AND v.id=%s AND s.shop_id=%s FOR UPDATE OF d,v",
@@ -167,6 +167,40 @@ class CommandStore:
                        "WHERE tenant_id=%s AND id=%s", (tenant, version))
         return {"status": "revoked", "fencing_epoch": row["fencing_epoch"] + 1}
 
+    @staticmethod
+    def _verify_catalog_publish(cursor: Any, row: dict[str, Any], tenant: int,
+                                version: int) -> None:
+        if row.get("doc_type") != "product_table":
+            return
+        cursor.execute(
+            "SELECT 1 FROM document_version v2 "
+            "JOIN document d2 ON d2.tenant_id=v2.tenant_id AND d2.id=v2.document_id "
+            "JOIN source s2 ON s2.tenant_id=d2.tenant_id AND s2.id=d2.source_id "
+            "WHERE v2.tenant_id=%s AND s2.shop_id=%s AND v2.status='active' "
+            "AND d2.doc_type='product_table' AND v2.document_id<>%s LIMIT 1",
+            (tenant, row["shop_id"], row["document_id"]),
+        )
+        if cursor.fetchone() is not None:
+            raise IngestConflictError("another product table is already active")
+        cursor.execute(
+            "SELECT count(*) AS missing FROM catalog_sku cs "
+            "WHERE cs.tenant_id=%s AND cs.version_id=%s "
+            "AND cs.size_chart_code IS NOT NULL AND btrim(cs.size_chart_code)<>'' "
+            "AND (cs.size_label IS NULL OR btrim(cs.size_label)='' OR NOT EXISTS ("
+            "SELECT 1 FROM catalog_size_chart sc "
+            "JOIN document_version sv ON sv.tenant_id=sc.tenant_id AND sv.id=sc.version_id "
+            "JOIN document sd ON sd.tenant_id=sv.tenant_id AND sd.id=sv.document_id "
+            "JOIN source ss ON ss.tenant_id=sd.tenant_id AND ss.id=sd.source_id "
+            "WHERE sc.tenant_id=cs.tenant_id AND sc.shop_id=cs.shop_id "
+            "AND sc.chart_code=cs.size_chart_code AND sc.size_label=cs.size_label "
+            "AND sv.status='active' AND sd.active_version_id=sv.id "
+            "AND sv.review_status='approved'))",
+            (tenant, version),
+        )
+        missing = cursor.fetchone()
+        if missing is None or int(missing["missing"]) > 0:
+            raise IngestConflictError("size chart reference is not active")
+
     def _publish_version(self, cursor: Any, request: Any, row: dict[str, Any],
                          item: dict[str, Any], action: str, tenant: int,
                          version: int) -> dict[str, Any]:
@@ -186,6 +220,7 @@ class CommandStore:
                 or chunks["total"] <= 0 or chunks["total"] != row["chunk_count"]
                 or chunks["embedded"] != chunks["total"] or chunks["models"] != chunks["total"]):
             raise IngestConflictError("version quality gate failed")
+        self._verify_catalog_publish(cursor, row, tenant, version)
         cursor.execute("UPDATE document_version SET status='superseded' WHERE tenant_id=%s AND id=%s AND status='active'",
                        (tenant, row["active_version_id"]))
         cursor.execute("UPDATE document_version SET status='active',activated_at=now(),fencing_epoch=fencing_epoch+1 "

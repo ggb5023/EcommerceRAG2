@@ -1,9 +1,13 @@
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from app.ingest.catalog import (
     PRODUCT_TABLE_SCHEMA,
     SIZE_CHART_SCHEMA,
+    CatalogValidationError,
+    build_typed_rows,
     chunk_projection,
     normalize_headers,
 )
@@ -105,3 +109,67 @@ def test_package_validation_keeps_old_doc_type_behavior():
     spec = _inspect_package(request, AbortContext())["documents"][0]
     assert spec["doc_type"] == "csv"
     assert spec["table_schema"] == ""
+
+
+def _typed_rows(path: Path, schema: str, *, tenant_id: str = "tenant-a", shop_id: str = "shop-a"):
+    metadata = {
+        "tenant_id": tenant_id, "shop_id": shop_id, "title": "typed",
+        "disclosure_class": "external_allowed", "effective_from": "2026-01-01",
+        "effective_to": None, "table_schema": schema,
+    }
+    elements = CSVParser().parse(path, document_id="typed", version_id="v1", metadata=metadata)
+    chunks = chunk_elements_v2(elements)
+    return build_typed_rows(elements, chunks, {"table_schema": schema})
+
+
+def test_synthetic_product_csv_builds_typed_rows_and_keeps_unknown_attributes():
+    root = Path(__file__).resolve().parents[2]
+    rows, charts, warnings = _typed_rows(
+        root / "data/synthetic/ecommerce-demo-v1/products.csv", PRODUCT_TABLE_SCHEMA,
+        tenant_id="demo-tenant-a", shop_id="demo-shop-east",
+    )
+    assert len(rows) == 7 and charts == []
+    first = rows[0]
+    assert first["sku_code"] == "SKU-CUP-480"
+    assert first["title"] == "晨雾保温杯"
+    assert first["chunk_index"] == 0
+    assert first["attributes"]["specification"] == "480ml;杯口6cm;304不锈钢"
+    assert first["attributes"]["price_cents"] == "8900"
+    assert any(warning == "unknown_attribute:price_cents" for warning in warnings)
+
+
+def test_typed_product_rows_reject_missing_observed_price(tmp_path: Path):
+    path = tmp_path / "products.csv"
+    path.write_text(
+        "sku_code,title,list_price_cents\nSKU-1,Item,8900\n", encoding="utf-8",
+    )
+    with pytest.raises(CatalogValidationError, match="price_observed_at_required"):
+        _typed_rows(path, PRODUCT_TABLE_SCHEMA)
+
+
+def test_typed_product_rows_reject_case_insensitive_duplicate_sku(tmp_path: Path):
+    path = tmp_path / "products.csv"
+    path.write_text(
+        "sku_code,title\nSKU-1,One\nsku-1,Two\n", encoding="utf-8",
+    )
+    with pytest.raises(CatalogValidationError, match="duplicate_sku"):
+        _typed_rows(path, PRODUCT_TABLE_SCHEMA)
+
+
+def test_size_chart_builds_mapping_and_rejects_unknown_system(tmp_path: Path):
+    path = tmp_path / "sizes.csv"
+    path.write_text(
+        "chart_code,size_label,size_system,chest_cm,unknown_note\n"
+        "C1,M,unisex,90,keep\n",
+        encoding="utf-8",
+    )
+    _rows, charts, warnings = _typed_rows(path, SIZE_CHART_SCHEMA)
+    assert charts[0]["chart_code"] == "C1"
+    assert charts[0]["size_label"] == "M"
+    assert charts[0]["measurements"] == {"chest_cm": 90, "unknown_note": "keep"}
+    assert "unknown_attribute:unknown_note" in warnings
+    path.write_text(
+        "chart_code,size_label,size_system\nC1,M,not-a-system\n", encoding="utf-8",
+    )
+    with pytest.raises(CatalogValidationError, match="invalid_size_system"):
+        _typed_rows(path, SIZE_CHART_SCHEMA)

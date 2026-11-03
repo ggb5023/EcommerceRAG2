@@ -8,6 +8,8 @@ same transaction as the document version and its chunk projection.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 PRODUCT_DOC_TYPE = "product_table"
@@ -150,3 +152,190 @@ def chunk_projection(schema: str, row: dict[str, str], source_row: int) -> dict[
     elif schema == SIZE_CHART_SCHEMA:
         projection["chart_code"] = _text(row.get("chart_code"))
     return projection
+
+
+def _number(value: str, field: str) -> int | float:
+    try:
+        number = Decimal(value)
+    except (InvalidOperation, ValueError) as error:
+        raise CatalogValidationError(f"invalid_number:{field}") from error
+    if not number.is_finite() or number < 0:
+        raise CatalogValidationError(f"invalid_number:{field}")
+    return int(number) if number == number.to_integral_value() else float(number)
+
+
+def _date_value(value: str, field: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise CatalogValidationError(f"invalid_date:{field}") from error
+
+
+def _registered_attributes(row: dict[str, str], *, numeric: frozenset[str],
+                           text: frozenset[str], known: frozenset[str],
+                           warnings: list[str]) -> dict[str, Any]:
+    attributes: dict[str, Any] = {}
+    for key in numeric:
+        value = _text(row.get(key))
+        if value:
+            attributes[key] = _number(value, key)
+    for key in text:
+        value = _text(row.get(key))
+        if value:
+            attributes[key] = value
+    for key, raw in row.items():
+        if key in known or key in numeric or key in text or key in CONTROL_COLUMNS or not _text(raw):
+            continue
+        attributes[key] = _text(raw)
+        warnings.append(f"unknown_attribute:{key}")
+    return attributes
+
+
+def _chunk_indexes(chunks: Iterable[Any]) -> dict[str, int]:
+    indexes: dict[str, int] = {}
+    for chunk in chunks:
+        metadata = getattr(chunk, "metadata", {}) or {}
+        key = str(metadata.get("catalog_row_key") or "")
+        if not key:
+            continue
+        index = int(chunk.chunk_index)
+        if key not in indexes or index < indexes[key]:
+            indexes[key] = index
+    return indexes
+
+
+def _source_row(element: Any) -> int:
+    position = getattr(element, "source_position", {}) or {}
+    value = position.get("line_start", position.get("record_number", 0))
+    try:
+        row = int(value)
+    except (TypeError, ValueError) as error:
+        raise CatalogValidationError("source_row_missing") from error
+    if row < 1:
+        raise CatalogValidationError("source_row_missing")
+    return row
+
+
+def _chunk_index(element: Any, indexes: dict[str, int], schema: str) -> int:
+    row = getattr(element, "catalog_row", None) or {}
+    key = catalog_row_key(schema, row)
+    if not key or key not in indexes:
+        raise CatalogValidationError(f"catalog_chunk_missing:{key}")
+    return indexes[key]
+
+
+def _product_row(element: Any, row: dict[str, str], indexes: dict[str, int],
+                 warnings: list[str]) -> dict[str, Any]:
+    sku = _text(row.get("sku_code"))
+    title = _text(row.get("title"))
+    if not sku or len(sku) > 128:
+        raise CatalogValidationError(f"invalid_sku:{_source_row(element)}")
+    if not title:
+        raise CatalogValidationError(f"missing_title:{_source_row(element)}")
+    price_text = _text(row.get("list_price_cents"))
+    observed_text = _text(row.get("price_observed_at"))
+    currency = _text(row.get("currency")).upper() or None
+    price = None
+    observed = None
+    if price_text:
+        price = _number(price_text, "list_price_cents")
+        if not isinstance(price, int):
+            raise CatalogValidationError("invalid_list_price_cents")
+        if not observed_text:
+            raise CatalogValidationError("price_observed_at_required")
+        observed = _date_value(observed_text, "price_observed_at")
+        if currency is None:
+            currency = "CNY"
+        if len(currency) != 3 or not currency.isalpha():
+            raise CatalogValidationError("invalid_currency")
+    else:
+        if observed_text:
+            raise CatalogValidationError("price_observed_at_requires_price")
+        if currency is not None:
+            raise CatalogValidationError("currency_requires_price")
+    attributes = _registered_attributes(
+        row, numeric=PRODUCT_NUMERIC_ATTRIBUTES, text=PRODUCT_TEXT_ATTRIBUTES,
+        known=PRODUCT_BASE_FIELDS, warnings=warnings,
+    )
+    return {
+        "source_row": _source_row(element),
+        "chunk_index": _chunk_index(element, indexes, PRODUCT_TABLE_SCHEMA),
+        "sku_code": sku,
+        "spu_code": _text(row.get("spu_code")) or None,
+        "title": title,
+        "category": _text(row.get("category")) or None,
+        "brand": _text(row.get("brand")) or None,
+        "color": _text(row.get("color")) or None,
+        "size_label": _text(row.get("size_label")) or None,
+        "size_chart_code": _text(row.get("size_chart_code")) or None,
+        "attributes": attributes,
+        "list_price_cents": price,
+        "currency": currency,
+        "price_observed_at": observed,
+    }
+
+
+def _size_chart_row(element: Any, row: dict[str, str], indexes: dict[str, int],
+                    warnings: list[str]) -> dict[str, Any]:
+    chart = _text(row.get("chart_code"))
+    size = _text(row.get("size_label"))
+    system = _text(row.get("size_system"))
+    if not chart:
+        raise CatalogValidationError(f"missing_chart_code:{_source_row(element)}")
+    if not size:
+        raise CatalogValidationError(f"missing_size_label:{_source_row(element)}")
+    if system not in SIZE_SYSTEMS:
+        raise CatalogValidationError(f"invalid_size_system:{system or 'empty'}")
+    measurements = _registered_attributes(
+        row, numeric=SIZE_CHART_MEASUREMENTS, text=frozenset(),
+        known=SIZE_CHART_BASE_FIELDS, warnings=warnings,
+    )
+    return {
+        "source_row": _source_row(element),
+        "chunk_index": _chunk_index(element, indexes, SIZE_CHART_SCHEMA),
+        "chart_code": chart,
+        "size_label": size,
+        "size_system": system,
+        "measurements": measurements,
+        "fit_note": _text(row.get("fit_note")) or None,
+    }
+
+
+def build_typed_rows(elements: Iterable[Any], chunks: Iterable[Any],
+                     spec: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Normalize typed rows and attach their first chunk index.
+
+    The caller writes the returned rows and the chunks in one database
+    transaction.  Unknown columns are retained as attributes and reported,
+    never silently discarded.
+    """
+    schema = str(spec.get("table_schema") or "")
+    if schema not in TYPED_SCHEMAS:
+        return [], [], []
+    indexes = _chunk_indexes(chunks)
+    sku_rows: list[dict[str, Any]] = []
+    chart_rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    seen_sku: set[str] = set()
+    seen_chart: set[tuple[str, str]] = set()
+    for element in elements:
+        row = getattr(element, "catalog_row", None)
+        if not row:
+            continue
+        if schema == PRODUCT_TABLE_SCHEMA:
+            built = _product_row(element, row, indexes, warnings)
+            key = built["sku_code"].lower()
+            if key in seen_sku:
+                raise CatalogValidationError(f"duplicate_sku:{built['sku_code']}")
+            seen_sku.add(key)
+            sku_rows.append(built)
+        else:
+            built = _size_chart_row(element, row, indexes, warnings)
+            key = (built["chart_code"], built["size_label"])
+            if key in seen_chart:
+                raise CatalogValidationError(
+                    f"duplicate_size_chart:{built['chart_code']}:{built['size_label']}"
+                )
+            seen_chart.add(key)
+            chart_rows.append(built)
+    return sku_rows, chart_rows, warnings
