@@ -77,8 +77,30 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-（实现与验证完成后填写；未完成项必须在汇报第 4 节点名。）
+- Proto：`ValidatedPackageRowError` + `ValidatedPackageDocument.table_schema/row_count/error_count/row_errors/truncated`；
+  `ValidatePackage` RPC 已实现，Go 创建批次时调用并写入 `import_item.precheck_detail`。
+- 预检规则：缺必填列、未知列 warn、空/重复表头、列数不符、SKU 大小写不敏感重复、
+  非法数字/单位、非法 `size_system`、未知尺码表/尺码 warn、价格缺观测日、XLSX
+  公式/宏/合并/隐藏/超限；block 存在时确认返回 **409 precheck_blocked**。
+- 上限：row_errors 最多 200 条；每个字符串字段截断到 200 字符；超出置
+  `truncated=true`，`error_count` 保留截断前总数。
+- 模板：`GET /admin/v1/merchant/import/templates/{name}`，由 Go schema 常量生成
+  `product_table_v1.csv` 与 `size_chart_v1.csv`，UTF-8 BOM，无手写模板文件。
+- 前端：ImportWizard 显示行号/列/错误码/建议和截断提示，增加两个模板按钮；
+  block 时禁用确认；新增 `template-product-table`、`template-size-chart`、
+  `row-errors`、`row-error`、`row-errors-truncated`、`precheck-blocked`、
+  `confirm-import` 选择器。
+- 验证：Go/Python/前端全测通过；`check.sh` 40 与 `--smoke` 45 通过；buf
+  lint/build/breaking 通过；实库预检 batch 28 返回 4 条 row_errors、block 3，
+  确认返回 409；两种模板首行已下载核对。
+- 契约表新增「ValidatePackage 逐行预检」跨进程行，Go/Python 两侧测试已列。
+- 等待主 agent 复核后转 `done`。
 
 ## 未覆盖路径
 
-（实现与验证完成后填写。）
+- WP33 的检索过滤未开始；未做浏览器层 e2e/截图，只做前端单元测试与构建。
+- 未用真实商家 CSV/XLSX 验证模板别名覆盖；预检样本是合成数据。
+- 模板生成方式为 Go schema 常量，Python catalog.py 仍是校验 schema；两侧测试锁定
+  当前列名，但新增列需要同时改两处。
+- 尚未在 dev 发布商品表；WP31/WP32 验证批次保持 staged/未发布。
+- 未运行 `--db`、`--e2e`、`--all`；未改 facts provider、检索 SQL 或已执行迁移。
