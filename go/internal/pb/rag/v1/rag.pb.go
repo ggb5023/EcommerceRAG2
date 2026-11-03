@@ -144,6 +144,7 @@ const (
 	IngestCommandAction_INGEST_COMMAND_ACTION_REVOKE      IngestCommandAction = 4
 	IngestCommandAction_INGEST_COMMAND_ACTION_RETRY       IngestCommandAction = 5
 	IngestCommandAction_INGEST_COMMAND_ACTION_CANCEL      IngestCommandAction = 6
+	IngestCommandAction_INGEST_COMMAND_ACTION_VALIDITY    IngestCommandAction = 7
 )
 
 // Enum value maps for IngestCommandAction.
@@ -156,6 +157,7 @@ var (
 		4: "INGEST_COMMAND_ACTION_REVOKE",
 		5: "INGEST_COMMAND_ACTION_RETRY",
 		6: "INGEST_COMMAND_ACTION_CANCEL",
+		7: "INGEST_COMMAND_ACTION_VALIDITY",
 	}
 	IngestCommandAction_value = map[string]int32{
 		"INGEST_COMMAND_ACTION_UNSPECIFIED": 0,
@@ -165,6 +167,7 @@ var (
 		"INGEST_COMMAND_ACTION_REVOKE":      4,
 		"INGEST_COMMAND_ACTION_RETRY":       5,
 		"INGEST_COMMAND_ACTION_CANCEL":      6,
+		"INGEST_COMMAND_ACTION_VALIDITY":    7,
 	}
 )
 
@@ -1995,8 +1998,11 @@ type ExecuteCommandRequest struct {
 	ReviewDecision       string `protobuf:"bytes,8,opt,name=review_decision,json=reviewDecision,proto3" json:"review_decision,omitempty"`
 	DisclosureClass      string `protobuf:"bytes,9,opt,name=disclosure_class,json=disclosureClass,proto3" json:"disclosure_class,omitempty"`
 	ExternalAllowed      bool   `protobuf:"varint,10,opt,name=external_allowed,json=externalAllowed,proto3" json:"external_allowed,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Empty means unbounded; otherwise YYYY-MM-DD.
+	EffectiveFrom string `protobuf:"bytes,11,opt,name=effective_from,json=effectiveFrom,proto3" json:"effective_from,omitempty"`
+	EffectiveTo   string `protobuf:"bytes,12,opt,name=effective_to,json=effectiveTo,proto3" json:"effective_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteCommandRequest) Reset() {
@@ -2099,6 +2105,20 @@ func (x *ExecuteCommandRequest) GetExternalAllowed() bool {
 	return false
 }
 
+func (x *ExecuteCommandRequest) GetEffectiveFrom() string {
+	if x != nil {
+		return x.EffectiveFrom
+	}
+	return ""
+}
+
+func (x *ExecuteCommandRequest) GetEffectiveTo() string {
+	if x != nil {
+		return x.EffectiveTo
+	}
+	return ""
+}
+
 type IngestCommandResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CommandId     string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
@@ -2110,6 +2130,8 @@ type IngestCommandResult struct {
 	Idempotent    bool                   `protobuf:"varint,7,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
 	ErrorCode     string                 `protobuf:"bytes,8,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	ErrorMessage  string                 `protobuf:"bytes,9,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	EffectiveFrom string                 `protobuf:"bytes,10,opt,name=effective_from,json=effectiveFrom,proto3" json:"effective_from,omitempty"`
+	EffectiveTo   string                 `protobuf:"bytes,11,opt,name=effective_to,json=effectiveTo,proto3" json:"effective_to,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2203,6 +2225,20 @@ func (x *IngestCommandResult) GetErrorCode() string {
 func (x *IngestCommandResult) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *IngestCommandResult) GetEffectiveFrom() string {
+	if x != nil {
+		return x.EffectiveFrom
+	}
+	return ""
+}
+
+func (x *IngestCommandResult) GetEffectiveTo() string {
+	if x != nil {
+		return x.EffectiveTo
 	}
 	return ""
 }
@@ -3946,7 +3982,7 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\vchunk_index\x18\x0f \x01(\x05R\n" +
 	"chunkIndex\"G\n" +
 	"\x1cReloadSyntheticIndexResponse\x12'\n" +
-	"\x0faccepted_chunks\x18\x01 \x01(\x05R\x0eacceptedChunks\"\xb0\x03\n" +
+	"\x0faccepted_chunks\x18\x01 \x01(\x05R\x0eacceptedChunks\"\xfa\x03\n" +
 	"\x15ExecuteCommandRequest\x120\n" +
 	"\acontext\x18\x01 \x01(\v2\x16.rag.v1.RequestContextR\acontext\x12\x1d\n" +
 	"\n" +
@@ -3960,7 +3996,9 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x0freview_decision\x18\b \x01(\tR\x0ereviewDecision\x12)\n" +
 	"\x10disclosure_class\x18\t \x01(\tR\x0fdisclosureClass\x12)\n" +
 	"\x10external_allowed\x18\n" +
-	" \x01(\bR\x0fexternalAllowed\"\xc0\x02\n" +
+	" \x01(\bR\x0fexternalAllowed\x12%\n" +
+	"\x0eeffective_from\x18\v \x01(\tR\reffectiveFrom\x12!\n" +
+	"\feffective_to\x18\f \x01(\tR\veffectiveTo\"\x8a\x03\n" +
 	"\x13IngestCommandResult\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x1f\n" +
@@ -3975,7 +4013,10 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"idempotent\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\b \x01(\tR\terrorCode\x12#\n" +
-	"\rerror_message\x18\t \x01(\tR\ferrorMessage\"M\n" +
+	"\rerror_message\x18\t \x01(\tR\ferrorMessage\x12%\n" +
+	"\x0eeffective_from\x18\n" +
+	" \x01(\tR\reffectiveFrom\x12!\n" +
+	"\feffective_to\x18\v \x01(\tR\veffectiveTo\"M\n" +
 	"\x16ExecuteCommandResponse\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.rag.v1.IngestCommandResultR\x06result\"O\n" +
 	"\x18GetCommandResultResponse\x123\n" +
@@ -4133,7 +4174,7 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x0fJOB_STATUS_DONE\x10\x03\x12\x15\n" +
 	"\x11JOB_STATUS_FAILED\x10\x04\x12\x18\n" +
 	"\x14JOB_STATUS_CANCELLED\x10\x05\x12\x1e\n" +
-	"\x1aJOB_STATUS_AWAITING_REVIEW\x10\x06*\x8a\x02\n" +
+	"\x1aJOB_STATUS_AWAITING_REVIEW\x10\x06*\xae\x02\n" +
 	"\x13IngestCommandAction\x12%\n" +
 	"!INGEST_COMMAND_ACTION_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cINGEST_COMMAND_ACTION_REVIEW\x10\x01\x12!\n" +
@@ -4141,7 +4182,8 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x1eINGEST_COMMAND_ACTION_ROLLBACK\x10\x03\x12 \n" +
 	"\x1cINGEST_COMMAND_ACTION_REVOKE\x10\x04\x12\x1f\n" +
 	"\x1bINGEST_COMMAND_ACTION_RETRY\x10\x05\x12 \n" +
-	"\x1cINGEST_COMMAND_ACTION_CANCEL\x10\x062\xd8\x03\n" +
+	"\x1cINGEST_COMMAND_ACTION_CANCEL\x10\x06\x12\"\n" +
+	"\x1eINGEST_COMMAND_ACTION_VALIDITY\x10\a2\xd8\x03\n" +
 	"\n" +
 	"RagService\x12C\n" +
 	"\n" +

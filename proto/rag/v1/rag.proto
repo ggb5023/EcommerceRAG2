@@ -229,6 +229,7 @@ enum IngestCommandAction {
   INGEST_COMMAND_ACTION_REVOKE = 4;
   INGEST_COMMAND_ACTION_RETRY = 5;
   INGEST_COMMAND_ACTION_CANCEL = 6;
+  INGEST_COMMAND_ACTION_VALIDITY = 7;
 }
 message ExecuteCommandRequest {
   RequestContext context = 1;
@@ -242,6 +243,9 @@ message ExecuteCommandRequest {
   string review_decision = 8;
   string disclosure_class = 9;
   bool external_allowed = 10;
+  // Empty means unbounded; otherwise YYYY-MM-DD.
+  string effective_from = 11;
+  string effective_to = 12;
 }
 message IngestCommandResult {
   string command_id = 1;
@@ -253,6 +257,8 @@ message IngestCommandResult {
   bool idempotent = 7;
   string error_code = 8;
   string error_message = 9;
+  string effective_from = 10;
+  string effective_to = 11;
 }
 message ExecuteCommandResponse { IngestCommandResult result = 1; }
 message GetCommandResultResponse { IngestCommandResult result = 1; }

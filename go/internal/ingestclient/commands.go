@@ -40,6 +40,7 @@ func Action(value ragv1.IngestCommandAction) string {
 		ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_REVOKE:   "version.revoke",
 		ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_RETRY:    "ingestion.retry",
 		ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_CANCEL:   "ingestion.cancel",
+		ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_VALIDITY: "version.validity",
 	}[value]
 }
 

@@ -120,3 +120,9 @@ func TestStoredCommandRejectsChangedPayloadAndScope(t *testing.T) {
 		}
 	}
 }
+
+func TestValidityActionIsAVersionCommand(t *testing.T) {
+	if got := Action(ragv1.IngestCommandAction_INGEST_COMMAND_ACTION_VALIDITY); got != "version.validity" {
+		t.Fatalf("validity action = %q", got)
+	}
+}

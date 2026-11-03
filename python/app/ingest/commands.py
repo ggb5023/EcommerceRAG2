@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from typing import Any
 
 import psycopg
@@ -27,6 +28,7 @@ def command_action(value: int) -> str:
         rag_pb2.INGEST_COMMAND_ACTION_REVOKE: "version.revoke",
         rag_pb2.INGEST_COMMAND_ACTION_RETRY: "ingestion.retry",
         rag_pb2.INGEST_COMMAND_ACTION_CANCEL: "ingestion.cancel",
+        rag_pb2.INGEST_COMMAND_ACTION_VALIDITY: "version.validity",
     }.get(value, "")
 
 
@@ -38,7 +40,8 @@ class CommandStore:
 
     @staticmethod
     def _identity(cursor: Any, scope: Any, action: str) -> None:
-        role = "knowledge_reviewer" if action.startswith("version.") else "merchant_admin"
+        role = ("merchant_admin" if action == "version.validity"
+                else "knowledge_reviewer" if action.startswith("version.") else "merchant_admin")
         cursor.execute("SELECT ecr_lock_ingest_scope(%s,%s,%s,%s,%s,%s,%s,%s)",
                        (scope.tenant_db_id, scope.user_db_id, scope.tenant_id, scope.user_id,
                         scope.shop_id, scope.role, scope.permission_revision, role))
@@ -207,10 +210,50 @@ class CommandStore:
         return {"status": "active", "review_status": "approved", "reviewed_hash": row["source_hash"],
                 "fencing_epoch": row["fencing_epoch"] + 1}
 
+    @staticmethod
+    def _validity_date(value: str, field: str) -> date | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError as error:
+            raise IngestConflictError(f"{field} must be YYYY-MM-DD or empty") from error
+
+    @classmethod
+    def _validity_dates(cls, request: Any) -> tuple[date | None, date | None]:
+        effective_from = cls._validity_date(request.effective_from, "effective_from")
+        effective_to = cls._validity_date(request.effective_to, "effective_to")
+        if effective_from and effective_to and effective_to <= effective_from:
+            raise IngestConflictError("effective_to must be after effective_from")
+        return effective_from, effective_to
+
+    def _validity(self, cursor: Any, request: Any, row: dict[str, Any],
+                  tenant: int, version: int) -> dict[str, Any]:
+        effective_from, effective_to = self._validity_dates(request)
+        cursor.execute(
+            "UPDATE document_version SET effective_from=%s,effective_to=%s,"
+            "fencing_epoch=fencing_epoch+1 WHERE tenant_id=%s AND id=%s",
+            (effective_from, effective_to, tenant, version),
+        )
+        cursor.execute(
+            "UPDATE chunk SET effective_from=%s,effective_to=%s,"
+            "meta_json=meta_json || jsonb_build_object('effective_from',%s::text,'effective_to',%s::text) "
+            "WHERE tenant_id=%s AND version_id=%s",
+            (effective_from, effective_to,
+             effective_from.isoformat() if effective_from else None,
+             effective_to.isoformat() if effective_to else None, tenant, version),
+        )
+        return {"status": "updated", "effective_from": effective_from.isoformat() if effective_from else "",
+                "effective_to": effective_to.isoformat() if effective_to else "",
+                "fencing_epoch": row["fencing_epoch"] + 1}
+
     def _version(self, cursor: Any, request: Any, action: str) -> dict[str, Any]:
         row, tenant, version = self._load_version(cursor, request)
         if action == "version.review":
             return self._review_version(cursor, request, row, tenant, version)
+        if action == "version.validity":
+            return self._validity(cursor, request, row, tenant, version)
         item = self._load_version_item(cursor, tenant, version)
         if action == "version.revoke":
             return self._revoke_version(cursor, row, tenant, version)
