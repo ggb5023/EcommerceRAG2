@@ -5,7 +5,8 @@ import pytest
 from openpyxl import Workbook
 
 from app.ingest import pipeline
-from app.ingest.pipeline import CSVParser, XLSXParser
+from app.ingest.catalog import PRODUCT_TABLE_SCHEMA
+from app.ingest.pipeline import CSVParser, XLSXParser, chunk_elements_v2
 
 
 def metadata() -> dict[str, str | None]:
@@ -39,6 +40,19 @@ def test_xlsx_matches_csv_output_shape(tmp_path: Path):
     assert [element.content for element in xlsx_elements] == [element.content for element in csv_elements]
     assert [element.table_body for element in xlsx_elements] == [element.table_body for element in csv_elements]
     assert xlsx_elements[0].source_position == {"line_start": 2, "line_end": 2, "record_number": 1}
+
+
+def test_xlsx_typed_rows_carry_chunk_projection(tmp_path: Path):
+    path = tmp_path / "products.xlsx"
+    write_workbook(path, [["sku", "product_name"], ["SKU-1", "商品一"]])
+    typed_metadata = {**metadata(), "table_schema": PRODUCT_TABLE_SCHEMA}
+    chunks = chunk_elements_v2(XLSXParser().parse(
+        path, document_id="doc", version_id="v1", metadata=typed_metadata,
+    ))
+    assert chunks[0].metadata["table_schema"] == PRODUCT_TABLE_SCHEMA
+    assert chunks[0].metadata["sku_code"] == "SKU-1"
+    assert chunks[0].metadata["catalog_row_key"] == "sku:SKU-1"
+    assert chunks[0].metadata["source_row"] == 2
 
 
 def test_xlsx_filters_rows_outside_tenant_and_shop(tmp_path: Path):

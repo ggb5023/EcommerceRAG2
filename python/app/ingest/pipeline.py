@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any, ClassVar, Protocol
 from xml.etree import ElementTree
 
+from app.ingest.catalog import (
+    TYPED_SCHEMAS,
+    chunk_projection,
+    normalize_headers,
+)
+
 
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -44,6 +50,7 @@ class ParsedElement:
     warning: str | None = None
     text_level: int | None = None
     page_no: int | None = None
+    catalog_row: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +86,8 @@ def _common(document_id: str, version_id: str, metadata: dict[str, Any], title: 
             element_type: str = "text", table_body: Any = None,
             table_caption: str | None = None, image_refs: Iterable[str] = (),
             bbox: Any = None, warning: str | None = None,
-            text_level: int | None = None, page_no: int | None = None) -> ParsedElement:
+            text_level: int | None = None, page_no: int | None = None,
+            catalog_row: dict[str, str] | None = None) -> ParsedElement:
     return ParsedElement(
         document_id=document_id, document_version_id=version_id, title=title,
         heading=heading, content=content.strip(), source_position=position,
@@ -87,7 +95,7 @@ def _common(document_id: str, version_id: str, metadata: dict[str, Any], title: 
         effective_from=metadata.get("effective_from"), effective_to=metadata.get("effective_to"),
         element_type=element_type, table_body=table_body, table_caption=table_caption,
         image_refs=tuple(image_refs), bbox=bbox, warning=warning,
-        text_level=text_level, page_no=page_no,
+        text_level=text_level, page_no=page_no, catalog_row=catalog_row,
     )
 
 
@@ -279,7 +287,7 @@ class MarkdownParser:
         return state.elements
 def _record_element(document_id: str, version_id: str, metadata: dict[str, Any],
                     row: dict[str, str], *, line_start: int, line_end: int,
-                    record_number: int) -> ParsedElement | None:
+                    record_number: int, catalog_row: dict[str, str] | None = None) -> ParsedElement | None:
     """Build one table element for a CSV/XLSX data row.
 
     CSV and XLSX intentionally share this function so both formats produce the
@@ -287,8 +295,8 @@ def _record_element(document_id: str, version_id: str, metadata: dict[str, Any],
     document's tenant/shop are skipped before any element is created.
     """
     values = [f"{key}: {value}" for key, value in row.items() if value not in (None, "")]
-    row_tenant = row.get("tenant_id")
-    row_shop = row.get("shop_id")
+    row_tenant = (catalog_row or {}).get("tenant_id") or row.get("tenant_id")
+    row_shop = (catalog_row or {}).get("shop_id") or row.get("shop_id")
     if row_tenant and row_tenant != metadata.get("tenant_id"):
         return None
     if row_shop and row_shop != metadata.get("shop_id"):
@@ -298,13 +306,17 @@ def _record_element(document_id: str, version_id: str, metadata: dict[str, Any],
         row_metadata["tenant_id"] = row_tenant
     if row_shop:
         row_metadata["shop_id"] = row_shop
-    if row.get("fact_type"):
-        row_metadata["fact_type"] = row["fact_type"]
+    fact_type = (catalog_row or {}).get("fact_type") or row.get("fact_type")
+    if fact_type:
+        row_metadata["fact_type"] = fact_type
+    schema = str(metadata.get("table_schema") or "")
+    if catalog_row is not None and schema in TYPED_SCHEMAS:
+        row_metadata.update(chunk_projection(schema, catalog_row, line_start))
     return _common(
         document_id, version_id, row_metadata, metadata.get("title", document_id),
         "\n".join(values), {"line_start": line_start, "line_end": line_end,
                             "record_number": record_number},
-        element_type="table", table_body=[values],
+        element_type="table", table_body=[values], catalog_row=catalog_row,
     )
 
 
@@ -318,6 +330,7 @@ class CSVParser:
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.reader(handle)
             headers: list[str] | None = None
+            catalog_headers: list[str] | None = None
             previous_line_end = 0
             record_number = 0
             for raw_row in reader:
@@ -332,6 +345,9 @@ class CSVParser:
                         raise ValueError("csv_header_empty")
                     if len(set(headers)) != len(headers):
                         raise ValueError("csv_header_duplicate")
+                    schema = str(metadata.get("table_schema") or "")
+                    if schema in TYPED_SCHEMAS:
+                        catalog_headers = normalize_headers(headers, schema)
                     previous_line_end = line_end
                     continue
                 if len(raw_row) != len(headers):
@@ -346,13 +362,14 @@ class CSVParser:
                     line_start = previous_line_end + 1
                 previous_line_end = line_end
                 row = dict(zip(headers, raw_row))
+                catalog_row = dict(zip(catalog_headers, raw_row)) if catalog_headers else None
                 # A manifest document may point at a shared CSV (for example
                 # the synthetic products file). Do not let rows belonging to
                 # another tenant or shop inherit this document's identity.
                 element = _record_element(
                     document_id, version_id, metadata, row,
                     line_start=line_start, line_end=line_end,
-                    record_number=record_number,
+                    record_number=record_number, catalog_row=catalog_row,
                 )
                 if element is not None:
                     elements.append(element)
@@ -449,6 +466,7 @@ class XLSXParser:
             raise ValueError("xlsx_invalid") from error
         elements: list[ParsedElement] = []
         headers: list[str] | None = None
+        catalog_headers: list[str] | None = None
         record_number = 0
         cell_total = 0
         try:
@@ -476,6 +494,9 @@ class XLSXParser:
                         raise ValueError("xlsx_header_empty")
                     if len(set(headers)) != len(headers):
                         raise ValueError("xlsx_header_duplicate")
+                    schema = str(metadata.get("table_schema") or "")
+                    if schema in TYPED_SCHEMAS:
+                        catalog_headers = normalize_headers(headers, schema)
                     continue
                 if len(values) > len(headers):
                     raise ValueError(f"xlsx_column_mismatch:row={row_number}")
@@ -485,6 +506,7 @@ class XLSXParser:
                     document_id, version_id, metadata, dict(zip(headers, values)),
                     line_start=row_number, line_end=row_number,
                     record_number=record_number,
+                    catalog_row=dict(zip(catalog_headers, values)) if catalog_headers else None,
                 )
                 if element is not None:
                     elements.append(element)

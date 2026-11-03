@@ -9,6 +9,8 @@ from pathlib import PurePosixPath
 import grpc
 import yaml
 
+from app.ingest.catalog import DOC_TYPE_SCHEMAS
+
 MAX_MANIFEST_BYTES = 256 * 1024
 MAX_PACKAGE_BYTES = 8 * 1024 * 1024
 MAX_DOCUMENTS = 100
@@ -143,6 +145,32 @@ def _inspect_document(spec, index: int, uploaded: dict[str, bytes], used_paths: 
     }[fmt]
     if not extension_ok:
         _fail(context, f"documents[{index}] format does not match its file")
+    declared_doc_type = spec.get("doc_type")
+    declared_schema = spec.get("table_schema")
+    if declared_schema is not None and not isinstance(declared_schema, str):
+        _fail(context, f"documents[{index}].table_schema is invalid")
+    typed_schema = ""
+    if declared_doc_type is None:
+        if declared_schema is not None:
+            _fail(context, f"documents[{index}].table_schema requires doc_type")
+        doc_type = fmt
+    elif not isinstance(declared_doc_type, str):
+        _fail(context, f"documents[{index}].doc_type is invalid")
+    elif declared_doc_type in DOC_TYPE_SCHEMAS:
+        if fmt not in {"csv", "xlsx"}:
+            _fail(context, f"documents[{index}] typed tables require csv or xlsx")
+        expected = DOC_TYPE_SCHEMAS[declared_doc_type]
+        if declared_schema != expected:
+            _fail(
+                context,
+                f"documents[{index}].table_schema must be {expected}",
+            )
+        typed_schema = expected
+        doc_type = declared_doc_type
+    else:
+        if declared_schema is not None:
+            _fail(context, f"documents[{index}].table_schema requires a typed doc_type")
+        doc_type = fmt
     disclosure = spec.get("disclosure_class", "unclassified")
     if not isinstance(disclosure, str) or disclosure not in ALLOWED_DISCLOSURE:
         _fail(context, f"documents[{index}].disclosure_class is invalid")
@@ -175,6 +203,8 @@ def _inspect_document(spec, index: int, uploaded: dict[str, bytes], used_paths: 
         "document_id": document_id,
         "title": title.strip(),
         "format": fmt,
+        "doc_type": doc_type,
+        "table_schema": typed_schema,
         "path": relative,
         "source_hash": source_hash,
         "disclosure_class": disclosure,

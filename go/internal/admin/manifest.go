@@ -49,6 +49,8 @@ type ParsedDocument struct {
 	AuthorizationReference string
 	CheckedAt              string
 	Snippet                string
+	DocType                string
+	TableSchema            string
 }
 
 type ParsedPackage struct {
@@ -204,6 +206,41 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 		if !extensionOK {
 			return nil, fmt.Errorf("documents[%d] format does not match its file", index)
 		}
+		docType, tableSchema := "", ""
+		if value, present := spec["doc_type"]; present {
+			var ok bool
+			docType, ok = manifestString(value)
+			if !ok {
+				return nil, fmt.Errorf("documents[%d].doc_type is invalid", index)
+			}
+		}
+		if value, present := spec["table_schema"]; present {
+			var ok bool
+			tableSchema, ok = manifestString(value)
+			if !ok {
+				return nil, fmt.Errorf("documents[%d].table_schema is invalid", index)
+			}
+		}
+		switch docType {
+		case "product_table":
+			if tableSchema != "product_table_v1" {
+				return nil, fmt.Errorf("documents[%d].table_schema must be product_table_v1", index)
+			}
+			if format != "csv" && format != "xlsx" {
+				return nil, fmt.Errorf("documents[%d] typed tables require csv or xlsx", index)
+			}
+		case "size_chart":
+			if tableSchema != "size_chart_v1" {
+				return nil, fmt.Errorf("documents[%d].table_schema must be size_chart_v1", index)
+			}
+			if format != "csv" && format != "xlsx" {
+				return nil, fmt.Errorf("documents[%d] typed tables require csv or xlsx", index)
+			}
+		default:
+			if tableSchema != "" {
+				return nil, fmt.Errorf("documents[%d].table_schema requires a typed doc_type", index)
+			}
+		}
 		disclosure := "unclassified"
 		ok = true
 		if declaredDisclosure, present := spec["disclosure_class"]; present {
@@ -270,7 +307,7 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 			SourceHash: sourceHash, DisclosureClass: disclosure, EffectiveFrom: effectiveFrom,
 			EffectiveTo: effectiveTo, VersionID: "v-" + hex.EncodeToString(versionDigest[:])[:20],
 			TempPath: file.TempPath, License: license, AuthorizationReference: authorizationReference,
-			CheckedAt: checkedAt, Snippet: snippet,
+			CheckedAt: checkedAt, Snippet: snippet, DocType: docType, TableSchema: tableSchema,
 		})
 	}
 	if len(usedPaths) != len(uploaded) {

@@ -370,7 +370,7 @@ def _submit_document(cursor, tenant_pk: int, source_pk: int, manifest_pk: int, j
             source_pk,
             document["document_id"],
             document["title"],
-            document["format"],
+            document.get("doc_type") or document["format"],
             json.dumps(
                 {
                     "shop_id": shop_id,

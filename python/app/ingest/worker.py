@@ -109,6 +109,8 @@ def _parse_document(spec: dict[str, Any], by_path: dict[str, bytes], *, tenant: 
             "tenant_id": tenant,
             "shop_id": shop,
             "title": spec["title"],
+            "doc_type": spec.get("doc_type") or spec["format"],
+            "table_schema": spec.get("table_schema", ""),
             "disclosure_class": spec["disclosure_class"],
             "effective_from": spec["effective_from"] or None,
             "effective_to": spec["effective_to"] or None,

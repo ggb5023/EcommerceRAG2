@@ -103,6 +103,26 @@ func TestParseManifestRejectsInvalidPackages(t *testing.T) {
 	}
 }
 
+func TestParseManifestAcceptsTypedProductTable(t *testing.T) {
+	content := "sku,title\nSKU-1,Item\n"
+	file := stagedFile(t, "products.xlsx", content)
+	manifest := manifestWith(fmt.Sprintf(
+		"  - document_id: products\n    title: Products\n    path: products.xlsx\n    format: xlsx\n    doc_type: product_table\n    table_schema: product_table_v1\n    sha256: %s\n    disclosure_class: external_allowed\n",
+		hashText(content),
+	))
+	documents, err := parseManifest(manifest, []UploadedFile{file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(documents) != 1 || documents[0].DocType != "product_table" || documents[0].TableSchema != "product_table_v1" {
+		t.Fatalf("unexpected typed document: %#v", documents)
+	}
+	bad := strings.Replace(manifest, "table_schema: product_table_v1", "table_schema: size_chart_v1", 1)
+	if _, err := parseManifest(bad, []UploadedFile{file}); err == nil {
+		t.Fatal("mismatched table_schema accepted")
+	}
+}
+
 func TestParseManifestStreamsLargeFile(t *testing.T) {
 	content := strings.Repeat("a", 2*1024*1024)
 	file := stagedFile(t, "large.md", content)
