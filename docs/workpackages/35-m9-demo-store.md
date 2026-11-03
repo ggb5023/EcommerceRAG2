@@ -6,13 +6,13 @@
 
 ## 目标
 
-按 0035 §2 交付固定合成演示包 `demo-store-v1` 与 `scripts/dev/demo-shop.sh`（待建）：
+按 0035 §2 交付固定合成演示包 `demo-store-v1` 与 `scripts/dev/demo-shop.sh`：
 一键启动隔离栈、经现有管理 API 导入/预检/审核/发布、幂等重跑、按演示 source 重置。
 不实现 handoff 聚合、报告 CLI 或管理台报告页（WP36）。
 
-## 数据包（待建时按 0034 列）
+## 数据包（按 0034 列）
 
-- `data/synthetic/demo-store-v1/`（待建）：
+- `data/synthetic/demo-store-v1/`：
   - `manifest.yaml`：单一 `v2-demo-tenant`/`shop-demo`，`business_date=2026-09-29`，
     `synthetic=true`、`provisional=true`、`license=internal-generated`；
   - `products.csv`：`product_table_v1` 18 列，8 个 SKU，覆盖颜色、尺码、容量；
@@ -24,7 +24,7 @@
 
 ## 一键脚本
 
-`scripts/dev/demo-shop.sh`（待建）：
+`scripts/dev/demo-shop.sh`：
 
 1. 复用 `isolated-stack.sh --identity development` 与固定端口（默认 26081）；
    已有健康栈则复用，否则启动；不碰 systemd dev。
@@ -63,8 +63,44 @@ sha256 与 manifest 哈希；precheck_detail 无 block；active 文档/版本断
 
 ## 实际交付
 
-（数据和脚本提交后填写；未完成项在汇报第 4 节点名。）
+- 数据包 `data/synthetic/demo-store-v1/`：单一 `v2-demo-tenant`/`shop-demo`，
+  `business_date=2026-09-29`；`synthetic=true`、`provisional=true`、
+  `license=internal-generated`。manifest sha256
+  `2ddfeb368739ad134f8d7c231208c53ab4da8c672d4e7300b69ae7e6c14b78cb`；
+  数据包（8 个文件）聚合 sha256
+  `4924129a618e79f1fd098656f6d00c21b53140dc2b183b2ae7f57b7170c91cca`。
+- 商品表 8 行、18 列（`product_table_v1`，覆盖杯子/衣物/毛巾/包，颜色、尺码、
+  容量）；尺码表 3 行、10 列（`size_chart_v1`，S/M/L 与商品
+  `DEMO-APPAREL-SIZES` 对应）；`policies.md`、`faq.md`、`returns.md`。
+- `questions.jsonl` 10 条新合成问题：6 ANSWER、1 CLARIFY、3 HANDOFF，含答案点与
+  期望文档；未写入 `eval/` 冻结集。包内 README 声明为虚构资料。
+- `scripts/dev/demo-shop.sh`：默认固定端口 26081；复用健康隔离栈，否则调用
+  `isolated-stack.sh --identity development --keep`；全部写入走管理 HTTP API。
+  上传 manifest/文件后断言 `blocks=0`，确认批次，按 `job_id` 等待并选择本批次版本；
+  尺码表先于商品表审核/发布；验证每个演示文档 active、approved、属于本 job、
+  business_date 一致，且无 ready/pending 残留。相同源哈希全部 active 时跳过。
+  `--reset` 只撤回演示文档的 active/ready 版本，跳过 revoked/superseded；不 SQL、
+  不 DROP、不碰其他 tenant/shop。重置后运行时 manifest 增加一次性 nonce，避免
+  幂等键复用已撤回 job；包 manifest 哈希保持不变。失败非零退出并带 HTTP 诊断。
+- 实跑（最终 validation）：reset 后 `batch=56 job=149`，active 版本 282–286；
+  重复执行 `SKIP ... manifest_sha256=2ddfeb...`。此前同一路径已跑过
+  `batch=52 job=145`、`batch=53 job=146` 与 `batch=55 job=148`，均 active 且
+  重跑 SKIP。临时改变 `faq.md` 后 `batch=54 job=147`，active 272–276，新 FAQ
+  版本 275（hash `bc60c0ee...`），旧 FAQ 版本 270 为 superseded，证明源变化
+  生成新版本且保留历史。所有 precheck 均
+  `blocks=0 item_count=5 business_date=2026-09-29`。
+- 验证：`bash scripts/check.sh` PASSED 40；`bash scripts/check.sh --smoke`
+  PASSED 45（五条 smoke 与 `.local/w2/` 逐字节一致）；`go build ./...` 与
+  `go vet ./...` 通过；`bash -n` 与 `shellcheck -S warning` 通过。
+- 未改 `eval/`、`ecommerce-m2-aligned-v1`、迁移、棘轮/基线或 smoke 基线；
+  `scripts/review/` 未提交、未修改。
 
 ## 未覆盖路径
 
-（数据和脚本提交后填写。）
+- 未运行浏览器级 `--e2e`、`--db`、`--all`；未在 systemd dev 栈执行演示 seed，
+  只在隔离栈 26081 验证。
+- `questions.jsonl` 未接入轮次链路执行，未验证 ANSWER/CLARIFY/HANDOFF 的实际回答
+  质量；未调用真实模型。
+- 未实现 customer handoff 聚合、报告 CLI/管理台报告页（WP36）。
+- 源变化测试使用临时包副本，未改动仓库内已提交的 demo 数据；未用真实商家数据。
+- 未验证多实例并发执行同一脚本；脚本按 job_id 绑定版本，但仍以单实例执行为前提。
