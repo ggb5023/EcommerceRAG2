@@ -96,4 +96,14 @@
   外部来源链接、国内电商导出列清单和解析库取舍；结论是不把商品表继续做成纯 chunk。
 - 决策：[0034](../decisions/0034-product-table-import.md)，状态“提议”；含商品表/尺码表
   schema 草案、检索过滤、facts 边界、预检模板与备选方案。
-- 未改代码、迁移、表、列、模板或依赖；文档门禁与快速层结果见交付汇报。
+- 实测：合成 `products.csv` 的本店行是 7 个元素/7 个 chunk；当前 `parser_for("xlsx")`
+  抛 `KeyError`，`ALLOWED_FORMATS` 无 xlsx；`ValidatePackage` 只有 proto，无实现/调用。
+- 文档四项守卫 PASS；快速层 **PASSED 40 / UNCONFIGURED 0 / FAILED 0**。
+- 未改代码、迁移、表、列、模板或依赖；未引入 XLSX 解析器和新依赖。
+
+## 未覆盖路径
+
+- 阶段 2 的商品表/尺码表 schema、迁移、预检 RPC、模板、检索过滤、XLSX 解析均未实现。
+- 未运行 `--db`、`--e2e`、`--all`；本轮没有数据库或浏览器行为。
+- 未验证真实平台导出文件的列差异；模板和别名映射需在阶段 2 用真实样本校准。
+- 未接实时库存/价格和平台 API；商品表不改变现有 facts provider。
