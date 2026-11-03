@@ -1,8 +1,8 @@
 # 0034 商品表导入：类型化商品行、尺码表与过滤
 
-- 状态：提议，未实现
+- 状态：已采纳
 - 日期：2026-11-03
-- 工作包：[30](../workpackages/30-m8-product-table-design.md)
+- 工作包：[30](../workpackages/30-m8-product-table-design.md)、[31](../workpackages/31-m8-typed-storage.md)
 - 调研：[product-table-import](../research/product-table-import.md)
 - 关联：[0017](0017-m6-l1-import-precheck.md)、[0027](0027-document-source-ownership.md)、
   [0032](0032-intelligence-domain-and-crawling.md)、[0021](0021-usage-log-instead-of-budget.md)
@@ -13,8 +13,9 @@ M8 要让商家导入商品表与尺码表，按 SKU 和规格过滤，并在预
 已能作为普通文档解析成每行一个 chunk，但没有类型化商品行、SKU 唯一性、尺码映射或
 SQL 属性过滤；实测与缺口见工作包 §现状盘点。
 
-本决策只定数据形态、预检扩展、检索过滤和 facts 边界。它不实现代码、不建表、不接线；
-阶段 2 才写迁移与代码。实时库存/价格、平台 API、自动补全 SKU 不在本决策范围。
+本决策定义数据形态、预检扩展、检索过滤和 facts 边界。WP31 实现 §2.1–2.4 的解析、
+存储与发布校验；§2.5 的预检/模板与 §2.6 的检索过滤分别留给 WP32、WP33。
+实时库存/价格、平台 API、自动补全 SKU 不在本决策范围。
 
 ## 2. 决定
 
@@ -162,4 +163,4 @@ Python/Go 都没有实现；阶段 2 实现并扩展它，作为“staged 文件
 - **Python ingest**：解析、规范化、逐行校验、写 chunk 与两张类型化表（同一事务）。
 - **Go**：授权、显式过滤条件签名、只读校验、模板与预检结果返回；不直接写商品表。
 - **商家**：确认预检、审核、发布、回滚、撤回；不自动改变发布状态。
-- **本记录**：提议，未实现。阶段 2 开工前需用户确认 schema、模板形态和迁移编号。
+- **本记录**：已采纳。WP31 实现 §2.1–2.4；预检/模板（WP32）与检索过滤（WP33）尚未开始。
