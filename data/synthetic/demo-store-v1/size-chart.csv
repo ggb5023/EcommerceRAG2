@@ -1,0 +1,4 @@
+chart_code,size_label,size_system,chest_cm,waist_cm,hip_cm,foot_length_cm,height_cm,weight_kg,fit_note
+DEMO-APPAREL-SIZES,S,unisex,88,70,92,,160,50,常规版型
+DEMO-APPAREL-SIZES,M,unisex,94,76,98,,170,60,常规版型
+DEMO-APPAREL-SIZES,L,unisex,100,82,104,,180,70,常规版型

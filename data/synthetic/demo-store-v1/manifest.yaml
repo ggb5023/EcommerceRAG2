@@ -1,0 +1,92 @@
+schema_version: 1
+dataset_id: demo-store-v1
+source:
+  id: demo-store-v1
+  name: Demo store v1
+pipeline_version: demo-store-v1
+synthetic: true
+provisional: true
+license: internal-generated
+business_date: '2026-09-29'
+tenants:
+- tenant_id: v2-demo-tenant
+  shops:
+  - shop-demo
+documents:
+- document_id: demo-products
+  title: demo-products
+  path: products.csv
+  format: csv
+  doc_type: product_table
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-01-01'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: demo-store-v1
+    checked_at: '2026-09-29'
+  sha256: 96b8496319d312a679c807cdcc9aec1dd05d9cc8c23b75c975d10d09966757fa
+  table_schema: product_table_v1
+- document_id: demo-size-chart
+  title: demo-size-chart
+  path: size-chart.csv
+  format: csv
+  doc_type: size_chart
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-01-01'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: demo-store-v1
+    checked_at: '2026-09-29'
+  sha256: 997f204baf3c27c54170fcdfb3e3f6b66e3ea32d253c739c4ae0133413fee4de
+  table_schema: size_chart_v1
+- document_id: demo-policies
+  title: demo-policies
+  path: policies.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-01-01'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: demo-store-v1
+    checked_at: '2026-09-29'
+  sha256: 5af538a6d3d9705adf608829ad7419875b2f6f40dcc6010cdf4876628b50c2ab
+- document_id: demo-faq
+  title: demo-faq
+  path: faq.md
+  format: markdown
+  doc_type: faq
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-01-01'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: demo-store-v1
+    checked_at: '2026-09-29'
+  sha256: ecbb561befabd0804dbab1b9b61206e23f3f58e84c0600a735fc996bc56aead8
+- document_id: demo-returns
+  title: demo-returns
+  path: returns.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-01-01'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: demo-store-v1
+    checked_at: '2026-09-29'
+  sha256: f9b75db468bd51d1f010f5225624c99cbfdd10ba5f7000162b8ccfd4f661fc1c

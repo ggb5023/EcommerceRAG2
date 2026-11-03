@@ -1,0 +1,10 @@
+{"case_id":"demo-001","query":"DEMO-CUP-480 的容量和材质是什么？","expected_behavior":"ANSWER","expected_answer_points":["容量为480毫升","材质为304不锈钢"],"expected_document_ids":["demo-products"]}
+{"case_id":"demo-002","query":"防晒衣 M 码的胸围、腰围和身高范围是多少？","expected_behavior":"ANSWER","expected_answer_points":["胸围94厘米","腰围76厘米","身高170厘米"],"expected_document_ids":["demo-size-chart"]}
+{"case_id":"demo-003","query":"签收后多久可以申请退货？","expected_behavior":"ANSWER","expected_answer_points":["签收后7天内","未使用且包装配件完整"],"expected_document_ids":["demo-returns"]}
+{"case_id":"demo-004","query":"下单后多久发货？","expected_behavior":"ANSWER","expected_answer_points":["现货48小时内发出","偏远地区额外1至2个工作日"],"expected_document_ids":["demo-policies"]}
+{"case_id":"demo-005","query":"有哪些蓝色的商品？","expected_behavior":"ANSWER","expected_answer_points":["晨雾保温杯有雾蓝色","防晒衣有雾蓝色L码"],"expected_document_ids":["demo-products"]}
+{"case_id":"demo-006","query":"现在还有库存吗？","expected_behavior":"HANDOFF","expected_answer_points":[],"expected_document_ids":[]}
+{"case_id":"demo-007","query":"这款能便宜一点吗？","expected_behavior":"HANDOFF","expected_answer_points":[],"expected_document_ids":[]}
+{"case_id":"demo-008","query":"帮我修改订单的收货地址","expected_behavior":"HANDOFF","expected_answer_points":[],"expected_document_ids":[]}
+{"case_id":"demo-009","query":"哪款适合海边露营？","expected_behavior":"CLARIFY","expected_answer_points":[],"expected_document_ids":[]}
+{"case_id":"demo-010","query":"毛巾可以高温烘干吗？","expected_behavior":"ANSWER","expected_answer_points":["不建议高温烘干"],"expected_document_ids":["demo-faq"]}

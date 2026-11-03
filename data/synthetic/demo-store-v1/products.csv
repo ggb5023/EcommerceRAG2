@@ -1,0 +1,9 @@
+sku_code,spu_code,title,category,brand,color,size_label,size_chart_code,capacity_ml,length_cm,width_cm,height_cm,weight_g,material,pattern,list_price_cents,currency,price_observed_at
+DEMO-CUP-350,DEMO-CUP,晨雾保温杯 350ml,drinkware,岚叶,雾蓝,,,350,7,7,17,260,304不锈钢,纯色,6900,CNY,2026-09-29
+DEMO-CUP-480,DEMO-CUP,晨雾保温杯 480ml,drinkware,岚叶,雾蓝,,,480,7,7,20,300,304不锈钢,纯色,8900,CNY,2026-09-29
+DEMO-CUP-750,DEMO-CUP,晨雾保温杯 750ml,drinkware,岚叶,墨绿,,,750,8,8,24,420,304不锈钢,纯色,10900,CNY,2026-09-29
+DEMO-TEE-BLACK-S,DEMO-TEE,轻量防晒衣 黑色 S,apparel,岚叶,黑色,S,DEMO-APPAREL-SIZES,,,,,180,锦纶,纯色,12900,CNY,2026-09-29
+DEMO-TEE-WHITE-M,DEMO-TEE,轻量防晒衣 白色 M,apparel,岚叶,白色,M,DEMO-APPAREL-SIZES,,,,,190,锦纶,纯色,12900,CNY,2026-09-29
+DEMO-TEE-BLUE-L,DEMO-TEE,轻量防晒衣 雾蓝 L,apparel,岚叶,雾蓝,L,DEMO-APPAREL-SIZES,,,,,200,锦纶,纯色,13900,CNY,2026-09-29
+DEMO-TOWEL-GRAY,DEMO-TOWEL,竹纤维柔软毛巾,textile,岚叶,浅灰,,,,34,76,,90,竹纤维,纯色,2900,CNY,2026-09-29
+DEMO-BAG-RED,DEMO-BAG,通勤双肩包,travel,岚叶,红色,,,,30,20,42,420,防泼水聚酯,纯色,15900,CNY,2026-09-29
