@@ -43,6 +43,7 @@
 | 34 | M9 阶段 1：演示店铺与评测报告调研与决策提议（不实现） | done | — | — | `de1ff6d` |
 | 35 | M9 阶段 2（一）：demo-store-v1 数据包与一键启动 | done | — | — | `2a6acbe` |
 | 36 | M9 阶段 2（二）：handoff 聚合与评测报告 CLI | done | — | — | `ce6132d` |
+| 37 | P2 验收收尾：README 快速开始 + ROADMAP 勾选 | active | — | — | — |
 
 ## 同步规则
 
