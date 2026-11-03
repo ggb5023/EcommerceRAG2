@@ -80,13 +80,13 @@ bash scripts/check.sh --smoke
   得到 1/2 = 0.5，空窗口得到 0/0/null，均 PASS。
 - 示例栈 26081 实测：
   `{"range":"30d","handoff_conversations":0,"customer_conversations":0,"handoff_rate":null}`；
-  systemd dev 实测 `163/163`、rate `1`（dev 测试残留，不作为演示指标）。
+  systemd dev 实测分子 163 条、分母 163 条，rate `1`（dev 测试残留，不作为演示指标）。
 - 报告 CLI `scripts/dev/demo-report.py`：输出五段 JSON + Markdown；默认质量报告为
   `.local/wp25/answer-quality.json`（实际 13.21%，verdict 39/7/7，
   source sha `3b828cb5...`）。`.local/wp24/answer-quality.json` 当前是 v1
   `0.207547`（38/4/11），不是 13.21%；报告不修改 `.local`，可用
   `--quality-report` 显式选择。
-- 26081 最终两次报告（commit `eaa0b9b`）：status=MEASURED；
+- 26081 最终两次报告（报告运行时 HEAD）：status=MEASURED；
   business_date=2026-09-29；active versions 282–286；handoff 0/0/null；
   quality `0.132075`、case_count 53、`reviewer_kind=agent`、
   `human_review_completed=false`；token 输入 0、输出 0、调用 65、失败 0，
