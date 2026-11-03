@@ -27,7 +27,7 @@ documents:
   authorization:
     reference: demo-store-v1
     checked_at: '2026-09-29'
-  sha256: 96b8496319d312a679c807cdcc9aec1dd05d9cc8c23b75c975d10d09966757fa
+  sha256: 7d535c33daa306dc2a06e6285dd454b00fa9fb45452e8b4458aa70403324bae9
   table_schema: product_table_v1
 - document_id: demo-size-chart
   title: demo-size-chart
