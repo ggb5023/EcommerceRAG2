@@ -19,6 +19,7 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/v1/merchant/sources", g.adminSources)
 	mux.HandleFunc("POST /admin/v1/merchant/sources/import", g.adminImportPackage)
 	mux.HandleFunc("POST /admin/v1/merchant/imports", g.adminCreateImport)
+	mux.HandleFunc("GET /admin/v1/merchant/import/templates/{name}", g.adminImportTemplate)
 	mux.HandleFunc("GET /admin/v1/merchant/agent-review", g.adminAgentReviewSetting)
 	mux.HandleFunc("PUT /admin/v1/merchant/agent-review", g.adminAgentReviewSetting)
 	mux.HandleFunc("GET /admin/v1/merchant/imports/{id}", g.adminImportPreview)
