@@ -13,7 +13,7 @@ MAX_MANIFEST_BYTES = 256 * 1024
 MAX_PACKAGE_BYTES = 8 * 1024 * 1024
 MAX_DOCUMENTS = 100
 MAX_CHUNKS = 10_000
-ALLOWED_FORMATS = {"markdown", "csv", "docx"}
+ALLOWED_FORMATS = {"markdown", "csv", "docx", "xlsx"}
 ALLOWED_DISCLOSURE = {"external_allowed", "internal_only", "unclassified"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -139,6 +139,7 @@ def _inspect_document(spec, index: int, uploaded: dict[str, bytes], used_paths: 
         "markdown": relative_path.suffix.lower() in {".md", ".markdown"},
         "csv": relative_path.suffix.lower() == ".csv",
         "docx": relative_path.suffix.lower() == ".docx",
+        "xlsx": relative_path.suffix.lower() == ".xlsx",
     }[fmt]
     if not extension_ok:
         _fail(context, f"documents[{index}] format does not match its file")

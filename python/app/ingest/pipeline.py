@@ -10,12 +10,14 @@ import csv
 import hashlib
 import json
 import re
+import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
+from xml.etree import ElementTree
 
 
 def digest(value: str) -> str:
@@ -275,6 +277,37 @@ class MarkdownParser:
         else:
             self._flush(state, len(lines))
         return state.elements
+def _record_element(document_id: str, version_id: str, metadata: dict[str, Any],
+                    row: dict[str, str], *, line_start: int, line_end: int,
+                    record_number: int) -> ParsedElement | None:
+    """Build one table element for a CSV/XLSX data row.
+
+    CSV and XLSX intentionally share this function so both formats produce the
+    same content, table_body and source-position shape.  Rows outside the
+    document's tenant/shop are skipped before any element is created.
+    """
+    values = [f"{key}: {value}" for key, value in row.items() if value not in (None, "")]
+    row_tenant = row.get("tenant_id")
+    row_shop = row.get("shop_id")
+    if row_tenant and row_tenant != metadata.get("tenant_id"):
+        return None
+    if row_shop and row_shop != metadata.get("shop_id"):
+        return None
+    row_metadata = dict(metadata)
+    if row_tenant:
+        row_metadata["tenant_id"] = row_tenant
+    if row_shop:
+        row_metadata["shop_id"] = row_shop
+    if row.get("fact_type"):
+        row_metadata["fact_type"] = row["fact_type"]
+    return _common(
+        document_id, version_id, row_metadata, metadata.get("title", document_id),
+        "\n".join(values), {"line_start": line_start, "line_end": line_end,
+                            "record_number": record_number},
+        element_type="table", table_body=[values],
+    )
+
+
 class CSVParser:
     def parse(self, path: Path, *, document_id: str, version_id: str, metadata: dict[str, Any]) -> list[ParsedElement]:
         elements: list[ParsedElement] = []
@@ -313,29 +346,152 @@ class CSVParser:
                     line_start = previous_line_end + 1
                 previous_line_end = line_end
                 row = dict(zip(headers, raw_row))
-                values = [f"{key}: {value}" for key, value in row.items() if value not in (None, "")]
-                row_tenant = row.get("tenant_id")
-                row_shop = row.get("shop_id")
                 # A manifest document may point at a shared CSV (for example
                 # the synthetic products file). Do not let rows belonging to
                 # another tenant or shop inherit this document's identity.
-                if row_tenant and row_tenant != metadata.get("tenant_id"):
+                element = _record_element(
+                    document_id, version_id, metadata, row,
+                    line_start=line_start, line_end=line_end,
+                    record_number=record_number,
+                )
+                if element is not None:
+                    elements.append(element)
+        return elements
+
+
+MAX_XLSX_ROWS = 10_000
+MAX_XLSX_COLUMNS = 100
+MAX_XLSX_CELLS = 200_000
+_XLSX_MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_XLSX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_XLSX_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+
+def _xlsx_cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+class XLSXParser:
+    """Read the first worksheet through openpyxl's read-only mode.
+
+    Only the first worksheet becomes rows.  Hidden worksheets and macros are
+    rejected because silently choosing a different sheet would change the
+    merchant's data without telling them.  Formulas and merged cells are
+    rejected too: neither can be evaluated deterministically during import.
+    """
+
+    @staticmethod
+    def _workbook_sheet_metadata(path: Path) -> tuple[list[dict[str, str]], str]:
+        try:
+            with zipfile.ZipFile(path) as archive:
+                names = set(archive.namelist())
+                if "xl/vbaProject.bin" in names or "xl/vbaProjectSignature.bin" in names:
+                    raise ValueError("xlsx_macro_not_allowed")
+                workbook_xml = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+                sheets = [
+                    element for element in workbook_xml.iter()
+                    if element.tag == f"{{{_XLSX_MAIN_NS}}}sheet"
+                ]
+                if not sheets:
+                    raise ValueError("xlsx_empty_workbook")
+                metadata = [dict(element.attrib) for element in sheets]
+                if any(item.get("state") in {"hidden", "veryHidden"} for item in metadata):
+                    raise ValueError("xlsx_hidden_sheet")
+                first_rid = metadata[0].get(f"{{{_XLSX_REL_NS}}}id", "")
+                relationships = {}
+                rels_path = "xl/_rels/workbook.xml.rels"
+                if rels_path in names:
+                    rels = ElementTree.fromstring(archive.read(rels_path))
+                    for relationship in rels.iter():
+                        if relationship.tag != f"{{{_XLSX_PACKAGE_REL_NS}}}Relationship":
+                            continue
+                        rel_id = relationship.get("Id", "")
+                        target = relationship.get("Target", "")
+                        if rel_id and target:
+                            relationships[rel_id] = target
+                target = relationships.get(first_rid, "worksheets/sheet1.xml").lstrip("/")
+                if target.startswith("xl/"):
+                    sheet_path = target
+                else:
+                    sheet_path = "xl/" + target
+                if ".." in sheet_path.split("/") or sheet_path not in names:
+                    raise ValueError("xlsx_worksheet_missing")
+                sheet_xml = archive.read(sheet_path)
+                if b"<mergeCell" in sheet_xml:
+                    raise ValueError("xlsx_merged_cell")
+                return metadata, sheet_path
+        except (KeyError, OSError, zipfile.BadZipFile, ElementTree.ParseError) as error:
+            raise ValueError("xlsx_invalid") from error
+
+    def parse(self, path: Path, *, document_id: str, version_id: str, metadata: dict[str, Any]) -> list[ParsedElement]:
+        try:
+            from openpyxl import load_workbook
+            from openpyxl.utils.exceptions import InvalidFileException
+        except ImportError as error:
+            raise ValueError("xlsx_parser_unavailable") from error
+        self._workbook_sheet_metadata(path)
+        try:
+            workbook = load_workbook(
+                filename=path, read_only=True, data_only=False, keep_vba=False,
+                keep_links=False,
+            )
+        except (OSError, ValueError, InvalidFileException, zipfile.BadZipFile) as error:
+            raise ValueError("xlsx_invalid") from error
+        elements: list[ParsedElement] = []
+        headers: list[str] | None = None
+        record_number = 0
+        cell_total = 0
+        try:
+            if not workbook.worksheets:
+                raise ValueError("xlsx_empty_workbook")
+            worksheet = workbook.worksheets[0]
+            for row_number, cells in enumerate(worksheet.iter_rows(), 1):
+                if row_number > MAX_XLSX_ROWS:
+                    raise ValueError("xlsx_row_limit")
+                values = [_xlsx_cell_text(cell.value) for cell in cells]
+                if any(getattr(cell, "data_type", "") == "f" for cell in cells):
+                    raise ValueError("xlsx_formula_not_allowed")
+                while values and not values[-1].strip():
+                    values.pop()
+                if not values:
                     continue
-                if row_shop and row_shop != metadata.get("shop_id"):
+                if len(values) > MAX_XLSX_COLUMNS:
+                    raise ValueError("xlsx_column_limit")
+                cell_total += sum(1 for value in values if value.strip())
+                if cell_total > MAX_XLSX_CELLS:
+                    raise ValueError("xlsx_cell_limit")
+                if headers is None:
+                    headers = [value.strip() for value in values]
+                    if any(not header for header in headers):
+                        raise ValueError("xlsx_header_empty")
+                    if len(set(headers)) != len(headers):
+                        raise ValueError("xlsx_header_duplicate")
                     continue
-                row_metadata = dict(metadata)
-                if row_tenant:
-                    row_metadata["tenant_id"] = row_tenant
-                if row_shop:
-                    row_metadata["shop_id"] = row_shop
-                if row.get("fact_type"):
-                    row_metadata["fact_type"] = row["fact_type"]
-                elements.append(_common(
-                    document_id, version_id, row_metadata, metadata.get("title", document_id),
-                    "\n".join(values), {"line_start": line_start, "line_end": line_end,
-                                        "record_number": record_number},
-                    element_type="table", table_body=[values],
-                ))
+                if len(values) > len(headers):
+                    raise ValueError(f"xlsx_column_mismatch:row={row_number}")
+                values += [""] * (len(headers) - len(values))
+                record_number += 1
+                element = _record_element(
+                    document_id, version_id, metadata, dict(zip(headers, values)),
+                    line_start=row_number, line_end=row_number,
+                    record_number=record_number,
+                )
+                if element is not None:
+                    elements.append(element)
+            if headers is None:
+                raise ValueError("xlsx_empty_sheet")
+        finally:
+            workbook.close()
         return elements
 
 
@@ -655,8 +811,9 @@ class HTMLParserAdapter:
         return parser.finish()
 
 def parser_for(format_name: str) -> Parser:
-    return {"markdown": MarkdownParser(), "csv": CSVParser(), "docx": DOCXParser(),
-            "html": HTMLParserAdapter(), "crawler_html": HTMLParserAdapter()}[format_name]
+    return {"markdown": MarkdownParser(), "csv": CSVParser(), "xlsx": XLSXParser(),
+            "docx": DOCXParser(), "html": HTMLParserAdapter(),
+            "crawler_html": HTMLParserAdapter()}[format_name]
 
 
 def chunk_elements(elements: Iterable[ParsedElement], *, max_chars: int = 700) -> list[Chunk]:

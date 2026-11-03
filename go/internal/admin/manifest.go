@@ -194,12 +194,13 @@ func parseManifest(manifest string, files []UploadedFile) ([]ParsedDocument, err
 			return nil, fmt.Errorf("documents[%d].path is unsafe", index)
 		}
 		format, ok := manifestString(spec["format"])
-		if !ok || (format != "markdown" && format != "csv" && format != "docx") {
+		if !ok || (format != "markdown" && format != "csv" && format != "docx" && format != "xlsx") {
 			return nil, fmt.Errorf("documents[%d].format is unsupported", index)
 		}
 		extension := strings.ToLower(path.Ext(relative))
 		extensionOK := (format == "markdown" && (extension == ".md" || extension == ".markdown")) ||
-			(format == "csv" && extension == ".csv") || (format == "docx" && extension == ".docx")
+			(format == "csv" && extension == ".csv") || (format == "docx" && extension == ".docx") ||
+			(format == "xlsx" && extension == ".xlsx")
 		if !extensionOK {
 			return nil, fmt.Errorf("documents[%d] format does not match its file", index)
 		}

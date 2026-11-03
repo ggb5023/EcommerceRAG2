@@ -3,11 +3,11 @@ software, model services, uploaded documents or external data.
 
 Go is BSD-3-Clause. Python is distributed under the PSF license. Node.js has
 an MIT license and bundled third-party notices. Vue and Vite are MIT;
-TypeScript is Apache-2.0. LangChain and LangGraph are MIT. gRPC and Protocol
-Buffers retain their upstream notices. PostgreSQL and pgvector use the
-PostgreSQL License. Keycloak uses Apache-2.0 and retains third-party
-notices in their distributions. Operators must independently assess
-redistributing or offering each dependency
+TypeScript is Apache-2.0. LangChain and LangGraph are MIT. openpyxl and its
+et-xmlfile dependency are MIT. gRPC and Protocol Buffers retain their upstream
+notices. PostgreSQL and pgvector use the PostgreSQL License. Keycloak uses
+Apache-2.0 and retains third-party notices in their distributions. Operators
+must independently assess redistributing or offering each dependency
 as a service. Model providers have separate service terms and billing.
 
 Exact application dependencies are recorded in go/go.mod, go/go.sum,

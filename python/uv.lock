@@ -249,6 +249,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
+    { name = "openpyxl" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pyyaml" },
     { name = "uvicorn" },
@@ -274,6 +275,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=0.3,<1" },
     { name = "langgraph", specifier = ">=0.3,<1" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.5" },
+    { name = "openpyxl", specifier = ">=3.1,<4" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2,<4" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "uvicorn", specifier = ">=0.34,<1" },
@@ -286,6 +288,15 @@ dev = [
     { name = "grpcio-tools", specifier = ">=1.70,<2" },
     { name = "pytest", specifier = ">=8,<9" },
     { name = "ruff", specifier = ">=0.11,<1" },
+]
+
+[[package]]
+name = "et-xmlfile"
+version = "2.0.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d3/38/af70d7ab1ae9d4da450eeec1fa3918940a5fafb9055e934af8d6eb0c2313/et_xmlfile-2.0.0.tar.gz", hash = "sha256:dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa" },
 ]
 
 [[package]]
@@ -642,6 +653,18 @@ dependencies = [
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/15/b9/10243797b942e7475ae21545fde1be484958672ae5c2f377f781c761a375/langsmith-0.14.4.tar.gz", hash = "sha256:a340199fcd2af60358f09dd1d7011bf7282f0d46a98aaa101bc7a521746da764" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/e4/1f/5c2919fef6e3cf15167699abeb069a371d68da14a0e5cab89eeea11261d7/langsmith-0.14.4-py3-none-any.whl", hash = "sha256:ae0d98c2b0f9292ef7e12451d480937d79a0e7dcf2412ba847de6f053391b44a" },
+]
+
+[[package]]
+name = "openpyxl"
+version = "3.1.5"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "et-xmlfile" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/3d/f9/88d94a75de065ea32619465d2f77b29a0469500e99012523b91cc4141cd1/openpyxl-3.1.5.tar.gz", hash = "sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl", hash = "sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2" },
 ]
 
 [[package]]

@@ -31,6 +31,13 @@ facts 接线不在本轮。
 - 商品行引用不存在/未 active 的尺码表或尺码：预检 warning，发布时仍缺则拒绝。
 - 商品表写入方仍是 Python `ingest`；Go 只读；发布/审核/回滚/撤回复用现有链路。
 
+## 依赖审查
+
+- 依据 `AGENTS.md` 的依赖审查规则：新依赖必须有 ROADMAP 或决策记录依据；ROADMAP 的
+  M8 明确要求 CSV/XLSX，因此允许引入 XLSX 解析依赖。
+- 选择 openpyxl 3.1.5（MIT）及传递依赖 et-xmlfile 2.0.0（MIT），使用 `read_only`
+  模式；不引入 pandas、calamine 或浏览器解析库。锁文件随依赖提交冻结。
+
 ## XLSX 边界
 
 - 只读第一个工作表；公式、宏、合并单元格、隐藏工作表、超限行列必须明确报错，
