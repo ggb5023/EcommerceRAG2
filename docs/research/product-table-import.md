@@ -21,9 +21,9 @@
 
 | 候选（检索名） | 可借鉴的约束 | 不采用为依赖的理由 |
 | --- | --- | --- |
-| RAGFlow | 表格解析、按行保留表头语义、chunk 列表与命中高亮、解析预览 | 它是完整 RAG 平台，不是可嵌入的商品表导入组件；表格仍主要作为文本 chunk，不能提供 SKU 唯一性或 SQL 属性过滤。只借“表头感知的行 chunk + 预览”，不引入平台 |
-| Dify | 数据集上传、CSV/XLSX 文件列表、分段预览、命中测试 | 通用知识库分段模型，没有商品/SKU/尺码 schema、逐行列校验或版本审核语义；作为产品依赖会把首版拖进通用知识库配置 |
-| openpyxl | 纯 Python、`read_only` 模式读取 XLSX、无需 pandas、可按单元格读取 | 不是本轮实现；阶段 2 需要 XLSX 时作为首选解析库。它不负责列语义、公式审计或模板校验，这些必须由我们的 schema 层做 |
+| RAGFlow | Table 模式支持 CSV/Excel，按行生成 chunk，列可进入正文或元数据；有 chunk 列表与解析预览 | 它是完整 RAG 平台，不是可嵌入的商品表导入组件；表格仍主要作为文本 chunk，不能提供 SKU 唯一性或 SQL 属性过滤。只借“表头感知的行 chunk + 预览”，不引入平台 |
+| Dify | 数据集上传支持 CSV/XLSX，文件列表、分段预览、命中测试 | 通用知识库分段模型，没有商品/SKU/尺码 schema、逐行列校验或版本审核语义；作为产品依赖会把首版拖进通用知识库配置 |
+| openpyxl | 纯 Python、`read_only` 模式读取 XLSX、无需 pandas、可按单元格读取；官方要求显式关闭工作簿 | 不是本轮实现；阶段 2 需要 XLSX 时作为首选解析库。它不负责列语义、公式审计或模板校验，这些必须由我们的 schema 层做 |
 | python-calamine | 读取 XLS/XLSX 很快，Rust 实现，支持多格式 | 引入新的原生 wheel 依赖；商家商品表通常很小，读取速度不是瓶颈。首版用 openpyxl 足够，失败时再评估 |
 | pandas | 表格聚合、缺失值处理、列类型推断 | 依赖重、内存占用高，且自动类型推断会把 SKU 前导零、尺码文本和空值改义；商品表校验要确定性，不用 DataFrame 语义 |
 | SheetJS / ExcelJS | 浏览器内解析 XLSX、生成模板、即时预览 | 浏览器不能做权威校验；服务端仍要重验，前端解析只会形成两套规则。前端只做文件选择与预览展示 |
@@ -95,11 +95,11 @@ XLSX 读取边界应在决策 0034 中写死：只读第一个工作表、不执
 | --- | --- |
 | RAGFlow | https://github.com/infiniflow/ragflow |
 | Dify | https://docs.dify.ai/ |
-| openpyxl | https://openpyxl.readthedocs.io/en/stable/ |
+| openpyxl | https://openpyxl.readthedocs.io/en/stable/optimized.html |
 | python-calamine | https://github.com/dimastbk/python-calamine |
 | pandas | https://pandas.pydata.org/docs/ |
 | SheetJS | https://docs.sheetjs.com/ |
-| Shopify product CSV | https://help.shopify.com/en/manual/products/import-export/using-product-csv |
+| Shopify product CSV | https://help.shopify.com/en/manual/products/import-export/using-csv |
 | WooCommerce product CSV importer | https://woocommerce.com/document/product-csv-import-suite/ |
 
 这些链接只用于核对名称对应的官方文档；正文与决策不复制外部 URL，避免仓库出现无意义的
