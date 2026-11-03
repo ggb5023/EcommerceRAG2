@@ -70,6 +70,9 @@ func (g *Handler) writeCommandOutcome(w http.ResponseWriter, out ingestclient.Ou
 	}
 	result[resource], result["status"], result["review_status"] = out.Result.ResourceId, out.Result.Status, out.Result.ReviewStatus
 	result["reviewed_hash"], result["fencing_epoch"], result["idempotent"] = out.Result.ReviewedHash, out.Result.FencingEpoch, out.Result.Idempotent
+	if out.Result.EffectiveFrom != "" || out.Result.EffectiveTo != "" {
+		result["effective_from"], result["effective_to"] = out.Result.EffectiveFrom, out.Result.EffectiveTo
+	}
 	result["audit_result"] = "success"
 	if out.Result.ErrorCode != "" {
 		result["audit_result"], result["code"], result["message"] = "conflict", out.Result.ErrorCode, out.Result.ErrorMessage
