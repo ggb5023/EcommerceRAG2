@@ -32,9 +32,13 @@ func (g *Handler) adminUsage(w http.ResponseWriter, r *http.Request) {
 	case "today":
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		since = &start
+	case "7d", "30d":
+		days, _ := outcomesRangeDays(rangeValue)
+		start := now.Add(-time.Duration(days) * 24 * time.Hour)
+		since = &start
 	case "all":
 	default:
-		httpapi.WriteError(w, http.StatusBadRequest, "invalid_range", "range must be session, today or all")
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_range", "range must be session, today, 7d, 30d or all")
 		return
 	}
 	rows, err := adminStore.UsageSlots(r.Context(), g.DB, g.Session.TenantID, since)

@@ -28,6 +28,7 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/v1/merchant/ingestion", g.adminJobs)
 	mux.HandleFunc("GET /admin/v1/merchant/usage", g.adminUsage)
 	mux.HandleFunc("GET /admin/v1/merchant/outcomes", g.adminOutcomes)
+	mux.HandleFunc("GET /admin/v1/merchant/report/handoff", g.adminHandoff)
 	mux.HandleFunc("GET /admin/v1/merchant/gaps", g.adminGaps)
 	mux.HandleFunc("POST /admin/v1/merchant/gaps/export", g.adminGapsExport)
 	mux.HandleFunc("GET /admin/v1/merchant/ingestion/{id}", g.adminJobDetail)
