@@ -36,7 +36,8 @@
   列、行、SKU 重复或尺码映射。
 - `precheck_detail` 是可扩展 JSONB，适合承载行级错误；但当前没有行级 schema、模板、
   预览错误表或“下载模板”入口。CSV 解析错误会中止整个文档，而不是收集为逐行问题。
-- 确认仍走现有 `persistParsed` → Submit → 摄取 worker → pending 版本，不改变单写者。
+- proto 中声明了 `ValidatePackage`，但 Python/Go 都没有实现或调用它；当前确认直接走
+  现有 `persistParsed` → Submit → 摄取 worker → pending 版本，不改变单写者。
 
 ### 3. facts 工具不读商品表
 
@@ -66,6 +67,9 @@
   只用于 SKU 识别、静态规格与（可选）目录价快照。
 - XLSX 是阶段 2 的输入格式需求；解析库与列映射在决策 0034 中定，不在本轮引入依赖。
 
+完整调研见 [product-table-import](../research/product-table-import.md)，数据形态与边界见
+[0034](../decisions/0034-product-table-import.md)。
+
 ## 阶段 2 边界
 
 - 只新增一份迁移（下一个可用编号），不改 0001–0048；新表写入方仍是 Python ingest。
@@ -83,18 +87,13 @@
 
 ## 验收命令
 
-```bash
-python3 scripts/check/check-docs.py
-python3 scripts/check/check-docs-drift.py
-python3 scripts/check/check-doc-paths.py
-python3 scripts/check/check-decisions-index.py
-bash scripts/check.sh
-```
-
-另需确认 0034 编号不撞车，工作包、0034、决策索引与调研文档互相链接。
+运行 `check.sh` 的文档守卫四项（docs-links、docs-drift、doc-paths、decisions-index），
+再跑快速层 40 项。另需确认 0034 编号不撞车，工作包、0034、决策索引与调研文档互相链接。
 
 ## 实际交付
 
-- 调研与不采用理由：见阶段 1 调研文档（下一提交补全）。
-- 决策：0034（下一提交补全，状态“提议”）。
-- 文档门禁与快速层结果：见交付汇报。
+- 调研与不采用理由：[product-table-import](../research/product-table-import.md)，含 7 个候选、
+  外部来源链接、国内电商导出列清单和解析库取舍；结论是不把商品表继续做成纯 chunk。
+- 决策：[0034](../decisions/0034-product-table-import.md)，状态“提议”；含商品表/尺码表
+  schema 草案、检索过滤、facts 边界、预检模板与备选方案。
+- 未改代码、迁移、表、列、模板或依赖；文档门禁与快速层结果见交付汇报。
