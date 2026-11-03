@@ -65,7 +65,8 @@ ROADMAP M9 写“每千次成本”，但 0021 与项目红线禁止界面/统�
 
 ## 调研与决策
 
-阶段 1 调研文档与 0035 决策在后续提交补全；本提交先立工作包。
+完整对照见 [demo-and-report](../research/demo-and-report.md)，决策见
+[0035](../decisions/0035-demo-report.md)（状态：提议）。
 
 ## 验收命令
 
@@ -80,8 +81,22 @@ ROADMAP M9 写“每千次成本”，但 0021 与项目红线禁止界面/统�
 
 ## 实际交付
 
-（阶段 1 文档完成后填写；未完成项必须在汇报第 4 节点名。）
+- 调研：[demo-and-report](../research/demo-and-report.md)，对照 Dify、RAGFlow、Ragas、
+  LangSmith、Promptfoo，含可借鉴约束、不采用理由和外部来源链接。
+- 决策：[0035](../decisions/0035-demo-report.md)，状态“提议”；定义新
+  `demo-store-v1` 合成包、0017 演示身份、一键/重置形态、报告五段结构、指标来源、
+  每千次 token 口径和可复现要求。
+- 关键口径：M9 的“每千次成本”改为每千次问答的输入/输出 tokens、调用次数、
+  失败次数；不出现货币。
+- 语料结论：不直接复用跨 tenant 的 `ecommerce-demo-v1`，不改冻结的
+  `ecommerce-m2-aligned-v1`；缺 typed products/size chart、演示问题集、一键脚本和
+  customer handoff 聚合接口，均留给阶段 2。
+- 文档守卫四项 PASS；快速层见交付汇报。未写代码、脚本、迁移、表或页面。
 
 ## 未覆盖路径
 
-（阶段 1 文档完成后填写。）
+- 未实现演示包、一键脚本、报告 CLI、管理台只读页或 customer handoff 只读接口。
+- 未运行真实模型或浏览器；未验证 Dify/RAGFlow 的演示数据细节，只按官方文档名称
+  对照并登记来源。
+- 未做真实商家数据验收；未改冻结评测集、facts provider 或自动发布/下架。
+- 候选链接未逐个抓取正文；外部工具不作为依赖。
