@@ -42,7 +42,7 @@
 | 33 | M8 阶段 2（三）：SKU/规格检索过滤 | done | — | — | `5ca9b8f` |
 | 34 | M9 阶段 1：演示店铺与评测报告调研与决策提议（不实现） | implemented | — | — | `de1ff6d` |
 | 35 | M9 阶段 2（一）：demo-store-v1 数据包与一键启动 | done | — | — | `2a6acbe` |
-| 36 | M9 阶段 2（二）：handoff 聚合与评测报告 CLI | active | — | — | — |
+| 36 | M9 阶段 2（二）：handoff 聚合与评测报告 CLI | implemented | — | — | `eaa0b9b` |
 
 ## 同步规则
 
