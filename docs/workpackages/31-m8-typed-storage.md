@@ -83,6 +83,7 @@ data-ownership 与 migration-grants 守卫通过。
   `catalog_sku` 7 行、chunk 7 行；`meta_json` 四个投影字段均存在；重复 SKU 触发
   `UniqueViolation`，价格缺 `price_observed_at` 触发 `CheckViolation`（均回滚）。
 - dev 进程已重启；最终启动时间在最终提交之后，见交付汇报。
+- 验收命令已实跑通过，等待主 agent 复核后再转 `done`。
 
 ## 未覆盖路径
 
