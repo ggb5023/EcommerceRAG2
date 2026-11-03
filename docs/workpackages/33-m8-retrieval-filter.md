@@ -61,8 +61,26 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-（实现与验证完成后填写；未完成项必须在汇报第 4 节点名。）
+- proto：`RequestContext.catalog_filter` + `CatalogFilter`（SKU/颜色/尺码/尺码表/属性；
+  无自由文本）；生成 Go/Python 绑定并通过 buf lint/build/breaking。
+- Go：`domain.CatalogFilterCandidates` 只从显式实体与 `ResourceTokens` 提取；gateway
+  只读 SQL 校验 active/reviewed 商品行，`Authority.ApplyCatalogFilter` 重新签名 scope；
+  无匹配转澄清，SQL 失败失败关闭。
+- Python：`python/app/rpc/rag.py` 透传 filter；`python/app/retrieval/postgres.py` 校验结构/已登记属性键，
+  用 `EXISTS` + `(tenant_id,version_id,chunk_index)` 参数化过滤；无过滤路径不变。
+- 契约表新增「scope catalog_filter」跨进程行；Go domain/SQL 测试与 Python 检索测试覆盖。
+- 实库：临时发布 WP31 版本 93 后，用 scope `sku_codes=["SKU-CUP-480"]` 检索：
+  `matched=1`，命中 `db-chunk-145`；不存在 SKU `matched=0`（失败关闭）。随后撤回版本
+  93，恢复 smoke 基线。
+- 验证：Go/Python 全测通过；`check.sh --smoke` **PASSED 45**；stage-boundaries
+  `runTurn 117/117`；contracts `cross 11/11`（ratchet 10，未调高）。
+- 等待主 agent 复核后转 `done`。
 
 ## 未覆盖路径
 
-（实现与验证完成后填写。）
+- 未做完整 Go 路由 → scope 签名 → Python 检索的浏览器级 e2e；实库证据直接使用
+  catalog_filter scope 验证检索，Go 提取由 domain 单测覆盖。
+- 未在 active 商品表上验证颜色/尺码/属性多条件组合；SQL 条件由单测覆盖。
+- WP33 只覆盖商品表行过滤；未改 facts provider、RRF/embedding 或自动发布/下架。
+- 未运行 `--db`、`--e2e`、`--all`；未用真实平台 CSV/XLSX。
+- dev 版本 93 在验证后为 `revoked`，不是 active/pending；这是为恢复 smoke 基线的清理动作。
