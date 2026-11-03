@@ -21,7 +21,7 @@ documents:
   tenant_id: v2-demo-tenant
   shop_id: shop-demo
   disclosure_class: external_allowed
-  effective_from: '2026-01-01'
+  effective_from: '2026-09-29'
   effective_to: null
   license: internal-generated
   authorization:
@@ -37,7 +37,7 @@ documents:
   tenant_id: v2-demo-tenant
   shop_id: shop-demo
   disclosure_class: external_allowed
-  effective_from: '2026-01-01'
+  effective_from: '2026-09-29'
   effective_to: null
   license: internal-generated
   authorization:
@@ -53,7 +53,7 @@ documents:
   tenant_id: v2-demo-tenant
   shop_id: shop-demo
   disclosure_class: external_allowed
-  effective_from: '2026-01-01'
+  effective_from: '2026-09-29'
   effective_to: null
   license: internal-generated
   authorization:
@@ -68,7 +68,7 @@ documents:
   tenant_id: v2-demo-tenant
   shop_id: shop-demo
   disclosure_class: external_allowed
-  effective_from: '2026-01-01'
+  effective_from: '2026-09-29'
   effective_to: null
   license: internal-generated
   authorization:
@@ -83,7 +83,7 @@ documents:
   tenant_id: v2-demo-tenant
   shop_id: shop-demo
   disclosure_class: external_allowed
-  effective_from: '2026-01-01'
+  effective_from: '2026-09-29'
   effective_to: null
   license: internal-generated
   authorization:
