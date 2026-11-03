@@ -54,21 +54,30 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-- Go 领域函数：`validityStatus` 按业务日期计算三态与剩余天数；边界测试覆盖
-  `NULL`、失效当天、过去、第 30 天、第 31 天。
+- Go 领域函数：`validityStatus` 按业务日期计算三态与剩余天数；`go test ./...`
+  全绿，`TestValidityStatusBoundaries` 覆盖 `NULL`、失效当天、过去、第 30 天、
+  第 31 天（`expired/0`、`expired/-1`、`expiring_in_30/30`、`active/31`）。
 - `auth.ShopBusinessDate`：读取 `shop.timezone` 后走既有
   `businessDateForLocation`，保留 `SYNTHETIC_BUSINESS_DATE` 优先级；
   admin 列表与详情逐店缓存业务日期。
 - admin API：`GET /admin/v1/merchant/reviews`、`GET /admin/v1/merchant/reviews/{id}`、
   `GET /admin/v1/merchant/versions` 返回有效期与状态；详情复用 `ReviewDetail`
-  日期，不新增端点。
+  日期，不新增端点。dev 环境 `SYNTHETIC_BUSINESS_DATE=2026-09-29` 下，
+  版本 38 设 `effective_to=2026-10-20` 返回 `expiring_in_30` / 21 天，
+  设 `effective_to=2026-09-29` 返回 `expired` / 0 天。
 - 前端：历史版本、版本列表行、审核详情显示有效期与状态徽标；正常状态不显示
-  徽标；无货币金额。
-- 实测：见交付汇报的验证结果。
+  徽标；无货币金额。`npm test` 50 passed，`npm run build` 成功。
+- 截图：`.local/redesign/validity-expiring.png`（橙色 `30 天内失效`）与
+  `.local/redesign/validity-expired.png`（红色 `已过期`），均 1440×900。
+- 门禁：`check.sh` **PASSED 40 / UNCONFIGURED 0 / FAILED 0**；
+  `--smoke` **PASSED 45 / UNCONFIGURED 0 / FAILED 0**，五条 `diff` 无输出。
+- Go 二进制重建后 `strings .local/v2-gateway | grep -c 'expiring_in_'` 为 **1**；
+  最终重启后的进程启动时间见交付汇报。
 
 ## 未覆盖路径
 
 - 只读展示，不验证跨日自动刷新；页面重新加载后状态才更新。
 - 未在 active / superseded / revoked 全状态上逐一验证；只验证一个 ready 版本。
+- 0016 只有设计草案、没有已实现页面，因此没有可复用的检查页；未自动下架。
 - 未做浏览器自动化回归；截图来自本地 dev 管理端。
 - 未自动下架；未来日期不阻断审核或发布。
