@@ -301,6 +301,161 @@ def _size_chart_row(element: Any, row: dict[str, str], indexes: dict[str, int],
     }
 
 
+def _row_issue(row: int, column: str, code: str, severity: str, value: Any,
+               message: str, suggested_action: str) -> dict[str, Any]:
+    return {
+        "row": int(row),
+        "column": column,
+        "code": code,
+        "severity": severity,
+        "value": _text(value),
+        "message": message,
+        "suggested_action": suggested_action,
+    }
+
+
+def _row_error_issue(error: CatalogValidationError, element: Any,
+                     row: dict[str, str]) -> dict[str, Any]:
+    text = str(error)
+    code, _, payload = text.partition(":")
+    column = ""
+    value = ""
+    if code == "invalid_sku":
+        column, value = "sku_code", row.get("sku_code", "")
+    elif code == "missing_title":
+        column, value = "title", row.get("title", "")
+    elif code in {"price_observed_at_required", "price_observed_at_requires_price"}:
+        column, value = "price_observed_at", row.get("price_observed_at", "")
+    elif code in {"currency_requires_price", "invalid_currency"}:
+        column, value = "currency", row.get("currency", "")
+    elif code in {"invalid_number", "invalid_date"}:
+        column = payload or "attributes"
+        value = row.get(column, "")
+    elif code == "missing_chart_code":
+        column, value = "chart_code", row.get("chart_code", "")
+    elif code == "missing_size_label":
+        column, value = "size_label", row.get("size_label", "")
+    elif code == "invalid_size_system":
+        column, value = "size_system", row.get("size_system", "")
+    elif code == "invalid_list_price_cents":
+        code, column, value = "invalid_number", "list_price_cents", row.get("list_price_cents", "")
+    elif code == "catalog_chunk_missing":
+        column = "catalog_row_key"
+    actions = {
+        "invalid_sku": "填写非空且不超过 128 字符的 SKU 编码",
+        "missing_title": "填写商品标题",
+        "price_observed_at_required": "为目录价填写 price_observed_at",
+        "price_observed_at_requires_price": "删除价格观测日或补上 list_price_cents",
+        "currency_requires_price": "删除币种或补上 list_price_cents",
+        "invalid_currency": "使用三位大写币种代码",
+        "invalid_number": "填写非负数值，单位写在列名中",
+        "invalid_date": "使用 YYYY-MM-DD",
+        "missing_chart_code": "填写尺码表编码",
+        "missing_size_label": "填写尺码",
+        "invalid_size_system": "使用已登记的尺码体系枚举",
+        "catalog_chunk_missing": "检查该行是否能生成 chunk",
+    }
+    return _row_issue(
+        _source_row(element), column, code, "block", value,
+        text or code, actions.get(code, "修正该行后重新预检"),
+    )
+
+
+def validate_typed_document(elements: Iterable[Any], chunks: Iterable[Any],
+                            spec: dict[str, Any], *,
+                            known_size_charts: set[tuple[str, str]] | None = None,
+                            ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Validate typed rows without writing or stopping at the first bad row.
+
+    Row construction still goes through the same `_product_row` /
+    `_size_chart_row` functions as the ingest worker; this function only
+    changes error handling to collect issues for the precheck response.
+    """
+    schema = str(spec.get("table_schema") or "")
+    if schema not in TYPED_SCHEMAS:
+        return [], [], []
+    materialized = list(elements)
+    issues: list[dict[str, Any]] = []
+    if not materialized:
+        issues.append(_row_issue(1, "", "empty_table", "block", "", "表格没有数据行", "补充至少一行数据"))
+        return [], [], issues
+    headers = set(materialized[0].catalog_row or {})
+    required = ({"sku_code", "title"} if schema == PRODUCT_TABLE_SCHEMA
+                else {"chart_code", "size_label", "size_system"})
+    for column in sorted(required - headers):
+        issues.append(_row_issue(1, column, "missing_required_column", "block", "",
+                                 f"缺少必填列 {column}", "在模板首行补上该列"))
+    known = ((PRODUCT_BASE_FIELDS | PRODUCT_ATTRIBUTES | CONTROL_COLUMNS)
+             if schema == PRODUCT_TABLE_SCHEMA
+             else (SIZE_CHART_BASE_FIELDS | SIZE_CHART_MEASUREMENTS | CONTROL_COLUMNS))
+    for column in sorted(headers - known):
+        issues.append(_row_issue(1, column, "unknown_column", "warn", "",
+                                 f"未登记列 {column}", "保留为属性，不参与过滤"))
+    indexes = _chunk_indexes(chunks)
+    sku_rows: list[dict[str, Any]] = []
+    chart_rows: list[dict[str, Any]] = []
+    seen_sku: set[str] = set()
+    seen_chart: set[tuple[str, str]] = set()
+    for element in materialized:
+        row = getattr(element, "catalog_row", None) or {}
+        try:
+            if schema == PRODUCT_TABLE_SCHEMA:
+                built = _product_row(element, row, indexes, [])
+                key = built["sku_code"].lower()
+                if key in seen_sku:
+                    issues.append(_row_issue(
+                        _source_row(element), "sku_code", "duplicate_sku", "block",
+                        built["sku_code"], "同一版本内 SKU 重复（大小写不敏感）", "改用唯一 SKU 或合并重复行",
+                    ))
+                    continue
+                seen_sku.add(key)
+                sku_rows.append(built)
+            else:
+                built = _size_chart_row(element, row, indexes, [])
+                key = (built["chart_code"], built["size_label"])
+                if key in seen_chart:
+                    issues.append(_row_issue(
+                        _source_row(element), "chart_code", "duplicate_size_chart", "block",
+                        f"{key[0]}:{key[1]}", "同一版本内尺码表行重复", "删除重复行",
+                    ))
+                    continue
+                seen_chart.add(key)
+                chart_rows.append(built)
+        except CatalogValidationError as error:
+            issues.append(_row_error_issue(error, element, row))
+    if schema == PRODUCT_TABLE_SCHEMA:
+        references = known_size_charts or set()
+        for built in sku_rows:
+            chart = built.get("size_chart_code") or ""
+            size = built.get("size_label") or ""
+            if not chart:
+                continue
+            if (chart, size) not in references:
+                chart_exists = any(item[0] == chart for item in references)
+                code = "unknown_size" if chart_exists else "unknown_size_chart"
+                column = "size_label" if chart_exists else "size_chart_code"
+                issues.append(_row_issue(
+                    built["source_row"], column, code, "warn",
+                    f"{chart}:{size}", "预检未找到对应的 active 尺码表/尺码", "补充尺码表后再发布",
+                ))
+    return sku_rows, chart_rows, issues
+
+
+def limit_row_errors(issues: Iterable[dict[str, Any]], *, max_errors: int = 200,
+                     max_chars: int = 200) -> tuple[list[dict[str, Any]], int, bool]:
+    materialized = list(issues)
+    truncated = len(materialized) > max_errors
+    limited: list[dict[str, Any]] = []
+    for issue in materialized[:max_errors]:
+        clean = dict(issue)
+        for key, value in clean.items():
+            if isinstance(value, str) and len(value) > max_chars:
+                clean[key] = value[:max_chars]
+                truncated = True
+        limited.append(clean)
+    return limited, len(materialized), truncated
+
+
 def build_typed_rows(elements: Iterable[Any], chunks: Iterable[Any],
                      spec: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Normalize typed rows and attach their first chunk index.

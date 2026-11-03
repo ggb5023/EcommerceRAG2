@@ -2992,24 +2992,121 @@ func (x *ValidatePackageRequest) GetShopId() string {
 	return ""
 }
 
-type ValidatedPackageDocument struct {
+type ValidatedPackageRowError struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	DocumentId      string                 `protobuf:"bytes,1,opt,name=document_id,json=documentId,proto3" json:"document_id,omitempty"`
-	Title           string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Format          string                 `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
-	Path            string                 `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
-	SourceHash      string                 `protobuf:"bytes,5,opt,name=source_hash,json=sourceHash,proto3" json:"source_hash,omitempty"`
-	DisclosureClass string                 `protobuf:"bytes,6,opt,name=disclosure_class,json=disclosureClass,proto3" json:"disclosure_class,omitempty"`
-	EffectiveFrom   string                 `protobuf:"bytes,7,opt,name=effective_from,json=effectiveFrom,proto3" json:"effective_from,omitempty"`
-	EffectiveTo     string                 `protobuf:"bytes,8,opt,name=effective_to,json=effectiveTo,proto3" json:"effective_to,omitempty"`
-	VersionId       string                 `protobuf:"bytes,9,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Row             int32                  `protobuf:"varint,1,opt,name=row,proto3" json:"row,omitempty"`
+	Column          string                 `protobuf:"bytes,2,opt,name=column,proto3" json:"column,omitempty"`
+	Code            string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
+	Severity        string                 `protobuf:"bytes,4,opt,name=severity,proto3" json:"severity,omitempty"`
+	Value           string                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	Message         string                 `protobuf:"bytes,6,opt,name=message,proto3" json:"message,omitempty"`
+	SuggestedAction string                 `protobuf:"bytes,7,opt,name=suggested_action,json=suggestedAction,proto3" json:"suggested_action,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ValidatedPackageRowError) Reset() {
+	*x = ValidatedPackageRowError{}
+	mi := &file_rag_v1_rag_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidatedPackageRowError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidatedPackageRowError) ProtoMessage() {}
+
+func (x *ValidatedPackageRowError) ProtoReflect() protoreflect.Message {
+	mi := &file_rag_v1_rag_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidatedPackageRowError.ProtoReflect.Descriptor instead.
+func (*ValidatedPackageRowError) Descriptor() ([]byte, []int) {
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ValidatedPackageRowError) GetRow() int32 {
+	if x != nil {
+		return x.Row
+	}
+	return 0
+}
+
+func (x *ValidatedPackageRowError) GetColumn() string {
+	if x != nil {
+		return x.Column
+	}
+	return ""
+}
+
+func (x *ValidatedPackageRowError) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *ValidatedPackageRowError) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *ValidatedPackageRowError) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *ValidatedPackageRowError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ValidatedPackageRowError) GetSuggestedAction() string {
+	if x != nil {
+		return x.SuggestedAction
+	}
+	return ""
+}
+
+type ValidatedPackageDocument struct {
+	state           protoimpl.MessageState      `protogen:"open.v1"`
+	DocumentId      string                      `protobuf:"bytes,1,opt,name=document_id,json=documentId,proto3" json:"document_id,omitempty"`
+	Title           string                      `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Format          string                      `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
+	Path            string                      `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	SourceHash      string                      `protobuf:"bytes,5,opt,name=source_hash,json=sourceHash,proto3" json:"source_hash,omitempty"`
+	DisclosureClass string                      `protobuf:"bytes,6,opt,name=disclosure_class,json=disclosureClass,proto3" json:"disclosure_class,omitempty"`
+	EffectiveFrom   string                      `protobuf:"bytes,7,opt,name=effective_from,json=effectiveFrom,proto3" json:"effective_from,omitempty"`
+	EffectiveTo     string                      `protobuf:"bytes,8,opt,name=effective_to,json=effectiveTo,proto3" json:"effective_to,omitempty"`
+	VersionId       string                      `protobuf:"bytes,9,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	TableSchema     string                      `protobuf:"bytes,10,opt,name=table_schema,json=tableSchema,proto3" json:"table_schema,omitempty"`
+	RowCount        int32                       `protobuf:"varint,11,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
+	ErrorCount      int32                       `protobuf:"varint,12,opt,name=error_count,json=errorCount,proto3" json:"error_count,omitempty"`
+	RowErrors       []*ValidatedPackageRowError `protobuf:"bytes,13,rep,name=row_errors,json=rowErrors,proto3" json:"row_errors,omitempty"`
+	Truncated       bool                        `protobuf:"varint,14,opt,name=truncated,proto3" json:"truncated,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ValidatedPackageDocument) Reset() {
 	*x = ValidatedPackageDocument{}
-	mi := &file_rag_v1_rag_proto_msgTypes[34]
+	mi := &file_rag_v1_rag_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3021,7 +3118,7 @@ func (x *ValidatedPackageDocument) String() string {
 func (*ValidatedPackageDocument) ProtoMessage() {}
 
 func (x *ValidatedPackageDocument) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[34]
+	mi := &file_rag_v1_rag_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3034,7 +3131,7 @@ func (x *ValidatedPackageDocument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatedPackageDocument.ProtoReflect.Descriptor instead.
 func (*ValidatedPackageDocument) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{34}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ValidatedPackageDocument) GetDocumentId() string {
@@ -3100,6 +3197,41 @@ func (x *ValidatedPackageDocument) GetVersionId() string {
 	return ""
 }
 
+func (x *ValidatedPackageDocument) GetTableSchema() string {
+	if x != nil {
+		return x.TableSchema
+	}
+	return ""
+}
+
+func (x *ValidatedPackageDocument) GetRowCount() int32 {
+	if x != nil {
+		return x.RowCount
+	}
+	return 0
+}
+
+func (x *ValidatedPackageDocument) GetErrorCount() int32 {
+	if x != nil {
+		return x.ErrorCount
+	}
+	return 0
+}
+
+func (x *ValidatedPackageDocument) GetRowErrors() []*ValidatedPackageRowError {
+	if x != nil {
+		return x.RowErrors
+	}
+	return nil
+}
+
+func (x *ValidatedPackageDocument) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
 type ValidatePackageResponse struct {
 	state           protoimpl.MessageState      `protogen:"open.v1"`
 	SourceId        string                      `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
@@ -3113,7 +3245,7 @@ type ValidatePackageResponse struct {
 
 func (x *ValidatePackageResponse) Reset() {
 	*x = ValidatePackageResponse{}
-	mi := &file_rag_v1_rag_proto_msgTypes[35]
+	mi := &file_rag_v1_rag_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3125,7 +3257,7 @@ func (x *ValidatePackageResponse) String() string {
 func (*ValidatePackageResponse) ProtoMessage() {}
 
 func (x *ValidatePackageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[35]
+	mi := &file_rag_v1_rag_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3138,7 +3270,7 @@ func (x *ValidatePackageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatePackageResponse.ProtoReflect.Descriptor instead.
 func (*ValidatePackageResponse) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{35}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ValidatePackageResponse) GetSourceId() string {
@@ -3197,7 +3329,7 @@ type ParsedChunk struct {
 
 func (x *ParsedChunk) Reset() {
 	*x = ParsedChunk{}
-	mi := &file_rag_v1_rag_proto_msgTypes[36]
+	mi := &file_rag_v1_rag_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3209,7 +3341,7 @@ func (x *ParsedChunk) String() string {
 func (*ParsedChunk) ProtoMessage() {}
 
 func (x *ParsedChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[36]
+	mi := &file_rag_v1_rag_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3222,7 +3354,7 @@ func (x *ParsedChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParsedChunk.ProtoReflect.Descriptor instead.
 func (*ParsedChunk) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{36}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ParsedChunk) GetChunkIndex() int32 {
@@ -3335,7 +3467,7 @@ type ParsedDocument struct {
 
 func (x *ParsedDocument) Reset() {
 	*x = ParsedDocument{}
-	mi := &file_rag_v1_rag_proto_msgTypes[37]
+	mi := &file_rag_v1_rag_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3347,7 +3479,7 @@ func (x *ParsedDocument) String() string {
 func (*ParsedDocument) ProtoMessage() {}
 
 func (x *ParsedDocument) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[37]
+	mi := &file_rag_v1_rag_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3360,7 +3492,7 @@ func (x *ParsedDocument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParsedDocument.ProtoReflect.Descriptor instead.
 func (*ParsedDocument) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{37}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ParsedDocument) GetDocumentId() string {
@@ -3453,7 +3585,7 @@ type ArtifactRecord struct {
 
 func (x *ArtifactRecord) Reset() {
 	*x = ArtifactRecord{}
-	mi := &file_rag_v1_rag_proto_msgTypes[38]
+	mi := &file_rag_v1_rag_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3465,7 +3597,7 @@ func (x *ArtifactRecord) String() string {
 func (*ArtifactRecord) ProtoMessage() {}
 
 func (x *ArtifactRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[38]
+	mi := &file_rag_v1_rag_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3478,7 +3610,7 @@ func (x *ArtifactRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactRecord.ProtoReflect.Descriptor instead.
 func (*ArtifactRecord) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{38}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ArtifactRecord) GetArtifactType() string {
@@ -3530,7 +3662,7 @@ type ArtifactBundleReference struct {
 
 func (x *ArtifactBundleReference) Reset() {
 	*x = ArtifactBundleReference{}
-	mi := &file_rag_v1_rag_proto_msgTypes[39]
+	mi := &file_rag_v1_rag_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3542,7 +3674,7 @@ func (x *ArtifactBundleReference) String() string {
 func (*ArtifactBundleReference) ProtoMessage() {}
 
 func (x *ArtifactBundleReference) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[39]
+	mi := &file_rag_v1_rag_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3555,7 +3687,7 @@ func (x *ArtifactBundleReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactBundleReference.ProtoReflect.Descriptor instead.
 func (*ArtifactBundleReference) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{39}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ArtifactBundleReference) GetDocumentVersionId() string {
@@ -3615,7 +3747,7 @@ type ParsePackageResponse struct {
 
 func (x *ParsePackageResponse) Reset() {
 	*x = ParsePackageResponse{}
-	mi := &file_rag_v1_rag_proto_msgTypes[40]
+	mi := &file_rag_v1_rag_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3627,7 +3759,7 @@ func (x *ParsePackageResponse) String() string {
 func (*ParsePackageResponse) ProtoMessage() {}
 
 func (x *ParsePackageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[40]
+	mi := &file_rag_v1_rag_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3640,7 +3772,7 @@ func (x *ParsePackageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParsePackageResponse.ProtoReflect.Descriptor instead.
 func (*ParsePackageResponse) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{40}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ParsePackageResponse) GetSourceId() string {
@@ -3703,7 +3835,7 @@ type DeleteArtifactBundleRequest struct {
 
 func (x *DeleteArtifactBundleRequest) Reset() {
 	*x = DeleteArtifactBundleRequest{}
-	mi := &file_rag_v1_rag_proto_msgTypes[41]
+	mi := &file_rag_v1_rag_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3715,7 +3847,7 @@ func (x *DeleteArtifactBundleRequest) String() string {
 func (*DeleteArtifactBundleRequest) ProtoMessage() {}
 
 func (x *DeleteArtifactBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[41]
+	mi := &file_rag_v1_rag_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3728,7 +3860,7 @@ func (x *DeleteArtifactBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteArtifactBundleRequest.ProtoReflect.Descriptor instead.
 func (*DeleteArtifactBundleRequest) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{41}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DeleteArtifactBundleRequest) GetTenantId() string {
@@ -3762,7 +3894,7 @@ type DeleteArtifactBundleResponse struct {
 
 func (x *DeleteArtifactBundleResponse) Reset() {
 	*x = DeleteArtifactBundleResponse{}
-	mi := &file_rag_v1_rag_proto_msgTypes[42]
+	mi := &file_rag_v1_rag_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3774,7 +3906,7 @@ func (x *DeleteArtifactBundleResponse) String() string {
 func (*DeleteArtifactBundleResponse) ProtoMessage() {}
 
 func (x *DeleteArtifactBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rag_v1_rag_proto_msgTypes[42]
+	mi := &file_rag_v1_rag_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3787,7 +3919,7 @@ func (x *DeleteArtifactBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteArtifactBundleResponse.ProtoReflect.Descriptor instead.
 func (*DeleteArtifactBundleResponse) Descriptor() ([]byte, []int) {
-	return file_rag_v1_rag_proto_rawDescGZIP(), []int{42}
+	return file_rag_v1_rag_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *DeleteArtifactBundleResponse) GetComplete() bool {
@@ -4074,7 +4206,15 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\rmanifest_yaml\x18\x01 \x01(\tR\fmanifestYaml\x12)\n" +
 	"\x05files\x18\x02 \x03(\v2\x13.rag.v1.PackageFileR\x05files\x12\x1b\n" +
 	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x12\x17\n" +
-	"\ashop_id\x18\x04 \x01(\tR\x06shopId\"\xb2\x02\n" +
+	"\ashop_id\x18\x04 \x01(\tR\x06shopId\"\xcf\x01\n" +
+	"\x18ValidatedPackageRowError\x12\x10\n" +
+	"\x03row\x18\x01 \x01(\x05R\x03row\x12\x16\n" +
+	"\x06column\x18\x02 \x01(\tR\x06column\x12\x12\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1a\n" +
+	"\bseverity\x18\x04 \x01(\tR\bseverity\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\tR\x05value\x12\x18\n" +
+	"\amessage\x18\x06 \x01(\tR\amessage\x12)\n" +
+	"\x10suggested_action\x18\a \x01(\tR\x0fsuggestedAction\"\xf2\x03\n" +
 	"\x18ValidatedPackageDocument\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\tR\n" +
 	"documentId\x12\x14\n" +
@@ -4087,7 +4227,15 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x0eeffective_from\x18\a \x01(\tR\reffectiveFrom\x12!\n" +
 	"\feffective_to\x18\b \x01(\tR\veffectiveTo\x12\x1d\n" +
 	"\n" +
-	"version_id\x18\t \x01(\tR\tversionId\"\xeb\x01\n" +
+	"version_id\x18\t \x01(\tR\tversionId\x12!\n" +
+	"\ftable_schema\x18\n" +
+	" \x01(\tR\vtableSchema\x12\x1b\n" +
+	"\trow_count\x18\v \x01(\x05R\browCount\x12\x1f\n" +
+	"\verror_count\x18\f \x01(\x05R\n" +
+	"errorCount\x12?\n" +
+	"\n" +
+	"row_errors\x18\r \x03(\v2 .rag.v1.ValidatedPackageRowErrorR\trowErrors\x12\x1c\n" +
+	"\ttruncated\x18\x0e \x01(\bR\ttruncated\"\xeb\x01\n" +
 	"\x17ValidatePackageResponse\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x12\x1f\n" +
 	"\vsource_name\x18\x02 \x01(\tR\n" +
@@ -4218,7 +4366,7 @@ func file_rag_v1_rag_proto_rawDescGZIP() []byte {
 }
 
 var file_rag_v1_rag_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_rag_v1_rag_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_rag_v1_rag_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_rag_v1_rag_proto_goTypes = []any{
 	(ReplyBehavior)(0),                   // 0: rag.v1.ReplyBehavior
 	(JobStatus)(0),                       // 1: rag.v1.JobStatus
@@ -4257,15 +4405,16 @@ var file_rag_v1_rag_proto_goTypes = []any{
 	(*PackageFile)(nil),                  // 34: rag.v1.PackageFile
 	(*ParsePackageRequest)(nil),          // 35: rag.v1.ParsePackageRequest
 	(*ValidatePackageRequest)(nil),       // 36: rag.v1.ValidatePackageRequest
-	(*ValidatedPackageDocument)(nil),     // 37: rag.v1.ValidatedPackageDocument
-	(*ValidatePackageResponse)(nil),      // 38: rag.v1.ValidatePackageResponse
-	(*ParsedChunk)(nil),                  // 39: rag.v1.ParsedChunk
-	(*ParsedDocument)(nil),               // 40: rag.v1.ParsedDocument
-	(*ArtifactRecord)(nil),               // 41: rag.v1.ArtifactRecord
-	(*ArtifactBundleReference)(nil),      // 42: rag.v1.ArtifactBundleReference
-	(*ParsePackageResponse)(nil),         // 43: rag.v1.ParsePackageResponse
-	(*DeleteArtifactBundleRequest)(nil),  // 44: rag.v1.DeleteArtifactBundleRequest
-	(*DeleteArtifactBundleResponse)(nil), // 45: rag.v1.DeleteArtifactBundleResponse
+	(*ValidatedPackageRowError)(nil),     // 37: rag.v1.ValidatedPackageRowError
+	(*ValidatedPackageDocument)(nil),     // 38: rag.v1.ValidatedPackageDocument
+	(*ValidatePackageResponse)(nil),      // 39: rag.v1.ValidatePackageResponse
+	(*ParsedChunk)(nil),                  // 40: rag.v1.ParsedChunk
+	(*ParsedDocument)(nil),               // 41: rag.v1.ParsedDocument
+	(*ArtifactRecord)(nil),               // 42: rag.v1.ArtifactRecord
+	(*ArtifactBundleReference)(nil),      // 43: rag.v1.ArtifactBundleReference
+	(*ParsePackageResponse)(nil),         // 44: rag.v1.ParsePackageResponse
+	(*DeleteArtifactBundleRequest)(nil),  // 45: rag.v1.DeleteArtifactBundleRequest
+	(*DeleteArtifactBundleResponse)(nil), // 46: rag.v1.DeleteArtifactBundleResponse
 }
 var file_rag_v1_rag_proto_depIdxs = []int32{
 	3,  // 0: rag.v1.UnderstandRequest.context:type_name -> rag.v1.RequestContext
@@ -4297,47 +4446,48 @@ var file_rag_v1_rag_proto_depIdxs = []int32{
 	1,  // 26: rag.v1.CancelResponse.status:type_name -> rag.v1.JobStatus
 	34, // 27: rag.v1.ParsePackageRequest.files:type_name -> rag.v1.PackageFile
 	34, // 28: rag.v1.ValidatePackageRequest.files:type_name -> rag.v1.PackageFile
-	37, // 29: rag.v1.ValidatePackageResponse.documents:type_name -> rag.v1.ValidatedPackageDocument
-	39, // 30: rag.v1.ParsedDocument.chunks:type_name -> rag.v1.ParsedChunk
-	42, // 31: rag.v1.ParsedDocument.artifact_bundle:type_name -> rag.v1.ArtifactBundleReference
-	41, // 32: rag.v1.ArtifactBundleReference.artifacts:type_name -> rag.v1.ArtifactRecord
-	40, // 33: rag.v1.ParsePackageResponse.documents:type_name -> rag.v1.ParsedDocument
-	42, // 34: rag.v1.DeleteArtifactBundleRequest.artifact_bundle:type_name -> rag.v1.ArtifactBundleReference
-	6,  // 35: rag.v1.RagService.Understand:input_type -> rag.v1.UnderstandRequest
-	9,  // 36: rag.v1.RagService.Search:input_type -> rag.v1.SearchRequest
-	11, // 37: rag.v1.RagService.Generate:input_type -> rag.v1.GenerateRequest
-	16, // 38: rag.v1.RagService.SaveCheckpoint:input_type -> rag.v1.SaveCheckpointRequest
-	18, // 39: rag.v1.RagService.ResumeCheckpoint:input_type -> rag.v1.ResumeCheckpointRequest
-	20, // 40: rag.v1.RagService.ReloadSyntheticIndex:input_type -> rag.v1.ReloadSyntheticIndexRequest
-	14, // 41: rag.v1.AuthorizationService.ValidateScope:input_type -> rag.v1.ValidateScopeRequest
-	28, // 42: rag.v1.IngestService.Submit:input_type -> rag.v1.SubmitRequest
-	30, // 43: rag.v1.IngestService.GetStatus:input_type -> rag.v1.GetStatusRequest
-	32, // 44: rag.v1.IngestService.Cancel:input_type -> rag.v1.CancelRequest
-	36, // 45: rag.v1.IngestService.ValidatePackage:input_type -> rag.v1.ValidatePackageRequest
-	35, // 46: rag.v1.IngestService.ParsePackage:input_type -> rag.v1.ParsePackageRequest
-	44, // 47: rag.v1.IngestService.DeleteArtifactBundle:input_type -> rag.v1.DeleteArtifactBundleRequest
-	23, // 48: rag.v1.IngestService.ExecuteCommand:input_type -> rag.v1.ExecuteCommandRequest
-	27, // 49: rag.v1.IngestService.GetCommandResult:input_type -> rag.v1.GetCommandResultRequest
-	7,  // 50: rag.v1.RagService.Understand:output_type -> rag.v1.UnderstandResponse
-	10, // 51: rag.v1.RagService.Search:output_type -> rag.v1.SearchResponse
-	12, // 52: rag.v1.RagService.Generate:output_type -> rag.v1.GenerateResponse
-	17, // 53: rag.v1.RagService.SaveCheckpoint:output_type -> rag.v1.SaveCheckpointResponse
-	19, // 54: rag.v1.RagService.ResumeCheckpoint:output_type -> rag.v1.ResumeCheckpointResponse
-	22, // 55: rag.v1.RagService.ReloadSyntheticIndex:output_type -> rag.v1.ReloadSyntheticIndexResponse
-	15, // 56: rag.v1.AuthorizationService.ValidateScope:output_type -> rag.v1.ValidateScopeResponse
-	29, // 57: rag.v1.IngestService.Submit:output_type -> rag.v1.SubmitResponse
-	31, // 58: rag.v1.IngestService.GetStatus:output_type -> rag.v1.GetStatusResponse
-	33, // 59: rag.v1.IngestService.Cancel:output_type -> rag.v1.CancelResponse
-	38, // 60: rag.v1.IngestService.ValidatePackage:output_type -> rag.v1.ValidatePackageResponse
-	43, // 61: rag.v1.IngestService.ParsePackage:output_type -> rag.v1.ParsePackageResponse
-	45, // 62: rag.v1.IngestService.DeleteArtifactBundle:output_type -> rag.v1.DeleteArtifactBundleResponse
-	25, // 63: rag.v1.IngestService.ExecuteCommand:output_type -> rag.v1.ExecuteCommandResponse
-	26, // 64: rag.v1.IngestService.GetCommandResult:output_type -> rag.v1.GetCommandResultResponse
-	50, // [50:65] is the sub-list for method output_type
-	35, // [35:50] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	37, // 29: rag.v1.ValidatedPackageDocument.row_errors:type_name -> rag.v1.ValidatedPackageRowError
+	38, // 30: rag.v1.ValidatePackageResponse.documents:type_name -> rag.v1.ValidatedPackageDocument
+	40, // 31: rag.v1.ParsedDocument.chunks:type_name -> rag.v1.ParsedChunk
+	43, // 32: rag.v1.ParsedDocument.artifact_bundle:type_name -> rag.v1.ArtifactBundleReference
+	42, // 33: rag.v1.ArtifactBundleReference.artifacts:type_name -> rag.v1.ArtifactRecord
+	41, // 34: rag.v1.ParsePackageResponse.documents:type_name -> rag.v1.ParsedDocument
+	43, // 35: rag.v1.DeleteArtifactBundleRequest.artifact_bundle:type_name -> rag.v1.ArtifactBundleReference
+	6,  // 36: rag.v1.RagService.Understand:input_type -> rag.v1.UnderstandRequest
+	9,  // 37: rag.v1.RagService.Search:input_type -> rag.v1.SearchRequest
+	11, // 38: rag.v1.RagService.Generate:input_type -> rag.v1.GenerateRequest
+	16, // 39: rag.v1.RagService.SaveCheckpoint:input_type -> rag.v1.SaveCheckpointRequest
+	18, // 40: rag.v1.RagService.ResumeCheckpoint:input_type -> rag.v1.ResumeCheckpointRequest
+	20, // 41: rag.v1.RagService.ReloadSyntheticIndex:input_type -> rag.v1.ReloadSyntheticIndexRequest
+	14, // 42: rag.v1.AuthorizationService.ValidateScope:input_type -> rag.v1.ValidateScopeRequest
+	28, // 43: rag.v1.IngestService.Submit:input_type -> rag.v1.SubmitRequest
+	30, // 44: rag.v1.IngestService.GetStatus:input_type -> rag.v1.GetStatusRequest
+	32, // 45: rag.v1.IngestService.Cancel:input_type -> rag.v1.CancelRequest
+	36, // 46: rag.v1.IngestService.ValidatePackage:input_type -> rag.v1.ValidatePackageRequest
+	35, // 47: rag.v1.IngestService.ParsePackage:input_type -> rag.v1.ParsePackageRequest
+	45, // 48: rag.v1.IngestService.DeleteArtifactBundle:input_type -> rag.v1.DeleteArtifactBundleRequest
+	23, // 49: rag.v1.IngestService.ExecuteCommand:input_type -> rag.v1.ExecuteCommandRequest
+	27, // 50: rag.v1.IngestService.GetCommandResult:input_type -> rag.v1.GetCommandResultRequest
+	7,  // 51: rag.v1.RagService.Understand:output_type -> rag.v1.UnderstandResponse
+	10, // 52: rag.v1.RagService.Search:output_type -> rag.v1.SearchResponse
+	12, // 53: rag.v1.RagService.Generate:output_type -> rag.v1.GenerateResponse
+	17, // 54: rag.v1.RagService.SaveCheckpoint:output_type -> rag.v1.SaveCheckpointResponse
+	19, // 55: rag.v1.RagService.ResumeCheckpoint:output_type -> rag.v1.ResumeCheckpointResponse
+	22, // 56: rag.v1.RagService.ReloadSyntheticIndex:output_type -> rag.v1.ReloadSyntheticIndexResponse
+	15, // 57: rag.v1.AuthorizationService.ValidateScope:output_type -> rag.v1.ValidateScopeResponse
+	29, // 58: rag.v1.IngestService.Submit:output_type -> rag.v1.SubmitResponse
+	31, // 59: rag.v1.IngestService.GetStatus:output_type -> rag.v1.GetStatusResponse
+	33, // 60: rag.v1.IngestService.Cancel:output_type -> rag.v1.CancelResponse
+	39, // 61: rag.v1.IngestService.ValidatePackage:output_type -> rag.v1.ValidatePackageResponse
+	44, // 62: rag.v1.IngestService.ParsePackage:output_type -> rag.v1.ParsePackageResponse
+	46, // 63: rag.v1.IngestService.DeleteArtifactBundle:output_type -> rag.v1.DeleteArtifactBundleResponse
+	25, // 64: rag.v1.IngestService.ExecuteCommand:output_type -> rag.v1.ExecuteCommandResponse
+	26, // 65: rag.v1.IngestService.GetCommandResult:output_type -> rag.v1.GetCommandResultResponse
+	51, // [51:66] is the sub-list for method output_type
+	36, // [36:51] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_rag_v1_rag_proto_init() }
@@ -4361,7 +4511,7 @@ func file_rag_v1_rag_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rag_v1_rag_proto_rawDesc), len(file_rag_v1_rag_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   43,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

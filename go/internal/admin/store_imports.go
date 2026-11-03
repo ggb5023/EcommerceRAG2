@@ -201,12 +201,13 @@ func (s *Store) BatchConfirmState(ctx context.Context, db *pgxpool.Pool, tenantI
 // StagedFileRow is one staged file of a batch.
 type StagedFileRow struct {
 	TempPath string
+	Precheck []byte
 	Detail   []byte
 }
 
 // BatchStagedFiles lists the staged files of a batch in id order.
 func (s *Store) BatchStagedFiles(ctx context.Context, db *pgxpool.Pool, batchID int64) ([]StagedFileRow, error) {
-	rows, err := db.Query(ctx, `SELECT temp_path,precheck_detail FROM import_item WHERE batch_id=$1 ORDER BY id`, batchID)
+	rows, err := db.Query(ctx, `SELECT temp_path,precheck_result,precheck_detail FROM import_item WHERE batch_id=$1 ORDER BY id`, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +215,7 @@ func (s *Store) BatchStagedFiles(ctx context.Context, db *pgxpool.Pool, batchID 
 	files := make([]StagedFileRow, 0)
 	for rows.Next() {
 		var row StagedFileRow
-		if err := rows.Scan(&row.TempPath, &row.Detail); err != nil {
+		if err := rows.Scan(&row.TempPath, &row.Precheck, &row.Detail); err != nil {
 			return nil, err
 		}
 		files = append(files, row)

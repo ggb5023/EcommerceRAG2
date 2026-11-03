@@ -21,19 +21,24 @@ import (
 )
 
 type importStagedDetail struct {
-	DocumentID             string `json:"document_id"`
-	Path                   string `json:"path"`
-	Title                  string `json:"title"`
-	Format                 string `json:"format"`
-	DisclosureClass        string `json:"disclosure_class"`
-	EffectiveFrom          string `json:"effective_from"`
-	EffectiveTo            string `json:"effective_to"`
-	License                string `json:"license"`
-	AuthorizationReference string `json:"authorization_reference"`
-	CheckedAt              string `json:"checked_at"`
-	Snippet                string `json:"snippet"`
-	SourceHash             string `json:"source_hash"`
-	VersionID              string `json:"version_id"`
+	DocumentID             string           `json:"document_id"`
+	Path                   string           `json:"path"`
+	Title                  string           `json:"title"`
+	Format                 string           `json:"format"`
+	DisclosureClass        string           `json:"disclosure_class"`
+	EffectiveFrom          string           `json:"effective_from"`
+	EffectiveTo            string           `json:"effective_to"`
+	License                string           `json:"license"`
+	AuthorizationReference string           `json:"authorization_reference"`
+	CheckedAt              string           `json:"checked_at"`
+	Snippet                string           `json:"snippet"`
+	SourceHash             string           `json:"source_hash"`
+	VersionID              string           `json:"version_id"`
+	TableSchema            string           `json:"table_schema,omitempty"`
+	RowCount               int32            `json:"row_count,omitempty"`
+	ErrorCount             int32            `json:"error_count,omitempty"`
+	RowErrors              []importRowError `json:"row_errors,omitempty"`
+	Truncated              bool             `json:"truncated,omitempty"`
 }
 
 type importConfirmation struct {
@@ -205,6 +210,24 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_package", "manifest package failed validation")
 		return
 	}
+	validation, validationErr := g.validatePackage(r.Context(), manifest, uploads, shopID)
+	if validationErr != nil {
+		removeUploads()
+		statusCode, code, message := validationErrorResponse(validationErr)
+		httpapi.WriteError(w, statusCode, code, message)
+		return
+	}
+	validatedDocuments := make(map[string]*ragv1.ValidatedPackageDocument, len(validation.GetDocuments()))
+	for _, document := range validation.GetDocuments() {
+		validatedDocuments[document.GetDocumentId()] = document
+	}
+	for _, document := range parsed {
+		if validatedDocuments[document.DocumentID] == nil {
+			removeUploads()
+			httpapi.WriteError(w, 503, "precheck_unavailable", "precheck response is incomplete")
+			return
+		}
+	}
 	hashes := make([]string, 0, len(parsed))
 	for _, doc := range parsed {
 		hashes = append(hashes, doc.SourceHash)
@@ -213,6 +236,11 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 	issues := precheckDocuments(parsed, businessDate, existing)
 	manifestDigest := sha256.Sum256([]byte(manifest))
 	blocks, warnings := issueCounts(issues)
+	for _, document := range validation.GetDocuments() {
+		rowBlocks, rowWarnings := rowErrorCounts(document.GetRowErrors())
+		blocks += rowBlocks
+		warnings += rowWarnings
+	}
 	tx, err := g.DB.Begin(r.Context())
 	if err != nil {
 		removeUploads()
@@ -235,6 +263,7 @@ func (g *Handler) adminCreateImport(w http.ResponseWriter, r *http.Request) {
 			EffectiveFrom: doc.EffectiveFrom, EffectiveTo: doc.EffectiveTo, License: doc.License,
 			AuthorizationReference: doc.AuthorizationReference, CheckedAt: doc.CheckedAt, Snippet: doc.Snippet,
 			SourceHash: doc.SourceHash, VersionID: doc.VersionID}
+		applyPackageValidation(&detail, validatedDocuments[doc.DocumentID])
 		detailJSON, _ := json.Marshal(detail)
 		precheckJSON, _ := json.Marshal(issues[index])
 		var effective any
@@ -338,6 +367,12 @@ func (g *Handler) adminConfirmImport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "import batch lookup is unavailable")
 		return
+	}
+	for _, stagedFile := range staged {
+		if blockingPrecheck(stagedFile.Precheck, stagedFile.Detail) {
+			httpapi.WriteError(w, 409, "precheck_blocked", "import batch has blocking precheck errors")
+			return
+		}
 	}
 	files := make([]UploadedFile, 0)
 	documents := make([]ParsedDocument, 0)

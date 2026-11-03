@@ -321,6 +321,15 @@ message ValidatePackageRequest {
   string tenant_id = 3;
   string shop_id = 4;
 }
+message ValidatedPackageRowError {
+  int32 row = 1;
+  string column = 2;
+  string code = 3;
+  string severity = 4;
+  string value = 5;
+  string message = 6;
+  string suggested_action = 7;
+}
 message ValidatedPackageDocument {
   string document_id = 1;
   string title = 2;
@@ -331,6 +340,11 @@ message ValidatedPackageDocument {
   string effective_from = 7;
   string effective_to = 8;
   string version_id = 9;
+  string table_schema = 10;
+  int32 row_count = 11;
+  int32 error_count = 12;
+  repeated ValidatedPackageRowError row_errors = 13;
+  bool truncated = 14;
 }
 message ValidatePackageResponse {
   string source_id = 1;
