@@ -22,6 +22,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from app.ingest.catalog import PRODUCT_ATTRIBUTES
 from app.ingest.sparse import to_literal
 from app.providers.contracts import SparseWeight
 
@@ -36,6 +37,10 @@ class RetrievalSchemaError(RuntimeError):
 SPARSE_RRF_WEIGHT = 0.7
 
 _SPARSE_MODES = ("legacy", "sparsevec")
+_MAX_CATALOG_VALUES = 20
+_MAX_CATALOG_VALUE_CHARS = 128
+_MAX_CATALOG_ATTRIBUTE_CHARS = 200
+_CATALOG_FILTER_KEYS = frozenset({"sku_codes", "colors", "size_labels", "size_chart_codes", "attributes"})
 
 # The sparse branch below ranks by a text heuristic; chunk.sparse_embedding is not
 # written yet (decisions/0029). Report that honestly instead of pretending the
@@ -211,6 +216,69 @@ class PostgresRetriever:
         return tenant, tenant_db_id, shops, documents, selected_shop, role
 
     @staticmethod
+    def _catalog_filter(scope: Mapping[str, Any]) -> dict[str, Any] | None:
+        raw = scope.get("catalog_filter")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise PermissionError("catalog filter is invalid")
+        if set(raw) - _CATALOG_FILTER_KEYS:
+            raise PermissionError("catalog filter contains an unknown field")
+        result: dict[str, Any] = {}
+        for key in ("sku_codes", "colors", "size_labels", "size_chart_codes"):
+            values = raw.get(key, [])
+            if not isinstance(values, list) or len(values) > _MAX_CATALOG_VALUES:
+                raise PermissionError("catalog filter values are invalid")
+            normalized: list[str] = []
+            for value in values:
+                if not isinstance(value, str):
+                    raise PermissionError("catalog filter value is invalid")
+                value = value.strip().lower()
+                if not value or len(value) > _MAX_CATALOG_VALUE_CHARS:
+                    raise PermissionError("catalog filter value is invalid")
+                if value not in normalized:
+                    normalized.append(value)
+            result[key] = normalized
+        attributes = raw.get("attributes", {})
+        if not isinstance(attributes, Mapping):
+            raise PermissionError("catalog filter attributes are invalid")
+        normalized_attributes: dict[str, str] = {}
+        for key, value in attributes.items():
+            if not isinstance(key, str) or key not in PRODUCT_ATTRIBUTES:
+                raise PermissionError("catalog filter attribute key is invalid")
+            if not isinstance(value, str):
+                raise PermissionError("catalog filter attribute value is invalid")
+            value = value.strip()
+            if not value or len(value) > _MAX_CATALOG_ATTRIBUTE_CHARS:
+                raise PermissionError("catalog filter attribute value is invalid")
+            normalized_attributes[key] = value
+        result["attributes"] = normalized_attributes
+        return result if any(result.values()) else None
+
+    @staticmethod
+    def _catalog_clause(filter: Mapping[str, Any] | None) -> tuple[str, list[Any]]:
+        if not filter:
+            return "", []
+        conditions = [
+            "cs.tenant_id = c.tenant_id",
+            "cs.shop_id = c.shop_id",
+            "cs.version_id = c.version_id",
+            "cs.chunk_index = c.chunk_index",
+        ]
+        params: list[Any] = []
+        for key, column in (("sku_codes", "sku_code"), ("colors", "color"),
+                            ("size_labels", "size_label"),
+                            ("size_chart_codes", "size_chart_code")):
+            values = filter.get(key) or []
+            if values:
+                params.append(values)
+                conditions.append(f"lower(cs.{column}) = ANY(%s::text[])")
+        for key in sorted(filter.get("attributes") or {}):
+            params.extend([key, filter["attributes"][key]])
+            conditions.append("cs.attributes ->> %s = %s")
+        return " AND EXISTS (SELECT 1 FROM catalog_sku cs WHERE " + " AND ".join(conditions) + ")", params
+
+    @staticmethod
     def _disclosure_clause(response_purpose: str, role: str) -> tuple[str, list[Any]]:
         if response_purpose in {"customer_reply", "customer_chat"} or role not in {"owner", "admin"}:
             return "AND v.disclosure_class = 'external_allowed' AND v.external_allowed ", []
@@ -231,9 +299,11 @@ class PostgresRetriever:
     @staticmethod
     def _base_where(
         response_purpose: str, role: str, business_date: str | None,
+        catalog_filter: Mapping[str, Any] | None = None,
     ) -> tuple[str, list[Any]]:
         disclosure_sql, disclosure_params = PostgresRetriever._disclosure_clause(response_purpose, role)
         date_sql, date_params = PostgresRetriever._date_clause(business_date)
+        catalog_sql, catalog_params = PostgresRetriever._catalog_clause(catalog_filter)
         return (
             "JOIN document_version v ON v.tenant_id = c.tenant_id AND v.id = c.version_id "
             "JOIN document d ON d.tenant_id = c.tenant_id AND d.id = c.doc_id "
@@ -244,8 +314,8 @@ class PostgresRetriever:
             "AND d.active_version_id = v.id AND d.status = 'active' AND v.status = 'active' "
             "AND v.review_status = 'approved' "
             "AND c.content_type <> 'heading' AND length(btrim(c.content)) > 0 "
-            + disclosure_sql + date_sql,
-            disclosure_params + date_params,
+            + disclosure_sql + date_sql + catalog_sql,
+            disclosure_params + date_params + catalog_params,
         )
 
     @staticmethod
@@ -381,7 +451,8 @@ class PostgresRetriever:
             raise ValueError("retrieval limit must be between 1 and 20")
         vector = _vector_literal(query_vector)
         tenant, tenant_db_id, shops, documents, selected_shop, role = self._scope_params(scope, response_purpose)
-        where, date_params = self._base_where(response_purpose, role, business_date)
+        catalog_filter = self._catalog_filter(scope)
+        where, date_params = self._base_where(response_purpose, role, business_date, catalog_filter)
         selected_sql = "AND c.shop_id = %s" if selected_shop else ""
         selected_params: list[Any] = [selected_shop] if selected_shop else []
         columns = (

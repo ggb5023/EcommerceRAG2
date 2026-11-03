@@ -220,3 +220,41 @@ def test_sparse_probe_runs_against_the_real_database(caplog):
             assert warnings, "an empty sparse_embedding column must warn once"
     finally:
         postgres._sparse_mode_reported = original
+
+
+def test_catalog_filter_is_normalized_and_parameterized():
+    normalized = PostgresRetriever._catalog_filter({
+        "catalog_filter": {
+            "sku_codes": ["SKU-1"], "colors": ["Blue"], "size_labels": ["M"],
+            "size_chart_codes": ["C1"], "attributes": {"capacity_ml": "480"},
+        },
+    })
+    assert normalized == {
+        "sku_codes": ["sku-1"], "colors": ["blue"], "size_labels": ["m"],
+        "size_chart_codes": ["c1"], "attributes": {"capacity_ml": "480"},
+    }
+    clause, params = PostgresRetriever._catalog_clause(normalized)
+    assert "cs.chunk_index = c.chunk_index" in clause
+    assert "lower(cs.sku_code) = ANY(%s::text[])" in clause
+    assert "cs.attributes ->> %s = %s" in clause
+    assert params == [["sku-1"], ["blue"], ["m"], ["c1"], "capacity_ml", "480"]
+
+
+def test_catalog_filter_rejects_unknown_keys_and_malformed_values():
+    with pytest.raises(PermissionError, match="unknown field"):
+        PostgresRetriever._catalog_filter({"catalog_filter": {"free_text": "x"}})
+    with pytest.raises(PermissionError, match="attribute key"):
+        PostgresRetriever._catalog_filter({"catalog_filter": {"attributes": {"stock": "1"}}})
+    with pytest.raises(PermissionError, match="value"):
+        PostgresRetriever._catalog_filter({"catalog_filter": {"sku_codes": [1]}})
+
+
+def test_retriever_rejects_invalid_catalog_filter_before_database_call():
+    retriever = PostgresRetriever("postgresql://unused", connect=lambda *_args, **_kwargs: None)
+    scope = {
+        "tenant_id": "tenant-a", "tenant_db_id": "1", "allowed_shop_ids": ["shop-a"],
+        "allowed_document_ids": ["doc"], "shop_id": "shop-a", "role": "operator",
+        "catalog_filter": {"attributes": {"unknown": "x"}},
+    }
+    with pytest.raises(PermissionError, match="attribute key"):
+        retriever.search(query="SKU-1", query_vector=[0.0] * 1024, scope=scope)

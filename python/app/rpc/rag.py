@@ -113,8 +113,22 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             self._provider_v2 = None
 
     @staticmethod
-    def _v2_scope(scope) -> dict[str, Any]:
-        return {'request_id': scope.request_id, 'tenant_id': scope.tenant_id, 'business_date': scope.business_date, 'tenant_db_id': str(scope.tenant_db_id), 'user_id': scope.user_id, 'allowed_shop_ids': list(scope.allowed_shop_ids), 'allowed_document_ids': list(scope.allowed_document_ids), 'shop_id': scope.shop_id, 'role': scope.role, 'permission_revision': scope.permission_revision, 'conversation_id': scope.conversation_id, 'turn_id': scope.turn_id, 'execution_id': scope.execution_id, 'subject_type': scope.subject_type, 'customer_id': scope.customer_id, 'customer_session_id': scope.customer_session_id, 'conversation_epoch': scope.conversation_epoch}
+    def _catalog_filter(scope) -> dict[str, Any] | None:
+        value = getattr(scope, 'catalog_filter', None)
+        if value is None:
+            return None
+        result = {
+            'sku_codes': list(value.sku_codes),
+            'colors': list(value.colors),
+            'size_labels': list(value.size_labels),
+            'size_chart_codes': list(value.size_chart_codes),
+            'attributes': dict(value.attributes),
+        }
+        return result if any(result.values()) else None
+
+    @classmethod
+    def _v2_scope(cls, scope) -> dict[str, Any]:
+        return {'request_id': scope.request_id, 'tenant_id': scope.tenant_id, 'business_date': scope.business_date, 'tenant_db_id': str(scope.tenant_db_id), 'user_id': scope.user_id, 'allowed_shop_ids': list(scope.allowed_shop_ids), 'allowed_document_ids': list(scope.allowed_document_ids), 'shop_id': scope.shop_id, 'role': scope.role, 'permission_revision': scope.permission_revision, 'conversation_id': scope.conversation_id, 'turn_id': scope.turn_id, 'execution_id': scope.execution_id, 'subject_type': scope.subject_type, 'customer_id': scope.customer_id, 'customer_session_id': scope.customer_session_id, 'conversation_epoch': scope.conversation_epoch, 'catalog_filter': cls._catalog_filter(scope)}
 
     def _v2_evidence(self, item: dict[str, Any]) -> rag_pb2.Evidence:
         return rag_pb2.Evidence(id=item['id'], content=item['content'], source_type=item['source_type'], source_ref=item['source_ref'], document_id=item['document_id'], version_id=item['version_id'], rank=int(item.get('rank', 0)), raw_score=float(item.get('raw_score', 0.0)), shop_id=item['shop_id'], disclosure_class=item['disclosure_class'], customer_eligible=bool(item['customer_eligible']), tenant_id=item['tenant_id'])
