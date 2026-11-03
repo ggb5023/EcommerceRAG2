@@ -420,7 +420,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 
 	history := loadHistorySummary(ctx, g.db, g.session.TenantID, g.authority().CurrentRevision(), conversationID, turnID)
-	routed, routeFailure := understandTurn(ctx, g.rag, base, query, history)
+	routed, routeFailure := understandAndFilter(ctx, g.rag, g.db, g.session.TenantID, g.authority(), base, query, history)
 	if routeFailure != nil {
 		finish(routeFailure.state, routeFailure.code, "")
 		return

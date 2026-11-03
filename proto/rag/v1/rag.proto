@@ -39,6 +39,14 @@ message RequestContext {
   // It is part of the signed scope and the only authoritative date for
   // effective_from/effective_to retrieval filtering.
   string business_date = 26;
+  CatalogFilter catalog_filter = 27;
+}
+message CatalogFilter {
+  repeated string sku_codes = 1;
+  repeated string colors = 2;
+  repeated string size_labels = 3;
+  repeated string size_chart_codes = 4;
+  map<string, string> attributes = 5;
 }
 message Evidence {
   string id = 1;

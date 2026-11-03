@@ -59,6 +59,21 @@ func understandTurn(ctx context.Context, client ragv1.RagServiceClient, scope *r
 	return routed, nil
 }
 
+// understandAndFilter routes the query and applies any explicit catalog
+// constraint before the rest of the turn sees the routed response.
+func understandAndFilter(ctx context.Context, client ragv1.RagServiceClient,
+	db *pgxpool.Pool, tenantID int64, authority *auth.Authority,
+	scope *ragv1.RequestContext, query, history string) (*ragv1.UnderstandResponse, *stageFailure) {
+	routed, failure := understandTurn(ctx, client, scope, query, history)
+	if failure != nil {
+		return nil, failure
+	}
+	if failure = applyCatalogFilter(ctx, db, tenantID, authority, scope, routed, query); failure != nil {
+		return nil, failure
+	}
+	return routed, nil
+}
+
 // saveAskingCheckpoint persists the ASKING checkpoint before a clarification is
 // returned. It returns a stage failure instead of finishing the turn itself.
 func saveAskingCheckpoint(ctx context.Context, client ragv1.RagServiceClient, profile string,

@@ -254,6 +254,26 @@ func (g *Authority) businessDate(ctx context.Context, shop string) (string, erro
 	return ShopBusinessDate(ctx, g.DB, g.Session.TenantID, shop)
 }
 
+func (g *Authority) ApplyCatalogFilter(ctx context.Context, scope *ragv1.RequestContext, filter *ragv1.CatalogFilter) error {
+	if scope == nil || filter == nil {
+		return status.Error(codes.InvalidArgument, "catalog_filter_invalid")
+	}
+	if err := g.Refresh(ctx); err != nil {
+		return err
+	}
+	if g.CurrentRevision() != scope.PermissionRevision {
+		return status.Error(codes.PermissionDenied, "permission_changed")
+	}
+	scope.CatalogFilter = filter
+	scope.ScopeSignature = hex.EncodeToString(MAC(g.SigningKey, scope))
+	if g.RegisterScopeIdentity != nil {
+		if err := g.RegisterScopeIdentity(scope); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (g *Authority) IssueScope(ctx context.Context, requestID string) (*ragv1.RequestContext, error) {
 	return g.IssueScopeForShopWithTurn(ctx, requestID, g.Session.Shop, "", "", "")
 }
