@@ -38,7 +38,7 @@ type importStagedDetail struct {
 	RowCount               int32            `json:"row_count,omitempty"`
 	ErrorCount             int32            `json:"error_count,omitempty"`
 	RowErrors              []importRowError `json:"row_errors,omitempty"`
-	Truncated              bool             `json:"truncated,omitempty"`
+	Truncated              bool             `json:"truncated"`
 }
 
 type importConfirmation struct {
