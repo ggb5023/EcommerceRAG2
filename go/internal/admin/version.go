@@ -35,13 +35,28 @@ func (g *Handler) adminVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]map[string]any, 0, len(rows))
+	businessDates := map[string]string{}
 	for _, row := range rows {
-		items = append(items, map[string]any{"version_id": strconv.FormatInt(row.VersionID, 10),
+		businessDate, err := g.shopBusinessDate(r.Context(), row.ShopID, businessDates)
+		if err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load version validity")
+			return
+		}
+		fields, err := validityFields(row.EffectiveFrom, row.EffectiveTo, businessDate)
+		if err != nil {
+			httpapi.WriteError(w, 503, "validity_unavailable", "could not load version validity")
+			return
+		}
+		item := map[string]any{"version_id": strconv.FormatInt(row.VersionID, 10),
 			"document_id": row.DocumentID, "title": row.Title, "shop_id": row.ShopID, "status": row.Status,
 			"review_status": row.ReviewStatus, "source_hash": row.SourceHash, "reviewed_hash": row.ReviewedHash,
 			"disclosure_class": row.DisclosureClass, "external_allowed": row.ExternalAllowed,
 			"fencing_epoch": row.FencingEpoch, "chunk_count": row.ChunkCount, "created_at": row.CreatedAt,
-			"activated_at": row.ActivatedAt})
+			"activated_at": row.ActivatedAt}
+		for key, value := range fields {
+			item[key] = value
+		}
+		items = append(items, item)
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }

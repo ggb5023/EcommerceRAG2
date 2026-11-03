@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,7 +30,18 @@ func (g *Handler) adminReviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]map[string]any, 0, len(queue))
+	businessDates := map[string]string{}
 	for _, row := range queue {
+		businessDate, err := g.shopBusinessDate(r.Context(), row.ShopID, businessDates)
+		if err != nil {
+			httpapi.WriteError(w, 503, "database_unavailable", "could not load version validity")
+			return
+		}
+		fields, err := validityFields(row.EffectiveFrom, row.EffectiveTo, businessDate)
+		if err != nil {
+			httpapi.WriteError(w, 503, "validity_unavailable", "could not load version validity")
+			return
+		}
 		item := map[string]any{"version_id": strconv.FormatInt(row.VersionID, 10), "document_id": row.DocumentID,
 			"title": row.Title, "shop_id": row.ShopID, "source_hash": row.SourceHash, "status": row.Status,
 			"disclosure_class": row.DisclosureClass, "external_allowed": row.ExternalAllowed,
@@ -37,6 +49,9 @@ func (g *Handler) adminReviews(w http.ResponseWriter, r *http.Request) {
 			"chunk_count": row.ChunkCount, "pipeline_version": row.PipelineVersion,
 			"quality": json.RawMessage(row.Quality), "created_at": row.CreatedAt,
 			"job_id": row.JobID, "stage": row.Stage}
+		for key, value := range fields {
+			item[key] = value
+		}
 		if row.SuggestionID != 0 {
 			item["suggestion"] = map[string]any{"id": strconv.FormatInt(row.SuggestionID, 10),
 				"decision": row.SuggestionDecision, "reasons": json.RawMessage(row.SuggestionReasons),
@@ -77,6 +92,19 @@ func (g *Handler) adminReviewDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data["content"] = content
+	businessDate, err := g.shopBusinessDate(r.Context(), fmt.Sprint(data["shop_id"]), map[string]string{})
+	if err != nil {
+		httpapi.WriteError(w, 503, "database_unavailable", "could not load version validity")
+		return
+	}
+	fields, err := validityFields(optionalDate(data["effective_from"]), optionalDate(data["effective_to"]), businessDate)
+	if err != nil {
+		httpapi.WriteError(w, 503, "validity_unavailable", "could not load version validity")
+		return
+	}
+	for key, value := range fields {
+		data[key] = value
+	}
 	suggestionJSON, _ := adminStore.LatestSuggestion(r.Context(), g.DB, g.Session.TenantID, id,
 		strings.TrimSpace(data["source_hash"].(string)))
 	if suggestionJSON != nil {

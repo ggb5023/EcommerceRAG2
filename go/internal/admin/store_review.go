@@ -29,6 +29,8 @@ type ReviewQueueRow struct {
 	PipelineVersion    string
 	Quality            []byte
 	CreatedAt          time.Time
+	EffectiveFrom      *time.Time
+	EffectiveTo        *time.Time
 	JobID              *int64
 	Stage              string
 	SuggestionID       int64
@@ -42,7 +44,7 @@ type ReviewQueueRow struct {
 func (s *Store) ReviewQueue(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string, suggestion string) ([]ReviewQueueRow, error) {
 	rows, err := db.Query(ctx, `SELECT v.id,d.logical_key,d.title,s.shop_id,v.source_hash,v.status,v.Disclosure_class,
 		v.external_allowed,v.review_status,v.reviewed_hash,v.fencing_epoch,v.chunk_count,v.pipeline_version,v.quality_json,v.created_at,
-		j.id,COALESCE(j.stage,''),COALESCE(sug.id,0),COALESCE(sug.decision,''),COALESCE(sug.reasons,'[]'::jsonb),COALESCE(sug.evidence_chunk_ids,'{}'::text[]),COALESCE(sug.created_at,to_timestamp(0))
+		v.effective_from,v.effective_to,j.id,COALESCE(j.stage,''),COALESCE(sug.id,0),COALESCE(sug.decision,''),COALESCE(sug.reasons,'[]'::jsonb),COALESCE(sug.evidence_chunk_ids,'{}'::text[]),COALESCE(sug.created_at,to_timestamp(0))
 		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
 		LEFT JOIN ingest_job_item i ON i.tenant_id=v.tenant_id AND i.document_version_id=v.id
@@ -62,7 +64,7 @@ func (s *Store) ReviewQueue(ctx context.Context, db *pgxpool.Pool, tenantID int6
 		var row ReviewQueueRow
 		if err := rows.Scan(&row.VersionID, &row.DocumentID, &row.Title, &row.ShopID, &row.SourceHash, &row.Status,
 			&row.DisclosureClass, &row.ExternalAllowed, &row.ReviewStatus, &row.ReviewedHash, &row.FencingEpoch,
-			&row.ChunkCount, &row.PipelineVersion, &row.Quality, &row.CreatedAt, &row.JobID, &row.Stage,
+			&row.ChunkCount, &row.PipelineVersion, &row.Quality, &row.CreatedAt, &row.EffectiveFrom, &row.EffectiveTo, &row.JobID, &row.Stage,
 			&row.SuggestionID, &row.SuggestionDecision, &row.SuggestionReasons, &row.SuggestionEvidence,
 			&row.SuggestionCreated); err != nil {
 			return nil, err
@@ -79,6 +81,7 @@ func (s *Store) ReviewDetail(ctx context.Context, db *pgxpool.Pool, tenantID, ve
 		'shop_id',s.shop_id,'source_hash',v.source_hash,'status',v.status,'disclosure_class',v.Disclosure_class,
 		'external_allowed',v.external_allowed,'review_status',v.review_status,'reviewed_hash',v.reviewed_hash,
 		'fencing_epoch',v.fencing_epoch,'chunk_count',v.chunk_count,'quality',v.quality_json,
+		'effective_from',v.effective_from,'effective_to',v.effective_to,
 		'content',COALESCE((SELECT jsonb_agg(jsonb_build_object('chunk_index',c.chunk_index,'content',c.content,
 			'chunk_id','db-chunk-'||c.id::text,'heading_path',c.heading_path,'content_type',c.content_type,
 			'split_reason',c.split_reason,'source_position',c.meta_json->'source_position',
@@ -119,12 +122,15 @@ type VersionRow struct {
 	ChunkCount      *int32
 	CreatedAt       time.Time
 	ActivatedAt     *time.Time
+	EffectiveFrom   *time.Time
+	EffectiveTo     *time.Time
 }
 
 // Versions lists the version history within the caller's shops.
 func (s *Store) Versions(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string) ([]VersionRow, error) {
 	rows, err := db.Query(ctx, `SELECT v.id,d.logical_key,d.title,s.shop_id,v.status,v.review_status,v.source_hash,v.reviewed_hash,
-		v.Disclosure_class,v.external_allowed,v.fencing_epoch,v.chunk_count,v.created_at,v.activated_at
+		v.Disclosure_class,v.external_allowed,v.fencing_epoch,v.chunk_count,v.created_at,v.activated_at,
+		v.effective_from,v.effective_to
 		FROM document_version v JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 		JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
 		WHERE v.tenant_id=$1 AND s.shop_id=ANY($2::text[]) AND s.type='admin_manifest'
@@ -138,7 +144,7 @@ func (s *Store) Versions(ctx context.Context, db *pgxpool.Pool, tenantID int64, 
 		var row VersionRow
 		if err := rows.Scan(&row.VersionID, &row.DocumentID, &row.Title, &row.ShopID, &row.Status, &row.ReviewStatus,
 			&row.SourceHash, &row.ReviewedHash, &row.DisclosureClass, &row.ExternalAllowed, &row.FencingEpoch,
-			&row.ChunkCount, &row.CreatedAt, &row.ActivatedAt); err != nil {
+			&row.ChunkCount, &row.CreatedAt, &row.ActivatedAt, &row.EffectiveFrom, &row.EffectiveTo); err != nil {
 			return nil, err
 		}
 		items = append(items, row)

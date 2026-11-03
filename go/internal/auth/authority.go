@@ -241,13 +241,17 @@ func businessDateForLocation(timezone string, now time.Time) (string, error) {
 	return businessDateInTimezone(timezone, now)
 }
 
-func (g *Authority) businessDate(ctx context.Context, shop string) (string, error) {
+func ShopBusinessDate(ctx context.Context, db *pgxpool.Pool, tenantID int64, shop string) (string, error) {
 	var timezone string
-	if err := g.DB.QueryRow(ctx, `SELECT COALESCE(timezone,'Asia/Shanghai') FROM shop WHERE tenant_id=$1 AND id=$2`,
-		g.Session.TenantID, shop).Scan(&timezone); err != nil {
+	if err := db.QueryRow(ctx, `SELECT COALESCE(timezone,'Asia/Shanghai') FROM shop WHERE tenant_id=$1 AND id=$2`,
+		tenantID, shop).Scan(&timezone); err != nil {
 		return "", err
 	}
 	return businessDateForLocation(timezone, time.Now())
+}
+
+func (g *Authority) businessDate(ctx context.Context, shop string) (string, error) {
+	return ShopBusinessDate(ctx, g.DB, g.Session.TenantID, shop)
 }
 
 func (g *Authority) IssueScope(ctx context.Context, requestID string) (*ragv1.RequestContext, error) {
