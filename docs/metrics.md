@@ -15,6 +15,7 @@
 | --- | --- | --- |
 | `auto_answer_rate`（页面名：直接解决率） | `solved / scored_total`；`scored_total = solved + clarified + abandoned + failed + cancelled`；`pending`、`unknown` 不进分母 | 已实现：`auto_rate = solved / scored_total`，与 `assisted_rate` 同一分母；scored_total 为 0 时返回 null |
 | `assisted_rate`（页面名：无需人工介入率） | `(DONE + clarified) / scored_total`；`scored_total = DONE + clarified + ASKING_abandoned + FAILED + CANCELLED` | 本轮后：`assisted_rate = (solved + clarified) / scored_total`；`scored_total` 为 0 时返回 null |
+| `handoff_rate`（页面名：转人工率） | customer 通道：窗口内发生 `WAITING_HUMAN` 转移的 conversation 数 / 窗口内至少 1 条 customer 消息的 conversation 数；分母为 0 返回 null；不得混入 workspace `scored_total` | 已实现：`GET /admin/v1/merchant/report/handoff?range=7d|30d`；分母 0 返回 null |
 | `pending` | `ASKING` 且从最新 execution 的 `finished_at` 起算不足 10 分钟；`finished_at` 为 NULL 时回退 `turn.created_at`；单列，不进入任何分母 | 已实现：最新 execution 的 `finished_at`（缺失回退 `created_at`），10 分钟宽限 |
 | `clarified` | 窗口内存在更晚的轮次，其 `parent_turn_id = 本轮 t.id`，且其最新 execution 状态为 `DONE`；同会话无关 DONE 不算 | 已实现：按 `parent_turn_id` 关联，不按 conversation 推断 |
 | `CANCELLED` | 单独成桶，不并入 `failed` | 已实现：`cancelled` 独立字段；`failed` 不含取消 |
