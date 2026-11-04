@@ -59,34 +59,41 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-- `dense_sql` 现在把 ANN 排序放在只按 tenant/shop 过滤的子查询中，外层的
-  document/version/disclosure/date 授权条件保持不变；子查询只取 `dense_candidates`
-  条，不改变候选数，也不改 Python 侧 `(distance, chunk_id)` 稳定排序。
-- 集成测试 `python/tests/test_dense_hnsw.py` 使用 50,000 条 1024 维 halfvec
-  （≥10,000 要求），测试库临时 tenant/shop，结束清理并断言无残留：
+- **采用方案 2（有界超额取回）**。最小改动（恢复完整 WHERE，仅删除 `c.id`）
+  在 50,000 条测试库上仍为 `Seq Scan + Sort`，因此未采用。
+- dense SQL 的内层 ANN 只按 tenant/shop/embedding 排序，limit 为
+  `min(dense_candidates * K, 256)`，K 由构造参数 `dense_overfetch` 配置，默认 8；
+  外层保留完整 document/version/disclosure/date 授权 WHERE。若授权后条数小于
+  请求 limit 且内层 limit 小于 256，提升到 256 重试一次；仍不足则按实际数量返回。
+- 最大超额：每轮最多读取 256 条 ANN 候选；最坏情况下执行两次 ANN 查询（初始
+  `min(dense_candidates*K,256)`，必要时重试 256）。不改变 sparse 分支、RRF 权重、
+  `dense_candidates` 默认或输出 limit。
+- 50,000 条 halfvec 集成测试（≥10,000）自然 `EXPLAIN (FORMAT JSON)` 命中
+  `Index Scan using idx_chunk_embedding`，未使用 `enable_seqscan=off` 作为验收：
   ```text
   EXPLAIN natural: Index Scan using idx_chunk_embedding
-  DENSE_P50_MS_OLD 243.397
-  DENSE_P50_MS_NEW 119.741
+  DENSE_P50_MS_OLD 195.784
+  DENSE_P50_MS_NEW 126.477
   ```
-  EXPLAIN 为实际 dense SQL 的 `FORMAT JSON`；自然计划选中 HNSW，未使用
-  `enable_seqscan=off` 作为验收。
-- 同一 dense 查询跑两次，返回 `chunk_id` 顺序一致；测试结束临时 tenant/chunk
-  计数为 0。
-- aligned-53（`bash eval/run.sh offline`）：修复前基线 recall@5=0.981132、
-  mrr=0.981132、ndcg@5=0.981132；修复后三项仍为
-  recall@5=0.981132、mrr=0.981132、ndcg@5=0.981132。
+- 正确性测试构造 32 条 ANN 更近但已 expired 的 chunk，另放 2 条更远、active 的
+  chunk；`dense_candidates=4, K=2` 时第一次取 8 条全部被授权过滤，重试 256 后
+  返回 2 条可见 chunk，顺序稳定；测试结束清理：
+  `temp_tenants=0`、`temp_chunks=0`。
+- `python/tests/test_postgres_retriever.py` 的 dense 排序单测仍通过；完整 Python
+  测试和只读集成测试通过。
 - `bash scripts/check.sh` PASSED 41；`bash scripts/check.sh --smoke` PASSED 45，
   五条 smoke 与 `.local/w2/` 基线逐字节一致。
-- 未改 sparse 分支、`SPARSE_RETRIEVAL` 的 legacy 默认 默认、RRF 权重、候选数、迁移或索引。
+- 未改 sparse 分支、`SPARSE_RETRIEVAL` 的 legacy 默认、RRF 权重、迁移或索引。
 
 ## 未覆盖路径
 
-- HNSW 计划验证使用测试库临时 50,000 条数据，不是生产规模；未调 HNSW 参数
+- HNSW 计划验证使用临时 50,000 条测试数据，不是生产规模；未调 HNSW 参数
   （`m`、`ef_construction`、`ef_search`）。
-- 外层授权在 ANN top-N 之后执行，因此若 top-N 全被授权过滤，返回数会少于 limit；
-  这是本次子查询改写的已知语义边界，未做补候选或二次查询。
+- 授权过滤在 ANN top-N 之后执行；最多取 256 条，如果这 256 条仍全部被授权过滤，
+  结果会少于 limit（不会无限放大）。
 - 未运行 `check.sh --db`、`--e2e`、`--all`；未做浏览器验证；未调用真实模型。
 - 未验证真实稀疏数据与 HNSW 同时启用；0029 的 legacy 默认和 sparse 分支保持不变。
-- 真实大数据量、并发查询和索引维护成本未测量；p50 只是 20 次测试库测量。
+- 真实大数据量、并发查询和索引维护成本未测量；p50 只是 20 次临时测试库测量。
+- `eval/run.sh offline` 的 aligned-53 不经过 `PostgresRetriever`，不作为本次 SQL
+  改动的证据。
 

@@ -53,9 +53,10 @@
 
 ## 已完成（仅供参考，无需再处理）
 
-- **P1-6 稠密检索 HNSW（WP40）**：dense 排序改为 scope-only ANN 子查询，
-  Python 保持 `(distance, chunk_id)` 稳定顺序；50k 测试库 EXPLAIN 自然命中
-  `idx_chunk_embedding`。稀疏分支与 `SPARSE_RETRIEVAL` 的 legacy 默认 默认未改。
+- **P1-6 稠密检索 HNSW（WP40）**：采用有界超额 ANN 子查询（K=8，上限 256，
+  授权不足时重试一次）；50k 测试库 EXPLAIN 自然命中 `idx_chunk_embedding`。
+  Python 保持 `(distance, chunk_id)` 稳定顺序；稀疏分支与 `SPARSE_RETRIEVAL`
+  的 legacy 默认未改。
 - `scripts/check.sh` 已移除 `provider-budget.py` 路径。**已核实**：`grep -c provider-budget scripts/check.sh` = 0；
   现役脚本为 `scripts/dev/provider-usage.py`。
 - ~~`docs/development.md` 已不再描述账本~~ —— **此条已随 R0 清理失效**：`scripts/check.sh` 已移除
