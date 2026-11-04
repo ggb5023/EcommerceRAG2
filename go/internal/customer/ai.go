@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -113,6 +114,7 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	}
 	validate := func() error { return (&auth.Authority{DB: s.DB, SigningKey: s.SigningKey}).ValidateScope(ctx, scope) }
 	history := s.history(ctx, conversationID)
+	ctx = observability.PrepareRPC(ctx, "customer", "understand", scope.GetRequestId())
 	understood, err := s.Rag.Understand(ctx, &ragv1.UnderstandRequest{Context: scope, Query: query, HistorySummary: history})
 	if err != nil {
 		stage = "control_" + status.Code(err).String()
@@ -135,6 +137,7 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 		rewritten = query
 	}
 	stage = "search"
+	ctx = observability.PrepareRPC(ctx, "customer", "search", scope.GetRequestId())
 	search, err := s.Rag.Search(ctx, &ragv1.SearchRequest{Context: scope, Query: rewritten, ResponsePurpose: "customer_chat"})
 	if err != nil {
 		stage = "search_" + status.Code(err).String()
@@ -173,6 +176,7 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 		return
 	}
 	stage = "generation"
+	ctx = observability.PrepareRPC(ctx, "customer", "generate", scope.GetRequestId())
 	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: scope, Query: query, Evidence: evidence, ResponsePurpose: "customer_chat", HistorySummary: history})
 	if err != nil {
 		return

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
-
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -46,6 +46,7 @@ func loadHistorySummary(ctx context.Context, db *pgxpool.Pool, tenantID int64, p
 // The two post-processing helpers are pure and stay with the routing stage.
 func understandTurn(ctx context.Context, client ragv1.RagServiceClient, scope *ragv1.RequestContext,
 	query, history string) (*ragv1.UnderstandResponse, *stageFailure) {
+	ctx = observability.PrepareRPC(ctx, "gateway", "understand", scope.GetRequestId())
 	routed, err := client.Understand(ctx, &ragv1.UnderstandRequest{Context: scope, Query: query,
 		HistorySummary: history}, grpc.WaitForReady(true))
 	if err != nil {
@@ -81,6 +82,7 @@ func saveAskingCheckpoint(ctx context.Context, client ragv1.RagServiceClient, pr
 	if !isV2Profile(profile) {
 		return nil
 	}
+	ctx = observability.PrepareRPC(ctx, "gateway", "save_checkpoint", scope.GetRequestId())
 	saved, err := client.SaveCheckpoint(ctx, &ragv1.SaveCheckpointRequest{Context: scope, PendingKind: "ASKING"})
 	if err != nil {
 		return grpcStageFailure(ctx, err)

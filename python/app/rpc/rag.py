@@ -21,6 +21,28 @@ from app.graph.service import LangGraphRagService
 from app.providers.contracts import ProviderError
 from rag.v1 import rag_pb2, rag_pb2_grpc
 
+_REQUEST_ID_METADATA = 'x-request-id'
+
+
+def _request_id(context: Any, scope_request_id: str) -> str:
+    """Use the transport header for correlation, falling back to the signed scope."""
+    metadata = getattr(context, 'invocation_metadata', None)
+    if callable(metadata):
+        try:
+            for key, value in metadata():
+                if str(key).lower() == _REQUEST_ID_METADATA and value:
+                    return str(value)
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return scope_request_id
+
+
+def _log_rpc_start(rpc: str, context: Any, request_id: str) -> None:
+    logging.getLogger(__name__).info(
+        'v2_rpc_start rpc=%s request_id=%s', rpc, request_id,
+        extra={'component': 'ai_rpc', 'request_id': request_id},
+    )
+
 
 def _valid_scope(ctx: Any) -> bool:
     shops = set(ctx.allowed_shop_ids)
@@ -167,6 +189,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
     def Understand(self, request, context):
         query = request.query.strip()
         self._authorize(request.context, context)
+        request_id = _request_id(context, request.context.request_id)
+        _log_rpc_start('understand', context, request_id)
         if not query:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, 'query is required')
         try:
@@ -181,6 +205,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def Search(self, request, context):
         self._authorize(request.context, context)
+        request_id = _request_id(context, request.context.request_id)
+        _log_rpc_start('search', context, request_id)
         if request.context.subject_type == 'customer' and request.response_purpose != 'customer_chat':
             context.abort(grpc.StatusCode.PERMISSION_DENIED, 'customer purpose required')
         query = request.query.strip()
@@ -201,6 +227,8 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def Generate(self, request, context):
         self._authorize(request.context, context)
+        request_id = _request_id(context, request.context.request_id)
+        _log_rpc_start('generate', context, request_id)
         if request.context.subject_type == 'customer' and request.response_purpose != 'customer_chat':
             context.abort(grpc.StatusCode.PERMISSION_DENIED, 'customer purpose required')
         try:
@@ -240,6 +268,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def SaveCheckpoint(self, request, context):
         scope = self._v2_checkpoint_scope(request, context)
+        _log_rpc_start('save_checkpoint', context, _request_id(context, request.context.request_id))
         try:
             record = self._v2.save_asking_checkpoint(scope)
         except PermissionError as error:
@@ -253,6 +282,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
 
     def ResumeCheckpoint(self, request, context):
         scope = self._v2_checkpoint_scope(request, context)
+        _log_rpc_start('resume_checkpoint', context, _request_id(context, request.context.request_id))
         try:
             record = self._v2.resume_checkpoint(scope)
         except KeyError as error:

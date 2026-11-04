@@ -6,6 +6,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -50,6 +51,7 @@ type evidenceGrant struct {
 // execution; the caller must return without finishing again.
 func retrieveEvidence(ctx context.Context, client ragv1.RagServiceClient, scope *ragv1.RequestContext,
 	query string, mock bool, authorized func() bool) (raw []*ragv1.Evidence, failure *stageFailure, aborted bool) {
+	ctx = observability.PrepareRPC(ctx, "gateway", "search", scope.GetRequestId())
 	search, err := client.Search(ctx, &ragv1.SearchRequest{Context: scope, Query: query,
 		ResponsePurpose: "customer_reply"}, grpc.WaitForReady(true))
 	if err != nil {

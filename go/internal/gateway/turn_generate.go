@@ -6,6 +6,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -33,6 +34,7 @@ type generationResult struct {
 // aborted is true when the authorization callback already finished the execution.
 func generateAnswer(ctx context.Context, client ragv1.RagServiceClient, request *ragv1.GenerateRequest,
 	mock bool, authorized func() bool, hooks generationHooks) (result *generationResult, failure *stageFailure, aborted bool) {
+	ctx = observability.PrepareRPC(ctx, "gateway", "generate", request.GetContext().GetRequestId())
 	gen, err := client.Generate(ctx, request, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, grpcStageFailure(ctx, err), false

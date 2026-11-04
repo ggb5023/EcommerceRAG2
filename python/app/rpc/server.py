@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import ipaddress
-import logging
 import os
 import signal
-import sys
 from concurrent import futures
 
 import grpc
@@ -15,6 +13,7 @@ from grpc_reflection.v1alpha import reflection
 from app.configuration import verify_ai_configuration
 from app.connections import AI_ROLE
 from app.graph.runtime import load_checkpoint_store
+from app.logging_config import configure as configure_logging
 from app.rpc.rag import RagService
 from app.rpc.transport import enabled, server_credentials
 from rag.v1 import rag_pb2_grpc
@@ -121,11 +120,7 @@ def main():
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=os.environ.get("V2_LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
-    )
+    configure_logging(os.environ.get("V2_LOG_LEVEL", "INFO"))
 
 
 if __name__ == "__main__":
