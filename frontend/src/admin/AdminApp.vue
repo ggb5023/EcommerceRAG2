@@ -71,7 +71,7 @@ const confirmationChecked = ref(false)
 const themeChoice = ref<ThemeChoice>(loadThemeChoice())
 const page = computed(() => adminPageFromPath(route.path))
 const title = computed(() => ({
-  overview: '运行状态', outcomes: '结果度量', gaps: '内容缺口', accounts: '账号与权限', requests: '权限申请', audit: '授权审计',
+  overview: '运行状态', outcomes: '结果度量', reports: '报告', gaps: '内容缺口', accounts: '账号与权限', requests: '权限申请', audit: '授权审计',
   shops: '店铺范围', sources: '资料来源', ingestion: '摄取任务', reviews: '版本审核',
   'not-found': '页面不可用',
 }[page.value]))
@@ -122,6 +122,7 @@ const navigation = computed(() => {
   const items: { label: string; page: AdminPage; visible: boolean }[] = [
     { label: '运行状态', page: 'overview', visible: canSeeOperations.value },
     { label: '结果度量', page: 'outcomes', visible: canSeeOperations.value },
+    { label: '报告', page: 'reports', visible: canSeeOperations.value },
     { label: '内容缺口', page: 'gaps', visible: canSeeOperations.value },
     { label: '账号与权限', page: 'accounts', visible: canAccess.value || canManage.value },
     { label: '权限申请', page: 'requests', visible: true },
@@ -260,7 +261,7 @@ async function loadPage() {
     if (browserAuth.enabled && !browserAuth.authenticated) { clearRestrictedContent(); identityStatus.value = 401; return }
     identityStatus.value = 0
     if (!session.value) session.value = await get<AdminSession>('/admin/v1/session')
-    if (page.value === 'outcomes' || page.value === 'gaps') { data.value = []; return }
+    if (page.value === 'outcomes' || page.value === 'reports' || page.value === 'gaps') { data.value = []; return }
     const response = await get<ItemResponse | Row>(endpointForPage())
     data.value = page.value === 'overview'
       ? [response as Row]

@@ -1,5 +1,5 @@
 export const adminPages = [
-  'overview', 'outcomes', 'gaps', 'accounts', 'requests', 'audit', 'shops', 'sources', 'ingestion', 'reviews',
+  'overview', 'outcomes', 'reports', 'gaps', 'accounts', 'requests', 'audit', 'shops', 'sources', 'ingestion', 'reviews',
 ] as const
 
 export type AdminPage = typeof adminPages[number]
@@ -8,6 +8,7 @@ export type AdminRoutePage = AdminPage | 'not-found'
 const paths: Record<AdminPage, string> = {
   overview: '/admin/overview',
   outcomes: '/admin/merchant/outcomes',
+  reports: '/admin/reports',
   gaps: '/admin/merchant/gaps',
   accounts: '/admin/access/accounts',
   requests: '/admin/access/requests',

@@ -82,13 +82,65 @@ export type KnowledgeGapReport = {
   truncated: boolean
 }
 
+export type UsageRow = {
+  slot?: string
+  model?: string
+  input_tokens: number
+  output_tokens: number
+  calls: number
+  failed_calls: number
+}
+
+export type UsageReport = {
+  input_tokens: number
+  output_tokens: number
+  calls: number
+  failed_calls: number
+  by_slot: UsageRow[]
+  by_model: UsageRow[]
+}
+
+export type HandoffReport = {
+  range: '7d' | '30d'
+  window_start: string
+  window_end: string
+  handoff_conversations: number
+  customer_conversations: number
+  handoff_rate: number | null
+}
+
 export const get = <T>(path: string) => request<T>(path)
 export const getOutcomes = (range: '7d' | '30d' = '30d') =>
   get<ResolutionOutcome>(`/admin/v1/merchant/outcomes?range=${range}`)
 export const getGaps = (range: '7d' | '30d' = '30d') =>
   get<KnowledgeGapReport>(`/admin/v1/merchant/gaps?range=${range}`)
-export const exportGaps = (range: '7d' | '30d' = '30d') =>
-  request<{ path: string; count: number }>(`/admin/v1/merchant/gaps/export?range=${range}`, { method: 'POST' })
+export const getUsage = (range: '7d' | '30d' = '30d') =>
+  get<UsageReport>(`/admin/v1/merchant/usage?range=${range}`)
+export const getHandoff = (range: '7d' | '30d' = '30d') =>
+  get<HandoffReport>(`/admin/v1/merchant/report/handoff?range=${range}`)
+
+export async function downloadGaps(range: '7d' | '30d' = '30d'): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`/admin/v1/merchant/gaps/export?range=${range}&download=1`, {
+    method: 'POST', credentials: 'same-origin', headers: csrfHeaders(),
+  })
+  if (!response.ok) {
+    let code = ''
+    try { const payload = await response.json() as { error?: { code?: string } }; code = payload.error?.code ?? '' } catch { /* no body */ }
+    throw new ApiError(response.status, `${messages[response.status] ?? '导出失败。'}${code ? ` (${code})` : ''}`)
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const match = /filename="?([^";]+)"?/i.exec(disposition)
+  return { blob: await response.blob(), filename: match?.[1] ?? `gaps-${range}.jsonl` }
+}
+
+export function triggerDownload(blob: Blob, filename: string): void {
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
 export const put = <T>(path: string, body: unknown) => request<T>(path, {
   method: 'PUT',
   headers: { 'Content-Type': 'application/json' },
