@@ -67,3 +67,42 @@ Go 重建后用 `strings` 验证新增 store/use-case 符号，重启后进程�
   其清单在交付时登记。
 - 不新增 resumeTurn 的纯单测；用既有 Go 测试与四组 curl 证明行为不变。
 - 不跑 `--db` / `--e2e` / `--all`；不验证真实模型路径。
+
+## 实际交付
+
+- 代码：`b865adb` 新增 `store_turn_resume.go` 与 `turn_resume.go`；`resumeTurn`
+  改为刷新授权、前置检查、解码、调用 `resumeTurnExecution`、映射响应和启动执行。
+  handler 47 行，`resumeTurnExecution` 71 行，均 ≤80。
+- SQL：turn/conversation 锁、历史权限、resume 幂等、旧 execution、ASKING
+  execution、新 execution、turn 状态更新、幂等行与 message 全部进入 store；
+  `resumeTurn` 内剩余 SQL 为 0。resume 幂等键仍为 `resume:` 前缀。
+- 响应保持：成功 202、同 key 重放 200 返回旧 execution、非 ASKING 409
+  `turn_not_asking`、不存在轮次 404、非 v2 profile 409
+  `checkpoint_resume_unavailable`；四组 curl 响应见交付汇报。
+- 棘轮：`ab8afd7` 将 `HANDLER_SQL_BASELINE` 从 29 精确降到 24；check-structure
+  输出 `PASS structure: handler SQL 24/24`（命令见 WP43 验收命令）。
+- 测试：`go test -count=1 ./...` 全部 ok；`go vet ./...` 通过；Go 重建并重启后
+  进程启动时间晚于 `ab8afd7`；`strings` 命中 `resumeTurnExecution`/
+  `turnResumeStore`/`persistResume` 共 6 处。
+- curl 测试数据已清理：ASKING 轮次、resume execution、幂等、SSE、消息与 trace
+  行均删除，临时会话残留计数为 0；未改 smoke 基线。
+
+## 剩余 SELECT 清单
+
+`resumeTurn` 内为 0。非 store 的 gateway SELECT（按文件，含嵌套 SELECT）：
+
+```text
+turn_handlers.go 9（getConversation/events/cancelTurn）
+authorization.go 3（历史权限、执行权限）
+result.go 5
+support_suggestions.go 5
+recovery.go 5
+main.go 3
+turn_persist.go 3
+turn_route.go 3
+identity.go 1
+wire.go 1
+metrics_http.go 1
+```
+
+后续顺序：customer service/ai → recovery 与剩余 SQL + P1-7 恢复演练。
