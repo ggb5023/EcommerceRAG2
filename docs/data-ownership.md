@@ -2,9 +2,7 @@
 
 [项目入口](../README.md) · [架构](architecture.md) · [后端重构细则](archive/backend-refactor-plan.md)
 
-> **未声明的表**当前允许写入但不受单写者保护（预算 36，只许降）。
-> 新增写入前必须先登记。核心热表 `turn` / `conversation` / `sse_event` /
-> `evidence_snapshot` / `citation` / `message` / `customer_*` 尚未声明，正在逐步收口。
+> 所有当前被写表均已声明；未声明预算 0，只许降。新增写入前必须先登记。
 
 一张表只有一个写入方，或少数被明确批准的写入方。这张表是唯一来源：代码里的每一条
 `INSERT` / `UPDATE` / `DELETE` 都必须落在下面声明的集合里，否则 `scripts/check/check-ownership.py` 失败。
@@ -54,6 +52,30 @@
 | `routing_trace` | `gateway` | `gateway` | 路由追踪随轮次由网关写；隐藏 suggestion 保留策略按 request_id 清理 | `scripts/check/check-ownership.py` |
 | `tool_call_trace` | `gateway` | `gateway` | 工具调用追踪随轮次由网关写；隐藏 suggestion 保留策略按 request_id 清理 | `scripts/check/check-ownership.py` |
 | `retrieval_trace` | `retrieval`、`gateway` | `gateway`、`retrieval` | Python 检索写追踪；隐藏 suggestion 保留策略需要网关按 request_id 删除孤儿 | `scripts/check/check-ownership.py` |
+
+| `chunk` | `ingest` | `retrieval`、`admin`、`customer`、`ingest` | 解析后的正文片段由 ingest 与版本/商品行在同一摄取事务写入；检索、管理审核和顾客授权只读 | `scripts/check/check-ownership.py` |
+| `control_command` | `ingestclient` | `admin`、`ingestclient` | 控制命令的受理与回执由 ingestclient 写；admin 读取命令结果 | `scripts/check/check-ownership.py` |
+| `customer_command` | `customer` | `customer` | 顾客命令幂等结果由 customer 包唯一写读 | `scripts/check/check-ownership.py` |
+| `customer_event` | `customer` | `customer`、`admin` | 顾客会话事件随状态变化由 customer 写；handoff 报告由 admin 只读 | `scripts/check/check-ownership.py` |
+| `customer_identity` | `customer` | `customer` | 匿名顾客身份归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
+| `customer_reply` | `gateway` | `gateway` | 员工建议/回答的终态回复由 gateway 写读，customer 通道不写此表 | `scripts/check/check-ownership.py` |
+| `customer_retrieval_trace` | `retrieval` | `retrieval` | 顾客检索追踪由 retrieval 写入并读取，供诊断/保留策略使用 | `scripts/check/check-ownership.py` |
+| `import_batch` | `admin` | `admin` | 导入批次由管理控制面唯一写入和读取 | `scripts/check/check-ownership.py` |
+| `import_item` | `admin` | `admin` | 导入批次条目与批次同事务，由 admin 唯一写读 | `scripts/check/check-ownership.py` |
+| `ingest_artifact_object` | `ingest` | `ingest` | 摄取对象日志由 ingest worker 写读，用于重试/清理 | `scripts/check/check-ownership.py` |
+| `ingest_command_result` | `ingest` | `ingest` | 摄取命令结果由 ingest 服务写入和读取 | `scripts/check/check-ownership.py` |
+| `ingest_event` | `ingest` | `ingest` | 摄取阶段事件由 ingest worker/服务唯一写读 | `scripts/check/check-ownership.py` |
+| `ingest_job` | `ingest` | `admin`、`gateway`、`ingest` | 任务队列由 ingest 唯一写；admin 查询、gateway 只读队列 gauge | `scripts/check/check-ownership.py` |
+| `ingest_job_item` | `ingest` | `admin`、`ingest` | 任务条目由 ingest 写；admin 读审核/任务视图 | `scripts/check/check-ownership.py` |
+| `ingest_payload` | `ingest` | `ingest` | 摄取载荷由 ingest 写入并读取，不对外暴露 | `scripts/check/check-ownership.py` |
+| `ingest_publication` | `ingest` | `ingest` | 发布记录由 ingest 命令写入并读取 | `scripts/check/check-ownership.py` |
+| `ingest_worker_heartbeat` | `ingest` | `admin`、`ingest` | worker 心跳由 ingest 写；admin 只读运行概览 | `scripts/check/check-ownership.py` |
+| `local_auth_event` | `localauth` | `localauth` | 本地登录审计由 localauth 唯一写读 | `scripts/check/check-ownership.py` |
+| `review_suggestion` | `admin` | `admin` | 审核建议由管理控制面写入并读取，随版本保留策略清理 | `scripts/check/check-ownership.py` |
+| `shop` | `admin` | `admin`、`auth`、`customer`、`ingest`、`localauth` | 店铺设置由 admin 写，身份/顾客/摄取侧只读 | `scripts/check/check-ownership.py` |
+| `source` | `ingest` | `admin`、`auth`、`customer`、`ingest` | 资料来源由 ingest 创建，管理/授权/顾客侧只读 | `scripts/check/check-ownership.py` |
+| `tenant_agent_review` | `admin` | `admin` | 租户审核开关由 admin 唯一写读 | `scripts/check/check-ownership.py` |
+| `v2_asking_checkpoint` | `graph` | `graph` | ASKING 检查点由 Python graph 写入并恢复，Go 不直接读写该表 | `scripts/check/check-ownership.py` |
 
 ## 维护规则
 

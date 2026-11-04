@@ -20,9 +20,9 @@ DOCUMENT = ROOT / "docs" / "data-ownership.md"
 WRITE = re.compile(r"(?i)\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_]*)")
 # Row-locking clauses ("FOR UPDATE OF x") and prose are not table writes.
 CREATE = re.compile(r"(?i)create\s+table\s+(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)")
-# Ratchet: 36 tables are written but not declared yet. Registering them lowers
-# this number; raising it is a policy change that needs a review, not a fix.
-UNDECLARED_BUDGET = 23
+# Ratchet: all currently written tables are declared. Raising this number
+# is a policy change that needs a review, not a fix.
+UNDECLARED_BUDGET = 0
 # Frozen at the moment the ratchet was introduced, only used to name what moved.
 UNDECLARED_BASELINE = frozenset({
     "chunk", "citation", "control_command", "conversation", "conversation_execution",
