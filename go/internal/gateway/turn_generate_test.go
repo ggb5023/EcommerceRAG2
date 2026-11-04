@@ -46,7 +46,7 @@ func generatedDecision(behavior ragv1.ReplyBehavior, reason string) *ragv1.Gener
 	}}
 }
 
-func generatedDone(sequence int32) *ragv1.GenerateResponse {
+func generatedDone(sequence uint64) *ragv1.GenerateResponse {
 	return &ragv1.GenerateResponse{Sequence: sequence, Event: &ragv1.GenerateResponse_Done{Done: true}}
 }
 
