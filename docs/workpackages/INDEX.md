@@ -52,7 +52,7 @@
 | 43 | P1-4 阶段 1：createTurn 的 SQL 移出 handler | done | — | — | `cc406e0` |
 | 44 | P1-4 阶段 2：resumeTurn 的 SQL 移出 handler | done | — | — | `b8a22c3` |
 | 45 | P1-4 阶段 3：customer service/ai 的 SQL 移出 handler | done | — | — | `ef15e24` |
-| 46 | P1-4 阶段 4：recovery 与剩余 SQL 移出 handler | implemented | 阶段 4 待复核；WP47 P1-7 未开始 | — | `ebd6be0` |
+| 46 | P1-4 阶段 4：recovery 与剩余 SQL 移出 handler | done | — | — | `f1d4007` |
 
 ## 同步规则
 
