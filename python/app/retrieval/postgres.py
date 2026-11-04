@@ -351,6 +351,14 @@ class PostgresRetriever:
             sparse_rrf_weight=sparse_rrf_weight,
         )
 
+    @staticmethod
+    def _sort_dense_rows(rows: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        """Restore deterministic order without putting c.id back in the HNSW query."""
+        def key(row: Mapping[str, Any]) -> tuple[float, str]:
+            distance = row.get("distance")
+            return (float(distance) if distance is not None else float("inf"), str(row["chunk_id"]))
+        return sorted(rows, key=key)
+
     def _execute_search(
         self,
         *,
@@ -372,7 +380,7 @@ class PostgresRetriever:
                 dense_sql,
                 [vector, *params_common, *selected_params, vector, self._dense_candidates],
             )
-            dense_rows = cursor.fetchall()
+            dense_rows = self._sort_dense_rows(cursor.fetchall())
             sparse_rows: list[Mapping[str, Any]] = []
             actual_mode = self._resolve_sparse_mode(cursor, sparse_query_literal)
             if actual_mode == "sparsevec":

@@ -258,3 +258,13 @@ def test_retriever_rejects_invalid_catalog_filter_before_database_call():
     }
     with pytest.raises(PermissionError, match="attribute key"):
         retriever.search(query="SKU-1", query_vector=[0.0] * 1024, scope=scope)
+
+
+def test_dense_rows_sort_by_distance_then_chunk_id():
+    rows = [
+        {"chunk_id": 9, "distance": 0.5},
+        {"chunk_id": 2, "distance": 0.5},
+        {"chunk_id": 7, "distance": 0.1},
+    ]
+    ordered = PostgresRetriever._sort_dense_rows(rows)
+    assert [row["chunk_id"] for row in ordered] == [7, 2, 9]
