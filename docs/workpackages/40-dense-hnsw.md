@@ -80,7 +80,7 @@ bash scripts/check.sh --smoke
   返回 2 条可见 chunk，顺序稳定；测试结束清理：
   `temp_tenants=0`、`temp_chunks=0`。
 - `python/tests/test_postgres_retriever.py` 的 dense 排序单测通过；
-  `tests/test_dense_hnsw.py` 的 3 个集成测试通过（50k plan、确定性、expired top-N
+  `python/tests/test_dense_hnsw.py` 的 3 个集成测试通过（50k plan、确定性、expired top-N
   可见性恢复）。完整 Python 测试（不设 DB env）455 passed、35 skipped。
   使用临时完整 test env 时，既有 `test_postgres_retriever` 的 sparse 探针测试因
   test DB 已有 sparse 行而失败，不能作为本改动的回归通过；未改该测试/数据。
