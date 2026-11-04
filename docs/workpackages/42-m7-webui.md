@@ -57,20 +57,21 @@ gap 下载 curl/浏览器证据；截图存 `.local/redesign/`。
   `effective_from`/`effective_to`/`reason`/`confirm`/`expected_fencing_epoch`/
   `permission_revision`，带 `Idempotency-Key`；成功刷新详情/版本历史，409 显示
   “版本状态或 fencing epoch 已变化，请重新加载”。
-  live 成功：
+- 真实浏览器提交：`node frontend/tests/validity.browser.mjs` 启动临时 Vite 5174
+  （`--force`，代理 dev gateway 8080），以 `dev-user` 会话进入版本审核，展开历史
+  版本并打开版本 55；浏览器填未来日期与理由后提交，POST 返回 200
+  `command_status=applied`、`status=updated`，详情日期更新为
+  `2026-12-04 至 2027-05-03`。随后 curl 以当前 fence 提交一次推进 fencing，浏览器
+  仍持旧详情再次提交，返回 409 且 `data-testid=validity-error` 文案含
+  `fencing epoch 已变化`。
+- 数据恢复：用例结束前把版本 55 恢复为原始 `2026-11-01 至 2026-12-31`；PASS JSON
+  `restored_match=true`，API 与 dev 库查询一致：
   ```text
-  HTTP/1.1 200 OK
-  {"audit_result":"success","command_status":"applied","effective_from":"2026-11-01",
-   "effective_to":"2026-12-31","fencing_epoch":2,"status":"updated","version_id":"55"}
+  55|2026-11-01|2026-12-31|10
   ```
-  live fencing 冲突：
-  ```text
-  HTTP/1.1 409 Conflict
-  {"audit_result":"conflict","code":"precondition_failed","command_status":"rejected",
-   "message":"version hash or fencing epoch changed","version_id":"55"}
-  ```
-  刷新详情后 `effective_from=2026-11-01`、`effective_to=2026-12-31`、
-  `fencing_epoch=2`。
+  fencing_epoch 因三次有效写入单调前进到 10，未回退（审计追加设计）；临时 Vite
+  已停止，`vite_stopped=true`。截图：
+  `.local/redesign/validity-submit.png`、`.local/redesign/validity-conflict.png`。
 - 报告页：`/admin/reports` 读取 usage 与 handoff 的 7d/30d 数据，展示
   by_slot/by_model 与 handoff 分子/分母/rate；rate=null 显示“无数据”；无货币符号。
 - gap 下载：`POST /admin/v1/merchant/gaps/export?range=30d&download=1` 返回
@@ -80,19 +81,19 @@ gap 下载 curl/浏览器证据；截图存 `.local/redesign/`。
 - 前端：`npm test` 14 files / 57 tests 全绿；`npm run build` 通过。
 - Go：`go test ./...` 全绿，`go vet ./...` 通过；Go 重建并重启后验证启动时间。
 - 截图存于 `.local/redesign/`：
-  `validity-form.png`、`report-page.png`、`gap-download.png`、
-  `gaps-download.jsonl`（截图不提交）。
+  `validity-submit.png`、`validity-conflict.png`、`report-page.png`、
+  `gap-download.png`、`gaps-download.jsonl`（截图不提交）。
 - `docs/openapi.yaml` 已补知识缺口导出接口的 download/legacy 两种响应。
 - `bash scripts/check.sh` PASSED 42；`bash scripts/check.sh --smoke` PASSED 45，
   五条 smoke 与 `.local/w2/` 基线逐字节一致。
 
 ## 未覆盖路径
 
-- 浏览器截图使用临时 Vite + Playwright 脚本，未跑完整 `frontend/tests/*.browser.mjs`
-  矩阵；截图只覆盖有效期表单、报告页和 gap 下载入口。
-- fencing 冲突通过 curl 与前端 `validityError` 单测验证，未在浏览器表单内实际提交
-  一条 409 冲突；UI 的冲突展示由同一错误处理函数覆盖。
-- 未做全页面无货币 grep 的浏览器 DOM 断言；已对报告组件源码/渲染测试做无货币检查。
+- 新增的 `validity.browser.mjs` 是独立脚本，未接入 `check.sh --e2e`；完整
+  `frontend/tests/*.browser.mjs` 矩阵未跑，`--e2e` 未运行。
+- 数据恢复只恢复日期窗口；`fencing_epoch` 与 `admin_audit`/命令审计按设计追加，
+  未回退。测试复用版本 55，未另建可丢弃版本。
+- 无货币只对报告组件源码/渲染和报告页 DOM 做过检查；未做全站所有页面 DOM 扫描。
 - 旧 export 兼容已用 curl 验证 `{path,count}`，未在旧前端调用方上做回归。
-- 未改 metrics/检索/评测集/迁移；未运行 `--db`/`--e2e`/`--all`；未 push。
+- 未改 metrics/检索/评测集/迁移；未运行 `--db`/`--all`；未 push。
 
