@@ -192,6 +192,23 @@ func (s *Service) change(ctx context.Context, id, actor, key, action string, use
 	} else if actor != "customer:"+c.Customer || action != "handoff" {
 		return nil, errors.New("forbidden")
 	}
+	c, err = applyConversationAction(ctx, tx, c, id, action, user, sessionHash)
+	if err != nil {
+		return nil, err
+	}
+	result = map[string]any{"conversation_id": id, "state": c.State, "epoch": c.Epoch}
+	if action != "heartbeat" && action != "handoff" && action != "release" && action != "requeue" {
+		if err = emit(ctx, tx, c, "state", map[string]any{"actor_user_id": user, "action": action}); err != nil {
+			return nil, err
+		}
+	}
+	if err = saveCommand(ctx, tx, c, actor, key, payload, result); err != nil {
+		return nil, err
+	}
+	return result, tx.Commit(ctx)
+}
+func applyConversationAction(ctx context.Context, tx pgx.Tx, c conversation, id, action string, user int64, sessionHash string) (conversation, error) {
+	var err error
 	switch action {
 	case "handoff":
 		if c.State == "AI" {
@@ -201,7 +218,7 @@ func (s *Service) change(ctx context.Context, id, actor, key, action string, use
 		}
 	case "claim":
 		if c.State != "WAITING_HUMAN" {
-			return nil, errors.New("claim_stale")
+			return c, errors.New("claim_stale")
 		}
 		c.State = "HUMAN"
 		c.Epoch++
@@ -210,7 +227,7 @@ func (s *Service) change(ctx context.Context, id, actor, key, action string, use
 		var owned bool
 		err = tx.QueryRow(ctx, `SELECT state='HUMAN' AND owner_user_id=$2 AND owner_session_hash=$3 AND lease_until>now() FROM customer_conversation WHERE id=$1`, id, user, sessionHash).Scan(&owned)
 		if err != nil || !owned {
-			return nil, errors.New("claim_stale")
+			return c, errors.New("claim_stale")
 		}
 		if action == "heartbeat" {
 			_, err = tx.Exec(ctx, `UPDATE customer_conversation SET lease_until=now()+interval '120 seconds' WHERE id=$1`, id)
@@ -228,28 +245,17 @@ func (s *Service) change(ctx context.Context, id, actor, key, action string, use
 		}
 	case "requeue":
 		if c.State != "HUMAN" {
-			return nil, errors.New("claim_stale")
+			return c, errors.New("claim_stale")
 		}
 		err = queueTx(ctx, tx, c, "admin_requeued")
 		c.State = "WAITING_HUMAN"
 		c.Epoch++
 	default:
-		return nil, errors.New("unsupported_action")
+		return c, errors.New("unsupported_action")
 	}
-	if err != nil {
-		return nil, err
-	}
-	result = map[string]any{"conversation_id": id, "state": c.State, "epoch": c.Epoch}
-	if action != "heartbeat" && action != "handoff" && action != "release" && action != "requeue" {
-		if err = emit(ctx, tx, c, "state", map[string]any{"actor_user_id": user, "action": action}); err != nil {
-			return nil, err
-		}
-	}
-	if err = saveCommand(ctx, tx, c, actor, key, payload, result); err != nil {
-		return nil, err
-	}
-	return result, tx.Commit(ctx)
+	return c, err
 }
+
 func (s *Service) humanMessage(ctx context.Context, id string, staff Staff, key string, epoch int64, text string) (string, error) {
 	if text == "" || len(text) > 8192 {
 		return "", errors.New("invalid_text")
