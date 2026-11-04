@@ -24,7 +24,8 @@ type generationHooks struct {
 
 // generationResult is the text accumulated from delta frames.
 type generationResult struct {
-	answer string
+	answer   string
+	decision *ragv1.ReplyDecision
 }
 
 // generateAnswer consumes the generation stream and returns the answer text.
@@ -40,6 +41,7 @@ func generateAnswer(ctx context.Context, client ragv1.RagServiceClient, request 
 		return nil, grpcStageFailure(ctx, err), false
 	}
 	var answer strings.Builder
+	var decision *ragv1.ReplyDecision
 	isMock := mock
 	sawProfileMarker := false
 	for {
@@ -69,6 +71,15 @@ func generateAnswer(ctx context.Context, client ragv1.RagServiceClient, request 
 			if stageErr := hooks.onCitation(value.Citation); stageErr != nil {
 				return nil, stageErr, false
 			}
+		case *ragv1.GenerateResponse_Decision:
+			decision = value.Decision
+			if decision != nil {
+				observability.LogJSON("info", "gateway", "generate_decision", map[string]any{
+					"request_id":  request.GetContext().GetRequestId(),
+					"behavior":    decision.Behavior.String(),
+					"reason_code": decision.ReasonCode,
+				})
+			}
 		case *ragv1.GenerateResponse_IsMock:
 			sawProfileMarker = true
 			isMock = value.IsMock
@@ -87,7 +98,7 @@ func generateAnswer(ctx context.Context, client ragv1.RagServiceClient, request 
 			if isMock != mock {
 				return nil, &stageFailure{state: "FAILED", code: "provider_profile_mismatch"}, false
 			}
-			return &generationResult{answer: answer.String()}, nil, false
+			return &generationResult{answer: answer.String(), decision: decision}, nil, false
 		}
 	}
 }
@@ -118,7 +129,7 @@ func persistCitation(ctx context.Context, db *pgxpool.Pool, tenantID, executionI
 func runGenerationStage(ctx context.Context, client ragv1.RagServiceClient, db *pgxpool.Pool, tenantID, executionID int64,
 	request *ragv1.GenerateRequest, mock, snapshotFallback bool, accepted []*ragv1.Evidence,
 	authorized func() bool, check func(*ragv1.Evidence) (bool, error),
-	writeEvent func(string, any) error, onCitations func([]string)) (answer string, citations []string, failure *stageFailure, aborted bool) {
+	writeEvent func(string, any) error, onCitations func([]string)) (answer string, citations []string, decision *ragv1.ReplyDecision, failure *stageFailure, aborted bool) {
 	cited := make([]string, 0, 8)
 	defer func() { onCitations(cited) }()
 	hooks := generationHooks{
@@ -148,10 +159,31 @@ func runGenerationStage(ctx context.Context, client ragv1.RagServiceClient, db *
 	}
 	generated, generateFailure, generateAborted := generateAnswer(ctx, client, request, mock, authorized, hooks)
 	if generateAborted || generateFailure != nil {
-		return "", cited, generateFailure, generateAborted
+		return "", cited, nil, generateFailure, generateAborted
 	}
-	return finalAnswer(generated, snapshotFallback), cited, nil, false
+	return finalAnswer(generated, snapshotFallback), cited, generated.decision, nil, false
 }
+
+// generationTerminal maps the Python reply decision to the Go-owned terminal.
+// CLARIFY intentionally stays DONE for this batch: mapping it to ASKING needs
+// a separate decision. A missing decision preserves the legacy DONE behavior;
+// the HANDOFF/empty-evidence path is carried by an explicit Decision.
+func generationTerminal(decision *ragv1.ReplyDecision) (string, string) {
+	if decision == nil {
+		return "DONE", ""
+	}
+	if decision.Behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_HANDOFF {
+		code := strings.TrimSpace(decision.ReasonCode)
+		if code == "" {
+			code = "knowledge_missing"
+		}
+		return "FAILED", code
+	}
+	return "DONE", ""
+}
+
+// terminalCanCopy mirrors persistExecutionTerminal's copyability invariant.
+func terminalCanCopy(state string) bool { return state == "DONE" }
 
 // authFailureCode maps an authorization error to its stable failure code.
 func authFailureCode(err error) string { return auth.FailureCode(err) }

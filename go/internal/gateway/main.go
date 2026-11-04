@@ -485,7 +485,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	// Retrieval may use a rewrite; generation must retain the user's conditions
 	// and requested workflow, which a retrieval-oriented rewrite can omit.
-	answer, _, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
+	answer, _, decision, generateFailure, generateAborted := runGenerationStage(ctx, g.rag, g.db, g.session.TenantID, executionID,
 		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
 			ResponsePurpose: "customer_reply", HistorySummary: history},
 		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
@@ -500,7 +500,8 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	finish("DONE", "", answer)
+	state, code := generationTerminal(decision)
+	finish(state, code, answer)
 }
 
 // authorizationCacheKey is the stable shape required for any future result

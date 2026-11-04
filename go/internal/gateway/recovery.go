@@ -48,7 +48,7 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 	if err != nil {
 		return err
 	}
-	canCopy := false
+	canCopy := terminalCanCopy(state)
 	blocked := "incomplete"
 	if state == "DONE" {
 		if _, err = tx.Exec(ctx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, id.tenantID, id.turnID, answer); err != nil {
