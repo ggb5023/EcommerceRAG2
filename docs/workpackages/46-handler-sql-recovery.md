@@ -62,3 +62,47 @@ curl：cancel 一条 EXECUTING 轮次 → 200/CANCELLED；suggestion 生成 + co
 - 不新增 recovery 纯单测；用既有集成测试与 cancel/suggestion curl 证明行为不变。
 - 不跑 `--db` / `--e2e` / `--all`；不验证真实模型路径。
 - `events`/`getConversation` 等 SELECT 暂留，清单在交付时登记。
+
+## 实际交付
+
+- 代码：`2e01311` 新增 `store_recovery.go`、`store_turn_events.go`、
+  `store_turn_generate.go`、`store_turn_retrieve.go`、`store_turn_cancel.go`、
+  `store_conversation.go`；`recovery.go`、`turn_handlers.go` cancel 分支、
+  `turn_persist.go`、`turn_generate.go`、`turn_retrieve.go`、`main.go` 不再持有
+  写 SQL。`support_suggestions.go` 的建议 turn/复制审计仍调用既有 store/admin
+  store；本轮额外把复制路径的锁定/引用/审计 SELECT 移入 store 并拆分长 handler。
+- 行为：recovery 终态、cancel 分支、SSE/citation/evidence/tool trace、
+  suggestion copy 分支响应逐字保持；`cancelTurn` 40 行、`persistExecutionTerminal`
+  57 行、`recoverInterruptedExecutions` 30 行、`copySuggestion` 70 行。
+- 棘轮：`ebd6be0` 将 `HANDLER_SQL_BASELINE` 从 16 降到 0；
+  `PASS structure: handler SQL 0/0`。
+- 测试：`go test -count=1 ./...` 全部 ok；`go vet ./...` 通过；
+  `V2_INTEGRATION_ENV=/etc/ecommerce-rag/test-integration.env go test ./internal/gateway
+  -run 'TestTurnDecisionRecoveryWritesLedger|TestPersistExecutionTerminalSetsCopyability'`
+  通过，recovery 终态与 copyability 由既有集成测试覆盖。
+- cancel curl：EXECUTING 轮次返回 `HTTP 200 {"status":"CANCEL_REQUESTED"}`，
+  随后轮次变为 `CANCELLED`。
+- suggestion curl：生成建议 202；mock 下 copy 返回 403 `copy_not_allowed`
+  （mock 回答不可复制），denied 审计行写入。
+- 测试数据：cancel conversation 781 已删除；suggestion turn 802/execution 801
+  已删除，历史 suggestion conversation 430 的其它 turn 保留。copy denied 的
+  `admin_audit` 行因表为 append-only 未删除。
+
+## 剩余 SELECT 清单
+
+customer service/ai 与 recovery 写路径已无写 SQL；剩余非 store SELECT：
+
+```text
+turn_handlers.go 7（getConversation/events）
+turn_persist.go 3
+authorization.go 3
+main.go 3
+result.go 5
+turn_route.go 3
+recovery.go 1（execution ownership advisory lock）
+identity.go 1
+wire.go 1
+metrics_http.go 1
+```
+
+后续：WP47 P1-7 恢复演练。
