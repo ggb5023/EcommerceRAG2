@@ -9,12 +9,15 @@ describe('report panels', () => {
       usage: {
         input_tokens: 12, output_tokens: 4, calls: 3, failed_calls: 1,
         by_slot: [{ slot: 'generation', input_tokens: 12, output_tokens: 4, calls: 3, failed_calls: 1 }],
-        by_model: [],
+        by_model: [{ model: 'mock-generation', input_tokens: 12, output_tokens: 4, calls: 3, failed_calls: 1 }],
       },
       handoff: { range: '30d', window_start: '', window_end: '', handoff_conversations: 2, customer_conversations: 4, handoff_rate: 0.5 },
     }))
     expect(html).toContain('data-testid="report-usage"')
+    expect(html).toContain('data-testid="report-usage-slots"')
+    expect(html).toContain('data-testid="report-usage-models"')
     expect(html).toContain('generation')
+    expect(html).toContain('mock-generation')
     expect(html).toContain('50.00%')
     expect(html).not.toMatch(/[$￥€£]|currency|价格|金额/)
   })
