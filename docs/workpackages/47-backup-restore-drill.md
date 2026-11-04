@@ -67,3 +67,26 @@ bash scripts/check.sh --smoke
 - Keycloak/身份恢复、浏览器 Cookie、入口切换不在本次范围；数据库 evidence
   只覆盖 PostgreSQL 行数/指纹与迁移 checksum。
 - 恢复后的隔离 project 在取证后删除；只有 `.local/wp47/` 证据保留。
+
+## 实际交付
+
+- 隔离源：`ecr-wp47-source`，只运行 `postgres` 服务；使用 49 条当前迁移，
+  插入合成 `tenant` / `conversation` / `turn` / `conversation_execution` /
+  `document_version` / `chunk` / `usage_log` / `turn_decision` 行及
+  `wp47-artifact.txt`（位于 runtime 的 artifacts 目录）。
+- 备份：`selfhost-backup.py --runtime /tmp/ecr-wp47-runtime --output
+  /tmp/ecr-wp47-backup --maintenance-stopped` 输出
+  `PASS restricted backup created; independent restore verification still required`。
+- 恢复：`python/.venv/bin/python scripts/ops/selfhost-restore.py --backup
+  /tmp/ecr-wp47-backup --directory /tmp/ecr-wp47-restored --project
+  ecr-restore-wp47` 输出
+  `PASS isolated database/file restore; applications remain stopped and Web entry unchanged`。
+- 核对：`restore-evidence.json` 的 `database_restore_verified=true`、
+  `all_tables_equal=true`、`migration_checksums.files=49` / `recorded=49` /
+  `all_match=true`、artifact 源/恢复 sha256 相同。
+- 证据位置：`.local/wp47/restore-evidence.json` 与
+  `.local/wp47/backup-manifest.json`（本地、不入库、0600）。
+- 清理：取证后 `ecr-wp47-source` 与 `ecr-restore-wp47` 均 `docker compose
+  down -v`，对应容器、network、volume 和 `/tmp/ecr-wp47-*` 目录全部删除。
+- OSS 远端对象存储：无凭证，`oss_remote.status=UNCONFIGURED`，仅演练本地
+  PostgreSQL + filesystem archive。
