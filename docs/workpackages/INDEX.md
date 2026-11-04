@@ -49,7 +49,7 @@
 | 40 | P1-6 修复：稠密检索走 HNSW | done | — | — | `0266998` |
 | 41 | P1-2/P1-3：单写者覆盖与文档数字真实性 | done | — | — | `20f555d` |
 | 42 | P1-5：M7 WebUI 闭环与只读页面 | done | — | — | `e879824` |
-| 43 | P1-4 阶段 1：createTurn 的 SQL 移出 handler | implemented | 阶段 1 待复核；阶段 2 resumeTurn 未开始 | — | `05b3572` |
+| 43 | P1-4 阶段 1：createTurn 的 SQL 移出 handler | done | — | — | `cc406e0` |
 
 ## 同步规则
 
