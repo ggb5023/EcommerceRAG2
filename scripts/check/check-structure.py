@@ -30,7 +30,7 @@ IMPORT = re.compile(r'"github\.com/ggb5023/EcommerceRAG/go/internal/(admin|gatew
 FRONTEND_TRACE = re.compile(r"(?i)(?:v2_[a-z_]*(?:dsn|addr)|postgres(?:ql)?://|rag_v2_|:(?:50052|50053)\b)")
 
 # Measured when the guard was introduced. Lower it when handler SQL drops.
-HANDLER_SQL_BASELINE = 29
+HANDLER_SQL_BASELINE = 24
 # Existing sanctioned gateway -> admin dependencies: route composition and the
 # decision store call inside the terminal transaction. New files must not join.
 GATEWAY_ADMIN_BASELINE = {
