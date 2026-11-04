@@ -37,3 +37,10 @@ input_tokens / output_tokens / http_status / error_code / created_at），不做
 - 报告口径改为「N 请求 / 输入 X tokens / 输出 Y tokens / 失败 M 次」，不出现任何货币数字。
 - 花费的解释责任移交给商家的模型平台；本工程不再给出"花了多少钱"的结论。
 - `usage_log.tenant_id` 允许 NULL，仅用于启动自检等无租户调用，聚合时单列 unattributed。
+
+## 归因（0050）
+
+- `usage_log` 增加 nullable `request_id` / `execution_id` / `turn_id`，不回填历史行。
+- 工作台 turn 填三列；顾客通道的 execution id 是文本，只填 `request_id`，另两列为 NULL；
+  ingest、eval、judge 与无 scope 调用保持 NULL（unattributed）。
+- 聚合口径不变；归因用于审计/追溯，不把无归因行强行挂到某个轮次。

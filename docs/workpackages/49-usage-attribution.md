@@ -62,3 +62,32 @@ bash scripts/check.sh --smoke
 - 顾客通道的 execution/turn 因表 ID 为文本，只归因 `request_id`。
 - 历史 usage_log 行保持 NULL；不提供回填脚本。
 - 不做 usage 页面的请求过滤 UI。
+
+## 实际交付
+
+- 迁移 0050：新增 nullable `request_id` / `execution_id` / `turn_id` 和
+  `idx_usage_log_request_id` 部分索引；不回填历史行，不新增 GRANT。
+- from-zero：`PASS 0050`，`PASS 50 migration checksums`。dev/test-integration/eval
+  三库均 `schema_migration=50`，0050 checksum 与文件
+  `d408ed836d88db0871e7cfa0a9d8d10fb913354a82ef36292cb2e07f9097d616` 一致。
+- Python：`UsageRecorder` 新增三列；`LangGraphRagService` 从既有 scope 绑定
+  task-local 归因，provider best-effort 写入读取它；ingest/eval 不设置归因。
+- Go：未改 proto；`RequestContext` 已有 `request_id`/`turn_id`/`execution_id`，
+  `IssueScopeForTurn`/`IssueCustomerScope` 已填。新增 Go 测试证明 turn/execution
+  字段参与 scope MAC。
+- 工作台 live turn：conversation 802 / turn 823 / execution 822 / request
+  `v2-1793811756061559987`，最终 DONE。dev profile 为 mock，**MockProvider 不写
+  usage_log**，所以该 HTTP turn 的 usage_log 行数为 0；这是既有 mock 行为，不是
+  归因丢失。
+- 用同一个真实 turn 的 scope/IDs，以可写 UsageRecorder 的图服务探针验证 SQL：
+  ```text
+  v2-1793811756061559987 | 822 | 823 | 2 | control | wp49-attribution-probe | 1 | 1
+  ```
+  ingest 既有行 `137|2|embedding|mock-embedding|||` 与 eval 探针
+  `139|2|control|wp49-eval-probe|||` 均为三列 NULL。探针和 turn 测试数据已清理，
+  残留计数 0。
+- 测试：`python/.venv/bin/python -m pytest -q` **459 passed / 36 skipped**；
+  `go test -count=1 ./...` 全绿；`go vet ./...` 通过。
+- 契约/文档：`contracts.md` 增加 usage_log 归因行（两侧测试）；
+  `data-ownership.md` 更新 usage_log 归因口径；0021 补归因段；agent-entry 迁移数
+  更新为 50。

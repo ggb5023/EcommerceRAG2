@@ -34,7 +34,7 @@
 | `catalog_size_chart` | `ingest` | `retrieval`、`admin`、`gateway` | 尺码表行与商品行同属一个摄取版本；写入方只有 Python ingest，Go/检索只读 | `scripts/check/check-ownership.py` |
 | `source_file` | `ingest` | `ingest`、`admin` | 上传清单的文件行由摄取侧建立，只增不改 | `scripts/check/check-ownership.py` |
 | `source_manifest` | `ingest` | `ingest`、`admin` | 同上，清单哈希在摄取侧落库 | `scripts/check/check-ownership.py` |
-| `usage_log` | `providers` | `providers`、`admin` | 0021：只记 token 用量，由 Python 的 ai 与 ingest 角色写入，Go 网关只读 | `scripts/check/check-ownership.py` |
+| `usage_log` | `providers` | `providers`、`admin` | 0021：只记 token 用量，由 Python 的 ai 与 ingest 角色写入，Go 网关只读；0050 增加 nullable `request_id`/`execution_id`/`turn_id`，工作台 turn 填三列，顾客只填 `request_id`，ingest/eval 为 NULL，历史不回填 | `scripts/check/check-ownership.py` |
 | `provider` | 预留：`admin`（P3 实现，当前无写入） | — | 租户供应商表结构（0034）已就位，接口与页面属 P3；写入方预先钉在管理控制面 | `scripts/check/check-ownership.py` |
 | `provider_model` | 预留：`admin`（P3 实现，当前无写入） | — | 同上，随 `provider` 一起由管理控制面写入 | `scripts/check/check-ownership.py` |
 | `turn` | `gateway` | `admin`、`customer`、`gateway` | 轮次状态与答案由网关用例层写；终态只由 Go 决定 | `scripts/check/check-ownership.py` |
