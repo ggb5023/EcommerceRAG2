@@ -39,171 +39,74 @@ func (g *gateway) createTurn(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_json", "invalid request body")
 		return
 	}
-	query := strings.TrimSpace(in.Text)
-	if query == "" {
-		query = strings.TrimSpace(in.Query)
+	session := turnCreateSessionData{
+		TenantID:           g.session.TenantID,
+		UserID:             g.session.UserID,
+		Shop:               g.session.Shop,
+		PermissionRevision: g.authority().CurrentRevision(),
+		Mock:               isMockProfile(g.profile),
 	}
-	if query == "" {
-		httpapi.WriteError(w, 400, "invalid_query", "query is required")
-		return
-	}
-	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" {
-		httpapi.WriteError(w, 400, "idempotency_key_required", "Idempotency-Key is required")
-		return
-	}
-	canonicalPayload, _ := json.Marshal(map[string]string{"query": query, "parent_turn_id": strings.TrimSpace(in.ParentTurnID)})
-	hash := sha256.Sum256(canonicalPayload)
-	payloadHash := hex.EncodeToString(hash[:])
-	tx, err := g.db.BeginTx(r.Context(), pgx.TxOptions{})
+	result, err := startTurn(r.Context(), turnCreateStore{db: g.db}, session, turnCreateInput{
+		ConversationID: conversationID,
+		Text:           in.Text,
+		Query:          in.Query,
+		ParentTurnID:   in.ParentTurnID,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	})
 	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not start turn")
+		writeTurnCreateError(w, err)
 		return
 	}
-	defer tx.Rollback(r.Context())
-	var shopID string
-	err = tx.QueryRow(r.Context(), `SELECT shop_id FROM conversation
-		WHERE tenant_id=$1 AND user_id=$2 AND id=$3 FOR UPDATE`,
-		g.session.TenantID, g.session.UserID, conversationID).Scan(&shopID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 404, "not_found", "conversation not found")
+	if !result.Existing {
+		g.launchTurn(result)
+	}
+	httpapi.WriteJSON(w, turnCreateStatus(result), turnCreateResponse(result))
+}
+
+// turnCreateStatus keeps the replay/created status switch out of the handler
+// body while preserving the original 200/202 distinction.
+func turnCreateStatus(result turnCreateResult) int {
+	if result.Existing {
+		return 200
+	}
+	return 202
+}
+
+func turnCreateResponse(result turnCreateResult) map[string]any {
+	return map[string]any{
+		"id":              result.RequestID,
+		"request_id":      result.RequestID,
+		"status":          result.Status,
+		"turn_id":         strconv.FormatInt(result.TurnID, 10),
+		"execution_no":    result.ExecutionNo,
+		"conversation_id": strconv.FormatInt(result.ConversationID, 10),
+		"events_url":      "/v1/turns/" + result.RequestID + "/events",
+		"is_mock":         result.Mock,
+	}
+}
+
+func writeTurnCreateError(w http.ResponseWriter, err error) {
+	var failure *turnCreateFailure
+	if errors.As(err, &failure) {
+		httpapi.WriteError(w, failure.status, failure.code, failure.message)
 		return
 	}
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not lock conversation")
-		return
-	}
-	if shopID != g.session.Shop {
-		httpapi.WriteError(w, 403, "forbidden", "shop is outside the current session")
-		return
-	}
-	if !g.authorizeConversationHistory(w, r, conversationID) {
-		return
-	}
-	var parentTurnID *int64
-	var parentExecutionID int64
-	if strings.TrimSpace(in.ParentTurnID) != "" {
-		var parentID int64
-		parentID, err = strconv.ParseInt(strings.TrimSpace(in.ParentTurnID), 10, 64)
-		if err != nil {
-			err = tx.QueryRow(r.Context(), `SELECT id FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND request_id=$3`,
-				g.session.TenantID, conversationID, strings.TrimSpace(in.ParentTurnID)).Scan(&parentID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				httpapi.WriteError(w, 400, "invalid_parent_turn", "parent turn is invalid")
-				return
-			}
-		}
-		var parentStatus string
-		err = tx.QueryRow(r.Context(), `SELECT status FROM turn WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`,
-			g.session.TenantID, conversationID, parentID).Scan(&parentStatus)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.WriteError(w, 404, "parent_turn_not_found", "parent turn not found")
-			return
-		}
-		if err != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load parent turn")
-			return
-		}
-		if parentStatus != "ASKING" {
-			httpapi.WriteError(w, 409, "parent_turn_not_asking", "parent turn is not awaiting clarification")
-			return
-		}
-		err = tx.QueryRow(r.Context(), `SELECT e.id FROM conversation_execution e
-			WHERE e.tenant_id=$1 AND e.turn_id=$2 ORDER BY e.execution_no DESC LIMIT 1`,
-			g.session.TenantID, parentID).Scan(&parentExecutionID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.WriteError(w, 409, "parent_checkpoint_missing", "parent turn has no execution checkpoint")
-			return
-		}
-		if err != nil {
-			httpapi.WriteError(w, 503, "database_unavailable", "could not load parent execution")
-			return
-		}
-		parentTurnID = &parentID
-	}
-	var oldHash, oldRequest, oldStatus string
-	var oldTurnID int64
-	var oldExecutionNo int
-	err = tx.QueryRow(r.Context(), `SELECT i.payload_hash,e.request_id,e.status,t.id,e.execution_no FROM turn_idempotency i
-		JOIN turn t ON t.tenant_id=i.tenant_id AND t.id=i.turn_id
-		JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
-			AND ((i.execution_id IS NOT NULL AND e.id=i.execution_id)
-				OR (i.execution_id IS NULL AND e.execution_no=1))
-		WHERE i.tenant_id=$1 AND i.conversation_id=$2 AND i.idempotency_key=$3`,
-		g.session.TenantID, conversationID, key).Scan(&oldHash, &oldRequest, &oldStatus, &oldTurnID, &oldExecutionNo)
-	if err == nil {
-		if oldHash != payloadHash {
-			httpapi.WriteError(w, 409, "idempotency_conflict", "idempotency key was used with a different query")
-			return
-		}
-		httpapi.WriteJSON(w, 200, map[string]any{"id": oldRequest, "request_id": oldRequest, "status": oldStatus, "turn_id": strconv.FormatInt(oldTurnID, 10), "execution_no": oldExecutionNo, "conversation_id": strconv.FormatInt(conversationID, 10),
-			"events_url": "/v1/turns/" + oldRequest + "/events", "is_mock": isMockProfile(g.profile)})
-		return
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not check idempotency")
-		return
-	}
-	var active bool
-	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM turn WHERE tenant_id=$1
-		AND conversation_id=$2 AND status IN ('PENDING','EXECUTING','CANCEL_REQUESTED'))`,
-		g.session.TenantID, conversationID).Scan(&active)
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not check active turn")
-		return
-	}
-	if active {
-		httpapi.WriteError(w, 409, "turn_in_progress", "conversation already has an active turn")
-		return
-	}
-	requestID := newRequestID()
-	var turnID, turnNo, executionID int64
-	err = tx.QueryRow(r.Context(), `SELECT COALESCE(MAX(turn_no),0)+1 FROM turn
-		WHERE tenant_id=$1 AND conversation_id=$2`, g.session.TenantID, conversationID).Scan(&turnNo)
-	if err == nil {
-		err = tx.QueryRow(r.Context(), `INSERT INTO turn(tenant_id,conversation_id,turn_no,request_id,user_query,status,parent_turn_id)
-			VALUES($1,$2,$3,$4,$5,'EXECUTING',$6) RETURNING id`, g.session.TenantID,
-			conversationID, turnNo, requestID, query, parentTurnID).Scan(&turnID)
-	}
-	deadline := time.Now().Add(turnTimeout)
-	if err == nil {
-		err = tx.QueryRow(r.Context(), `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,is_mock,deadline_at,permission_revision)
-			VALUES($1,$2,1,$3,'EXECUTING',$6,$4,$5) RETURNING id`,
-			g.session.TenantID, turnID, requestID, deadline, g.authority().CurrentRevision(), isMockProfile(g.profile)).Scan(&executionID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO turn_idempotency(tenant_id,conversation_id,idempotency_key,payload_hash,turn_id,execution_id)
-			VALUES($1,$2,$3,$4,$5,$6)`, g.session.TenantID, conversationID, key, payloadHash, turnID, executionID)
-	}
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'user',$3)`, g.session.TenantID, turnID, query)
-	}
-	if err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not persist turn")
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		httpapi.WriteError(w, 503, "database_unavailable", "could not commit turn")
-		return
-	}
-	_, _ = g.db.Exec(r.Context(), `UPDATE conversation SET title=CASE WHEN title IS NULL OR title IN ('','新会话') THEN $3 ELSE title END
-		WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, conversationID, first24(query))
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	httpapi.WriteError(w, 503, "database_unavailable", "could not persist turn")
+}
+
+// launchTurn starts the asynchronous execution after the create transaction
+// commits. It stays in the HTTP entry file because it owns the gateway cancel
+// registry, which must not leak into the store/use-case layer.
+func (g *gateway) launchTurn(result turnCreateResult) {
+	ctx, cancel := context.WithDeadline(context.Background(), result.Deadline)
 	registry := g.executionRegistryOwner()
 	registry.mu.Lock()
-	registry.cancels[requestID] = cancel
+	registry.cancels[result.RequestID] = cancel
 	registry.mu.Unlock()
 	go func() {
-		var parentID, parentExecution int64
-		if parentTurnID != nil {
-			parentID = *parentTurnID
-			parentExecution = parentExecutionID
-		}
-		g.runTurn(ctx, requestID, conversationID, turnID, executionID, query, parentID, parentExecution, 1)
+		g.runTurn(ctx, result.RequestID, result.ConversationID, result.TurnID, result.ExecutionID,
+			result.Query, result.ParentTurnID, result.ParentExecution, 1)
 	}()
-	httpapi.WriteJSON(w, 202, map[string]any{"id": requestID, "request_id": requestID, "status": "EXECUTING",
-		"turn_id": strconv.FormatInt(turnID, 10), "execution_no": 1, "conversation_id": strconv.FormatInt(conversationID, 10),
-		"is_mock": isMockProfile(g.profile), "events_url": "/v1/turns/" + requestID + "/events"})
 }
 
 func (g *gateway) resumeTurn(w http.ResponseWriter, r *http.Request) {
