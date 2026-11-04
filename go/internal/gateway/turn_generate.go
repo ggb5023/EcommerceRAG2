@@ -119,9 +119,7 @@ func validateCitation(citation *ragv1.Evidence, accepted []*ragv1.Evidence) bool
 
 // persistCitation stores one accepted citation for the execution.
 func persistCitation(ctx context.Context, db *pgxpool.Pool, tenantID, executionID int64, citation *ragv1.Evidence) error {
-	_, err := db.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index)
-		VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, tenantID, executionID, citation.Id, int(citation.Rank))
-	return err
+	return insertCitation(ctx, db, tenantID, executionID, citation.Id, citation.Rank)
 }
 
 // runGenerationStage streams the answer and applies the snapshot qualifier. Hooks

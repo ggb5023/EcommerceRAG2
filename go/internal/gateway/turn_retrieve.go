@@ -106,10 +106,12 @@ func persistEvidence(ctx context.Context, db *pgxpool.Pool, tenantID, executionI
 		if !authorized() {
 			return true, nil
 		}
-		if _, err := db.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,source_ref,content,disclosure_class,customer_eligible,citation_index,shop_id)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,execution_id,evidence_id) DO NOTHING`,
-			tenantID, executionID, item.Id, item.DocumentId, item.VersionId, item.SourceRef,
-			item.Content, item.DisclosureClass, item.CustomerEligible, item.Rank, item.ShopId); err != nil {
+		if err := insertEvidenceSnapshot(ctx, db, evidenceSnapshotRow{
+			tenantID: tenantID, executionID: executionID, evidenceID: item.Id,
+			documentID: item.DocumentId, versionID: item.VersionId, sourceRef: item.SourceRef,
+			content: item.Content, disclosure: item.DisclosureClass, customerEligible: item.CustomerEligible,
+			citationIndex: item.Rank, shopID: item.ShopId,
+		}); err != nil {
 			return false, &stageFailure{state: "FAILED", code: "persistence_failed"}
 		}
 	}

@@ -191,3 +191,48 @@ func loadSuggestionForCopy(ctx context.Context, tx pgx.Tx, tenantID, userID int6
 	}
 	return turnKind, conversationKind, status, true, nil
 }
+
+var errSuggestionCitationsIncomplete = errors.New("suggestion citations incomplete")
+
+func lockSuggestionCopy(ctx context.Context, tx pgx.Tx, lockKey string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey)
+	return err
+}
+
+type suggestionCitation struct {
+	id       string
+	document string
+	version  string
+	shop     string
+}
+
+func loadSuggestionCopyCitations(ctx context.Context, tx pgx.Tx, tenantID int64, requestID string) ([]suggestionCitation, error) {
+	rows, err := tx.Query(ctx, `SELECT c.evidence_id,COALESCE(es.document_id,''),COALESCE(es.version_id,''),COALESCE(es.shop_id,'')
+		FROM citation c JOIN evidence_snapshot es ON es.tenant_id=c.tenant_id AND es.execution_id=c.execution_id AND es.evidence_id=c.evidence_id
+		WHERE c.tenant_id=$1 AND c.execution_id=(SELECT id FROM conversation_execution WHERE tenant_id=$1 AND request_id=$2)
+		ORDER BY c.citation_index`, tenantID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	citations := []suggestionCitation{}
+	for rows.Next() {
+		var item suggestionCitation
+		if err = rows.Scan(&item.id, &item.document, &item.version, &item.shop); err != nil {
+			return nil, err
+		}
+		citations = append(citations, item)
+	}
+	if err = rows.Err(); err != nil {
+		return citations, errSuggestionCitationsIncomplete
+	}
+	return citations, nil
+}
+
+func suggestionCopyAudited(ctx context.Context, tx pgx.Tx, tenantID, userID int64, requestID string) (bool, error) {
+	var already bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM admin_audit WHERE tenant_id=$1 AND actor_user_id=$2
+		AND action='support.suggestion.copy' AND resource_type='execution' AND resource_id=$3 AND result='success')`,
+		tenantID, userID, requestID).Scan(&already)
+	return already, err
+}

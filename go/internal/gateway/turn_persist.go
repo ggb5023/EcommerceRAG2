@@ -56,8 +56,7 @@ func writeTurnEvent(db *pgxpool.Pool, ident turnEventIdentity, kind string, payl
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(eventCtx, `INSERT INTO sse_event(tenant_id,execution_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5::jsonb)`, ident.tenantID, ident.executionID, sequence, kind, string(body))
-	if err != nil {
+	if err = insertSSEEvent(eventCtx, tx, ident.tenantID, ident.executionID, sequence, kind, body); err != nil {
 		return err
 	}
 	return tx.Commit(eventCtx)
@@ -66,9 +65,7 @@ func writeTurnEvent(db *pgxpool.Pool, ident turnEventIdentity, kind string, payl
 // recordToolCall appends one tool_call_trace row. A failed trace write never
 // fails the turn: the caller ignores the error, exactly as the inline version did.
 func recordToolCall(ctx context.Context, db *pgxpool.Pool, tenantID int64, requestID, toolName, status string, degraded bool) error {
-	_, err := db.Exec(ctx, `INSERT INTO tool_call_trace(tenant_id,request_id,tool_name,result_status,degraded)
-		VALUES($1,$2,$3,$4,$5)`, tenantID, requestID, toolName, status, degraded)
-	return err
+	return insertToolCallTrace(ctx, db, tenantID, requestID, toolName, status, degraded)
 }
 
 // finishTurn writes the terminal state, the turn status and the decision row in

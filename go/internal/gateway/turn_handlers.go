@@ -358,11 +358,7 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var state string
-	var executionID, turnID int64
-	err = tx.QueryRow(r.Context(), `SELECT e.status,e.id,e.turn_id FROM conversation_execution e
-		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id JOIN conversation c ON c.tenant_id=t.tenant_id AND c.id=t.conversation_id
-		WHERE e.tenant_id=$1 AND e.request_id=$2 AND c.user_id=$3 AND c.shop_id=$4 FOR UPDATE OF e`, g.session.TenantID, requestID, g.session.UserID, g.session.Shop).Scan(&state, &executionID, &turnID)
+	state, executionID, turnID, err := lockCancelExecution(r.Context(), tx, g.session.TenantID, requestID, g.session.UserID, g.session.Shop)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not cancel turn")
 		return
@@ -371,14 +367,11 @@ func (g *gateway) cancelTurn(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteJSON(w, 200, map[string]any{"request_id": requestID, "status": state})
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE conversation_execution SET cancel_requested=true,status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, executionID)
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE turn SET status='CANCEL_REQUESTED' WHERE tenant_id=$1 AND id=$2`, g.session.TenantID, turnID)
+	if err = markCancelRequested(r.Context(), tx, g.session.TenantID, executionID, turnID); err != nil {
+		httpapi.WriteError(w, 503, "database_unavailable", "could not persist cancellation")
+		return
 	}
-	if err == nil {
-		err = tx.Commit(r.Context())
-	}
-	if err != nil {
+	if err = tx.Commit(r.Context()); err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not persist cancellation")
 		return
 	}

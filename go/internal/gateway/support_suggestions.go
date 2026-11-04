@@ -153,6 +153,54 @@ func (g *gateway) createSuggestionTurn(w http.ResponseWriter, r *http.Request, t
 		"events_url": "/v1/turns/" + requestID + "/events"})
 }
 
+func suggestionReplyParts(result map[string]any) (text string, canCopy bool, blocked string, citations []map[string]any) {
+	reply, _ := result["customer_reply"].(map[string]any)
+	switch value := reply["text_plain"].(type) {
+	case string:
+		text = value
+	case *string:
+		if value != nil {
+			text = *value
+		}
+	}
+	canCopy, _ = reply["can_copy"].(bool)
+	blocked, _ = reply["blocked_reason"].(string)
+	citations, _ = result["citations"].([]map[string]any)
+	return text, canCopy, blocked, citations
+}
+
+func (g *gateway) writeSuggestionCopyDenied(w http.ResponseWriter, ctx context.Context, tx pgx.Tx,
+	tenantID, userID int64, requestID, text, blocked string, citations []map[string]any) {
+	if err := appendSuggestionCopyAudit(ctx, tx, tenantID, userID, requestID, "denied", blocked, text, len(citations)); err != nil {
+		httpapi.WriteError(w, 503, "copy_unavailable", "copy audit is unavailable")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httpapi.WriteError(w, 503, "copy_unavailable", "copy audit is unavailable")
+		return
+	}
+	httpapi.WriteError(w, 403, "copy_not_allowed", "suggestion is not copyable")
+}
+
+func (g *gateway) suggestionCitationsAllowed(ctx context.Context, tx pgx.Tx, tenantID int64, requestID string, expected int) (int, bool, error) {
+	citations, err := loadSuggestionCopyCitations(ctx, tx, tenantID, requestID)
+	if errors.Is(err, errSuggestionCitationsIncomplete) {
+		return len(citations), false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	allowedAll := true
+	for _, item := range citations {
+		allowed, allowErr := g.authority().EvidenceAllowed(ctx, &ragv1.Evidence{Id: item.id, DocumentId: item.document, VersionId: item.version, ShopId: item.shop})
+		if allowErr != nil {
+			return 0, false, allowErr
+		}
+		allowedAll = allowedAll && allowed
+	}
+	return len(citations), allowedAll && len(citations) > 0 && expected == len(citations), nil
+}
+
 func (g *gateway) copySuggestion(w http.ResponseWriter, r *http.Request) {
 	if !g.requireWriteRole(w) || !g.authorizeHTTP(w, r) {
 		return
@@ -170,7 +218,7 @@ func (g *gateway) copySuggestion(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	lockKey := "suggestion-copy:" + strconv.FormatInt(g.session.TenantID, 10) + ":" + strconv.FormatInt(g.session.UserID, 10) + ":" + requestID
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+	if err = lockSuggestionCopy(ctx, tx, lockKey); err != nil {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}
@@ -188,69 +236,22 @@ func (g *gateway) copySuggestion(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}
-	reply, _ := result["customer_reply"].(map[string]any)
-	text := ""
-	switch value := reply["text_plain"].(type) {
-	case string:
-		text = value
-	case *string:
-		if value != nil {
-			text = *value
-		}
-	}
-	canCopy, _ := reply["can_copy"].(bool)
-	blocked, _ := reply["blocked_reason"].(string)
-	citations, _ := result["citations"].([]map[string]any)
-	deny := func() {
-		if err := appendSuggestionCopyAudit(ctx, tx, g.session.TenantID, g.session.UserID, requestID, "denied", blocked, text, len(citations)); err != nil {
-			httpapi.WriteError(w, 503, "copy_unavailable", "copy audit is unavailable")
-			return
-		}
-		if err := tx.Commit(ctx); err != nil {
-			httpapi.WriteError(w, 503, "copy_unavailable", "copy audit is unavailable")
-			return
-		}
-		httpapi.WriteError(w, 403, "copy_not_allowed", "suggestion is not copyable")
-	}
+	text, canCopy, blocked, citations := suggestionReplyParts(result)
 	if executionStatus != "DONE" || !canCopy || strings.TrimSpace(text) == "" {
-		deny()
+		g.writeSuggestionCopyDenied(w, ctx, tx, g.session.TenantID, g.session.UserID, requestID, text, blocked, citations)
 		return
 	}
-	rows, err := tx.Query(ctx, `SELECT c.evidence_id,COALESCE(es.document_id,''),COALESCE(es.version_id,''),COALESCE(es.shop_id,'')
-		FROM citation c JOIN evidence_snapshot es ON es.tenant_id=c.tenant_id AND es.execution_id=c.execution_id AND es.evidence_id=c.evidence_id
-		WHERE c.tenant_id=$1 AND c.execution_id=(SELECT id FROM conversation_execution WHERE tenant_id=$1 AND request_id=$2)
-		ORDER BY c.citation_index`, g.session.TenantID, requestID)
+	citationCount, allowed, err := g.suggestionCitationsAllowed(ctx, tx, g.session.TenantID, requestID, len(citations))
 	if err != nil {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}
-	citationCount := 0
-	allowedAll := true
-	for rows.Next() {
-		var id, document, version, shop string
-		if err = rows.Scan(&id, &document, &version, &shop); err != nil {
-			rows.Close()
-			httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
-			return
-		}
-		citationCount++
-		allowed, allowErr := g.authority().EvidenceAllowed(ctx, &ragv1.Evidence{Id: id, DocumentId: document, VersionId: version, ShopId: shop})
-		if allowErr != nil {
-			rows.Close()
-			httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
-			return
-		}
-		allowedAll = allowedAll && allowed
-	}
-	rows.Close()
-	if err = rows.Err(); err != nil || citationCount == 0 || len(citations) != citationCount || !allowedAll {
-		deny()
+	if !allowed {
+		g.writeSuggestionCopyDenied(w, ctx, tx, g.session.TenantID, g.session.UserID, requestID, text, blocked, citations)
 		return
 	}
-	var already bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM admin_audit WHERE tenant_id=$1 AND actor_user_id=$2
-		AND action='support.suggestion.copy' AND resource_type='execution' AND resource_id=$3 AND result='success')`,
-		g.session.TenantID, g.session.UserID, requestID).Scan(&already); err != nil {
+	already, err := suggestionCopyAudited(ctx, tx, g.session.TenantID, g.session.UserID, requestID)
+	if err != nil {
 		httpapi.WriteError(w, 503, "copy_unavailable", "copy is unavailable")
 		return
 	}

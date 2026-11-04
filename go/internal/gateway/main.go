@@ -358,10 +358,7 @@ func (g *gateway) createConversation(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = "新会话"
 	}
-	var id int64
-	err := g.db.QueryRow(r.Context(), `INSERT INTO conversation(tenant_id,user_id,shop_id,title)
-		VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, g.session.TenantID, g.session.UserID,
-		g.session.Shop, in.Title).Scan(&id)
+	id, err := insertConversation(r.Context(), g.db, g.session.TenantID, g.session.UserID, g.session.Shop, in.Title)
 	if err != nil {
 		httpapi.WriteError(w, 503, "database_unavailable", "could not create conversation")
 		return
