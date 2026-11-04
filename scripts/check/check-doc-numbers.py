@@ -27,7 +27,7 @@ def one(pattern: str, text: str, label: str) -> int:
 def main() -> int:
     migrations = len(list((ROOT / "sql" / "migrations").glob("*.sql")))
     decisions = len(list((ROOT / "docs" / "decisions").glob("[0-9][0-9][0-9][0-9]-*.md")))
-    fast = len(re.findall(r"(?m)^\s*run fast\b", read("scripts/check.sh")))
+    fast = len(re.findall(r"(?m)^\s*run(?:_optional)? fast\b", read("scripts/check.sh")))
     agent = read("docs/agent-entry.md")
     documented_migrations = one(r"(\d+)\s*条迁移", agent, "agent-entry migrations")
     documented_fast = one(r"快速层\s*(\d+)\s*项", agent, "agent-entry fast items")
