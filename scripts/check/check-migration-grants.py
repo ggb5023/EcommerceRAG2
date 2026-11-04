@@ -27,24 +27,28 @@ def main() -> int:
         print("SKIP migration grants: no migrations directory")
         return 0
     files = sorted(MIGRATIONS.glob("*.sql"))
-    created: dict[str, str] = {}
+    created: dict[str, tuple[int, int, str]] = {}
     granted: set[str] = set()
-    grant_all_from: str | None = None
-    for path in files:
+    grant_all_positions: list[tuple[int, int]] = []
+    for file_index, path in enumerate(files):
         text = path.read_text(encoding="utf-8")
-        for name in CREATE.findall(text):
-            created.setdefault(name.lower(), path.name)
+        for match in CREATE.finditer(text):
+            created.setdefault(match.group(1).lower(), (file_index, match.start(), path.name))
         for group in GRANT_TABLE.findall(text):
             for name in group.split(","):
                 if name.strip():
                     granted.add(name.strip().lower())
-        if grant_all_from is None and GRANT_ALL.search(text):
-            grant_all_from = path.name
+        for match in GRANT_ALL.finditer(text):
+            grant_all_positions.append((file_index, match.start()))
     problems = []
-    for table, source in sorted(created.items()):
+    for table, (file_index, offset, source) in sorted(created.items()):
         if table in ALLOWLIST or table in granted:
             continue
-        if grant_all_from is not None and grant_all_from >= source:
+        # GRANT ... ON ALL TABLES covers only tables that already existed when
+        # the statement ran. A CREATE TABLE after the grant in the same file
+        # still needs its own explicit GRANT.
+        if any((grant_file, grant_offset) > (file_index, offset)
+               for grant_file, grant_offset in grant_all_positions):
             continue
         problems.append(f"{table} (created in {source}) has no GRANT")
     if problems:
