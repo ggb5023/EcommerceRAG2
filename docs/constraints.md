@@ -49,9 +49,9 @@
 | --- | --- | --- |
 | 错误码有唯一出处且带 cause | `docs/error-taxonomy.md` + `check-contracts.py` | ✅ |
 | 映射只读 gRPC 码，不读 message | `queue_failure` 单测（"忽略 message 文本"） | ✅ |
-| 请求级关联 ID 贯穿 Go→Python | 无 | ❌ 未实现 |
-| 关键指标可暴露（`/metrics`） | 无 | ❌ 未实现 |
-| 日志结构统一（含 logger 名与级别） | Python `basicConfig`；Go 用默认 logger | ⚠️ 部分 |
+| 请求级关联 ID 贯穿 Go→Python | `observability` + 日志实跑 | ✅ 已实现 |
+| 关键指标可暴露（`/metrics`） | loopback `/internal/metrics` | ✅ 已实现 |
+| 日志结构统一（含 logger 名与级别） | `check-logs.py`；新版 JSON logger | ✅ 部分（旧启动日志保留） |
 | 审计写入口统一 | 无 | ⚠️ `auditAdmin` 与两处直写并存 |
 
 ## 5. 评测

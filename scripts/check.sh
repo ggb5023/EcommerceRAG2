@@ -164,6 +164,9 @@ run fast migration-grants "python3 scripts/check/check-migration-grants.py"
 run fast shell-syntax "while IFS= read -r -d '' script; do bash -n \"\$script\"; done < <(find scripts docker eval -name '*.sh' -print0)"
 run fast local-services-exec "test -x scripts/dev/v2-local-services.sh"
 run fast shellcheck "shellcheck -S warning scripts/*.sh scripts/*/*.sh eval/*.sh docker/db/*.sh docker/db/init/*.sh"
+if [ "$SMOKE" -eq 0 ]; then
+  run fast check-logs "python3 scripts/check/check-logs.py"
+fi
 run fast go-test "cd go && go test -p 2 ./..."
 run fast go-vet "cd go && go vet ./..."
 run fast python-sync "cd python && uv sync --frozen"

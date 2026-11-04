@@ -44,7 +44,7 @@
 | 35 | M9 阶段 2（一）：demo-store-v1 数据包与一键启动 | done | — | — | `2a6acbe` |
 | 36 | M9 阶段 2（二）：handoff 聚合与评测报告 CLI | done | — | — | `ce6132d` |
 | 37 | P2 验收收尾：README 快速开始 + ROADMAP 勾选 | done | — | — | `3338a1b` |
-| 38 | 可观测性：关联 ID + 最小指标 + 日志规范 | active | — | — | — |
+| 38 | 可观测性：关联 ID + 最小指标 + 日志规范 | implemented | — | — | `1feb02e` |
 
 ## 同步规则
 
