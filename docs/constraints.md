@@ -1,6 +1,6 @@
 # 工程约束总表
 
-> 权威等级：enforced / context 混合（逐行标注）　适用提交：7316674（结构守卫与响应统一）　最后核对：2026-11-01
+> 权威等级：enforced / context 混合（逐行标注）　适用提交：7316674（结构守卫与响应统一）　最后核对：2026-11-05
 > 强制方式列必须与 `scripts/check.sh` 一致；新增/删除门禁时同提交更新本表。
 > 用途：把散在六份域计划里的规则收敛成一张可查表。**每条规则必须回答"谁在强制"**。
 > 标「口头约定」的行是当前没有机械检查的规则——它们是待补门禁的清单，不要当成已保障。
@@ -13,7 +13,7 @@
 | 迁移只追加，不修改已执行文件 | `check-doc-baseline.py` | ✅ |
 | 新表必须显式授权给所需角色 | `check-migration-grants.py`（已接入 `scripts/check.sh:143`；静态检查，正向路径无测试兜底，见 `environment-facts.md` #4） | ✅ 静态检查 |
 | 新环境必须能"从零建库" | 无 | ❌ 未实现（批次 3 §5.1 待做） |
-| 备份必须验证可恢复 | 无 | ❌ 从未演练（`restore_verified: false`） |
+| 备份必须验证可恢复 | 无 | ✅ 已演练（2026-11-05，见 [WP47](workpackages/47-backup-restore-drill.md) 与 `.local/wp47/restore-evidence.json`；PG + 本地 artifact，OSS UNCONFIGURED） |
 | 数据归属变更需改 `data-ownership.md` | `check-ownership.py`（预算棘轮） | ✅ |
 | 不得统计货币金额，只统计 token 与次数 | 无 | ⚠️ 口头约定（0021）；建议加 `check-no-currency.py` |
 
@@ -77,7 +77,7 @@
 | 依赖与漏洞有扫描节奏 | 无 | ❌ 未实现 |
 | 开发库迁移/schema 自检 | `check-db-env-health.py`（`--db` 层；缺失/不可达输出 UNCONFIGURED） | ✅ |
 | CI 快速层 | GitHub Actions `.github/workflows/check.yml` | ⏳ 待远端启用确认 |
-| handler 中的 INSERT/UPDATE/DELETE 只能减不能增 | `check-structure.py`（A：`HANDLER_SQL_BASELINE=34`，只许降） | ✅ |
+| handler 中的 INSERT/UPDATE/DELETE 只能减不能增 | `check-structure.py`（A：`HANDLER_SQL_BASELINE` 当前为 0，只许降） | ✅ |
 | gateway/customer 与 admin 的依赖方向、前端直连 Python/DB 痕迹 | `check-structure.py`（B：2 个既有 gateway→admin 组合点为基线） | ✅ |
 
 ## 7. 使用方式
