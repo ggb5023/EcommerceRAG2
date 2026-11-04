@@ -11,6 +11,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -97,8 +98,8 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	default:
 		return
 	}
-	_, err := s.DB.Exec(ctx, `UPDATE customer_execution SET state='EXECUTING' WHERE id=$1 AND state='PENDING'`, execution)
-	if err != nil {
+	var err error
+	if err = markCustomerExecutionExecuting(ctx, s.DB, execution); err != nil {
 		return
 	}
 	if strings.Contains(query, "转人工") || strings.Contains(query, "人工客服") || strings.Contains(query, "真人客服") {
@@ -238,19 +239,14 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	reason = ""
 }
 func (s *Service) history(ctx context.Context, id string) string {
-	rows, err := s.DB.Query(ctx, `SELECT content FROM customer_message WHERE conversation_id=$1 AND source='customer' ORDER BY created_at DESC,id DESC LIMIT 7`, id)
+	texts, err := loadCustomerHistoryTexts(ctx, s.DB, id)
 	if err != nil {
 		return ""
 	}
-	defer rows.Close()
-	texts := []string{}
 	skip := true
 	size := 0
-	for rows.Next() {
-		var text string
-		if rows.Scan(&text) != nil {
-			return ""
-		}
+	selected := []string{}
+	for _, text := range texts {
 		if skip {
 			skip = false
 			continue
@@ -258,12 +254,12 @@ func (s *Service) history(ctx context.Context, id string) string {
 		if size+len(text) > 7500 {
 			break
 		}
-		texts = append(texts, text)
+		selected = append(selected, text)
 		size += len(text)
 	}
 	items := []map[string]string{}
-	for i := len(texts) - 1; i >= 0; i-- {
-		items = append(items, map[string]string{"role": "user", "content": texts[i]})
+	for i := len(selected) - 1; i >= 0; i-- {
+		items = append(items, map[string]string{"role": "user", "content": selected[i]})
 	}
 	encoded, _ := json.Marshal(items)
 	if len(encoded) > 8192 {
@@ -277,58 +273,69 @@ func (s *Service) finish(ctx context.Context, execution, id string, scope *ragv1
 		return err
 	}
 	defer tx.Rollback(ctx)
-	c, err := scanConversation(tx.QueryRow(ctx, conversationSQL+" FOR UPDATE", id))
+	c, err := lockConversation(ctx, tx, id)
 	if err != nil {
 		return err
 	}
-	var epoch int64
-	var state string
-	err = tx.QueryRow(ctx, `SELECT epoch,state FROM customer_execution WHERE id=$1 FOR UPDATE`, execution).Scan(&epoch, &state)
+	epoch, state, err := lockCustomerExecution(ctx, tx, execution)
 	if err != nil {
 		return err
 	}
 	if c.State != "AI" || c.Epoch != epoch || c.Active == nil || *c.Active != execution || (state != "PENDING" && state != "EXECUTING") {
 		return nil
 	}
-	if reason == "" {
-		if ValidateProposal(p) != nil || scope == nil {
-			reason = "provider_failed"
-		} else {
-			// Every ACL or publication change bumps and locks this revision. Holding
-			// its share lock serializes publication with revocation at commit time.
-			var revision string
-			err = tx.QueryRow(ctx, `SELECT public_permission_revision FROM shop WHERE tenant_id=$1 AND id=$2 AND status='active' AND customer_chat_enabled FOR SHARE`, c.Tenant, c.Shop).Scan(&revision)
-			if err != nil || revision != scope.PermissionRevision || scope.ConversationEpoch != uint64(c.Epoch) || scope.ScopeExpiresAt <= time.Now().Unix() {
-				reason = "permission_changed"
-			}
-			if reason == "" {
-				var active bool
-				err = tx.QueryRow(ctx, `SELECT revoked_at IS NULL AND expires_at>now() AND idle_until>now() FROM customer_session WHERE id=$1 FOR SHARE`, scope.CustomerSessionId).Scan(&active)
-				if err != nil || !active {
-					reason = "permission_changed"
-				}
-			}
-			for _, item := range p.Evidence {
-				if reason != "" {
-					break
-				}
-				allowed, err := auth.CustomerEvidenceAllowed(ctx, s.DB, c.Tenant, c.Shop, item)
-				if err != nil || !allowed {
-					reason = "permission_changed"
-				}
-			}
-		}
+	reason, err = s.finishReason(ctx, tx, c, scope, p, reason)
+	if err != nil {
+		return err
 	}
 	if reason != "" {
-		_, err = tx.Exec(ctx, `UPDATE customer_execution SET state='FAILED',reason_code=$2,finished_at=now() WHERE id=$1`, execution, reason)
-		if err == nil {
-			err = queueTx(ctx, tx, c, reason)
-		}
-		if err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
+		return s.finishFailure(ctx, tx, c, execution, reason)
 	}
+	return s.finishSuccess(ctx, tx, c, execution, p)
+}
+
+func (s *Service) finishReason(ctx context.Context, tx pgx.Tx, c conversation, scope *ragv1.RequestContext, p proposal, reason string) (string, error) {
+	if reason != "" {
+		return reason, nil
+	}
+	if ValidateProposal(p) != nil || scope == nil {
+		return "provider_failed", nil
+	}
+	// Every ACL or publication change bumps and locks this revision. Holding
+	// its share lock serializes publication with revocation at commit time.
+	revision, err := lockShopPublicRevision(ctx, tx, c.Tenant, c.Shop)
+	if err != nil || revision != scope.PermissionRevision || scope.ConversationEpoch != uint64(c.Epoch) || scope.ScopeExpiresAt <= time.Now().Unix() {
+		reason = "permission_changed"
+	}
+	if reason == "" {
+		active, err := lockCustomerSessionActive(ctx, tx, scope.CustomerSessionId)
+		if err != nil || !active {
+			reason = "permission_changed"
+		}
+	}
+	for _, item := range p.Evidence {
+		if reason != "" {
+			break
+		}
+		allowed, err := auth.CustomerEvidenceAllowed(ctx, s.DB, c.Tenant, c.Shop, item)
+		if err != nil || !allowed {
+			reason = "permission_changed"
+		}
+	}
+	return reason, nil
+}
+
+func (s *Service) finishFailure(ctx context.Context, tx pgx.Tx, c conversation, execution, reason string) error {
+	if err := failCustomerExecution(ctx, tx, execution, reason); err != nil {
+		return err
+	}
+	if err := queueTx(ctx, tx, c, reason); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) finishSuccess(ctx context.Context, tx pgx.Tx, c conversation, execution string, p proposal) error {
 	behavior := p.Decision.Behavior
 	executionState := "DONE"
 	if behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY && c.Clarifications >= 1 {
@@ -342,8 +349,7 @@ func (s *Service) finish(ctx context.Context, execution, id string, scope *ragv1
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE customer_execution SET state=$2,behavior=$3,reason_code=$4,answer=$5,evidence_json=$6,is_mock=$7,finished_at=now() WHERE id=$1`, execution, executionState, behavior.String(), p.Decision.ReasonCode, p.Answer, raw, p.Mock)
-	if err != nil {
+	if err = completeCustomerExecution(ctx, tx, execution, executionState, behavior.String(), p.Decision.ReasonCode, p.Answer, raw, p.Mock); err != nil {
 		return err
 	}
 	if behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_HANDOFF {
@@ -356,12 +362,10 @@ func (s *Service) finish(ctx context.Context, execution, id string, scope *ragv1
 	if behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY {
 		c.Clarifications = 1
 	}
-	_, err = tx.Exec(ctx, `UPDATE customer_conversation SET active_execution=NULL,clarification_count=$2 WHERE id=$1`, id, c.Clarifications)
-	if err != nil {
+	if err = clearCustomerActiveExecution(ctx, tx, c.ID, c.Clarifications); err != nil {
 		return err
 	}
-	_, err = addMessage(ctx, tx, c, "assistant", p.Answer, execution, nil, p.Evidence)
-	if err != nil {
+	if _, err = addMessage(ctx, tx, c, "assistant", p.Answer, execution, nil, p.Evidence); err != nil {
 		return err
 	}
 	if err = emit(ctx, tx, c, "completed", map[string]any{"execution_id": execution, "behavior": behavior.String()}); err != nil {

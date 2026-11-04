@@ -21,7 +21,6 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -180,17 +179,13 @@ func (s *Service) originOK(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 func (s *Service) resolve(ctx context.Context, r *http.Request) (visitor, error) {
-	var v visitor
 	cookie, err := r.Cookie(CookieName)
 	if err != nil || len(cookie.Value) != 48 {
-		return v, errors.New("customer_session_required")
+		return visitor{}, errors.New("customer_session_required")
 	}
-	err = s.DB.QueryRow(ctx, `SELECT cs.tenant_id,cs.shop_id,cs.customer_id,cs.id,cs.csrf_token
- FROM customer_session cs JOIN tenant t ON t.id=cs.tenant_id JOIN shop sh ON sh.tenant_id=cs.tenant_id AND sh.id=cs.shop_id
- WHERE cs.token_sha256=$1 AND cs.revoked_at IS NULL AND cs.expires_at>now() AND cs.idle_until>now()
- AND t.status='active' AND sh.status='active' AND sh.customer_chat_enabled`, Hash(cookie.Value)).Scan(&v.Tenant, &v.Shop, &v.Customer, &v.Session, &v.CSRF)
+	v, err := customerSessionByToken(ctx, s.DB, Hash(cookie.Value))
 	if err == nil {
-		_, err = s.DB.Exec(ctx, `UPDATE customer_session SET idle_until=LEAST(expires_at,now()+interval '24 hours') WHERE id=$1 AND idle_until<now()+interval '23 hours 55 minutes'`, v.Session)
+		err = touchCustomerSession(ctx, s.DB, v.Session)
 	}
 	return v, err
 }
@@ -238,9 +233,7 @@ func (s *Service) Routes() http.Handler {
 	})
 }
 func (s *Service) shop(w http.ResponseWriter, r *http.Request) {
-	var name, welcome string
-	err := s.DB.QueryRow(r.Context(), `SELECT sh.name,sh.welcome_message FROM shop sh JOIN tenant t ON t.id=sh.tenant_id
- WHERE sh.public_slug=$1 AND sh.customer_chat_enabled AND sh.status='active' AND t.status='active'`, r.PathValue("slug")).Scan(&name, &welcome)
+	name, welcome, err := publicShop(r.Context(), s.DB, r.PathValue("slug"))
 	if err != nil {
 		failure(w, 404, "shop_unavailable")
 		return
@@ -259,9 +252,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 		failure(w, 429, "session_rate_limited")
 		return
 	}
-	var tenant int64
-	var shop string
-	err := s.DB.QueryRow(r.Context(), `SELECT sh.tenant_id,sh.id FROM shop sh JOIN tenant t ON t.id=sh.tenant_id WHERE sh.public_slug=$1 AND sh.customer_chat_enabled AND sh.status='active' AND t.status='active'`, input.Shop).Scan(&tenant, &shop)
+	tenant, shop, err := sessionShop(r.Context(), s.DB, input.Shop)
 	if err != nil {
 		failure(w, 404, "shop_unavailable")
 		return
@@ -271,18 +262,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, customer, session, csrf := ID(), ID(), ID(), ID()
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		failure(w, 503, "database_unavailable")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	_, err = tx.Exec(r.Context(), `INSERT INTO customer_identity(id,tenant_id,shop_id) VALUES($1,$2,$3)`, customer, tenant, shop)
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO customer_session(id,tenant_id,shop_id,customer_id,token_sha256,csrf_token,expires_at,idle_until)
- VALUES($1,$2,$3,$4,$5,$6,now()+interval '7 days',now()+interval '24 hours')`, session, tenant, shop, customer, Hash(token), csrf)
-	}
-	if err != nil || tx.Commit(r.Context()) != nil {
+	if err = createCustomerSession(r.Context(), s.DB, tenant, shop, customer, session, Hash(token), csrf); err != nil {
 		failure(w, 503, "database_unavailable")
 		return
 	}
@@ -296,8 +276,7 @@ func (s *Service) createConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Hash(v.Customer + ":" + key(r))[:48]
-	_, err := s.DB.Exec(r.Context(), `INSERT INTO customer_conversation(id,tenant_id,shop_id,customer_id) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`, id, v.Tenant, v.Shop, v.Customer)
-	if err != nil {
+	if err := upsertCustomerConversation(r.Context(), s.DB, id, v.Tenant, v.Shop, v.Customer); err != nil {
 		failure(w, 503, "database_unavailable")
 		return
 	}
@@ -309,38 +288,20 @@ func (s *Service) listConversations(w http.ResponseWriter, r *http.Request) {
 		failure(w, 401, "customer_session_required")
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT id,state,epoch FROM customer_conversation WHERE tenant_id=$1 AND shop_id=$2 AND customer_id=$3 ORDER BY updated_at DESC LIMIT 100`, v.Tenant, v.Shop, v.Customer)
+	result, err := listCustomerConversations(r.Context(), s.DB, v.Tenant, v.Shop, v.Customer)
 	if err != nil {
 		failure(w, 503, "database_unavailable")
 		return
 	}
-	defer rows.Close()
-	result := []map[string]any{}
-	for rows.Next() {
-		var id, state string
-		var epoch int64
-		if rows.Scan(&id, &state, &epoch) != nil {
-			failure(w, 503, "database_unavailable")
-			return
-		}
-		result = append(result, map[string]any{"id": id, "state": state, "epoch": epoch})
-	}
 	output(w, 200, map[string]any{"conversations": result})
 }
 
-const conversationSQL = `SELECT id,tenant_id,shop_id,customer_id,state,epoch,owner_user_id,lease_until,active_execution,clarification_count FROM customer_conversation WHERE id=$1`
-
-func scanConversation(row pgx.Row) (conversation, error) {
-	var c conversation
-	err := row.Scan(&c.ID, &c.Tenant, &c.Shop, &c.Customer, &c.State, &c.Epoch, &c.Owner, &c.Lease, &c.Active, &c.Clarifications)
-	return c, err
-}
 func (s *Service) visitorConversation(ctx context.Context, r *http.Request) (visitor, conversation, error) {
 	v, err := s.resolve(ctx, r)
 	if err != nil {
 		return v, conversation{}, err
 	}
-	c, err := scanConversation(s.DB.QueryRow(ctx, conversationSQL, r.PathValue("id")))
+	c, err := loadConversation(ctx, s.DB, r.PathValue("id"))
 	if err != nil || c.Tenant != v.Tenant || c.Shop != v.Shop || c.Customer != v.Customer {
 		return v, c, errors.New("not_found")
 	}
@@ -454,26 +415,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request, c conversation,
 		if !authorized() {
 			return
 		}
-		rows, err := s.DB.Query(r.Context(), `SELECT sequence,event_type,data_json FROM customer_event WHERE tenant_id=$1 AND conversation_id=$2 AND sequence>$3 ORDER BY sequence LIMIT 100`, c.Tenant, c.ID, last)
-		if err != nil {
-			return
-		}
-		type event struct {
-			seq  int64
-			kind string
-			data []byte
-		}
-		batch := []event{}
-		for rows.Next() {
-			var e event
-			if rows.Scan(&e.seq, &e.kind, &e.data) != nil {
-				rows.Close()
-				return
-			}
-			batch = append(batch, e)
-		}
-		err = rows.Err()
-		rows.Close()
+		batch, err := loadCustomerEvents(r.Context(), s.DB, c.Tenant, c.ID, last, 100)
 		if err != nil {
 			return
 		}
@@ -509,10 +451,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request, c conversation,
 
 // All data used here is rechecked at read time, including persisted SSE replay.
 func (s *Service) publicMessage(ctx context.Context, c conversation, id string) (map[string]any, error) {
-	var source, content string
-	var citations []byte
-	var created time.Time
-	err := s.DB.QueryRow(ctx, `SELECT source,content,citations_json,created_at FROM customer_message WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`, c.Tenant, c.ID, id).Scan(&source, &content, &citations, &created)
+	source, content, citations, created, err := loadCustomerMessage(ctx, s.DB, c.Tenant, c.ID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +470,8 @@ func (s *Service) publicMessage(ctx context.Context, c conversation, id string) 
 			redacted = true
 			break
 		}
-		var title string
-		if err = s.DB.QueryRow(ctx, `SELECT title FROM document WHERE tenant_id=$1 AND logical_key=$2`, c.Tenant, item.DocumentId).Scan(&title); err != nil {
+		title, err := loadDocumentTitle(ctx, s.DB, c.Tenant, item.DocumentId)
+		if err != nil {
 			return nil, err
 		}
 		view = append(view, map[string]any{"evidence_id": item.Id, "document_id": item.DocumentId, "version_id": item.VersionId, "citation_index": item.Rank, "title": title, "snippet": item.Content})
@@ -544,28 +483,13 @@ func (s *Service) publicMessage(ctx context.Context, c conversation, id string) 
 	return map[string]any{"id": id, "source": source, "text": content, "citations": view, "redacted": redacted, "created_at": created}, nil
 }
 func (s *Service) messages(ctx context.Context, c conversation) ([]map[string]any, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id FROM customer_message WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY created_at DESC,id DESC LIMIT 500`, c.Tenant, c.ID)
-	if err != nil {
-		return nil, err
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	rows.Close()
+	ids, err := loadCustomerMessageIDs(ctx, s.DB, c.Tenant, c.ID)
 	if err != nil {
 		return nil, err
 	}
 	result := []map[string]any{}
 	for i := len(ids) - 1; i >= 0; i-- {
-		id := ids[i]
-		message, err := s.publicMessage(ctx, c, id)
+		message, err := s.publicMessage(ctx, c, ids[i])
 		if err != nil {
 			return nil, err
 		}
@@ -595,8 +519,7 @@ func (s *Service) StaffRoutes(staff Staff) http.Handler {
 			failure(w, 503, "database_unavailable")
 			return
 		}
-		var owned bool
-		_ = s.DB.QueryRow(r.Context(), `SELECT state='HUMAN' AND owner_user_id=$2 AND owner_session_hash=$3 AND lease_until>now() FROM customer_conversation WHERE id=$1`, c.ID, staff.User, staff.SessionHash).Scan(&owned)
+		owned, _ := customerConversationOwned(r.Context(), s.DB, c.ID, staff.User, staff.SessionHash)
 		output(w, 200, map[string]any{"conversation": c, "messages": messages, "can_reply": owned})
 	})
 	m.HandleFunc("GET /v1/support/conversations/{id}/events", func(w http.ResponseWriter, r *http.Request) {
@@ -616,7 +539,7 @@ func (s *Service) staffConversation(ctx context.Context, r *http.Request, staff 
 			return conversation{}, err
 		}
 	}
-	c, err := scanConversation(s.DB.QueryRow(ctx, conversationSQL, r.PathValue("id")))
+	c, err := loadConversation(ctx, s.DB, r.PathValue("id"))
 	allowed := false
 	for _, shop := range staff.Shops {
 		allowed = allowed || shop == c.Shop
@@ -631,24 +554,10 @@ func (s *Service) queue(w http.ResponseWriter, r *http.Request, staff Staff) {
 		failure(w, 403, "permission_changed")
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT id,state,epoch,owner_user_id,lease_until,updated_at FROM customer_conversation WHERE tenant_id=$1 AND shop_id=ANY($2::text[]) AND (state='WAITING_HUMAN' OR (state='HUMAN' AND owner_user_id=$3)) ORDER BY updated_at LIMIT 100`, staff.Tenant, staff.Shops, staff.User)
+	items, err := loadStaffQueue(r.Context(), s.DB, staff.Tenant, staff.Shops, staff.User)
 	if err != nil {
 		failure(w, 503, "database_unavailable")
 		return
-	}
-	defer rows.Close()
-	items := []map[string]any{}
-	for rows.Next() {
-		var id, state string
-		var epoch int64
-		var owner *int64
-		var lease *time.Time
-		var updated time.Time
-		if rows.Scan(&id, &state, &epoch, &owner, &lease, &updated) != nil {
-			failure(w, 503, "database_unavailable")
-			return
-		}
-		items = append(items, map[string]any{"id": id, "state": state, "epoch": epoch, "owner_user_id": owner, "lease_until": lease, "updated_at": updated})
 	}
 	output(w, 200, map[string]any{"conversations": items})
 }
@@ -702,9 +611,8 @@ func (s *Service) LastCustomerMessage(ctx context.Context, staff Staff, conversa
 	if staff.Role == "viewer" {
 		return "", ErrSupportConversationNotFound
 	}
-	var tenantID int64
-	var shop string
-	if err := s.DB.QueryRow(ctx, `SELECT tenant_id,shop_id FROM customer_conversation WHERE id=$1`, conversationID).Scan(&tenantID, &shop); err != nil {
+	tenantID, shop, err := loadConversationScope(ctx, s.DB, conversationID)
+	if err != nil {
 		return "", ErrSupportConversationNotFound
 	}
 	allowed := false

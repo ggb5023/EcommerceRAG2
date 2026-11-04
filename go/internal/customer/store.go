@@ -361,3 +361,230 @@ func lastCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenantID int64, 
 	}
 	return text, err
 }
+
+// conversationSQL is the canonical row shape for customer conversations. It
+// lives in the store so service.go and ai.go hold no SQL literals.
+const conversationSQL = `SELECT id,tenant_id,shop_id,customer_id,state,epoch,owner_user_id,lease_until,active_execution,clarification_count FROM customer_conversation WHERE id=$1`
+
+func scanConversation(row pgx.Row) (conversation, error) {
+	var c conversation
+	err := row.Scan(&c.ID, &c.Tenant, &c.Shop, &c.Customer, &c.State, &c.Epoch, &c.Owner, &c.Lease, &c.Active, &c.Clarifications)
+	return c, err
+}
+
+func customerSessionByToken(ctx context.Context, db *pgxpool.Pool, tokenHash string) (visitor, error) {
+	var v visitor
+	err := db.QueryRow(ctx, `SELECT cs.tenant_id,cs.shop_id,cs.customer_id,cs.id,cs.csrf_token
+ FROM customer_session cs JOIN tenant t ON t.id=cs.tenant_id JOIN shop sh ON sh.tenant_id=cs.tenant_id AND sh.id=cs.shop_id
+ WHERE cs.token_sha256=$1 AND cs.revoked_at IS NULL AND cs.expires_at>now() AND cs.idle_until>now()
+ AND t.status='active' AND sh.status='active' AND sh.customer_chat_enabled`, tokenHash).Scan(&v.Tenant, &v.Shop, &v.Customer, &v.Session, &v.CSRF)
+	return v, err
+}
+
+func touchCustomerSession(ctx context.Context, db *pgxpool.Pool, sessionID string) error {
+	_, err := db.Exec(ctx, `UPDATE customer_session SET idle_until=LEAST(expires_at,now()+interval '24 hours') WHERE id=$1 AND idle_until<now()+interval '23 hours 55 minutes'`, sessionID)
+	return err
+}
+
+func publicShop(ctx context.Context, db *pgxpool.Pool, slug string) (name, welcome string, err error) {
+	err = db.QueryRow(ctx, `SELECT sh.name,sh.welcome_message FROM shop sh JOIN tenant t ON t.id=sh.tenant_id
+ WHERE sh.public_slug=$1 AND sh.customer_chat_enabled AND sh.status='active' AND t.status='active'`, slug).Scan(&name, &welcome)
+	return name, welcome, err
+}
+
+func sessionShop(ctx context.Context, db *pgxpool.Pool, slug string) (tenant int64, shop string, err error) {
+	err = db.QueryRow(ctx, `SELECT sh.tenant_id,sh.id FROM shop sh JOIN tenant t ON t.id=sh.tenant_id WHERE sh.public_slug=$1 AND sh.customer_chat_enabled AND sh.status='active' AND t.status='active'`, slug).Scan(&tenant, &shop)
+	return tenant, shop, err
+}
+
+func createCustomerSession(ctx context.Context, db *pgxpool.Pool, tenant int64, shop, customer, session, tokenHash, csrf string) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO customer_identity(id,tenant_id,shop_id) VALUES($1,$2,$3)`, customer, tenant, shop); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO customer_session(id,tenant_id,shop_id,customer_id,token_sha256,csrf_token,expires_at,idle_until)
+ VALUES($1,$2,$3,$4,$5,$6,now()+interval '7 days',now()+interval '24 hours')`, session, tenant, shop, customer, tokenHash, csrf); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func upsertCustomerConversation(ctx context.Context, db *pgxpool.Pool, id string, tenant int64, shop, customer string) error {
+	_, err := db.Exec(ctx, `INSERT INTO customer_conversation(id,tenant_id,shop_id,customer_id) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`, id, tenant, shop, customer)
+	return err
+}
+
+func listCustomerConversations(ctx context.Context, db *pgxpool.Pool, tenant int64, shop, customer string) ([]map[string]any, error) {
+	rows, err := db.Query(ctx, `SELECT id,state,epoch FROM customer_conversation WHERE tenant_id=$1 AND shop_id=$2 AND customer_id=$3 ORDER BY updated_at DESC LIMIT 100`, tenant, shop, customer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []map[string]any{}
+	for rows.Next() {
+		var id, state string
+		var epoch int64
+		if rows.Scan(&id, &state, &epoch) != nil {
+			return nil, errors.New("conversation_scan_failed")
+		}
+		result = append(result, map[string]any{"id": id, "state": state, "epoch": epoch})
+	}
+	return result, nil
+}
+
+func loadConversation(ctx context.Context, db *pgxpool.Pool, id string) (conversation, error) {
+	return scanConversation(db.QueryRow(ctx, conversationSQL, id))
+}
+
+func lockConversation(ctx context.Context, tx pgx.Tx, id string) (conversation, error) {
+	return scanConversation(tx.QueryRow(ctx, conversationSQL+" FOR UPDATE", id))
+}
+
+func customerConversationOwned(ctx context.Context, db *pgxpool.Pool, id string, user int64, sessionHash string) (bool, error) {
+	var owned bool
+	err := db.QueryRow(ctx, `SELECT state='HUMAN' AND owner_user_id=$2 AND owner_session_hash=$3 AND lease_until>now() FROM customer_conversation WHERE id=$1`, id, user, sessionHash).Scan(&owned)
+	return owned, err
+}
+
+func loadStaffQueue(ctx context.Context, db *pgxpool.Pool, tenant int64, shops []string, user int64) ([]map[string]any, error) {
+	rows, err := db.Query(ctx, `SELECT id,state,epoch,owner_user_id,lease_until,updated_at FROM customer_conversation WHERE tenant_id=$1 AND shop_id=ANY($2::text[]) AND (state='WAITING_HUMAN' OR (state='HUMAN' AND owner_user_id=$3)) ORDER BY updated_at LIMIT 100`, tenant, shops, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, state string
+		var epoch int64
+		var owner *int64
+		var lease *time.Time
+		var updated time.Time
+		if rows.Scan(&id, &state, &epoch, &owner, &lease, &updated) != nil {
+			return nil, errors.New("queue_scan_failed")
+		}
+		items = append(items, map[string]any{"id": id, "state": state, "epoch": epoch, "owner_user_id": owner, "lease_until": lease, "updated_at": updated})
+	}
+	return items, nil
+}
+
+type customerEvent struct {
+	seq  int64
+	kind string
+	data []byte
+}
+
+func loadCustomerEvents(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID string, after int64, limit int) ([]customerEvent, error) {
+	rows, err := db.Query(ctx, `SELECT sequence,event_type,data_json FROM customer_event WHERE tenant_id=$1 AND conversation_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4`, tenant, conversationID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	batch := []customerEvent{}
+	for rows.Next() {
+		var event customerEvent
+		if rows.Scan(&event.seq, &event.kind, &event.data) != nil {
+			return nil, errors.New("event_scan_failed")
+		}
+		batch = append(batch, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return batch, nil
+}
+
+func loadCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID, id string) (source, content string, citations []byte, created time.Time, err error) {
+	err = db.QueryRow(ctx, `SELECT source,content,citations_json,created_at FROM customer_message WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`, tenant, conversationID, id).Scan(&source, &content, &citations, &created)
+	return source, content, citations, created, err
+}
+
+func loadDocumentTitle(ctx context.Context, db *pgxpool.Pool, tenant int64, logicalKey string) (string, error) {
+	var title string
+	err := db.QueryRow(ctx, `SELECT title FROM document WHERE tenant_id=$1 AND logical_key=$2`, tenant, logicalKey).Scan(&title)
+	return title, err
+}
+
+func loadCustomerMessageIDs(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID string) ([]string, error) {
+	rows, err := db.Query(ctx, `SELECT id FROM customer_message WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY created_at DESC,id DESC LIMIT 500`, tenant, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) != nil {
+			return nil, errors.New("message_scan_failed")
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func loadConversationScope(ctx context.Context, db *pgxpool.Pool, id string) (tenant int64, shop string, err error) {
+	err = db.QueryRow(ctx, `SELECT tenant_id,shop_id FROM customer_conversation WHERE id=$1`, id).Scan(&tenant, &shop)
+	return tenant, shop, err
+}
+
+func markCustomerExecutionExecuting(ctx context.Context, db *pgxpool.Pool, execution string) error {
+	_, err := db.Exec(ctx, `UPDATE customer_execution SET state='EXECUTING' WHERE id=$1 AND state='PENDING'`, execution)
+	return err
+}
+
+func loadCustomerHistoryTexts(ctx context.Context, db *pgxpool.Pool, conversationID string) ([]string, error) {
+	rows, err := db.Query(ctx, `SELECT content FROM customer_message WHERE conversation_id=$1 AND source='customer' ORDER BY created_at DESC,id DESC LIMIT 7`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	texts := []string{}
+	for rows.Next() {
+		var text string
+		if rows.Scan(&text) != nil {
+			return nil, errors.New("history_scan_failed")
+		}
+		texts = append(texts, text)
+	}
+	return texts, nil
+}
+
+func lockCustomerExecution(ctx context.Context, tx pgx.Tx, execution string) (int64, string, error) {
+	var epoch int64
+	var state string
+	err := tx.QueryRow(ctx, `SELECT epoch,state FROM customer_execution WHERE id=$1 FOR UPDATE`, execution).Scan(&epoch, &state)
+	return epoch, state, err
+}
+
+func lockShopPublicRevision(ctx context.Context, tx pgx.Tx, tenant int64, shop string) (string, error) {
+	var revision string
+	err := tx.QueryRow(ctx, `SELECT public_permission_revision FROM shop WHERE tenant_id=$1 AND id=$2 AND status='active' AND customer_chat_enabled FOR SHARE`, tenant, shop).Scan(&revision)
+	return revision, err
+}
+
+func lockCustomerSessionActive(ctx context.Context, tx pgx.Tx, sessionID string) (bool, error) {
+	var active bool
+	err := tx.QueryRow(ctx, `SELECT revoked_at IS NULL AND expires_at>now() AND idle_until>now() FROM customer_session WHERE id=$1 FOR SHARE`, sessionID).Scan(&active)
+	return active, err
+}
+
+func failCustomerExecution(ctx context.Context, tx pgx.Tx, execution, reason string) error {
+	_, err := tx.Exec(ctx, `UPDATE customer_execution SET state='FAILED',reason_code=$2,finished_at=now() WHERE id=$1`, execution, reason)
+	return err
+}
+
+func completeCustomerExecution(ctx context.Context, tx pgx.Tx, execution, state, behavior, reason, answer string, evidence []byte, mock bool) error {
+	_, err := tx.Exec(ctx, `UPDATE customer_execution SET state=$2,behavior=$3,reason_code=$4,answer=$5,evidence_json=$6,is_mock=$7,finished_at=now() WHERE id=$1`, execution, state, behavior, reason, answer, evidence, mock)
+	return err
+}
+
+func clearCustomerActiveExecution(ctx context.Context, tx pgx.Tx, id string, clarifications int) error {
+	_, err := tx.Exec(ctx, `UPDATE customer_conversation SET active_execution=NULL,clarification_count=$2 WHERE id=$1`, id, clarifications)
+	return err
+}
