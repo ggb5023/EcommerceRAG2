@@ -82,7 +82,7 @@ gap 下载 curl/浏览器证据；截图存 `.local/redesign/`。
 - 截图存于 `.local/redesign/`：
   `validity-form.png`、`report-page.png`、`gap-download.png`、
   `gaps-download.jsonl`（截图不提交）。
-- `docs/openapi.yaml` 已补 `gaps/export` 的 download/legacy 两种响应。
+- `docs/openapi.yaml` 已补知识缺口导出接口的 download/legacy 两种响应。
 - `bash scripts/check.sh` PASSED 42；`bash scripts/check.sh --smoke` PASSED 45，
   五条 smoke 与 `.local/w2/` 基线逐字节一致。
 
