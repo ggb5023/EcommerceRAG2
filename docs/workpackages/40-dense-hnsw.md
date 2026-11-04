@@ -59,8 +59,34 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-（实现与验证后填写。）
+- `dense_sql` 现在把 ANN 排序放在只按 tenant/shop 过滤的子查询中，外层的
+  document/version/disclosure/date 授权条件保持不变；子查询只取 `dense_candidates`
+  条，不改变候选数，也不改 Python 侧 `(distance, chunk_id)` 稳定排序。
+- 集成测试 `python/tests/test_dense_hnsw.py` 使用 50,000 条 1024 维 halfvec
+  （≥10,000 要求），测试库临时 tenant/shop，结束清理并断言无残留：
+  ```text
+  EXPLAIN natural: Index Scan using idx_chunk_embedding
+  DENSE_P50_MS_OLD 243.397
+  DENSE_P50_MS_NEW 119.741
+  ```
+  EXPLAIN 为实际 dense SQL 的 `FORMAT JSON`；自然计划选中 HNSW，未使用
+  `enable_seqscan=off` 作为验收。
+- 同一 dense 查询跑两次，返回 `chunk_id` 顺序一致；测试结束临时 tenant/chunk
+  计数为 0。
+- aligned-53（`bash eval/run.sh offline`）：修复前基线 recall@5=0.981132、
+  mrr=0.981132、ndcg@5=0.981132；修复后三项仍为
+  recall@5=0.981132、mrr=0.981132、ndcg@5=0.981132。
+- `bash scripts/check.sh` PASSED 41；`bash scripts/check.sh --smoke` PASSED 45，
+  五条 smoke 与 `.local/w2/` 基线逐字节一致。
+- 未改 sparse 分支、`SPARSE_RETRIEVAL` 的 legacy 默认 默认、RRF 权重、候选数、迁移或索引。
 
 ## 未覆盖路径
 
-（实现与验证后填写。）
+- HNSW 计划验证使用测试库临时 50,000 条数据，不是生产规模；未调 HNSW 参数
+  （`m`、`ef_construction`、`ef_search`）。
+- 外层授权在 ANN top-N 之后执行，因此若 top-N 全被授权过滤，返回数会少于 limit；
+  这是本次子查询改写的已知语义边界，未做补候选或二次查询。
+- 未运行 `check.sh --db`、`--e2e`、`--all`；未做浏览器验证；未调用真实模型。
+- 未验证真实稀疏数据与 HNSW 同时启用；0029 的 legacy 默认和 sparse 分支保持不变。
+- 真实大数据量、并发查询和索引维护成本未测量；p50 只是 20 次测试库测量。
+
