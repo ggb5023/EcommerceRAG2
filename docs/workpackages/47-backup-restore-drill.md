@@ -90,3 +90,5 @@ bash scripts/check.sh --smoke
   down -v`，对应容器、network、volume 和 `/tmp/ecr-wp47-*` 目录全部删除。
 - OSS 远端对象存储：无凭证，`oss_remote.status=UNCONFIGURED`，仅演练本地
   PostgreSQL + filesystem archive。
+- Keycloak 数据库在本次隔离源中未初始化，`keycloak.dump` 只验证了空库
+  备份/恢复路径；身份数据、浏览器 Cookie 与入口切换未演练。
