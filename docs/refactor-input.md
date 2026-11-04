@@ -20,8 +20,8 @@
    但聚合接口尚未把 NULL 单独归入 unattributed 桶。
 7. `eval/run_v2_quality_safety_http.py` 的 `run_case` 仍保留可选 `ledger` 参数供旧测试注入；
    仅是测试注入点，不影响生产路径，但属于历史命名残留（0021 之后不再有账本），建议重构时清掉。
-8. `docs/ui-only-acceptance.md` 的矩阵已扩充为 34 条（31 条原有 + 2 条补登记 + 1 条 usage 标 ❌）；
-   `GET /admin/v1/merchant/usage` 尚无 UI，随 0021 的用量界面实现。
+8. `docs/ui-only-acceptance.md` 的矩阵是 UI 覆盖入口；后端路由数不在此硬编码，
+   以 `go/internal/admin/handler.go` 和守卫输出为准。已有 UI 缺口见该文。
 9. `adminConfirmImport` / `persistParsed` 把 `IngestAuthorizationError` 与迁移不完整这两类不可重试错误统一映射成
    503 `ingestion_queue_failed`，与"临时排队失败"混淆；另：某文档的 active 版本被 revoke 后，同名再导入在 confirm
    阶段失败（换新 document id 则正常，根因待查）。
