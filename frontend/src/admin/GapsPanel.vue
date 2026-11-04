@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { exportGaps, getGaps, type KnowledgeGapReport } from './api'
+import { downloadGaps, getGaps, triggerDownload, type KnowledgeGapReport } from './api'
 import GapsView from './GapsView.vue'
 
 type GapsRange = '7d' | '30d'
@@ -28,8 +28,9 @@ async function exportNow() {
   error.value = ''
   notice.value = ''
   try {
-    const result = await exportGaps(range.value)
-    notice.value = `已导出 ${result.count} 条到 ${result.path}`
+    const result = await downloadGaps(range.value)
+    triggerDownload(result.blob, result.filename)
+    notice.value = `已开始下载 ${result.filename}`
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : '导出失败。'
   } finally {

@@ -221,6 +221,26 @@ paths:
     get:
       summary: Versions awaiting review
       responses: {'200': {description: OK}}
+  /admin/v1/merchant/gaps/export:
+    post:
+      summary: Export content gaps as JSONL
+      description: Download mode returns the JSONL body; the default keeps the legacy local-file response.
+      parameters:
+        - {name: range, in: query, required: false, schema: {type: string, enum: [7d, 30d]}}
+        - {name: download, in: query, required: false, schema: {type: string, enum: ['1']}}
+      responses:
+        '200':
+          description: JSONL attachment when download=1, otherwise the legacy path/count object
+          content:
+            application/jsonl:
+              schema: {type: string}
+            application/json:
+              schema:
+                type: object
+                properties: {path: {type: string}, count: {type: integer}}
+        '400': {description: invalid_range}
+        '403': {description: admin_scope_denied}
+        '503': {description: gaps_unavailable}
 components:
   securitySchemes:
     sessionCookie:

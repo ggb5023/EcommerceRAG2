@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
@@ -16,6 +17,7 @@ import (
 const (
 	gapsDefaultMinCount = 1
 	gapExportDir        = ".local/gap-exports"
+	gapDownloadFormat   = "gap_download_jsonl"
 )
 
 // adminGaps returns the content-gap list for the caller's tenant. The tenant
@@ -62,6 +64,10 @@ func (g *Handler) adminGapsExport(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "gaps_unavailable", "gaps unavailable")
 		return
 	}
+	if r.URL.Query().Get("download") == "1" || strings.Contains(r.Header.Get("Accept"), "application/jsonl") {
+		writeGapDownload(w, items)
+		return
+	}
 	path, count, err := writeGapExport(scope.TenantID, items)
 	if err != nil {
 		log.Printf("gap export failed: %v", err)
@@ -83,6 +89,29 @@ func gapMinCount(value string) (int64, bool) {
 	return count, true
 }
 
+type gapExportRecord struct {
+	Query       string `json:"query"`
+	Expectation string `json:"expectation"`
+	Source      string `json:"source"`
+	CapturedAt  string `json:"captured_at"`
+}
+
+func gapRecord(item KnowledgeGap, capturedAt string) gapExportRecord {
+	return gapExportRecord{item.Query, "answer_or_clarify", "gap-" + item.Reason, capturedAt}
+}
+
+func writeGapDownload(w http.ResponseWriter, items []KnowledgeGap) {
+	w.Header().Set("Content-Type", "application/jsonl")
+	w.Header().Set("X-Export-Format", gapDownloadFormat)
+	w.Header().Set("Content-Disposition", "attachment; filename=gaps-"+time.Now().UTC().Format("20060102T150405Z")+".jsonl")
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	capturedAt := time.Now().UTC().Format(time.RFC3339)
+	for _, item := range items {
+		_ = encoder.Encode(gapRecord(item, capturedAt))
+	}
+}
+
 // writeGapExport creates a private JSONL file whose lines can be copied into
 // the frozen evaluation corpus by a human. It never mutates the corpus.
 func writeGapExport(tenantID int64, items []KnowledgeGap) (string, int, error) {
@@ -100,13 +129,7 @@ func writeGapExport(tenantID int64, items []KnowledgeGap) (string, int, error) {
 	encoder.SetEscapeHTML(false)
 	capturedAt := time.Now().UTC().Format(time.RFC3339)
 	for _, item := range items {
-		record := struct {
-			Query       string `json:"query"`
-			Expectation string `json:"expectation"`
-			Source      string `json:"source"`
-			CapturedAt  string `json:"captured_at"`
-		}{item.Query, "answer_or_clarify", "gap-" + item.Reason, capturedAt}
-		if err := encoder.Encode(record); err != nil {
+		if err := encoder.Encode(gapRecord(item, capturedAt)); err != nil {
 			_ = file.Close()
 			_ = os.Remove(path)
 			return "", 0, err
