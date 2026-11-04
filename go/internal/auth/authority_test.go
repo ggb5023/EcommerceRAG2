@@ -114,6 +114,21 @@ func TestBusinessDateIsCoveredByTheScopeMAC(t *testing.T) {
 	}
 }
 
+func TestTurnAndExecutionIDsAreCoveredByScopeMAC(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	scope := signedScope(t, key)
+	base := MAC(key, scope)
+	scope.TurnId = "42"
+	withTurn := MAC(key, scope)
+	if hmac.Equal(base, withTurn) {
+		t.Fatal("turn_id must be part of the signed scope")
+	}
+	scope.ExecutionId = "84"
+	if hmac.Equal(withTurn, MAC(key, scope)) {
+		t.Fatal("execution_id must be part of the signed scope")
+	}
+}
+
 func TestSyntheticBusinessDateOverridesTheShopTimezone(t *testing.T) {
 	t.Setenv("SYNTHETIC_BUSINESS_DATE", "2026-09-29")
 	got, err := businessDateForLocation("America/Los_Angeles", time.Date(2026, 11, 2, 23, 30, 0, 0, time.UTC))

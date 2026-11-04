@@ -3,11 +3,59 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 
 from app import metrics
 
 LOGGER = logging.getLogger(__name__)
 SLOTS = ("control", "embedding", "rerank", "generation")
+
+
+@dataclass(frozen=True)
+class UsageAttribution:
+    request_id: str | None = None
+    execution_id: int | None = None
+    turn_id: int | None = None
+
+
+_CURRENT: ContextVar[UsageAttribution | None] = ContextVar("usage_attribution", default=None)
+
+
+def _numeric_id(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text.isdigit():
+        return None
+    return int(text)
+
+
+def attribution_from_scope(scope: Mapping[str, object]) -> UsageAttribution:
+    """Map a signed Go scope to the optional usage_log attribution columns.
+
+    Staff turns carry numeric execution/turn ids. Customer execution ids are
+    text, so only request_id is attributable for that channel.
+    """
+    request_id = str(scope.get("request_id") or "").strip() or None
+    return UsageAttribution(
+        request_id=request_id,
+        execution_id=_numeric_id(scope.get("execution_id")),
+        turn_id=_numeric_id(scope.get("turn_id")),
+    )
+
+
+@contextmanager
+def use_attribution(attribution: UsageAttribution | None):
+    token = _CURRENT.set(attribution)
+    try:
+        yield
+    finally:
+        _CURRENT.reset(token)
 
 
 class UsageRecorder:
@@ -29,21 +77,34 @@ class UsageRecorder:
     def _insert(self, row: dict) -> None:
         import psycopg
         with psycopg.connect(self.dsn, connect_timeout=3) as conn:
-            conn.execute("""INSERT INTO usage_log(tenant_id,provider_id,slot,model,input_tokens,output_tokens,http_status,error_code)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""", (row["tenant_id"], row["provider_id"], row["slot"], row["model"],
-                row["input_tokens"], row["output_tokens"], row["http_status"], row["error_code"]))
+            conn.execute("""INSERT INTO usage_log(tenant_id,provider_id,slot,model,input_tokens,output_tokens,http_status,error_code,
+                request_id,execution_id,turn_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (row["tenant_id"], row["provider_id"], row["slot"], row["model"],
+                 row["input_tokens"], row["output_tokens"], row["http_status"], row["error_code"],
+                 row["request_id"], row["execution_id"], row["turn_id"]))
             conn.commit()
 
     def record(self, *, tenant_id: int | None, provider_id: int | None = None, slot: str, model: str,
                input_tokens: int | None = None, output_tokens: int | None = None,
-               http_status: int | None = None, error_code: str | None = None) -> bool:
+               http_status: int | None = None, error_code: str | None = None,
+               request_id: str | None = None, execution_id: int | None = None,
+               turn_id: int | None = None) -> bool:
         if slot not in SLOTS or not model:
             return False
+        current = _CURRENT.get()
+        if current is not None:
+            if request_id is None:
+                request_id = current.request_id
+            if execution_id is None:
+                execution_id = current.execution_id
+            if turn_id is None:
+                turn_id = current.turn_id
         row = {"tenant_id": tenant_id, "provider_id": provider_id if provider_id is not None else self.provider_id,
                "slot": slot, "model": model,
                "input_tokens": None if input_tokens is None else int(input_tokens),
                "output_tokens": None if output_tokens is None else int(output_tokens),
-               "http_status": http_status, "error_code": error_code}
+               "http_status": http_status, "error_code": error_code,
+               "request_id": request_id, "execution_id": execution_id, "turn_id": turn_id}
         try:
             if self.sink is not None:
                 self.sink(row)

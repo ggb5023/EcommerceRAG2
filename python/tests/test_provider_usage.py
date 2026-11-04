@@ -1,13 +1,35 @@
 import logging
 
-from app.providers.usage import UsageRecorder
+from app.providers.usage import UsageAttribution, UsageRecorder, attribution_from_scope, use_attribution
 
 
 def test_record_explicit_tenant_and_nulls():
     rows=[]
     recorder=UsageRecorder(sink=rows.append)
     assert recorder.record(tenant_id=7,slot="control",model="m",input_tokens=10,output_tokens=None,http_status=500,error_code="x")
-    assert rows==[{"tenant_id":7,"provider_id":None,"slot":"control","model":"m","input_tokens":10,"output_tokens":None,"http_status":500,"error_code":"x"}]
+    assert rows==[{"tenant_id":7,"provider_id":None,"slot":"control","model":"m","input_tokens":10,"output_tokens":None,"http_status":500,"error_code":"x","request_id":None,"execution_id":None,"turn_id":None}]
+
+def test_scope_attribution_is_copied_to_usage_rows():
+    rows=[]
+    recorder=UsageRecorder(sink=rows.append)
+    scope={"request_id":"v2-123","execution_id":"42","turn_id":"7"}
+    with use_attribution(attribution_from_scope(scope)):
+        assert recorder.record(tenant_id=2,slot="generation",model="m")
+    assert rows[0]["request_id"]=="v2-123"
+    assert rows[0]["execution_id"]==42 and rows[0]["turn_id"]==7
+
+def test_customer_scope_keeps_text_request_id_and_nulls_numeric_ids():
+    attribution=attribution_from_scope({"request_id":"abcdef","execution_id":"abcdef","turn_id":"abcdef"})
+    assert attribution==UsageAttribution(request_id="abcdef",execution_id=None,turn_id=None)
+
+def test_attribution_does_not_leak_outside_context():
+    rows=[]
+    recorder=UsageRecorder(sink=rows.append)
+    with use_attribution(UsageAttribution(request_id="v2-1",execution_id=1,turn_id=2)):
+        recorder.record(tenant_id=1,slot="control",model="m")
+    recorder.record(tenant_id=1,slot="control",model="m")
+    assert rows[0]["request_id"]=="v2-1"
+    assert rows[1]["request_id"] is None and rows[1]["execution_id"] is None and rows[1]["turn_id"] is None
 
 def test_record_write_failure_is_swallowed_and_warned(caplog):
     def sink(_): raise RuntimeError("db down")
@@ -24,7 +46,7 @@ def test_provider_double_write_rows_keep_tokens_and_null_failures():
     rows=[]
     provider=object.__new__(AlibabaBailianProvider)
     provider.config=SimpleNamespace(models={"control":"m"})
-    from app.providers.usage import UsageRecorder
+    from app.providers.usage import UsageAttribution, UsageRecorder, attribution_from_scope, use_attribution
     provider.usage=UsageRecorder(sink=rows.append)
     provider._record_usage("control",ProviderUsage(10,2,12),200,None,7)
     provider._record_usage("control",None,500,"upstream_error",7)

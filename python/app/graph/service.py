@@ -9,6 +9,7 @@ from typing import Any
 
 from app.chains.provider import ProviderChainSet
 from app.facts import ALLOWED_FACT_TOOLS
+from app.providers.usage import attribution_from_scope, use_attribution
 
 from .checkpoint import Checkpoint, CheckpointStore, InMemoryCheckpointStore
 from .state import GraphState, Scope
@@ -55,7 +56,8 @@ class LangGraphRagService:
 
     def _invoke(self, payload: GraphState, phase: str = "full") -> GraphState:
         graph = GRAPH if phase == "full" else build_graph(phase)
-        result = graph.invoke(payload)
+        with use_attribution(attribution_from_scope(payload["scope"])):
+            result = graph.invoke(payload)
         result["scope"] = payload["scope"]
         if "trace" in result:
             result["trace"]["nodes"] = list(phase_nodes(phase))
@@ -89,7 +91,8 @@ class LangGraphRagService:
         if timeout_s is not None:
             payload["provider_timeout_s"] = timeout_s
         graph = build_graph(phase) if selected_chains is None else build_provider_graph(selected_chains, phase)
-        result = await graph.ainvoke(payload)
+        with use_attribution(attribution_from_scope(scope)):
+            result = await graph.ainvoke(payload)
         recorder = getattr(getattr(selected_chains, "retriever", None), "arecord_trace", None)
         if phase == "search" and scope.get("request_id") and recorder is not None:
             if cancel_event is not None and cancel_event.is_set():
@@ -135,7 +138,8 @@ class LangGraphRagService:
         if timeout_s is not None:
             payload["provider_timeout_s"] = timeout_s
         graph = build_graph(phase) if selected_chains is None else build_provider_graph(selected_chains, phase)
-        result = await graph.ainvoke(payload)
+        with use_attribution(attribution_from_scope(scope)):
+            result = await graph.ainvoke(payload)
         result["scope"] = scope
         if "trace" in result:
             result["trace"]["nodes"] = list(phase_nodes(phase))

@@ -8,6 +8,7 @@ from app.graph.runtime import load_provider_service
 from app.graph.service import LangGraphRagService
 from app.providers.aliyun_bailian import MockProvider
 from app.providers.config import validate_values
+from app.providers.usage import UsageRecorder
 
 
 def mock_provider():
@@ -388,4 +389,47 @@ def test_context_selection_only_narrows_authorized_sources_and_skips_signed_gene
         chains.control = RunnableLambda(lambda _: None, afunc=widen)
         with pytest.raises(ValueError, match='outside supplied'):
             await provider_context_gate_node(state, chains)
+    asyncio.run(run())
+
+
+def test_provider_graph_binds_scope_attribution_to_usage_records():
+    class RecordingUsageProvider(MockProvider):
+        def __init__(self, config, rows):
+            super().__init__(config)
+            self.rows = rows
+
+        async def control(self, messages, **kwargs):
+            assert UsageRecorder(sink=self.rows.append).record(
+                tenant_id=2, slot="control", model=self.config.control_model,
+                input_tokens=1, output_tokens=1,
+            )
+            return await super().control(messages, **kwargs)
+
+    async def run():
+        rows = []
+        provider = RecordingUsageProvider(validate_values({
+            "PROVIDER_PROFILE": "mock",
+            "CONTROL_MODEL": "mock-control",
+            "EMBEDDING_MODEL": "mock-embedding",
+            "RERANK_MODEL": "mock-rerank",
+            "GENERATION_MODEL": "mock-generation",
+        }), rows)
+        chains = build_provider_chains(
+            control=provider, embedding=provider, rerank=provider, generation=provider,
+        )
+        scoped = {
+            "request_id": "v2-wp49", "execution_id": "42", "turn_id": "7",
+            "tenant_id": "v2-demo-tenant", "user_id": "dev-user",
+            "permission_revision": "1", "role": "operator",
+            "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": ["v2-doc-bottle"],
+            "shop_id": "shop-demo",
+        }
+        await LangGraphRagService().arun(
+            query="保温杯容量是多少？", scope=scoped,
+            response_purpose="customer_reply", provider_chains=chains,
+        )
+        assert rows
+        assert all(row["request_id"] == "v2-wp49" for row in rows)
+        assert all(row["execution_id"] == 42 and row["turn_id"] == 7 for row in rows)
+
     asyncio.run(run())

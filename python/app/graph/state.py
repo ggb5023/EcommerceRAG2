@@ -18,6 +18,7 @@ class Scope(TypedDict, total=False):
     response_purpose: str
     conversation_id: str
     turn_id: str
+    execution_id: str
     expires_at: int
     subject_type: str
     customer_id: str
