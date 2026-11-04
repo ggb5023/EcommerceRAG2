@@ -85,3 +85,11 @@ def test_provider_record_usage_flag_controls_recorder(monkeypatch):
     )
     assert AlibabaBailianProvider(config, transport=object(), record_usage=True).usage is not None
     assert AlibabaBailianProvider(config, transport=object(), record_usage=False).usage is None
+
+
+def test_ai_usage_recorder_falls_back_to_retriever_dsn(monkeypatch):
+    monkeypatch.delenv("V2_USAGE_DSN", raising=False)
+    monkeypatch.delenv("V2_AI_DSN", raising=False)
+    monkeypatch.setenv("V2_RETRIEVER_DSN", "postgresql://ai.example/ecr_v2")
+    recorder = UsageRecorder.from_environment(role="ai")
+    assert recorder is not None and recorder.dsn == "postgresql://ai.example/ecr_v2"
