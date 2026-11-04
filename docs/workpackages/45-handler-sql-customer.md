@@ -64,3 +64,44 @@ WAITING_HUMAN/lease 数据，测试后清理。
 - 不新增 customer 纯单测；用既有 Go 测试与顾客链路 curl 证明行为不变。
 - 不跑 `--db` / `--e2e` / `--all`；不验证真实模型路径。
 - 不把 `stream` 的 SSE 写入搬进 store；只搬其查询 SQL。
+
+## 实际交付
+
+- 代码：`fd48c8c` 扩展 `store.go`，`service.go` / `ai.go` 不再含 SQL；
+  `8a782ed` 将 AI 阶段拆为 `run`/`understandCustomer`/`searchCustomerEvidence`/
+  `generateCustomerAnswer`（46/34/43/63 行），`f7a1c37` 将状态机 switch 拆为
+  `change`/`applyConversationAction`（40/48 行），均 ≤80。
+- 覆盖：会话解析与 idle 续期、建会话、conversation 列表、staff queue、
+  customer_event/message/citations、history、execution 锁与终态、handoff/claim/
+  release/requeue 状态机。`customer_message` 仍由 store 的 `addMessage` 写入。
+- 棘轮：`f868c5a` 将 `HANDLER_SQL_BASELINE` 从 24 精确降到 16；
+  `PASS structure: handler SQL 16/16`。
+- 测试：`go test -count=1 ./...` 全部 ok；`go vet ./...` 通过；Go 重建后
+  `strings` 命中新增 customer store/阶段符号 14 处；重启进程时间晚于最后代码提交。
+- 顾客链路 curl：createSession 201、createConversation 201、send 202、
+  handoff 200、claim 200、release 200、messages 200；send 同 key 重放
+  202 且 `replayed=true`。另建一条 conversation 验证 AI → WAITING_HUMAN handoff
+  （epoch 0→2，符合既有双增语义）。
+- 测试数据已清理：`customer_retrieval_trace` 用迁移角色删除，两个 conversation、
+  session、identity 与消息/execution/command 残留计数均为 0。
+
+## 剩余 SELECT 清单
+
+`go/internal/customer/service.go` 与 `go/internal/customer/ai.go` 为 0；
+剩余非 store SELECT 全在 gateway：
+
+```text
+turn_handlers.go 9（getConversation/events/cancelTurn）
+authorization.go 3（历史权限、执行权限）
+result.go 5
+support_suggestions.go 5
+recovery.go 5
+main.go 3
+turn_persist.go 3
+turn_route.go 3
+identity.go 1
+wire.go 1
+metrics_http.go 1
+```
+
+后续顺序：WP46 recovery + 剩余 SQL（目标 baseline 0）→ WP47 P1-7 恢复演练。
