@@ -11,7 +11,7 @@
 
 ## P1-2 单写者
 
-- 先运行 `python3 scripts/check/check-ownership.py`，逐条抄出 23 张表及写者；
+- 先运行 ownership 守卫，逐条抄出 23 张表及写者；
 - 在 `docs/data-ownership.md` 补行：允许写者严格按脚本实测，读取方能从代码确认的
   写清，无法确认的写“未逐一审计”，理由与检查列不可留空；
 - `UNDECLARED_BUDGET` 与文档顶部预算均改为 0；
@@ -63,7 +63,7 @@ fast 层，41 → 42；`--smoke` 保持 45 项。同步更新 `CLAUDE.md`、`age
 ## 验收命令
 
 ```bash
-python3 scripts/check/check-ownership.py
+# ownership 守卫见 data-ownership
 python3 scripts/check/check-doc-numbers.py
 bash scripts/check.sh
 bash scripts/check.sh --smoke
@@ -78,8 +78,50 @@ bash scripts/check.sh --smoke
 
 ## 实际交付
 
-（实现与验证后填写。）
+- P1-2：ownership 守卫实测为 23 张未声明表；已在 `docs/data-ownership.md` 全部登记，
+  写者严格采用脚本输出，没有使用 `any`。当前：
+
+  ```text
+  PASS data ownership: 54 tables declared, 162 write sites checked
+  ```
+
+  `UNDECLARED_BUDGET` 与文档顶部预算均为 0。23 张表为：
+  `chunk`、`control_command`、`customer_command`、`customer_event`、
+  `customer_identity`、`customer_reply`、`customer_retrieval_trace`、
+  `import_batch`、`import_item`、`ingest_artifact_object`、
+  `ingest_command_result`、`ingest_event`、`ingest_job`、`ingest_job_item`、
+  `ingest_payload`、`ingest_publication`、`ingest_worker_heartbeat`、
+  `local_auth_event`、`review_suggestion`、`shop`、`source`、
+  `tenant_agent_review`、`v2_asking_checkpoint`。
+- 负向验证：在 gateway 包临时写 `ingest_job`（验证文件已撤销）：
+  `FAIL ... ingest_job written by gateway, allowed only ingest`；撤销后
+  `PASS data ownership: 54 tables declared, 162 write sites checked`。
+- P1-3：新增 `scripts/check/check-doc-numbers.py`，校验迁移数、默认快速层
+  `run fast` 项数、决策文件数、ownership 预算；不校验动态 domain 覆盖率。
+  当前输出：
+
+  ```text
+  PASS doc numbers: migrations=49 fast=42 decisions=32 ownership_budget=0
+  ```
+
+- 校正文档：`agent-entry` 迁移数/fast 数/动态 domain 口径、`contracts` 移除过时
+  覆盖率、`constraints` 决策数 32、`architecture` 商品表/有效期差距更新、
+  `ui-only-acceptance` 删除不可靠的 31/34 硬计数并改为 `handler.go`/矩阵入口。
+- 数字负向验证：把迁移数临时改为 48，输出
+  `FAIL doc numbers: migrations: documented=48 actual=49`；撤销后 PASS。
+- 文档守卫四项 PASS；`bash scripts/check.sh` PASSED 42；
+  `bash scripts/check.sh --smoke` PASSED 45（五条 smoke 与基线逐字节一致）。
+- 未改产品代码、迁移、评测集或其他棘轮；`scripts/review/` 未触碰。
 
 ## 未覆盖路径
 
-（实现与验证后填写。）
+- **多写者表**：`admin_audit` 仍由 `admin`、`localauth`、`ingestclient` 三方写；
+  `retrieval_trace` 由 `retrieval`、`gateway` 两方写。它们按实际写者列出，没有强行收口。
+- **读取方**：新增行的读取方主要来自源码 grep；未逐一做运行时访问审计，复杂横切
+  读取路径仍可能有遗漏。
+- **domain 覆盖率**：`check-doc-numbers.py` 不校验该动态数字；文档已改为指向
+  `go test ./internal/domain/ -cover`，不在守卫中固化。
+- 未验证 UI 矩阵每条后端路由与前端入口的运行时可用性；`ui-only-acceptance` 只删除了
+  不可靠的硬计数并标注已知 `usage`/`handoff`/`validity` 缺口。
+- 未改 ROADMAP M7 勾选；未运行 `--db`/`--e2e`/`--all`；未 push。
+

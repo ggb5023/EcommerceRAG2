@@ -166,6 +166,7 @@ run fast local-services-exec "test -x scripts/dev/v2-local-services.sh"
 run fast shellcheck "shellcheck -S warning scripts/*.sh scripts/*/*.sh eval/*.sh docker/db/*.sh docker/db/init/*.sh"
 if [ "$SMOKE" -eq 0 ]; then
   run fast check-logs "python3 scripts/check/check-logs.py"
+  run fast check-doc-numbers "python3 scripts/check/check-doc-numbers.py"
 fi
 run fast go-test "cd go && go test -p 2 ./..."
 run fast go-vet "cd go && go vet ./..."

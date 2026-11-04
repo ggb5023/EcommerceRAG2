@@ -32,7 +32,7 @@ MUST READ FIRST: `docs/agent-entry.md`（仓库地图 / 分层 / 门禁 / 验证
 ## 4. 验证顺序（缺一不可）
 
 ```bash
-bash scripts/check.sh          # 40 项快速层
+bash scripts/check.sh          # 42 项快速层
 bash scripts/check.sh --smoke  # 5 条轮次链路 smoke，与 .local/w2/ 基线逐字节比对
 go build ./... && go vet ./...
 ```

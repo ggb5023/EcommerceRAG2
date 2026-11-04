@@ -9,7 +9,7 @@
 
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
-| 每张表只有一个写入方 | `check-ownership.py` | ✅ 已声明表数见 `docs/data-ownership.md` |
+| 每张表只有一个写入方 | `check-ownership.py` | ✅ 已声明表数见 `docs/data-ownership.md`；未声明预算 0 |
 | 迁移只追加，不修改已执行文件 | `check-doc-baseline.py` | ✅ |
 | 新表必须显式授权给所需角色 | `check-migration-grants.py`（已接入 `scripts/check.sh:143`；静态检查，正向路径无测试兜底，见 `environment-facts.md` #4） | ✅ 静态检查 |
 | 新环境必须能"从零建库" | 无 | ❌ 未实现（批次 3 §5.1 待做） |
@@ -68,7 +68,7 @@
 
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
-| 决策一文件一编号，只追加 | `check-decisions-index.py` | ✅ 27 份 |
+| 决策一文件一编号，只追加 | `check-decisions-index.py` | ✅ 32 份 |
 | 决策编号不撞车、无漏号 | `check-decisions-index.py`（已接入 `scripts/check.sh:138`） | ✅ |
 | 文档不得重复陈述同一事实 | `check-docs-drift.py`（预算 5） | ⚠️ 计划降到 0 并升为 FAIL |
 | 文档引用的路径必须存在 | `check-doc-paths.py`（已接入 `scripts/check.sh:139`） | ✅ |

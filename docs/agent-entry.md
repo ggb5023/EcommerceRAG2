@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `go/internal/gateway` | 编排 + HTTP 适配（`turn_*.go` / `routes_*` / `sse` / `edge`） | SQL、业务分支堆叠 |
 | `go/internal/domain` | 纯函数判定（证据过滤、澄清、引用校验、资源定位） | I/O、依赖 gateway/admin |
-| `go/internal/admin` | 管理域 handler + `store_*.go`（81 条 SQL） | handler 里的 SQL |
+| `go/internal/admin` | 管理域 handler + `store_*.go`（SQL 数由 `admin-boundaries` 输出） | handler 里的 SQL |
 | `go/internal/auth` `localauth` | 授权签名与 scope 校验 / 账号会话 | — |
 | `go/internal/customer` | 顾客侧服务 | — |
 | `go/internal/ports` | `IngestClient` / `FactClient` / `Authority` 接口 | 实现 |
@@ -20,12 +20,12 @@
 | `python/app/providers` | 模型适配（Bailian / MinerU / Tavily） | — |
 | `frontend/src` | 管理端 + 顾客端 SPA | — |
 | `eval/` | 冻结评测（53 例对齐集） | 产品代码 |
-| `sql/migrations/` | 43 条迁移，**只追加** | 修改历史文件 |
+| `sql/migrations/` | 49 条迁移，**只追加** | 修改历史文件 |
 | `scripts/check/` | 守卫 | — |
 
 ## 2. 分层与纪律
 
-Go 五层：**适配**（`turn_handlers` / `routes_*` / `sse`）→ **用例**（`turn_*.go`，`runTurn` 117 行）→ **领域**（`domain/`，覆盖率 94.0%）→ **持久**（`admin/store_*.go`）→ **出入口**（`ports/`）。
+Go 五层：**适配**（`turn_handlers` / `routes_*` / `sse`）→ **用例**（`turn_*.go`，`runTurn` 117 行）→ **领域**（`domain/`，覆盖率以 `go test ./internal/domain/ -cover` 为准）→ **持久**（`admin/store_*.go`）→ **出入口**（`ports/`）。
 Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`）→ **摄取**（`ingest/`）。
 两者之间是 gRPC 进程边界，字段契约由 `docs/contracts.md` 钉住。
 
@@ -36,13 +36,13 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 
 边界（决策 0028）：**Go 拥有**授权、幂等、状态机、事件顺序、落库、失败分类、终态（ASKING/DONE/FAILED/CANCELLED）；**Python 拥有** intent 分类、clarification 文案候选、confidence、检索多跳、提示组装。判据：**能不能看/能不能发 → Go；还要不要再检索/再问一句 → Python**。
 
-## 3. 门禁（`scripts/check.sh`，41 项）
+## 3. 门禁（`scripts/check.sh`，42 项）
 
 | 组 | 项 | 拦什么 |
 | --- | --- | --- |
 | 边界 | `stage-boundaries` `admin-boundaries` `domain-imports` `ownership` `structure` | SQL 回流 handler、阶段函数接 request、domain 依赖基础设施、越权写表、反向依赖与前端直连 Python/DB |
 | 契约 | `contracts` | 跨进程契约缺一侧测试（棘轮数值以 `scripts/check/check-contracts.py` 的 `CONTRACTS_CROSS` / `CONTRACTS_SAME` 为准） |
-| 文档 | `docs-links` `docs-drift` `doc-paths` `decisions-index` `doc-baseline` `openapi` | 断链、同一事实多处陈述、文档里的路径不存在、决策编号漏号或撞车、基线被改 |
+| 文档 | `docs-links` `docs-drift` `doc-paths` `decisions-index` `doc-baseline` `doc-numbers` `openapi` | 断链、同一事实多处陈述、文档里的路径不存在、决策编号漏号或撞车、基线被改 |
 | 隐私 | `privacy-guard` `privacy-tests` `publication-tests` | 密钥、非公开文档入库 |
 | 可观测 | `service-logs` `check-logs` | 服务起了但完全静默；新增裸 `log.Printf` 或 `app/` 下的 `print(` |
 | 正确性 | `go-test` `python-tests` `frontend-tests` `eval-offline` `facts-fake-matrix` `provider-smoke` `artifact-*-smoke` | 行为回归 |
@@ -54,14 +54,14 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 ## 4. 验证命令
 
 ```bash
-bash scripts/check.sh                 # 快速层 41 项（默认）
+bash scripts/check.sh                 # 快速层 42 项（默认）
 bash scripts/check.sh --cov           # Go/Python 覆盖率到 .local/coverage/（只报告，无门槛）
 bash scripts/check.sh --db            # 加持久化层（含 db-env-health 与 migrations-from-zero；无 scratch DSN 则 UNCONFIGURED）
 python3 scripts/check/check-db-env-health.py --env /etc/ecommerce-rag/dev.env
 ECR_SCRATCH_DSN=... ECR_SCRATCH_GATEWAY_DSN=... bash scripts/ops/verify-migrations-from-zero.sh
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式
-bash scripts/check.sh --smoke         # 45 项轮次链路基线；check-logs 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
+bash scripts/check.sh --smoke         # 45 项轮次链路基线；check-logs/doc-numbers 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
 
 # 四条 smoke（改动轮次链路后必跑，与 .local/w2/ 基线逐字节比对）
 bash scripts/dev/smoke-turn.sh

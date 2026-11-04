@@ -1,7 +1,8 @@
 # 仅 WebUI 验收标准
 
-阶段 2 验收完成：单元/集成/浏览器三层证据齐备，**A 级 33/34**。
-`GET /admin/v1/merchant/usage` 尚无 UI，随 0021 的 token 用量界面一并实现。矩阵登记 31 条，另有 `batch-approve`、`suggestion` 两条前端已在用、本次补登记。
+阶段 2 的 UI 覆盖以本矩阵为入口；后端总路由数不在此硬编码，以
+`go/internal/admin/handler.go` 和 `admin-boundaries` 检查输出为准。`usage`、
+`handoff`、`validity` 的 UI 缺口由后续工作包处理；不在本文重复路由计数。
 
 - 日期：2026-10-27
 - 目标：商家部署完成后，A 级日常功能必须能只通过 WebUI 完成；B 级部署运维允许 CLI，但须一条命令；C 级开发/评测不属商家范围。
@@ -16,7 +17,7 @@
 
 ## A 级路由矩阵
 
-以下逐条列出 `go/internal/admin` 的 31 条路由；状态按当前 WebUI 实际承载判定，不把“有 API”当作“有 UI”。
+以下列出已核对的管理入口；状态按当前 WebUI 实际承载判定，不把“有 API”当作“有 UI”。后端新增路由应同步登记，路由总数以 `handler.go` 为准。
 
 | # | 功能 | 后端路由 | UI 入口 | 状态 | 操作成本 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -58,11 +59,10 @@
 
 ## 缺口清单（按优先级）
 
-1. **用量查看（`GET /admin/v1/merchant/usage`）**：无 UI，随 0021 的 token 用量界面实现；这是当前唯一 A 级未实现项。
-2. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；未在 34 条 admin 路由内。
+1. **用量查看（`GET /admin/v1/merchant/usage`）**：无 UI，随 0021 的 token 用量界面实现；与 `handoff`、`validity` 同属当前 A 级 UI 缺口。
+2. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；未在当前矩阵内。
 
-除上述两项外，**34 条 admin 路由中 33 条已有 UI 承载**（`batch-approve` 与 `suggestion` 属矩阵补登记，前端早已在用）；
-批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
+矩阵中的 `batch-approve` 与 `suggestion` 属补登记，前端早已在用；批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
 
 ## B 级（允许 CLI，一条命令）
 
@@ -77,5 +77,5 @@
 
 ## 结论
 
-当前 31 条 admin 路由 **全部有 UI**；A 级剩余缺口只有未在 31 条内的 P3 供应商选择。
-A 级除 P3 供应商选择外已 100% 可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。
+当前已知 A 级 UI 缺口为 `usage`、`handoff`、`validity` 三个入口；矩阵内已登记项均有 UI。P3 供应商选择仍未实现。
+除这些缺口外，已登记 A 级功能可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。
