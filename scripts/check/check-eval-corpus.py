@@ -17,9 +17,11 @@ def main() -> int:
     root = Path(os.environ.get("ECR_EVAL_REVISION") or DEFAULT_ROOT)
     missing = [name for name in NEEDED if not (root / name).is_file()]
     if missing:
-        message = f"SKIP eval corpus absent under {root}: {', '.join(missing)}"
-        print(message, file=sys.stderr if os.environ.get("ECR_REQUIRE_EVAL") == "1" else sys.stdout)
-        return 1 if os.environ.get("ECR_REQUIRE_EVAL") == "1" else 0
+        required = os.environ.get("ECR_REQUIRE_EVAL") == "1"
+        prefix = "FAIL" if required else "UNCONFIGURED"
+        message = f"{prefix} eval corpus absent under {root}: {', '.join(missing)}"
+        print(message, file=sys.stderr if required else sys.stdout)
+        return 1 if required else 2
     metadata = json.loads((root / METADATA).read_text())
     actual = hashlib.sha256((root / CASES).read_bytes()).hexdigest()
     if metadata.get("sha256") != actual:

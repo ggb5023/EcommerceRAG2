@@ -147,7 +147,7 @@ run fast publication-tests "python3 -m unittest discover -s tests -p 'test_publi
 run fast worker-harness-tests "python3 -m unittest discover -s tests -p 'test_worker_process_harness.py'"
 run fast docs-links "python3 scripts/check/check-docs.py"
 run fast openapi "python3 scripts/check/check-openapi.py"
-run fast eval-corpus "python3 scripts/check/check-eval-corpus.py"
+run_optional fast eval-corpus "python3 scripts/check/check-eval-corpus.py"
 run fast doc-baseline "python3 scripts/check/check-doc-baseline.py"
 run fast ownership "python3 scripts/check/check-ownership.py"
 run fast docs-drift "python3 scripts/check/check-docs-drift.py"
