@@ -53,7 +53,7 @@
 | 44 | P1-4 阶段 2：resumeTurn 的 SQL 移出 handler | done | — | — | `b8a22c3` |
 | 45 | P1-4 阶段 3：customer service/ai 的 SQL 移出 handler | done | — | — | `ef15e24` |
 | 46 | P1-4 阶段 4：recovery 与剩余 SQL 移出 handler | done | — | — | `f1d4007` |
-| 47 | P1-7：商家库备份恢复演练 | implemented | P1-7 待主 agent 复核；OSS 远端未演练 | — | `3742264` |
+| 47 | P1-7：商家库备份恢复演练 | done | — | — | `3742264` |
 
 ## 同步规则
 
