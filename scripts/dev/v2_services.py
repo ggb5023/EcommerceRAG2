@@ -29,12 +29,12 @@ PROVIDER_KEYS = {"V2_PROVIDER_CONFIG"}
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
-                "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE", "SYNTHETIC_BUSINESS_DATE"},
+                "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE", "SYNTHETIC_BUSINESS_DATE", "METRICS_ADDR"},
     "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_AI_DSN", "V2_USAGE_DSN",
            "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
            "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE",
            "V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
-           "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS", "V2_INGEST_WORKER_ID"}
+           "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS", "V2_INGEST_WORKER_ID", "AI_METRICS_ADDR"}
           | STORAGE_KEYS | PROVIDER_KEYS,
 }
 CONFIG_KEYS = set().union(*SERVICE_KEYS.values(), COMMON_KEYS) | {
@@ -117,9 +117,11 @@ def configure(values: dict[str, str]) -> dict[str, str]:
     if values["INGEST_STORAGE_PROFILE"] == "filesystem" and not Path(values.get("INGEST_ARTIFACT_ROOT", "")).is_absolute():
         raise StartupError("filesystem artifacts require an absolute root")
     for key, default in (("HTTP_ADDR", "127.0.0.1:8080"), ("V2_GRPC_ADDR", "127.0.0.1:50052"),
-                         ("V2_INGEST_GRPC_ADDR", "127.0.0.1:50053")):
-        values[key] = address(values.get(key, default), loopback=key == "HTTP_ADDR")
-    if len({values[key] for key in ("HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR")}) != 3:
+                         ("V2_INGEST_GRPC_ADDR", "127.0.0.1:50053"), ("METRICS_ADDR", "127.0.0.1:9090"),
+                         ("AI_METRICS_ADDR", "127.0.0.1:9091")):
+        values[key] = address(values.get(key, default), loopback=key in {"HTTP_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR"})
+    address_keys = ("HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR")
+    if len({values[key] for key in address_keys}) != len(address_keys):
         raise StartupError("service bind addresses must be distinct")
     values["AUTHORITY_HTTP_BASE"] = "http://" + values["HTTP_ADDR"]
     values["PYTHONPATH"] = str(ROOT / "python")

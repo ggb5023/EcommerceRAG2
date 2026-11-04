@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import os
 
+from app import metrics
+
 LOGGER = logging.getLogger(__name__)
 SLOTS = ("control", "embedding", "rerank", "generation")
 
@@ -48,6 +50,7 @@ class UsageRecorder:
             elif self.dsn:
                 self._insert(row)
         except Exception:  # noqa: BLE001 - usage must never break a business call
+            metrics.usage_log_write_failure()
             LOGGER.warning("usage_log write failed; business call continues")
             return False
         return True

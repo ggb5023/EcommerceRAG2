@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import os
 import signal
-import sys
 import threading
 
 from app.configuration import verify_merged_configuration
@@ -22,6 +21,8 @@ from app.connections import (
     open_role,
 )
 from app.ingest.worker import IngestWorker
+from app.logging_config import configure as configure_logging
+from app.metrics import start_metrics_server
 from app.rpc.ingest_server import (
     build_ingest_service,
     ingest_server,
@@ -56,6 +57,7 @@ class AiProcess:
         self.ingest_address = ingest_address
         self.worker_timeout = worker_timeout
         self.worker_error: BaseException | None = None
+        self._metrics = None
         self._thread: threading.Thread | None = None
         self._stopped = threading.Event()
         self._closed = False
@@ -68,6 +70,9 @@ class AiProcess:
         except BaseException:
             self.stop(grace=0)
             raise
+        metrics_address = os.environ.get("AI_METRICS_ADDR")
+        if metrics_address:
+            self._metrics = start_metrics_server(metrics_address)
         self.rag_server.start()
         if self.ingest_server is not None:
             self.ingest_server.start()
@@ -84,6 +89,9 @@ class AiProcess:
         if self._closed:
             return
         self._closed = True
+        if self._metrics is not None:
+            self._metrics.stop()
+            self._metrics = None
         # Stop accepting new RPC before the worker, so no new claim arrives
         # while the worker is draining. An unfinished job is left to its lease
         # and fencing epoch instead of being force-committed.
@@ -143,11 +151,8 @@ def build_ai_process() -> AiProcess:
 
 
 def main() -> int:
-    logging.basicConfig(
-        level=os.environ.get("V2_LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
-    )
+    configure_logging(os.environ.get("V2_LOG_LEVEL", "INFO"))
+    os.environ.setdefault("AI_METRICS_ADDR", "127.0.0.1:9091")
     process = build_ai_process()
     stop_event = threading.Event()
 
@@ -163,7 +168,7 @@ def main() -> int:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
     if process.worker_error is not None:
-        print("FAIL ai worker stopped (" + type(process.worker_error).__name__ + ")", file=sys.stderr, flush=True)
+        logging.getLogger(__name__).error("ai worker stopped (%s)", type(process.worker_error).__name__)
         return 1
     return 0
 

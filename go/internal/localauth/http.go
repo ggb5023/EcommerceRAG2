@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
+	"github.com/ggb5023/EcommerceRAG/go/internal/metrics"
 )
 
 const SessionCookie = "ecr_v2_session"
@@ -91,6 +92,7 @@ func (h *Handler) sessionState(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if ok, wait := h.Limiter.Allow(ip); !ok {
+		metrics.AuthRateLimited()
 		_ = h.event(r.Context(), "rate_limited", "", nil, nil, ip, "")
 		w.Header().Set("Retry-After", strings.TrimSuffix(wait.Round(time.Second).String(), "s"))
 		httpapi.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
@@ -115,6 +117,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	now := h.Store.now()
 	if account.LockedUntil != nil && account.LockedUntil.After(now) {
 		if h.Limiter.ProbeExceeded(ip) {
+			metrics.AuthRateLimited()
 			_ = h.event(r.Context(), "rate_limited", "", &account.TenantID, &account.UserID, ip, "")
 			w.Header().Set("Retry-After", "900")
 			httpapi.WriteJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
@@ -130,6 +133,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		_, lockedUntil, _ := h.Store.RegisterFailure(r.Context(), account.TenantID, account.UserID, h.LockoutAttempts, h.LockoutFor)
 		_ = h.event(r.Context(), "login_failed", SubjectHash(in.Username), &account.TenantID, &account.UserID, ip, "")
 		if lockedUntil != nil {
+			metrics.AuthLockout()
 			_ = h.event(r.Context(), "account_locked", "", &account.TenantID, &account.UserID, ip, "")
 			_, _ = h.Store.RevokeUserSessions(r.Context(), account.TenantID, account.UserID, "lockout")
 			w.Header().Set("Retry-After", "900")
@@ -203,6 +207,7 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		_ = h.event(r.Context(), "login_failed", SubjectHash(account.ExternalID), &session.TenantID, &session.UserID, ip,
 			`{"source":"password_change"}`)
 		if lockedUntil != nil {
+			metrics.AuthLockout()
 			_ = h.event(r.Context(), "account_locked", "", &session.TenantID, &session.UserID, ip, `{"source":"password_change"}`)
 			_, _ = h.Store.RevokeUserSessions(r.Context(), session.TenantID, session.UserID, "lockout")
 			h.clearCookie(w, r)

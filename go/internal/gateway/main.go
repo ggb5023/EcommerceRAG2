@@ -110,6 +110,11 @@ func (g *gateway) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
 func Main() {
 	runtime, closeAll := buildGateway()
 	defer closeAll()
+	metricsServer, err := startMetricsServer(runtime.g)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	defer metricsServer.Close()
 	mountRoutes(runtime)
 	serve(runtime)
 }

@@ -18,7 +18,7 @@ import (
 
 func (g *gateway) Routes() http.Handler {
 	mux := g.businessRoutes()
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return observeHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if g.db != nil && r.URL.Path != "/internal/authorization/validate" && !g.ready.Load() {
 			httpapi.WriteError(w, http.StatusServiceUnavailable, "service_starting", "service is starting")
 			return
@@ -104,5 +104,5 @@ func (g *gateway) Routes() http.Handler {
 			}
 		}
 		mux.ServeHTTP(w, r)
-	})
+	}))
 }
