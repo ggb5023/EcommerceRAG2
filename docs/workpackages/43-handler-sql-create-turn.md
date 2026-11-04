@@ -66,3 +66,43 @@ Go 重建后用 `strings` 验证新增 store/usecase 符号，重启后进程启
   其剩余清单在交付时登记。
 - 不新增 createTurn 的纯单测；用既有 Go 测试与四组 curl 证明行为不变。
 - 不跑 `--db` / `--e2e` / `--all`；不验证真实模型路径。
+
+## 实际交付
+
+- 代码：`88c1361` 新增 `store_turn_create.go` 与 `turn_create.go`，`createTurn`
+  改为只解码、调用 `startTurn`、映射响应并启动异步执行；handler 41 行，
+  `startTurn` 75 行，均 ≤80。
+- 事务内 SQL 全部移入 store：会话锁、历史权限、parent turn、幂等、active turn、
+  turn_no、四张表插入、提交后的 conversation title 更新；`createTurn` 内剩余
+  SELECT 为 0。
+- 响应保持：正常 202、同 key 重放 200 且返回旧 request、不同 payload 同 key
+  409 `idempotency_conflict`、active turn 409 `turn_in_progress`、不存在会话
+  404 `not_found`。四组 curl 响应见交付汇报。
+- 棘轮：`05b3572` 将 `HANDLER_SQL_BASELINE` 从 34 精确降到 29；
+  `python3 scripts/check/check-structure.py` 输出
+  `PASS structure: handler SQL 29/29`。
+- 测试：`go test -count=1 ./...` 全部 ok；`go vet ./...` 通过；Go 重建并重启后
+  进程启动时间晚于 `05b3572`；`strings` 命中 `startTurn`/`turnCreateStore`/
+  `insertTurnAggregate` 共 6 处。
+- curl 测试数据已清理：临时会话、turn、execution、SSE、消息、幂等与 trace 行
+  均删除，残留计数为 0；未改 smoke 基线。
+
+## 剩余 SELECT 清单
+
+`createTurn` 内为 0。后续阶段仍需处理的非 store SELECT（按文件，含嵌套 SELECT）：
+
+```text
+turn_handlers.go 14（resumeTurn/getConversation/events/cancelTurn）
+authorization.go 3（历史权限、执行权限）
+result.go 5
+support_suggestions.go 5
+recovery.go 5
+main.go 3
+turn_persist.go 3
+turn_route.go 3
+identity.go 1
+wire.go 1
+metrics_http.go 1
+```
+
+后续顺序：resumeTurn → customer/recovery；本包不搬这些路径。
