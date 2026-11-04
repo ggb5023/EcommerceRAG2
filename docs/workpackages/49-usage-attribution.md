@@ -72,6 +72,8 @@ bash scripts/check.sh --smoke
   `d408ed836d88db0871e7cfa0a9d8d10fb913354a82ef36292cb2e07f9097d616` 一致。
 - Python：`UsageRecorder` 新增三列；`LangGraphRagService` 从既有 scope 绑定
   task-local 归因，provider best-effort 写入读取它；ingest/eval 不设置归因。
+  `UsageRecorder.from_environment(role="ai")` 增加 `V2_RETRIEVER_DSN` 回退，
+  避免 selfhost 的 AI 角色没有独立 `V2_USAGE_DSN` 时静默不记录。
 - Go：未改 proto；`RequestContext` 已有 `request_id`/`turn_id`/`execution_id`，
   `IssueScopeForTurn`/`IssueCustomerScope` 已填。新增 Go 测试证明 turn/execution
   字段参与 scope MAC。
