@@ -68,8 +68,53 @@ gaps 出现该问题；契约守卫输出。
 
 ## 实际交付
 
-（实现与验证后填写。）
+- 新增 Go 伪造 Generate 流测试：HANDOFF + 无 citation + Done 映射为
+  `FAILED`/`knowledge_missing`，ANSWER + citation + Done 保持 `DONE`，并断言
+  Decision 不得被静默丢弃；outcome 测试断言 FAILED 计 `failed`、不计 `solved`。
+- Python `Generate` 对 `customer_reply` 与 `customer_chat` 都发送
+  `reply_decision`；`customer_reply` 的 HANDOFF 用例通过。
+- Go `generateAnswer` 记录 `Decision`，`runTurn` 使用 `generationTerminal`：
+  HANDOFF → `FAILED` + reason_code，ANSWER → `DONE`，CLARIFY 保持 `DONE` 仅记录。
+  同时修复 mock DONE 的 `can_copy` 回归：数据库 `customer_reply_check` 不允许
+  mock 可复制。
+- 契约：`docs/contracts.md` 新增 `generate decision` 行；`CONTRACTS_CROSS`
+  11 → 12 单独提交，`check-contracts.py` PASS。
+- 447 只读核对：
+
+```text
+ id  | status | state
+-----+--------+-------
+ 447 | DONE   | 
+```
+
+  其 `turn_decision.state` 为 NULL，不符合 `decision.state=DONE`，归 unknown，
+  不计 solved。带 `decision.state=DONE` 且零 citation 的真实轮次查询结果：
+
+```text
+ real_done_zero_citation
+-------------------------
+                       0
+```
+
+  未回填、未删除、未修改 447 或任何历史行。
+
+- 已跑完整 Go 测试、Python 测试、`check.sh` 41 和 `--smoke` 45；五条 smoke
+  逐字节一致，未重采基线。
+- 对当前 dev 语料尝试语料外问题 `ZXQV-998877-UNKNOWN`：dense 检索仍返回
+  `db-chunk-8`（w2-delivery-c），最终是 `DONE`，无法在该 dev 数据上触发
+  “零证据”路径；因此 §6.2 的 FAILED/outcomes/gaps 现场断言未能完成。该限制
+  不影响伪造 Generate 流的 P1-1 单测，但本轮不声称已完成实链路零证据验收。
 
 ## 未覆盖路径
 
-（实现与验证后填写。）
+- **CLARIFY 未映射**：`generationTerminal` 对 CLARIFY 仍返回 DONE，映射 ASKING
+  需要另立决策。
+- **can_copy 死协议**：Python 仍发送 `can_copy` 事件，Go 未消费；本轮只修复了
+  FAILED/mock 不可复制的持久化约束。
+- **447 夹具未回填**：确认是 WP17 手工 curl 验证夹具（request_id
+  `wp17-final-nocite-*`），decision.state 为 NULL；按裁定未回填、未删除、未改库。
+- **实链路零证据**：当前 dev 只有 active `w2-delivery-c`，dense 检索对任意 query
+  返回该 chunk，无法现场构造 Python `HANDOFF`；未获得 outcomes before/after 或
+  gaps 命中证据，未声称该项通过。
+- 未改 customer 通道、评测集、检索、提示词或其他棘轮；未 push。
+
