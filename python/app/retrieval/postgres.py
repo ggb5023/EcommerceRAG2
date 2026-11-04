@@ -140,18 +140,21 @@ class PostgresRetriever:
         *,
         connect: Callable[..., Any] = psycopg.connect,
         dense_candidates: int = 32,
+        dense_overfetch: int = 8,
         sparse_candidates: int = 32,
         sparse_retrieval: str | None = None,
         sparse_rrf_weight: float | None = None,
     ) -> None:
         if not conn_string.strip():
             raise ValueError("retrieval connection string is required")
-        if dense_candidates < 1 or sparse_candidates < 1:
+        if dense_candidates < 1 or sparse_candidates < 1 or dense_overfetch < 1:
             raise ValueError("retrieval candidate limits must be positive")
         self._conn_string = conn_string
         self._connect = connect
         self._dense_candidates = dense_candidates
+        self._dense_overfetch = dense_overfetch
         self._sparse_candidates = sparse_candidates
+        self.last_dense_fetch_limit = 0
         raw_mode = (sparse_retrieval if sparse_retrieval is not None else os.environ.get("SPARSE_RETRIEVAL")) or "legacy"
         mode = raw_mode.strip()
         if mode not in _SPARSE_MODES:
@@ -373,14 +376,11 @@ class PostgresRetriever:
         params_common: list[Any],
         selected_params: list[Any],
         tokenizer_params: list[Any],
-        dense_params: list[Any] | None = None,
+        dense_params: list[Any],
     ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
         self.last_sparse_skipped_tokenizer = 0
         with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                dense_sql,
-                dense_params or [vector, *params_common, *selected_params, vector, self._dense_candidates],
-            )
+            cursor.execute(dense_sql, dense_params)
             dense_rows = self._sort_dense_rows(cursor.fetchall())
             sparse_rows: list[Mapping[str, Any]] = []
             actual_mode = self._resolve_sparse_mode(cursor, sparse_query_literal)
@@ -469,19 +469,17 @@ class PostgresRetriever:
             "d.logical_key AS document_id, v.id AS version_id, t.name AS tenant_id, c.shop_id, "
             "v.disclosure_class, v.external_allowed, c.meta_json, "
         )
-        # Keep the ANN ordering inside a scope-only subquery. PostgreSQL cannot
-        # use the HNSW index when ORDER BY sits above the authorization joins;
-        # the outer joins below still enforce document/version/date/disclosure
-        # scope, so this can only narrow the candidate set.
-        dense_inner = (
+        dense_fetch_limit = min(self._dense_candidates * self._dense_overfetch, 256)
+        self.last_dense_fetch_limit = dense_fetch_limit
+        inner = (
             "SELECT c.*, c.embedding <=> %s::halfvec(1024) AS distance FROM chunk c "
             "WHERE c.tenant_id = %s AND c.shop_id = ANY(%s::text[])" +
             (" AND c.shop_id = %s" if selected_shop else "") +
             " AND c.embedding IS NOT NULL "
             "ORDER BY c.embedding <=> %s::halfvec(1024) LIMIT %s"
         )
-        dense_sql = "SELECT " + columns + "c.distance FROM (" + dense_inner + ") c " + where
-        dense_params = [vector, tenant_db_id, shops, *selected_params, vector, self._dense_candidates,
+        dense_sql = "SELECT " + columns + "c.distance FROM (" + inner + ") c " + where
+        dense_params = [vector, tenant_db_id, shops, *selected_params, vector, dense_fetch_limit,
                         tenant_db_id, shops, documents, *date_params]
         # legacy keeps the text heuristic exactly as before; sparsevec asks the
         # sparse column for real similarity. Both return the same row shape.
@@ -529,6 +527,25 @@ class PostgresRetriever:
             tokenizer_params=tokenizer_params,
             dense_params=dense_params,
         )
+        if len(dense_rows) < limit and dense_fetch_limit < 256:
+            retry_limit = 256
+            self.last_dense_fetch_limit = retry_limit
+            retry_params = [vector, tenant_db_id, shops, *selected_params, vector, retry_limit,
+                            tenant_db_id, shops, documents, *date_params]
+            dense_rows, sparse_rows = self._execute_search(
+                dense_sql=dense_sql,
+                legacy_sparse_sql=legacy_sparse_sql,
+                sparsevec_sql=sparsevec_sql,
+                skipped_sql=skipped_sql,
+                vector=vector,
+                query=query,
+                sparse_query_literal=sparse_query_literal,
+                query_sparse_tokenizer=query_sparse_tokenizer,
+                params_common=params_common,
+                selected_params=selected_params,
+                tokenizer_params=tokenizer_params,
+                dense_params=retry_params,
+            )
         return self._merge_results(dense_rows, sparse_rows, tenant=tenant, limit=limit)
 
     def _sparse_column_populated(self, cursor: Any) -> bool:

@@ -159,3 +159,81 @@ def test_cleanup_removed_temporary_tenant():
     with psycopg.connect(ingest_dsn) as connection:
         count = connection.execute("SELECT count(*) FROM tenant WHERE name LIKE 'HNSW test %'").fetchone()[0]
     assert count == 0
+
+
+def _insert_visibility_fixture(ingest_dsn: str):
+    import psycopg
+
+    key = "hnsw-vis-" + uuid.uuid4().hex[:16]
+    close = "[1," + ",".join("0" for _ in range(1023)) + "]"
+    far = "[0,1," + ",".join("0" for _ in range(1022)) + "]"
+    with psycopg.connect(ingest_dsn) as connection, connection.cursor() as cursor:
+        tenant_id = cursor.execute("INSERT INTO tenant(name) VALUES(%s) RETURNING id", ("HNSW test " + key,)).fetchone()[0]
+        shop = key
+        cursor.execute("INSERT INTO shop(tenant_id,id,name,status) VALUES(%s,%s,%s,'active')", (tenant_id, shop, shop))
+        source_id = cursor.execute(
+            "INSERT INTO source(tenant_id,shop_id,type,uri) VALUES(%s,%s,'hnsw-test',%s) RETURNING id",
+            (tenant_id, shop, "fixture://" + key),
+        ).fetchone()[0]
+        document_id = cursor.execute(
+            "INSERT INTO document(tenant_id,source_id,logical_key,title,doc_type,status,meta_json) "
+            "VALUES(%s,%s,%s,'HNSW visibility','markdown','pending','{}'::jsonb) RETURNING id",
+            (tenant_id, source_id, key),
+        ).fetchone()[0]
+        user_id = cursor.execute(
+            "INSERT INTO app_user(tenant_id,external_id,role,shop_ids) VALUES(%s,%s,'operator',ARRAY[%s]) RETURNING id",
+            (tenant_id, "hnsw-vis-user-" + key, shop),
+        ).fetchone()[0]
+        version_id = cursor.execute(
+            "INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,chunk_rule_version,"
+            "embedding_model,pipeline_version,object_key,status,chunk_count,disclosure_class,external_allowed,"
+            "review_status,reviewed_hash,reviewed_by,reviewed_at) "
+            "VALUES(%s,%s,%s,'test','test','test','test',%s,'active',34,'external_allowed',true,"
+            "'approved',%s,%s,now()) RETURNING id",
+            (tenant_id, document_id, "b" * 64, "db://" + key, "b" * 64, user_id),
+        ).fetchone()[0]
+        cursor.execute("UPDATE document SET active_version_id=%s,status='active' WHERE tenant_id=%s AND id=%s",
+                       (version_id, tenant_id, document_id))
+        active_ids = []
+        for index in range(34):
+            expired = index < 32
+            text = f"visibility chunk {index}"
+            vector = close if expired else far
+            chunk_id = cursor.execute(
+                "INSERT INTO chunk(version_id,doc_id,tenant_id,shop_id,chunk_index,section_seq,"
+                "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
+                "content_type,split_reason,embedding,embedding_model,embedding_dim,tokenizer_id,"
+                "effective_to,meta_json,chunk_hash) VALUES(%s,%s,%s,%s,%s,1,%s,0,%s,%s,%s,%s,4,'text','test',"
+                "%s::halfvec(1024),'test',1024,'test',%s,'{}'::jsonb,%s) RETURNING id",
+                (version_id, document_id, tenant_id, shop, index, index, len(text), "HNSW", text, text,
+                 vector, "2020-01-01" if expired else None, f"{index:064x}"),
+            ).fetchone()[0]
+            if not expired:
+                active_ids.append(f"db-chunk-{chunk_id}")
+        connection.commit()
+    return key, tenant_id, shop, active_ids
+
+
+def test_overfetch_recovers_visible_chunks_after_expired_top_n():
+    from app.retrieval.postgres import PostgresRetriever
+
+    ai_dsn, ingest_dsn = _load_retriever_env()
+    key = tenant_id = shop = None
+    try:
+        key, tenant_id, shop, active_ids = _insert_visibility_fixture(ingest_dsn)
+        retriever = PostgresRetriever(ai_dsn, dense_candidates=4, dense_overfetch=2,
+                                      sparse_retrieval="sparsevec")
+        scope = {
+            "tenant_id": key, "tenant_db_id": str(tenant_id), "allowed_shop_ids": [shop],
+            "allowed_document_ids": [key], "shop_id": shop, "role": "operator",
+        }
+        first = retriever.search(query="visibility", query_vector=[1.0] + [0.0] * 1023,
+                                 scope=scope, response_purpose="customer_reply", business_date="2026-10-09")
+        second = retriever.search(query="visibility", query_vector=[1.0] + [0.0] * 1023,
+                                  scope=scope, response_purpose="customer_reply", business_date="2026-10-09")
+        assert [row["id"] for row in first] == active_ids
+        assert [row["id"] for row in first] == [row["id"] for row in second]
+        assert retriever.last_dense_fetch_limit == 256
+    finally:
+        if tenant_id is not None:
+            _cleanup(ingest_dsn, tenant_id)
