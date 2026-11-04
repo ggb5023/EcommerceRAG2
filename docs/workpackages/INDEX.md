@@ -51,6 +51,7 @@
 | 42 | P1-5：M7 WebUI 闭环与只读页面 | done | — | — | `e879824` |
 | 43 | P1-4 阶段 1：createTurn 的 SQL 移出 handler | done | — | — | `cc406e0` |
 | 44 | P1-4 阶段 2：resumeTurn 的 SQL 移出 handler | done | — | — | `b8a22c3` |
+| 45 | P1-4 阶段 3：customer service/ai 的 SQL 移出 handler | active | — | — | — |
 
 ## 同步规则
 
