@@ -373,12 +373,13 @@ class PostgresRetriever:
         params_common: list[Any],
         selected_params: list[Any],
         tokenizer_params: list[Any],
+        dense_params: list[Any] | None = None,
     ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
         self.last_sparse_skipped_tokenizer = 0
         with self._connect(self._conn_string, row_factory=dict_row) as connection, connection.cursor() as cursor:
             cursor.execute(
                 dense_sql,
-                [vector, *params_common, *selected_params, vector, self._dense_candidates],
+                dense_params or [vector, *params_common, *selected_params, vector, self._dense_candidates],
             )
             dense_rows = self._sort_dense_rows(cursor.fetchall())
             sparse_rows: list[Mapping[str, Any]] = []
@@ -468,12 +469,20 @@ class PostgresRetriever:
             "d.logical_key AS document_id, v.id AS version_id, t.name AS tenant_id, c.shop_id, "
             "v.disclosure_class, v.external_allowed, c.meta_json, "
         )
-        dense_sql = (
-            "SELECT " + columns + "c.embedding <=> %s::halfvec(1024) AS distance "
-            "FROM chunk c " + where + " " + selected_sql +
+        # Keep the ANN ordering inside a scope-only subquery. PostgreSQL cannot
+        # use the HNSW index when ORDER BY sits above the authorization joins;
+        # the outer joins below still enforce document/version/date/disclosure
+        # scope, so this can only narrow the candidate set.
+        dense_inner = (
+            "SELECT c.*, c.embedding <=> %s::halfvec(1024) AS distance FROM chunk c "
+            "WHERE c.tenant_id = %s AND c.shop_id = ANY(%s::text[])" +
+            (" AND c.shop_id = %s" if selected_shop else "") +
             " AND c.embedding IS NOT NULL "
-            "ORDER BY c.embedding <=> %s::halfvec(1024), c.id LIMIT %s"
+            "ORDER BY c.embedding <=> %s::halfvec(1024) LIMIT %s"
         )
+        dense_sql = "SELECT " + columns + "c.distance FROM (" + dense_inner + ") c " + where
+        dense_params = [vector, tenant_db_id, shops, *selected_params, vector, self._dense_candidates,
+                        tenant_db_id, shops, documents, *date_params]
         # legacy keeps the text heuristic exactly as before; sparsevec asks the
         # sparse column for real similarity. Both return the same row shape.
         sparse_query_literal: str | None = None
@@ -518,6 +527,7 @@ class PostgresRetriever:
             params_common=params_common,
             selected_params=selected_params,
             tokenizer_params=tokenizer_params,
+            dense_params=dense_params,
         )
         return self._merge_results(dense_rows, sparse_rows, tenant=tenant, limit=limit)
 
