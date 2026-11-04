@@ -54,7 +54,7 @@
 | 45 | P1-4 阶段 3：customer service/ai 的 SQL 移出 handler | done | — | — | `ef15e24` |
 | 46 | P1-4 阶段 4：recovery 与剩余 SQL 移出 handler | done | — | — | `f1d4007` |
 | 47 | P1-7：商家库备份恢复演练 | done | — | — | `3742264` |
-| 48 | P2 门禁假绿修复：四个守卫的 UNCONFIGURED 语义与覆盖面 | implemented | 待主 agent 复核；WP49 usage_log 归因未开始 | — | `7e5a894` |
+| 48 | P2 门禁假绿修复：四个守卫的 UNCONFIGURED 语义与覆盖面 | done | — | — | `b8737b7` |
 
 ## 同步规则
 
