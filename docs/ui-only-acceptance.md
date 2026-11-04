@@ -2,7 +2,7 @@
 
 阶段 2 的 UI 覆盖以本矩阵为入口；后端总路由数不在此硬编码，以
 `go/internal/admin/handler.go` 和 `admin-boundaries` 检查输出为准。`usage`、
-`handoff`、`validity` 的 UI 缺口由后续工作包处理；不在本文重复路由计数。
+`handoff`、`validity` 的 UI 已由 WP42 实现；不在本文重复路由计数。
 
 - 日期：2026-10-27
 - 目标：商家部署完成后，A 级日常功能必须能只通过 WebUI 完成；B 级部署运维允许 CLI，但须一条命令；C 级开发/评测不属商家范围。
@@ -54,12 +54,14 @@
 | 31 | 命令结果 | `GET /admin/v1/merchant/commands/{id}` | 导入向导任务状态轮询 | ✅ | 一键 | 显示处理中/完成/失败原因 |
 | 32 | 批量确认 | `POST /admin/v1/merchant/versions/batch-approve` | 版本审核页「批量确认」 | ✅ | 批量 | 前端已在用（`AdminApp.vue:207`），此前漏登记 |
 | 33 | 生成审核建议 | `POST /admin/v1/merchant/versions/{id}/suggestion` | 版本审核页「生成建议」 | ✅ | 单条 | 前端已在用（`AdminApp.vue:178/189`），此前漏登记 |
-| 34 | 用量查看 | `GET /admin/v1/merchant/usage` | 无 | ❌ | — | 待实现；随 0021 的 token 用量界面一并落地 |
+| 35 | customer 转人工 | `GET /admin/v1/merchant/report/handoff` | 报告页 | ✅ | 一键 | 分子/分母/rate；null 显示无数据 |
+| 36 | 版本有效期 | `POST /admin/v1/merchant/versions/{id}/validity` | 版本审核详情 | ✅ | 单条 | 需理由与 fencing epoch |
+| 34 | 用量查看 | `GET /admin/v1/merchant/usage` | 报告页 | ✅ | 一键 | by_slot/by_model token 与调用量 |
 | — | 顾客入口 | `/v1/customer/*` | `/shop/:slug` | ✅ | 单条 | 顾客问答、引用与转人工入口 |
 
 ## 缺口清单（按优先级）
 
-1. **用量查看（`GET /admin/v1/merchant/usage`）**：无 UI，随 0021 的 token 用量界面实现；与 `handoff`、`validity` 同属当前 A 级 UI 缺口。
+1. **用量查看、handoff、有效期**：WP42 已在报告页与版本详情实现。
 2. **模型供应商选择（P3/0019，提议）**：`provider` / `provider_model`、测试连接、四槽位绑定均无 UI 与后端实现；未在当前矩阵内。
 
 矩阵中的 `batch-approve` 与 `suggestion` 属补登记，前端早已在用；批次撤回、版本历史、命令结果已在 L1/L2 收尾中关闭。
@@ -77,5 +79,5 @@
 
 ## 结论
 
-当前已知 A 级 UI 缺口为 `usage`、`handoff`、`validity` 三个入口；矩阵内已登记项均有 UI。P3 供应商选择仍未实现。
-除这些缺口外，已登记 A 级功能可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。
+当前矩阵内已登记 A 级入口均有 UI；P3 供应商选择仍未实现。
+已登记 A 级功能可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。

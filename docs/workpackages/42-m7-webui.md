@@ -53,8 +53,46 @@ gap 下载 curl/浏览器证据；截图存 `.local/redesign/`。
 
 ## 实际交付
 
-（实现与验证后填写。）
+- 有效期 UI：版本详情增加 `data-testid=validity-form` 表单，提交
+  `effective_from`/`effective_to`/`reason`/`confirm`/`expected_fencing_epoch`/
+  `permission_revision`，带 `Idempotency-Key`；成功刷新详情/版本历史，409 显示
+  “版本状态或 fencing epoch 已变化，请重新加载”。
+  live 成功：
+  ```text
+  HTTP/1.1 200 OK
+  {"audit_result":"success","command_status":"applied","effective_from":"2026-11-01",
+   "effective_to":"2026-12-31","fencing_epoch":2,"status":"updated","version_id":"55"}
+  ```
+  live fencing 冲突：
+  ```text
+  HTTP/1.1 409 Conflict
+  {"audit_result":"conflict","code":"precondition_failed","command_status":"rejected",
+   "message":"version hash or fencing epoch changed","version_id":"55"}
+  ```
+  刷新详情后 `effective_from=2026-11-01`、`effective_to=2026-12-31`、
+  `fencing_epoch=2`。
+- 报告页：`/admin/reports` 读取 usage 与 handoff 的 7d/30d 数据，展示
+  by_slot/by_model 与 handoff 分子/分母/rate；rate=null 显示“无数据”；无货币符号。
+- gap 下载：`POST /admin/v1/merchant/gaps/export?range=30d&download=1` 返回
+  `Content-Type: application/jsonl`、`Content-Disposition: attachment;
+  filename=gaps-...jsonl` 和 JSONL 正文；不带 `download` 仍返回 `{path,count}`。
+  GapsView 使用 Blob + `a[download]`，浏览器实测触发下载。
+- 前端：`npm test` 14 files / 57 tests 全绿；`npm run build` 通过。
+- Go：`go test ./...` 全绿，`go vet ./...` 通过；Go 重建并重启后验证启动时间。
+- 截图存于 `.local/redesign/`：
+  `validity-form.png`、`report-page.png`、`gap-download.png`、
+  `gaps-download.jsonl`（截图不提交）。
+- `docs/openapi.yaml` 已补 `gaps/export` 的 download/legacy 两种响应。
+- `bash scripts/check.sh` PASSED 42；`bash scripts/check.sh --smoke` PASSED 45，
+  五条 smoke 与 `.local/w2/` 基线逐字节一致。
 
 ## 未覆盖路径
 
-（实现与验证后填写。）
+- 浏览器截图使用临时 Vite + Playwright 脚本，未跑完整 `frontend/tests/*.browser.mjs`
+  矩阵；截图只覆盖有效期表单、报告页和 gap 下载入口。
+- fencing 冲突通过 curl 与前端 `validityError` 单测验证，未在浏览器表单内实际提交
+  一条 409 冲突；UI 的冲突展示由同一错误处理函数覆盖。
+- 未做全页面无货币 grep 的浏览器 DOM 断言；已对报告组件源码/渲染测试做无货币检查。
+- 旧 export 兼容已用 curl 验证 `{path,count}`，未在旧前端调用方上做回归。
+- 未改 metrics/检索/评测集/迁移；未运行 `--db`/`--e2e`/`--all`；未 push。
+
