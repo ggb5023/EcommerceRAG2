@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 每张表只有一个写入方 | `check-ownership.py` | ✅ 已声明表数见 `docs/data-ownership.md`；未声明预算 0 |
 | 迁移只追加，不修改已执行文件 | `check-doc-baseline.py` | ✅ |
-| 新表必须显式授权给所需角色 | `check-migration-grants.py`（已接入 `scripts/check.sh:143`；静态检查，正向路径无测试兜底，见 `environment-facts.md` #4） | ✅ 静态检查 |
+| 新表必须显式授权给所需角色 | `check-migration-grants.py`（静态检查；`GRANT ALL TABLES` 只覆盖其出现前的表，之后建表须逐表 GRANT，见 `environment-facts.md` #4） | ✅ 静态检查 |
 | 新环境必须能"从零建库" | 无 | ❌ 未实现（批次 3 §5.1 待做） |
 | 备份必须验证可恢复 | 无 | ✅ 已演练（2026-11-05，见 [WP47](workpackages/47-backup-restore-drill.md) 与 `.local/wp47/restore-evidence.json`；PG + 本地 artifact，OSS UNCONFIGURED） |
 | 数据归属变更需改 `data-ownership.md` | `check-ownership.py`（预算棘轮） | ✅ |
@@ -22,7 +22,7 @@
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
 | 改动轮次链路后必须跑四条 smoke | 人工 | ⚠️ 口头约定（`.local/` 基线比对） |
-| 服务启动后日志必须有输出 | `check-service-logs.py` | ✅ |
+| 服务启动后日志必须有输出 | `check-service-logs.py`（缺日志目录 exit 2 = UNCONFIGURED；目录存在但为空 FAIL） | ✅ |
 | 容器日志必须限量轮转 | `compose.yml` 的 `max-size` 与 `max-file` | ✅ |
 | 部署形态只能四选一（D1–D4） | 启动期 `validateDeploymentForm` | ✅ 单测覆盖 |
 | 明文 HTTP 只能绑 loopback | 同上（`requireLoopback`） | ✅ |
@@ -58,7 +58,7 @@
 
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
-| 冻结语料完整性 | `check-eval-corpus.py` | ✅ |
+| 冻结语料完整性 | `check-eval-corpus.py`（缺语料 exit 2 = UNCONFIGURED；`ECR_REQUIRE_EVAL` 严格模式时 exit 1） | ✅ |
 | 基线数字必须可复现 | 人工（要求附命令） | ⚠️ 口头约定 |
 | provisional 与 approved 必须可区分 | 单个布尔 `real_service_acceptance` | ⚠️ 不足以区分 |
 | 语料 provenance 有台账 | 无 | ❌ 未实现 |

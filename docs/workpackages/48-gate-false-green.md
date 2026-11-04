@@ -62,3 +62,47 @@ bash scripts/check.sh --smoke
 - auth/setup/internal validate 不纳入 admin/customer 路由枚举，白名单逐条列明。
 - 不验证运行时路由可达性；只验证注册模板与 openapi 一致。
 - 不跑 `--db` / `--e2e` / `--all`。
+
+## 实际交付
+
+### service-logs
+
+- 无日志目录：`UNCONFIGURED service logs ...` → exit 2。
+- 空 `gateway.log` / `ai.log`：FAIL → exit 1。
+- 恢复默认日志：`PASS service logs: gateway 446 rows, ai 435 rows, ingest skipped` → exit 0。
+- `check.sh` fast 层改用 `run_optional`；模拟无日志目录时：
+  `PASSED 41 / UNCONFIGURED 1 / FAILED 0`（旧实现会把它误计为 PASSED 42）。
+
+### eval-corpus
+
+- 无语料、未设 `ECR_REQUIRE_EVAL`：`UNCONFIGURED eval corpus absent ...` → exit 2。
+- 无语料、严格模式：`FAIL eval corpus absent ...` → exit 1。
+- 默认语料存在：`PASS eval corpus present; sha256=db5d27dc9281` → exit 0。
+- `check.sh` fast 层改用 `run_optional`。
+
+### openapi
+
+- `docs/openapi.yaml` 补齐 admin/customer/support 路由：67 paths / 73 operations。
+- 守卫从 admin handler、routes_customer、customer service、routes_health 提取
+  68 条注册路由；1 条 loopback internal validate 明确排除，6 条 auth/setup
+  外部路由逐条列明。
+- 当前输出：
+  `PASS openapi paths=67 operations=73 refs=0 routes=68 external=6 excluded=1`。
+- 负向：临时删除 `/admin/v1/merchant/usage` → `FAIL missing openapi route ...`；
+  恢复后 PASS。
+
+### migration-grants
+
+- 改为按文件和语句位置比较：`GRANT ALL TABLES` 只覆盖在其之前创建的表；
+  同一文件中 grant 之后 `CREATE TABLE` 仍需逐表 GRANT。
+- 当前 49 条迁移、69 张表全部 PASS。
+- 负向：临时迁移先建 `wp48_before_grant`、再 `GRANT ALL TABLES`、再建
+  `wp48_after_grant` → 仅 `wp48_after_grant` FAIL；删除草案后 PASS。
+
+### 文档与数字
+
+- `agent-entry.md` 明确：缺前置脚本 exit 2，`check.sh` 用 `run_optional` 记
+  UNCONFIGURED，`--all` 严格模式仍失败。
+- `constraints.md` 同步 service-logs、eval-corpus、migration-grants 的语义。
+- `check-doc-numbers.py` 的 fast 计数改为包含 `run fast` 与 `run_optional fast`，
+  当前仍是 `fast=42`。

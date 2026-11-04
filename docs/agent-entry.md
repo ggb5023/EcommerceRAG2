@@ -81,7 +81,7 @@ cd python && uv run --frozen pytest -q
 ```
 
 环境文件在 `/etc/ecommerce-rag/`：`dev.env`、`test-integration.env`、`eval-migration.env`、`eval-runtime.env`。
-缺前置时门禁输出 `UNCONFIGURED`（不是 FAILED），**不要把它当通过**，要在汇报里说明。
+缺前置时脚本 exit 2、门禁输出 `UNCONFIGURED`（不是 FAILED），**不要把它当通过**，要在汇报里说明；`check.sh` 用 `run_optional` 把 exit 2 计入 UNCONFIGURED，`--all` 严格模式仍会失败。
 
 ## 5. 汇报格式（固定五节）
 
