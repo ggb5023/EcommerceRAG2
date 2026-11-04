@@ -25,7 +25,7 @@ def rows(path: Path) -> int:
 def main() -> int:
     if not LOG_DIR.is_dir():
         print(f"UNCONFIGURED service logs: {LOG_DIR} does not exist (start a stack to configure)")
-        return 0
+        return 2
     counts, problems = {}, []
     for name in REQUIRED:
         count = rows(LOG_DIR / f"{name}.log")
