@@ -251,7 +251,7 @@ class RagService(rag_pb2_grpc.RagServiceServicer):
             sequence += 1
             yield rag_pb2.GenerateResponse(sequence=sequence, citation=self._v2_evidence(item))
         usage_json = json.dumps({'is_mock': self._v2_is_mock(), 'graph': 'langgraph', 'provider': result.get('trace', {}).get('provider', {})}, separators=(',', ':'))
-        if request.response_purpose == 'customer_chat':
+        if request.response_purpose in {'customer_chat', 'customer_reply'}:
             recommendation = result.get('reply_decision', {})
             behavior = {'ANSWER': rag_pb2.REPLY_BEHAVIOR_ANSWER, 'CLARIFY': rag_pb2.REPLY_BEHAVIOR_CLARIFY,
                         'HANDOFF': rag_pb2.REPLY_BEHAVIOR_HANDOFF}.get(recommendation.get('behavior'), rag_pb2.REPLY_BEHAVIOR_HANDOFF)

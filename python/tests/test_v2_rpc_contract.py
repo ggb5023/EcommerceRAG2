@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import grpc
 import pytest
+
 from app.authorization import ScopeError
 from app.chains.provider import build_provider_chains
 from app.graph.fixtures import FIXTURE_CORPUS
@@ -230,3 +231,15 @@ def test_provider_understanding_validates_order_entity_shape():
         "entities": [{"name": "order_id", "value": "V2-ORDER-001", "confidence": 0.99}],
     }}, "查询订单号 V2-ORDER-001 的物流状态")
     assert result["entities"] == [{"name": "order_id", "value": "V2-ORDER-001", "confidence": 0.99}]
+
+
+def test_generate_sends_reply_decision_for_customer_reply():
+    """Legacy customer_reply must receive the same three-state decision as chat."""
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    events = list(service.Generate(rag_pb2.GenerateRequest(
+        context=scope(), query="语料外问题", evidence=[], response_purpose="customer_reply",
+    ), Context()))
+    decisions = [event.decision for event in events if event.WhichOneof("event") == "decision"]
+    assert len(decisions) == 1
+    assert decisions[0].behavior == rag_pb2.REPLY_BEHAVIOR_HANDOFF
+    assert decisions[0].reason_code == "knowledge_missing"
