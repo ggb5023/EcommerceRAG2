@@ -55,6 +55,7 @@
 | 46 | P1-4 阶段 4：recovery 与剩余 SQL 移出 handler | done | — | — | `f1d4007` |
 | 47 | P1-7：商家库备份恢复演练 | done | — | — | `3742264` |
 | 48 | P2 门禁假绿修复：四个守卫的 UNCONFIGURED 语义与覆盖面 | done | — | — | `b8737b7` |
+| 49 | P2：usage_log 归因到轮次 | active | — | — | — |
 
 ## 同步规则
 
