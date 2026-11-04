@@ -500,8 +500,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	state, code := generationTerminal(decision)
-	finish(state, code, answer)
+	finishGeneration(finish, decision, answer)
 }
 
 // authorizationCacheKey is the stable shape required for any future result

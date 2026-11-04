@@ -185,5 +185,11 @@ func generationTerminal(decision *ragv1.ReplyDecision) (string, string) {
 // terminalCanCopy mirrors persistExecutionTerminal's copyability invariant.
 func terminalCanCopy(state string) bool { return state == "DONE" }
 
+// finishGeneration keeps the terminal mapping out of runTurn's line budget.
+func finishGeneration(finish func(string, string, string), decision *ragv1.ReplyDecision, answer string) {
+	state, code := generationTerminal(decision)
+	finish(state, code, answer)
+}
+
 // authFailureCode maps an authorization error to its stable failure code.
 func authFailureCode(err error) string { return auth.FailureCode(err) }

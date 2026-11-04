@@ -8,7 +8,7 @@
 
 修复 legacy `customer_reply` 链路：Python 对零证据生成
 `Decision(HANDOFF, knowledge_missing)`，Go 必须消费该 Decision，并把该轮终态定为
-`FAILED/knowledge_missing`；不得把 canned 文案以 `DONE` 发布并计入 `solved`。
+`FAILED` + `knowledge_missing`；不得把 canned 文案以 `DONE` 发布并计入 `solved`。
 不改 customer 通道，不映射 CLARIFY。
 
 ## 测试先行
