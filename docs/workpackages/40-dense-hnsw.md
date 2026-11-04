@@ -79,8 +79,11 @@ bash scripts/check.sh --smoke
   chunk；`dense_candidates=4, K=2` 时第一次取 8 条全部被授权过滤，重试 256 后
   返回 2 条可见 chunk，顺序稳定；测试结束清理：
   `temp_tenants=0`、`temp_chunks=0`。
-- `python/tests/test_postgres_retriever.py` 的 dense 排序单测仍通过；完整 Python
-  测试和只读集成测试通过。
+- `python/tests/test_postgres_retriever.py` 的 dense 排序单测通过；
+  `tests/test_dense_hnsw.py` 的 3 个集成测试通过（50k plan、确定性、expired top-N
+  可见性恢复）。完整 Python 测试（不设 DB env）455 passed、35 skipped。
+  使用临时完整 test env 时，既有 `test_postgres_retriever` 的 sparse 探针测试因
+  test DB 已有 sparse 行而失败，不能作为本改动的回归通过；未改该测试/数据。
 - `bash scripts/check.sh` PASSED 41；`bash scripts/check.sh --smoke` PASSED 45，
   五条 smoke 与 `.local/w2/` 基线逐字节一致。
 - 未改 sparse 分支、`SPARSE_RETRIEVAL` 的 legacy 默认、RRF 权重、迁移或索引。
