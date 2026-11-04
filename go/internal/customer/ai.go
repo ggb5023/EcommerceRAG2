@@ -67,6 +67,21 @@ func ValidateProposal(p proposal) error {
 	}
 	return nil
 }
+
+type customerRunState struct {
+	p         proposal
+	reason    string
+	stage     string
+	scope     *ragv1.RequestContext
+	history   string
+	rewritten string
+	evidence  []*ragv1.Evidence
+}
+
+func (s *Service) validateCustomerScope(ctx context.Context, scope *ragv1.RequestContext) error {
+	return (&auth.Authority{DB: s.DB, SigningKey: s.SigningKey}).ValidateScope(ctx, scope)
+}
+
 func (s *Service) run(execution, conversationID, sessionID, query string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -80,17 +95,14 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 		}
 		s.mu.Unlock()
 	}()
-	p := proposal{}
-	reason := "provider_failed"
-	stage := "control"
-	var scope *ragv1.RequestContext
+	state := &customerRunState{reason: "provider_failed", stage: "control"}
 	defer func() {
 		finishCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
-		if reason == "provider_failed" {
-			reason = "provider_failed_" + stage
+		if state.reason == "provider_failed" {
+			state.reason = "provider_failed_" + state.stage
 		}
-		_ = s.finish(finishCtx, execution, conversationID, scope, p, reason)
+		_ = s.finish(finishCtx, execution, conversationID, state.scope, state.p, state.reason)
 	}()
 	select {
 	case s.aiSlots <- struct{}{}:
@@ -98,51 +110,67 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	default:
 		return
 	}
-	var err error
-	if err = markCustomerExecutionExecuting(ctx, s.DB, execution); err != nil {
+	if err := markCustomerExecutionExecuting(ctx, s.DB, execution); err != nil {
 		return
 	}
 	if strings.Contains(query, "转人工") || strings.Contains(query, "人工客服") || strings.Contains(query, "真人客服") {
-		reason = "customer_requested"
+		state.reason = "customer_requested"
 		return
 	}
-	scope, err = auth.IssueCustomerScope(ctx, s.DB, s.SigningKey, sessionID, conversationID, execution)
+	if !s.understandCustomer(ctx, state, query, sessionID, conversationID, execution) {
+		return
+	}
+	if !s.searchCustomerEvidence(ctx, state, query) {
+		return
+	}
+	if !s.generateCustomerAnswer(ctx, state, query) {
+		return
+	}
+	state.reason = ""
+}
+
+func (s *Service) understandCustomer(ctx context.Context, state *customerRunState, query, sessionID, conversationID, execution string) bool {
+	scope, err := auth.IssueCustomerScope(ctx, s.DB, s.SigningKey, sessionID, conversationID, execution)
 	if err != nil {
 		if err.Error() == "knowledge_missing" {
-			reason = "knowledge_missing"
+			state.reason = "knowledge_missing"
 		}
-		return
+		return false
 	}
-	validate := func() error { return (&auth.Authority{DB: s.DB, SigningKey: s.SigningKey}).ValidateScope(ctx, scope) }
-	history := s.history(ctx, conversationID)
+	state.scope = scope
+	state.history = s.history(ctx, conversationID)
 	ctx = observability.PrepareRPC(ctx, "customer", "understand", scope.GetRequestId())
-	understood, err := s.Rag.Understand(ctx, &ragv1.UnderstandRequest{Context: scope, Query: query, HistorySummary: history})
+	understood, err := s.Rag.Understand(ctx, &ragv1.UnderstandRequest{Context: scope, Query: query, HistorySummary: state.history})
 	if err != nil {
-		stage = "control_" + status.Code(err).String()
-		return
+		state.stage = "control_" + status.Code(err).String()
+		return false
 	}
-	if understood == nil || validate() != nil {
-		return
+	if understood == nil || s.validateCustomerScope(ctx, scope) != nil {
+		return false
 	}
 	if len(understood.RequiredFactTools) > 0 || understood.InformationSource == "realtime_business" {
-		reason = "unsupported_request"
-		return
+		state.reason = "unsupported_request"
+		return false
 	}
 	if understood.Clarification != "" {
-		p = proposal{Answer: understood.Clarification, Decision: &ragv1.ReplyDecision{Behavior: ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY, ReasonCode: "missing_context"}, Mock: s.Profile != "v2_langchain_bailian"}
-		reason = ""
-		return
+		state.p = proposal{Answer: understood.Clarification, Decision: &ragv1.ReplyDecision{Behavior: ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY, ReasonCode: "missing_context"}, Mock: s.Profile != "v2_langchain_bailian"}
+		state.reason = ""
+		return false
 	}
-	rewritten := understood.RewrittenQuery
-	if rewritten == "" {
-		rewritten = query
+	state.rewritten = understood.RewrittenQuery
+	if state.rewritten == "" {
+		state.rewritten = query
 	}
-	stage = "search"
-	ctx = observability.PrepareRPC(ctx, "customer", "search", scope.GetRequestId())
-	search, err := s.Rag.Search(ctx, &ragv1.SearchRequest{Context: scope, Query: rewritten, ResponsePurpose: "customer_chat"})
+	return true
+}
+
+func (s *Service) searchCustomerEvidence(ctx context.Context, state *customerRunState, query string) bool {
+	state.stage = "search"
+	ctx = observability.PrepareRPC(ctx, "customer", "search", state.scope.GetRequestId())
+	search, err := s.Rag.Search(ctx, &ragv1.SearchRequest{Context: state.scope, Query: state.rewritten, ResponsePurpose: "customer_chat"})
 	if err != nil {
-		stage = "search_" + status.Code(err).String()
-		return
+		state.stage = "search_" + status.Code(err).String()
+		return false
 	}
 	evidence := []*ragv1.Evidence{}
 	ids := map[string]bool{}
@@ -151,17 +179,17 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	for {
 		part, err := search.Recv()
 		if err != nil {
-			stage = "search_" + status.Code(err).String()
-			return
+			state.stage = "search_" + status.Code(err).String()
+			return false
 		}
-		if validate() != nil || part.IsMock || part.ErrorCode != "" {
-			return
+		if s.validateCustomerScope(ctx, state.scope) != nil || part.IsMock || part.ErrorCode != "" {
+			return false
 		}
 		for _, item := range part.Evidence {
-			stage = "evidence_validation"
-			allowed, err := auth.CustomerEvidenceAllowed(ctx, s.DB, scope.TenantDbId, scope.ShopId, item)
+			state.stage = "evidence_validation"
+			allowed, err := auth.CustomerEvidenceAllowed(ctx, s.DB, state.scope.TenantDbId, state.scope.ShopId, item)
 			if err != nil || !allowed || ids[item.Id] || ranks[item.Rank] || item.Rank <= 0 || len(evidence) >= 8 {
-				return
+				return false
 			}
 			evidence = append(evidence, item)
 			ids[item.Id] = true
@@ -173,14 +201,19 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 		}
 	}
 	if !complete || len(evidence) == 0 {
-		reason = "knowledge_missing"
-		return
+		state.reason = "knowledge_missing"
+		return false
 	}
-	stage = "generation"
-	ctx = observability.PrepareRPC(ctx, "customer", "generate", scope.GetRequestId())
-	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: scope, Query: query, Evidence: evidence, ResponsePurpose: "customer_chat", HistorySummary: history})
+	state.evidence = evidence
+	return true
+}
+
+func (s *Service) generateCustomerAnswer(ctx context.Context, state *customerRunState, query string) bool {
+	state.stage = "generation"
+	ctx = observability.PrepareRPC(ctx, "customer", "generate", state.scope.GetRequestId())
+	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: state.scope, Query: query, Evidence: state.evidence, ResponsePurpose: "customer_chat", HistorySummary: state.history})
 	if err != nil {
-		return
+		return false
 	}
 	var text strings.Builder
 	var sequence uint64
@@ -191,52 +224,52 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return
+			return false
 		}
-		if validate() != nil || done || part.Sequence != sequence+1 {
-			return
+		if s.validateCustomerScope(ctx, state.scope) != nil || done || part.Sequence != sequence+1 {
+			return false
 		}
 		sequence = part.Sequence
 		switch event := part.Event.(type) {
 		case *ragv1.GenerateResponse_Delta:
 			text.WriteString(event.Delta)
 			if text.Len() > 32768 {
-				return
+				return false
 			}
 		case *ragv1.GenerateResponse_Decision:
-			if p.Decision != nil {
-				return
+			if state.p.Decision != nil {
+				return false
 			}
-			p.Decision = event.Decision
+			state.p.Decision = event.Decision
 		case *ragv1.GenerateResponse_Citation:
 			canonical := false
-			for _, item := range evidence {
+			for _, item := range state.evidence {
 				canonical = canonical || proto.Equal(item, event.Citation)
 			}
 			if !canonical {
-				return
+				return false
 			}
-			p.Evidence = append(p.Evidence, event.Citation)
+			state.p.Evidence = append(state.p.Evidence, event.Citation)
 		case *ragv1.GenerateResponse_IsMock:
 			if profileSeen {
-				return
+				return false
 			}
 			profileSeen = true
-			p.Mock = event.IsMock
+			state.p.Mock = event.IsMock
 		case *ragv1.GenerateResponse_ErrorCode:
-			return
+			return false
 		case *ragv1.GenerateResponse_Done:
 			if !event.Done {
-				return
+				return false
 			}
 			done = true
 		}
 	}
-	p.Answer = text.String()
-	if !done || !profileSeen || ValidateProposal(p) != nil {
-		return
+	state.p.Answer = text.String()
+	if !done || !profileSeen || ValidateProposal(state.p) != nil {
+		return false
 	}
-	reason = ""
+	return true
 }
 func (s *Service) history(ctx context.Context, id string) string {
 	texts, err := loadCustomerHistoryTexts(ctx, s.DB, id)
