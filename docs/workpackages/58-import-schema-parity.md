@@ -80,3 +80,39 @@ python3 scripts/check/check-import-schema.py   # PASS import-schema parity
 
 按 CLAUDE.md 五节格式，含：守卫与两侧测试的真实命令输出、负向验证的 FAIL 行、
 快速层 44 项全绿截图行、INDEX/agent-entry 数字改动的行号。
+## 验证结果（2026-11-06）
+
+```text
+python3 scripts/check/check-import-schema.py
+PASS import-schema parity
+
+go test ./internal/admin/ -run TestImportTemplate -v
+TestImportTemplatesAreGeneratedWithCanonicalHeaders PASS
+TestImportTemplateProductHeaders PASS
+TestImportTemplateSizeChartHeaders PASS
+
+pytest -q tests/test_catalog_schema.py
+12 passed
+```
+
+负向验证（验证后已还原）：
+
+```text
+# 临时去掉 Go product Headers 的 currency
+FAIL import-schema: product_table_v1: Go-only=[] Python-only=['currency']
+
+# 临时去掉 Python PRODUCT_BASE_FIELDS 的 currency
+FAIL import-schema: product_table_v1: Go-only=['currency'] Python-only=[]
+```
+
+`check.sh` 快速层：
+
+```text
+[fast] import-schema python3 scripts/check/check-import-schema.py
+PASS import-schema parity
+PASSED 44 / UNCONFIGURED 0 / FAILED 0
+PASS doc numbers: migrations=52 fast=44 decisions=32 ownership_budget=0
+```
+
+`check-contracts` 因新增 ✅ 行打印 `NOTE contracts: 跨进程 rose to 14; raise CONTRACTS_CROSS`，
+本轮按规格不改棘轮。
