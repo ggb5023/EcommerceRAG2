@@ -96,6 +96,17 @@ bash scripts/check.sh --smoke
 
 盘点证据使用 `git grep`、`psql` 只读计数、`rg` 引用图和 `git log -S`。
 
+## 验证结果（2026-11-05）
+
+- `python`: `450 passed, 37 skipped, 1 warning`（删除 `test_crawler.py` 后）。
+- `ruff`（check.sh 范围）：`All checks passed!`。
+- `go test -count=1 ./...`：23 个 package 结果，0 FAIL。
+- `bash scripts/check.sh`：`PASSED 42 / UNCONFIGURED 0 / FAILED 0`。
+- `bash scripts/check.sh --smoke`：`PASSED 45 / UNCONFIGURED 0 / FAILED 0`，五条
+  diff 逐字节通过。
+- 删除提交 `064b957` 移除 742 行：crawler 478、对应测试 263、空包注释 1。
+- `doc-paths`：518 个路径、114 份文档通过；无断链。
+
 ## 不做
 
 - 不 DROP 表、不新增迁移；不删 provider/provider_model 预留；不删 Tavily。
@@ -107,4 +118,6 @@ bash scripts/check.sh --smoke
 
 - 远端 GitHub Actions 未验证；smoke / e2e 仍为本地合并前必跑项。
 - 真实模型、OSS、Keycloak 不在本轮范围。
-- DROP 表的实际迁移与执行留待主 agent 单独授权。
+- DROP 表的实际迁移与执行留待主 agent 单独授权；本包未执行 DROP，五张 A 表仍在库中。
+- `ruff` 按 `check.sh` 的 project 范围全绿；裸 `ruff check .` 仍会扫描 `python/tests`
+  并报既有 34 条规则错误，不属于本包删除引入，未在本包处理。
