@@ -60,7 +60,7 @@
 | 51 | P2：CI 增加数据库层 | done | — | — | `c2a1a87` |
 | 52 | P2：修复 db-python 测试冲突并接入 CI | done | — | — | `de69fec` |
 | 53 | P2：死代码/死表清理（先盘点，再按类别处理） | done | — | — | `1e2ad61` |
-| 54 | P2：DROP 死表 + ESLint 接入 | implemented | — | — | `cd0c681` |
+| 54 | P2：DROP 死表 + ESLint 接入 | done | — | — | `2b766b2` |
 
 ## 同步规则
 
