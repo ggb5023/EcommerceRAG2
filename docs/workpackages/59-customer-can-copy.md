@@ -77,3 +77,46 @@ curl -s http://127.0.0.1:8080/v1/turns/<真实 requestID> | python3 -m json.tool
 
 按 CLAUDE.md 五节格式，附真实命令输出、真实轮次 curl 结果、前端测试输出、
 contracts 行内容、0005 改动行号。
+## 验证结果（2026-11-06）
+
+- 纯规则与 gateway 调用：`go test ./internal/gateway/ -run "CanCopy|Copy" -v`
+  的 `TestTerminalCanCopy`、`TestFinishGenerationPassesReplyBehavior` 全部通过；
+  `TestPersistExecutionTerminalSetsCopyability` 的 `done_clarify_is_never_copyable` 子测试也通过。
+- Go 全量：`go test -count=1 ./...` 全部 package 通过，`go vet ./...` 通过。
+- 前端：`npm test -- --run` → 59 passed（含新增 `customer-api.test.ts`）；
+  `npm run lint` 0 warning；`npm run build` 通过。
+- `bash scripts/check.sh` → `PASSED 44 / UNCONFIGURED 0 / FAILED 0`。
+- contracts：新增 `can_copy / blocked_reason` 行；`check-contracts` 打印
+  `NOTE contracts: 跨进程 rose to 15; raise CONTRACTS_CROSS`，本轮不改棘轮。
+- `0005-copyable-reply-policy.md` 后果段已补顾客端同口径一行。
+- 真实 curl（dev，mock profile）：
+
+```text
+DONE  v2-1793889150748880103  status=DONE  can_copy=false blocked_reason=mock
+FAILED v2-1793889151260381860 status=FAILED can_copy=false blocked_reason=incomplete
+ASKING v2-1793889150438466138 status=ASKING can_copy=false blocked_reason=needs_clarification
+```
+
+- 可复制 true 的真实非 mock 历史轮次 `v2-1793629375054156504` 需要临时把
+  `permission_revision` 调到当前值才能通过现有授权检查；curl 得到：
+
+```text
+status=DONE can_copy=true blocked_reason=""
+```
+
+  验证后已恢复原 revision `auth-65127aa814d86ddb877b361b`。dev 当前是 mock profile，
+  所有新生成轮次都是 mock，无法在不改运行时 profile 的情况下自然得到 true。
+
+## 未覆盖路径与限制
+
+- **顾客对话快照与 `customer_reply` 的存储关系**：gateway 的 `persistExecutionTerminal`
+  持久化 `customer_reply.can_copy/blocked_reason`；`/v1/customer/conversations/{id}` 的
+  `publicMessage` 则从已持久化的 `customer_execution.state/behavior/is_mock` 和已验证引用
+  现算 `can_copy` / `blocked_reason`，再返回给前端。`customer_reply` 只以外键关联
+  gateway `conversation_execution`，与 customer_execution 没有列/外键关系；不新增迁移的
+  约束下不能把 customer chat 的结果写入该表。
+- `blocked_reason` 新增 `needs_clarification`（追问）和 `not_answer`（非 ANSWER 行为）；
+  无引用继续用 `no_citable_evidence`，mock/incomplete 保持原值。
+- dev 是 mock profile；true 的 curl 使用了历史非 mock 轮次并临时修正其权限版本，验证后已恢复。
+- 不新增迁移、不改 customer_reply CHECK、不改 Python、不改员工侧建议回复实现。
+- 远端 Actions、e2e、真实模型/OSS/Keycloak 不在本轮范围。
