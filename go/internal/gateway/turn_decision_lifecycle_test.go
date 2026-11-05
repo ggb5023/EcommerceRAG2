@@ -146,7 +146,7 @@ func TestTurnDecisionResumeFinalState(t *testing.T) {
 	ctx := context.Background()
 	f := newLifecycleFixture(t, migration)
 
-	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "ASKING", "", "please clarify", true, nil, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "ASKING", "", "please clarify", "CLARIFY", true, nil, nil)
 	if got := lifecycleLedgerState(t, db, f.tenantID, f.executionID); got != "ASKING" {
 		t.Fatalf("first execution ledger = %q, want ASKING", got)
 	}
@@ -159,7 +159,7 @@ func TestTurnDecisionResumeFinalState(t *testing.T) {
 	if _, err := migration.Exec(ctx, `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.turnID); err != nil {
 		t.Fatalf("resume turn fixture: %v", err)
 	}
-	finishTurn(ctx, db, lifecycleIdentity(f, resumedExecutionID, 2), "DONE", "", "the answer", true, []string{"doc-a"}, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, resumedExecutionID, 2), "DONE", "", "the answer", "ANSWER", true, []string{"doc-a"}, nil)
 
 	var rows int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM turn_decision WHERE tenant_id=$1 AND turn_id=$2`,
@@ -188,7 +188,7 @@ func TestTurnDecisionCancelWritesCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "DONE", "", "must not persist", true, nil, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "DONE", "", "must not persist", "ANSWER", true, nil, nil)
 
 	if got := lifecycleExecState(t, db, f.tenantID, f.executionID); got != "CANCELLED" {
 		t.Fatalf("execution status = %q, want CANCELLED", got)
@@ -225,7 +225,7 @@ func TestTurnDecisionRecoveryWritesLedger(t *testing.T) {
 func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 	ctx := context.Background()
 	migration, gatewayDB := lifecycleDBs(t)
-	persist := func(t *testing.T, f lifecycleFixture, state string, addCitation, mock bool) (bool, string) {
+	persist := func(t *testing.T, f lifecycleFixture, state string, addCitation, mock bool, behavior string) (bool, string) {
 		t.Helper()
 		tx, err := gatewayDB.Begin(ctx)
 		if err != nil {
@@ -243,7 +243,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 			}
 		}
 		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
-			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, mock: mock}, state, "", "suggestion body"); err != nil {
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, behavior: behavior, mock: mock}, state, "", "suggestion body"); err != nil {
 			t.Fatal(err)
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -273,9 +273,20 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
 			t.Fatal(err)
 		}
-		canCopy, blocked := persist(t, f, "DONE", true, false)
+		canCopy, blocked := persist(t, f, "DONE", true, false, "ANSWER")
 		if !canCopy || blocked != "" {
 			t.Fatalf("can_copy=%v blocked=%q, want true/empty", canCopy, blocked)
+		}
+	})
+
+	t.Run("done clarify is never copyable", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		canCopy, blocked := persist(t, f, "DONE", true, false, "CLARIFY")
+		if canCopy || blocked != "needs_clarification" {
+			t.Fatalf("can_copy=%v blocked=%q, want false/needs_clarification", canCopy, blocked)
 		}
 	})
 
@@ -284,7 +295,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
 			t.Fatal(err)
 		}
-		canCopy, blocked := persist(t, f, "DONE", false, false)
+		canCopy, blocked := persist(t, f, "DONE", false, false, "ANSWER")
 		if canCopy || blocked != "no_citable_evidence" {
 			t.Fatalf("can_copy=%v blocked=%q, want false/no_citable_evidence", canCopy, blocked)
 		}
@@ -292,7 +303,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 
 	t.Run("mock done", func(t *testing.T) {
 		f := newLifecycleFixture(t, migration)
-		canCopy, blocked := persist(t, f, "DONE", true, true)
+		canCopy, blocked := persist(t, f, "DONE", true, true, "ANSWER")
 		if canCopy || blocked != "mock" {
 			t.Fatalf("can_copy=%v blocked=%q, want false/mock", canCopy, blocked)
 		}

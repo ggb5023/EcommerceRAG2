@@ -2,7 +2,7 @@
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute} from 'vue-router'
 import CitationCard from './components/CitationCard.vue'
-import {channel,ChannelError,watchChannel,type Snapshot,type Citation,type Message} from './customer-api'
+import {channel,ChannelError,watchChannel,messageCopyState,type Snapshot,type Citation,type Message} from './customer-api'
 const route=useRoute(); const slug=String(route.params.slug)
 const shop=ref({name:'客户咨询',welcome_message:''}); const csrf=ref(''); const snapshot=ref<Snapshot|null>(null)
 const text=ref(''); const error=ref(''); const busy=ref(false); const sources=ref<Citation[]>([])
@@ -12,8 +12,7 @@ const drawerOpen=ref(false); const activeMessage=ref<Message|null>(null); const 
 const stickToBottom=ref(true); const showJump=ref(false); const copiedId=ref(''); const copyNotice=ref('')
 let viewEpoch=0
 let controller=new AbortController(); let poll:ReturnType<typeof setInterval>; let viewport:VisualViewport|null=null; let pressTimer:ReturnType<typeof setTimeout>|undefined
-const blockedText:Record<string,string>={mock:'本地测试结果不可复制',no_citable_evidence:'没有可引用的资料依据',incomplete:'回答尚未完成',not_copyable:'当前回答不可复制'}
-function copyState(message:Message){const explicit=message as Message&{can_copy?:boolean;blocked_reason?:string};if(typeof explicit.can_copy==='boolean')return {canCopy:explicit.can_copy,reason:explicit.can_copy?'':(blockedText[explicit.blocked_reason??'']??'当前回答不可复制')};if(message.source!=='assistant')return {canCopy:false,reason:'仅 AI 回答可复制'};if(!message.citations.length)return {canCopy:false,reason:'没有可引用的资料依据'};return {canCopy:true,reason:''}}
+
 function failed(e:unknown) {error.value=e instanceof Error?e.message:'服务暂不可用。'; if(e instanceof ChannelError && [401,403,404].includes(e.status)){snapshot.value=null;sources.value=[];controller.abort();closeSources()}}
 function syncViewport(){if(!chatEl.value)return;const height=Math.round(viewport?.height??window.innerHeight);const top=Math.round(viewport?.offsetTop??0);chatEl.value.style.setProperty('--chat-height',`${height}px`);chatEl.value.style.setProperty('--chat-top',`${top}px`)}
 function onMessagesScroll(){const el=messagesEl.value;if(!el)return;stickToBottom.value=el.scrollHeight-el.scrollTop-el.clientHeight<80;showJump.value=!stickToBottom.value}
@@ -33,9 +32,9 @@ async function enter(fresh=false){const epoch=++viewEpoch;controller.abort();con
  }catch(e){failed(e)}finally{busy.value=false;nextTick(()=>scrollLatest('auto'))}}
 async function send(){if(!text.value.trim()||!snapshot.value)return;busy.value=true;error.value='';stickToBottom.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/messages`,{text:text.value},csrf.value);text.value='';await refresh();nextTick(()=>scrollLatest('auto'))}catch(e){failed(e)}finally{busy.value=false}}
 async function handoff(){if(!snapshot.value)return;busy.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/handoff`,{},csrf.value);await refresh()}catch(e){failed(e)}finally{busy.value=false}}
-function beginPress(message:Message){cancelPress();if(message.source!=='assistant'||!copyState(message).canCopy)return;pressTimer=setTimeout(()=>void copyMessage(message),600)}
+function beginPress(message:Message){cancelPress();if(message.source!=='assistant'||!messageCopyState(message).canCopy)return;pressTimer=setTimeout(()=>void copyMessage(message),600)}
 function cancelPress(){if(pressTimer){clearTimeout(pressTimer);pressTimer=undefined}}
-async function copyMessage(message:Message){if(!copyState(message).canCopy)return;copiedId.value=message.id;copyNotice.value='';try{if(!navigator.clipboard)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(message.text);copyNotice.value='已复制回答。'}catch{copyNotice.value='复制失败，请手动选择文本。'}}
+async function copyMessage(message:Message){if(!messageCopyState(message).canCopy)return;copiedId.value=message.id;copyNotice.value='';try{if(!navigator.clipboard)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(message.text);copyNotice.value='已复制回答。'}catch{copyNotice.value='复制失败，请手动选择文本。'}}
 watch(()=>snapshot.value?.messages.map(message=>`${message.id}:${message.text}`).join('|'),()=>{if(stickToBottom.value)nextTick(()=>scrollLatest('auto'))})
 onMounted(()=>{viewport=window.visualViewport;viewport?.addEventListener('resize',syncViewport);viewport?.addEventListener('scroll',syncViewport);window.addEventListener('resize',syncViewport);nextTick(syncViewport);void enter();poll=setInterval(()=>void refresh().catch(failed),5000)})
 onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.removeEventListener('resize',syncViewport);viewport?.removeEventListener('scroll',syncViewport);window.removeEventListener('resize',syncViewport)})
@@ -62,8 +61,8 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
         <div v-if="m.citations.length" class="citation-badges">
           <button v-for="citation in m.citations" :key="citation.evidence_id" type="button" class="citation-badge" :aria-label="`查看来源 ${citation.citation_index}`" @pointerdown.stop @click="openSources(m)">[{{citation.citation_index}}]</button>
         </div>
-        <button type="button" class="copy-action" @pointerdown.stop :disabled="!copyState(m).canCopy" @click="copyMessage(m)">复制回答</button>
-        <small v-if="!copyState(m).canCopy" class="copy-reason">{{copyState(m).reason}}</small>
+        <button type="button" class="copy-action" @pointerdown.stop :disabled="!messageCopyState(m).canCopy" @click="copyMessage(m)">复制回答</button>
+        <small v-if="!messageCopyState(m).canCopy" class="copy-reason">{{messageCopyState(m).reason}}</small>
         <small v-else-if="copiedId===m.id" role="status" class="copy-notice">{{copyNotice}}</small>
       </div>
     </article>

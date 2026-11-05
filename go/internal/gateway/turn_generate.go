@@ -180,12 +180,33 @@ func generationTerminal(decision *ragv1.ReplyDecision) (string, string) {
 	return "DONE", ""
 }
 
-// terminalCanCopy mirrors persistExecutionTerminal's copyability invariant.
-func terminalCanCopy(state string) bool { return state == "DONE" }
+// terminalCanCopy is the gateway-facing name for the single 0005 rule.
+func terminalCanCopy(state, kind string, citationCount int, mock bool) (bool, string) {
+	return domain.CanCopyReply(state, kind, citationCount, mock)
+}
+
+// replyBehavior keeps the persisted contract short and stable.
+func replyBehavior(decision *ragv1.ReplyDecision) string {
+	if decision == nil {
+		return "ANSWER" // legacy rows without a Decision keep the ANSWER path
+	}
+	switch decision.Behavior {
+	case ragv1.ReplyBehavior_REPLY_BEHAVIOR_ANSWER:
+		return "ANSWER"
+	case ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY:
+		return "CLARIFY"
+	case ragv1.ReplyBehavior_REPLY_BEHAVIOR_HANDOFF:
+		return "HANDOFF"
+	default:
+		return decision.Behavior.String()
+	}
+}
 
 // finishGeneration keeps the terminal mapping out of runTurn's line budget.
-func finishGeneration(finish func(string, string, string), decision *ragv1.ReplyDecision, answer string) {
+func finishGeneration(finish func(string, string, string), setBehavior func(string),
+	decision *ragv1.ReplyDecision, answer string) {
 	state, code := generationTerminal(decision)
+	setBehavior(replyBehavior(decision))
 	finish(state, code, answer)
 }
 

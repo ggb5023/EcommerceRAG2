@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -30,6 +31,7 @@ func (g *gateway) acquireExecutionOwner(ctx context.Context) (*pgx.Conn, error) 
 type executionIdentity struct {
 	tenantID, executionID, turnID, conversationID, executionNo int64
 	requestID                                                  string
+	behavior                                                   string
 	mock                                                       bool
 }
 
@@ -43,27 +45,19 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 	if err := updateTurnTerminal(ctx, tx, id, state, answer); err != nil {
 		return err
 	}
-	canCopy := false
-	blocked := "incomplete"
+	citationCount := 0
 	if state == "DONE" {
 		if err := insertAssistantMessage(ctx, tx, id.tenantID, id.turnID, answer); err != nil {
 			return err
 		}
-		blocked = "provider_not_approved"
-		if id.mock {
-			blocked = "mock"
-		} else {
-			citations, err := countExecutionCitations(ctx, tx, id.tenantID, id.executionID)
-			if err != nil {
-				return err
-			}
-			if citations > 0 {
-				canCopy = true
-				blocked = ""
-			} else {
-				blocked = "no_citable_evidence"
-			}
+		citations, err := countExecutionCitations(ctx, tx, id.tenantID, id.executionID)
+		if err != nil {
+			return err
 		}
+		citationCount = citations
+	}
+	canCopy, blocked := domain.CanCopyReply(state, id.behavior, citationCount, id.mock)
+	if state == "DONE" {
 		if err := upsertCustomerReply(ctx, tx, id.tenantID, id.executionID, answer, id.mock, canCopy, blocked); err != nil {
 			return err
 		}
@@ -90,7 +84,7 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 			return err
 		}
 	}
-	return appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": id.mock, "can_copy": canCopy})
+	return appendEvent("completed", map[string]any{"type": "completed", "status": state, "clarification": answer, "error_code": code, "is_mock": id.mock, "can_copy": canCopy, "blocked_reason": blocked})
 }
 
 // Only run with exclusive database ownership, before accepting HTTP requests.

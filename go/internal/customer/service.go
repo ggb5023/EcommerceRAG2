@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -451,7 +452,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request, c conversation,
 
 // All data used here is rechecked at read time, including persisted SSE replay.
 func (s *Service) publicMessage(ctx context.Context, c conversation, id string) (map[string]any, error) {
-	source, content, citations, created, err := loadCustomerMessage(ctx, s.DB, c.Tenant, c.ID, id)
+	source, content, citations, created, state, behavior, mock, err := loadCustomerMessage(ctx, s.DB, c.Tenant, c.ID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +481,12 @@ func (s *Service) publicMessage(ctx context.Context, c conversation, id string) 
 		content = "此回答的来源已撤回或权限已变化，请重新咨询或联系人工客服。"
 		view = []map[string]any{}
 	}
-	return map[string]any{"id": id, "source": source, "text": content, "citations": view, "redacted": redacted, "created_at": created}, nil
+	canCopy, blocked := false, "not_copyable"
+	if source == "assistant" {
+		canCopy, blocked = domain.CanCopyReply(state, behavior, len(view), mock)
+	}
+	return map[string]any{"id": id, "source": source, "text": content, "citations": view, "redacted": redacted, "created_at": created,
+		"can_copy": canCopy, "blocked_reason": blocked}, nil
 }
 func (s *Service) messages(ctx context.Context, c conversation) ([]map[string]any, error) {
 	ids, err := loadCustomerMessageIDs(ctx, s.DB, c.Tenant, c.ID)

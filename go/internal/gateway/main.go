@@ -393,7 +393,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
 		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
 	}
-	writeEvent, finish, setTrace := newTurnSink(ctx, g.db, ident, mockOutput)
+	writeEvent, finish, setBehavior, setTrace := newTurnSink(ctx, g.db, ident, mockOutput)
 	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
 	if !guard.authorized() {
 		return
@@ -497,7 +497,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if !ensureScopeAuthorized() {
 		return
 	}
-	finishGeneration(finish, decision, answer)
+	finishGeneration(finish, setBehavior, decision, answer)
 }
 
 // authorizationCacheKey is the stable shape required for any future result

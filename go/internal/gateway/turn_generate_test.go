@@ -68,7 +68,7 @@ func TestGenerateAnswerHANDOFFWithoutEvidenceIsFailed(t *testing.T) {
 	if state != "FAILED" || code != "knowledge_missing" {
 		t.Fatalf("terminal = %s/%s, want FAILED/knowledge_missing", state, code)
 	}
-	if terminalCanCopy(state) {
+	if canCopy, _ := terminalCanCopy(state, "HANDOFF", 0, false); canCopy {
 		t.Fatalf("FAILED terminal must not be copyable")
 	}
 }
@@ -89,8 +89,8 @@ func TestGenerateAnswerANSWERWithCitationRemainsDone(t *testing.T) {
 	if state != "DONE" || code != "" {
 		t.Fatalf("terminal = %s/%s, want DONE", state, code)
 	}
-	if !terminalCanCopy(state) {
-		t.Fatalf("DONE terminal must remain copyable")
+	if canCopy, _ := terminalCanCopy(state, "ANSWER", 1, false); !canCopy {
+		t.Fatalf("DONE ANSWER with a citation must remain copyable")
 	}
 }
 

@@ -503,9 +503,13 @@ func loadCustomerEvents(ctx context.Context, db *pgxpool.Pool, tenant int64, con
 	return batch, nil
 }
 
-func loadCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID, id string) (source, content string, citations []byte, created time.Time, err error) {
-	err = db.QueryRow(ctx, `SELECT source,content,citations_json,created_at FROM customer_message WHERE tenant_id=$1 AND conversation_id=$2 AND id=$3`, tenant, conversationID, id).Scan(&source, &content, &citations, &created)
-	return source, content, citations, created, err
+func loadCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID, id string) (source, content string, citations []byte, created time.Time, state, behavior string, mock bool, err error) {
+	err = db.QueryRow(ctx, `SELECT m.source,m.content,m.citations_json,m.created_at,
+		COALESCE(e.state,''),COALESCE(e.behavior,''),COALESCE(e.is_mock,false)
+		FROM customer_message m LEFT JOIN customer_execution e ON e.tenant_id=m.tenant_id AND e.id=m.execution_id
+		WHERE m.tenant_id=$1 AND m.conversation_id=$2 AND m.id=$3`,
+		tenant, conversationID, id).Scan(&source, &content, &citations, &created, &state, &behavior, &mock)
+	return
 }
 
 func loadDocumentTitle(ctx context.Context, db *pgxpool.Pool, tenant int64, logicalKey string) (string, error) {

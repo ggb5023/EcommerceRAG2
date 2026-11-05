@@ -71,7 +71,7 @@ func recordToolCall(ctx context.Context, db *pgxpool.Pool, tenantID int64, reque
 // finishTurn writes the terminal state, the turn status and the decision row in
 // one transaction. Cancellation wins over the requested state, exactly as the
 // inline version did, and the ledger records that final state too.
-func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer string, mock bool,
+func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer, behavior string, mock bool,
 	chosen []string, rejected []domain.RejectedEvidence) {
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
@@ -97,7 +97,7 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 	}
 	err = persistExecutionTerminal(finishCtx, tx, executionIdentity{
 		tenantID: ident.tenantID, executionID: ident.executionID, turnID: ident.turnID,
-		conversationID: ident.conversationID, executionNo: ident.executionNo, requestID: ident.requestID, mock: mock,
+		conversationID: ident.conversationID, executionNo: ident.executionNo, requestID: ident.requestID, behavior: behavior, mock: mock,
 	}, state, code, answer)
 	if err == nil {
 		err = appendTurnDecision(finishCtx, tx, ident, state, code, chosen, rejected)
@@ -113,15 +113,17 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 // newTurnSink binds the persistence helpers to one execution so the orchestrator
 // only sees two closures: write an event and finish the turn. setTrace only
 // carries data; the decision row is written inside finishTurn's transaction.
-func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func([]string, []domain.RejectedEvidence)) {
+func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func(string), func([]string, []domain.RejectedEvidence)) {
 	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
 	var chosen []string
 	var rejected []domain.RejectedEvidence
+	var behavior string
 	finish := func(state, code, answer string) {
-		finishTurn(ctx, db, ident, state, code, answer, mock, chosen, rejected)
+		finishTurn(ctx, db, ident, state, code, answer, behavior, mock, chosen, rejected)
 	}
+	setBehavior := func(value string) { behavior = value }
 	setTrace := func(chosenIDs []string, rejectedEvidence []domain.RejectedEvidence) {
 		chosen, rejected = chosenIDs, rejectedEvidence
 	}
-	return write, finish, setTrace
+	return write, finish, setBehavior, setTrace
 }
