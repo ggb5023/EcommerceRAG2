@@ -1,0 +1,30 @@
+# ESLint warning baseline for frontend/src.
+# Generated 2026-11-05. npm run lint fails when warnings exceed this count.
+# 27 warnings, 0 errors.
+src/admin/AdminApp.vue:26:27 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AdminApp.vue:42:26 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AdminApp.vue:45:45 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AdminApp.vue:221:31 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AdminApp.vue:237:40 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AdminApp.vue:245:71 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/AgentReviewSettings.vue:7:49 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/CustomerTrial.vue:2:33 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/ImportWizard.vue:9:205 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/ImportWizard.vue:10:67 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/ImportWizard.vue:13:73 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/ImportWizard.vue:24:26 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/ShopSettings.vue:6:45 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/admin-context.ts:3:59 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/admin-context.ts:5:51 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/import-wizard-state.ts:14:32 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/import-wizard-state.ts:19:42 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/import-wizard-state.ts:20:50 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/import-wizard-state.ts:23:41 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/AccountsPage.vue:15:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/AuditPage.vue:12:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/IngestionPage.vue:12:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/RequestsPage.vue:14:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/ReviewsPage.vue:20:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/ShopsPage.vue:17:26 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/ShopsPage.vue:19:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
+src/admin/pages/SourcesPage.vue:14:53 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.

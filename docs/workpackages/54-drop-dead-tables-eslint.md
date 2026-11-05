@@ -30,7 +30,7 @@
   - `no-undef`（warn，浏览器 globals）
   - `@typescript-eslint/no-explicit-any`（warn，用于生成 any 清单）
   - `no-dupe-keys` / `no-unreachable` / `no-debugger`（error；既有代码应无违规）
-  - `vue/no-unused-vars` / `vue/no-unused-components`（warn）
+  - vue/no-unused-vars / vue/no-unused-components（warn）
 - `npm run lint` 使用 warning 基线（`--max-warnings <基线数>`）：旧 warning 放行，
   新增 warning 退出 1；基线清单保存到 `frontend/eslint-baseline.txt`。
 - 在 `scripts/check.sh` 增加独立 fast 项 `frontend-lint`（fast 42 → 43），同步

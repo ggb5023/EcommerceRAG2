@@ -36,7 +36,7 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 
 边界（决策 0028）：**Go 拥有**授权、幂等、状态机、事件顺序、落库、失败分类、终态（ASKING/DONE/FAILED/CANCELLED）；**Python 拥有** intent 分类、clarification 文案候选、confidence、检索多跳、提示组装。判据：**能不能看/能不能发 → Go；还要不要再检索/再问一句 → Python**。
 
-## 3. 门禁（`scripts/check.sh`，42 项）
+## 3. 门禁（`scripts/check.sh`，43 项）
 
 | 组 | 项 | 拦什么 |
 | --- | --- | --- |
@@ -47,14 +47,14 @@ Python 三层：**编排**（`graph/`）→ **能力**（`chains/` `providers/`�
 | 可观测 | `service-logs` `check-logs` | 服务起了但完全静默；新增裸 `log.Printf` 或 `app/` 下的 `print(` |
 | 正确性 | `go-test` `python-tests` `frontend-tests` `eval-offline` `facts-fake-matrix` `provider-smoke` `artifact-*-smoke` | 行为回归 |
 | 协议 | `buf-lint` `buf-build` `buf-breaking` | proto 破坏性变更 |
-| 构建 | `shellcheck` `shell-syntax` `go-vet` `python-lint` `python-imports` `npm-ci` `frontend-build` | 编译与静态检查 |
+| 构建 | `shellcheck` `shell-syntax` `go-vet` `python-lint` `python-imports` `npm-ci` `frontend-lint` `frontend-build` | 编译与静态检查 |
 
 红了先看该行打印的 `FAIL <id>` 与前一行原因；**不要改门禁去迁就代码**，要改代码或按 T1 条款记基线 amendment。
 
 ## 4. 验证命令
 
 ```bash
-bash scripts/check.sh                 # 快速层 42 项（默认）
+bash scripts/check.sh                 # 快速层 43 项（默认）
 bash scripts/check.sh --cov           # Go/Python 覆盖率到 .local/coverage/（只报告，无门槛）
 bash scripts/check.sh --db            # 加持久化层（含 db-env-health 与 migrations-from-zero；无 scratch DSN 则 UNCONFIGURED）
 python3 scripts/check/check-db-env-health.py --env /etc/ecommerce-rag/dev.env
