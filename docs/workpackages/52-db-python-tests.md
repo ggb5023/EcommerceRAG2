@@ -33,15 +33,47 @@ WP51 的 CI `db` job 只给 `test.env` 放了 migration/gateway DSN，`db-python
   `sparsevec` / `dense_only`；不再依赖全局首次探针的隐式状态。
 - 新增混合库用例：同一 document 同时有带 `sparse_embedding` 的 chunk 和纯 dense
   chunk，先写入再 probe，覆盖 WP51 的“先写 sparse 再 probe”场景。
-- retriever 用例显式固定 `sparse_retrieval="legacy"`；把 `dense_rank == 0` 改为
-  稳定断言：命中内容、`sparse_rank == 1`、RRF 使用实际 `dense_rank` 计算。
+- retriever 用例显式固定 `sparse_retrieval="legacy"` 与 `sparse_rrf_weight=0.7`；
+  把 `dense_rank == 0` 改为稳定断言：命中内容、`sparse_rank == 1`、RRF 使用实际
+  `dense_rank` 计算。稀疏召回可能压过 dense top-1，`raw_score` 改为 [-1, 1]
+  边界断言；无稀疏召回的用例仍保留精确 `raw_score == 1`。
 
 ### CI
 
 - `db` job 的 `test.env` 增加 `V2_INGEST_DSN` 与 `V2_AI_DSN`，指向
   `ecr_v2_test_ci`，沿用现有随机 DSN 生成方式；不新增凭据。
-- 重跑本机等价 DB 层，确认 `db-python` 从 UNCONFIGURED 变为 PASS；预期只剩
-  `db-import-batch` / `db-import-customer` 两项 UNCONFIGURED。
+- 本机等价 DB 层实测 `db-python` 由 UNCONFIGURED 变为 PASS（43 passed），
+  只剩 `db-import-batch` / `db-import-customer` 两项 UNCONFIGURED。
+
+## 验证结果（2026-11-05）
+
+pinned pgvector 16 容器（`eac621...`，pgvector 0.8.6）+ 新建
+`ecr_v2_test_ci` / `ecr_v2_ci_scratch`，迁移 51 条后：
+
+```text
+# pytest tests/test_v2_ingest_database.py tests/test_postgres_retriever.py -q
+43 passed, 1 warning in 9.13s
+
+# bash scripts/check.sh --db
+PASS db env health: migrations 51/51, documents 3, versions 3
+PASS migrations from zero: 51 files, checksums, key tables and gateway INSERT grant
+[db] db-python ... 43 passed, 1 warning
+PASSED 47
+UNCONFIGURED 2   # db-import-batch / db-import-customer
+FAILED 0
+
+# bash scripts/check.sh
+PASSED 42 / UNCONFIGURED 0 / FAILED 0
+
+# bash scripts/check.sh --smoke
+PASSED 45 / UNCONFIGURED 0 / FAILED 0
+
+# cd go && go test -count=1 ./...
+23 package results, 0 FAIL
+```
+
+workflow YAML 解析通过（`fast` / `db`），所有 `run:` 块 `bash -n` 通过；
+凭据 grep 只命中 `secrets.token_hex`、变量名和无密码的本地 DSN。
 
 ## 验收命令
 
@@ -76,3 +108,6 @@ grep -Rni 'password\|dsn\|secret' .github/workflows/check.yml
 - smoke / e2e 仍为本地合并前必跑项，CI DB job 不启动应用栈。
 - 不验证真实模型、OSS 或 Keycloak。
 - `db-localauth` 仍没有 `-tags integration`，本轮不改这个门禁语义。
+- dense overfetch/重试与 sparsevec 降级仍是现有产品语义；测试改为跟随它，
+  没有改产品行为。CI `test.env` 不设 `SPARSE_RETRIEVAL`，retriever 用例按
+  legacy 固定，三种 sparse 模式由测试显式构造。
