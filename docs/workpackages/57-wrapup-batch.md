@@ -71,7 +71,7 @@ bash scripts/check.sh --smoke
   `npm run build` 通过。`grep -Rno '\bany\b' src` → 0。
 - Python：454 passed, 37 skipped；`ruff check app tests …` → All checks passed。
 - Go：`go test -count=1 ./...` → 23 package 结果，0 FAIL；`go vet` 通过。
-- `db-localauth` integration：TestVerify/Parse/Session/Setup/Disable 等 14 个
+- `db-localauth` integration：TestVerify/Parse/Session/Setup/Disable 等 15 个
   integration 用例 PASS（`ok ... 0.852s`）。
 - 镜像：`docker build` 成功；镜像内 `ls /app/sql/migrations/*.sql | wc -l` = 52，
   最后两条为 0051/0052；旧 `ecommerce-rag-python:selfhost` 为 31。
