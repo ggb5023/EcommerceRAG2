@@ -12,7 +12,7 @@ const {
 } = useAdminContext()
 const search = ref('')
 const createOpen = ref(false)
-const rows = computed(() => data.value.filter((row: any) => {
+const rows = computed(() => data.value.filter((row) => {
   const q = search.value.trim().toLowerCase()
   return !q || [row.display_name, row.external_id, row.runtime_role].join(' ').toLowerCase().includes(q)
 }))
@@ -25,7 +25,7 @@ const rows = computed(() => data.value.filter((row: any) => {
     <template #actions><Button v-if="canCreateStaff" variant="primary" @click="createOpen=true">新增员工</Button></template>
     <Table>
       <thead><tr><th>账号</th><th>运行角色</th><th>店铺范围</th><th>管理角色</th><th>权限版本</th><th>状态</th></tr></thead>
-      <tbody><tr v-for="row in rows" :key="row.user_id"><td><strong>{{ row.display_name }}</strong><small>{{ row.external_id }} · {{ row.user_id }}</small></td><td>{{ row.runtime_role }}</td><td>{{ (row.shop_ids ?? []).join(', ') || '租户级' }}</td><td><div v-for="grant in row.grants ?? []" :key="grant.id" class="grant-line"><span>{{ roleLabel(grant.role) }} <small>({{ grant.role }})</small> · {{ grant.scope_kind === 'tenant' ? '租户' : grant.shop_ids.join(', ') }}</span><Button v-if="canAccess && grant.status === 'active'" variant="text" class="danger-text" @click="openGrantRevoke({ ...grant, external_id: row.external_id, display_name: row.display_name })">撤销</Button></div><span v-if="!row.grants?.length">—</span></td><td>{{ row.permission_revision }}</td><td><Badge :tone="badgeTone(row.revoked ? 'failed' : 'active')">{{ row.revoked ? '已撤权' : '有效' }}</Badge></td></tr>
+      <tbody><tr v-for="row in rows" :key="row.user_id"><td><strong>{{ row.display_name }}</strong><small>{{ row.external_id }} · {{ row.user_id }}</small></td><td>{{ row.runtime_role }}</td><td>{{ (row.shop_ids ?? []).join(', ') || '租户级' }}</td><td><div v-for="grant in row.grants ?? []" :key="grant.id" class="grant-line"><span>{{ roleLabel(grant.role) }} <small>({{ grant.role }})</small> · {{ grant.scope_kind === 'tenant' ? '租户' : grant.shop_ids?.join(', ') }}</span><Button v-if="canAccess && grant.status === 'active'" variant="text" class="danger-text" @click="openGrantRevoke({ ...grant, external_id: row.external_id, display_name: row.display_name })">撤销</Button></div><span v-if="!row.grants?.length">—</span></td><td>{{ row.permission_revision }}</td><td><Badge :tone="badgeTone(row.revoked ? 'failed' : 'active')">{{ row.revoked ? '已撤权' : '有效' }}</Badge></td></tr>
         <tr v-if="rows.length === 0"><td colspan="6" class="empty">当前授权范围没有账号记录。</td></tr></tbody>
     </Table>
   </DataTable>
