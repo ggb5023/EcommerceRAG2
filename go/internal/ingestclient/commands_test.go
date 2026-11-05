@@ -127,6 +127,17 @@ func TestValidityActionIsAVersionCommand(t *testing.T) {
 	}
 }
 
+func TestPayloadIncludesExpectedFencingEpoch(t *testing.T) {
+	base := testCommand()
+	_, first := Payload(base)
+	changed := proto.Clone(base).(*ragv1.ExecuteCommandRequest)
+	changed.ExpectedFencingEpoch++
+	_, second := Payload(changed)
+	if first == second {
+		t.Fatal("payload hash ignored expected_fencing_epoch")
+	}
+}
+
 func TestFencingEpochMatches(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
