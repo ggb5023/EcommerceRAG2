@@ -2,29 +2,29 @@
 import {computed,onUnmounted,ref} from 'vue'
 import {get,post,request} from './api'
 import {knowledgePackage} from './knowledge-package'
-import {canRevokeImport,commandStateLabel,hasBlockingPrecheck,rowErrors,rowErrorsTruncated} from './import-wizard-state'
+import {canRevokeImport,commandStateLabel,hasBlockingPrecheck,rowErrors,rowErrorsTruncated,type ImportPreview} from './import-wizard-state'
 import Button from '../components/Button.vue'
 import Input from '../components/Input.vue'
 const props=defineProps<{shops:string[]}>();const emit=defineEmits<{imported:[]}>()
-const shop=ref(props.shops[0]??'');const businessDate=ref(new Date().toISOString().slice(0,10));const files=ref<File[]>([]);const manifestFile=ref<File|null>(null);const batchId=ref('');const preview=ref<any>(null);const notice=ref('');const busy=ref(false);const jobId=ref('');const jobState=ref('');const jobError=ref('');const revokedAt=ref<string|null>(null);let timer:ReturnType<typeof setTimeout>|undefined
-const blocking=computed(()=>(preview.value?.items??[]).some((item:any)=>hasBlockingPrecheck(item)))
+const shop=ref(props.shops[0]??'');const businessDate=ref(new Date().toISOString().slice(0,10));const files=ref<File[]>([]);const manifestFile=ref<File|null>(null);const batchId=ref('');const preview=ref<ImportPreview|null>(null);const notice=ref('');const busy=ref(false);const jobId=ref('');const jobState=ref('');const jobError=ref('');const revokedAt=ref<string|null>(null);let timer:ReturnType<typeof setTimeout>|undefined
+const blocking=computed(()=>(preview.value?.items??[]).some((item)=>hasBlockingPrecheck(item)))
 function downloadTemplate(name:string){const link=document.createElement('a');link.href=`/admin/v1/merchant/import/templates/${name}`;link.download=`${name}.csv`;link.click()}
 function stopPolling(){if(timer)clearTimeout(timer);timer=undefined}
-async function pollJob(){if(!jobId.value)return;try{const job=await get<any>(`/admin/v1/merchant/commands/${jobId.value}`);jobState.value=job.state??job.command_status??'';jobError.value=job.error_code??'';if(jobState.value==='done'||jobState.value==='failed'||jobState.value==='cancelled'){stopPolling();return}}catch{jobError.value='job_lookup_failed'}timer=setTimeout(pollJob,1500)}
+async function pollJob(){if(!jobId.value)return;try{const job=await get<{state?:string;command_status?:string;error_code?:string}>(`/admin/v1/merchant/commands/${jobId.value}`);jobState.value=job.state??job.command_status??'';jobError.value=job.error_code??'';if(jobState.value==='done'||jobState.value==='failed'||jobState.value==='cancelled'){stopPolling();return}}catch{jobError.value='job_lookup_failed'}timer=setTimeout(pollJob,1500)}
 async function upload(){busy.value=true;notice.value='';try{
  if(!shop.value||!files.value.length)throw new Error('请选择店铺和至少一个文件。')
  let form:FormData
  if(manifestFile.value){form=new FormData();form.set('shop_id',shop.value);form.set('business_date',businessDate.value);form.set('manifest',await manifestFile.value.text());for(const f of files.value){form.append('paths',f.name);form.append('files',f,f.name)}}
  else{form=await knowledgePackage('merchant-precheck',files.value,shop.value);form.set('business_date',businessDate.value)}
  const result=await request<{batch_id:string;item_count:number;blocks:number;warnings:number}>('/admin/v1/merchant/imports',{method:'POST',body:form})
- batchId.value=result.batch_id;revokedAt.value=null;preview.value=await get(`/admin/v1/merchant/imports/${result.batch_id}`)
+ batchId.value=result.batch_id;revokedAt.value=null;preview.value=await get<ImportPreview>(`/admin/v1/merchant/imports/${result.batch_id}`)
  notice.value=`预检完成：${result.item_count} 份，block ${result.blocks}，warn ${result.warnings}。本地规则预检仅供参考，发布前请确认。`
  }catch(e){notice.value=e instanceof Error?e.message:'预检失败，请重试。'}finally{busy.value=false}}
 async function confirm(){busy.value=true;notice.value='';try{
- const result=await post<any>(`/admin/v1/merchant/imports/${batchId.value}/confirm`,{confirm:true,reason:'商家已核对预检结果并确认导入'})
- jobId.value=String(result.command_id??result.job_id??'');jobState.value='pending';preview.value=await get(`/admin/v1/merchant/imports/${batchId.value}`);notice.value='已确认导入，正在跟踪摄取任务。';emit('imported');void pollJob()
+ const result=await post<{command_id?:string;job_id?:string}>(`/admin/v1/merchant/imports/${batchId.value}/confirm`,{confirm:true,reason:'商家已核对预检结果并确认导入'})
+ jobId.value=String(result.command_id??result.job_id??'');jobState.value='pending';preview.value=await get<ImportPreview>(`/admin/v1/merchant/imports/${batchId.value}`);notice.value='已确认导入，正在跟踪摄取任务。';emit('imported');void pollJob()
  }catch(e){notice.value=e instanceof Error?e.message:'确认失败，请重试。'}finally{busy.value=false}}
-async function revoke(){if(!window.confirm('撤回整包后，未发布版本会软删除，且不可恢复。确认继续？'))return;busy.value=true;try{await post(`/admin/v1/merchant/imports/${batchId.value}/revoke`,{confirm:true,reason:'商家确认撤回整包未发布版本'});revokedAt.value=new Date().toISOString();preview.value=await get(`/admin/v1/merchant/imports/${batchId.value}`);notice.value='整包已撤回。';stopPolling()}catch(e){notice.value=e instanceof Error?e.message:'撤回失败。'}finally{busy.value=false}}
+async function revoke(){if(!window.confirm('撤回整包后，未发布版本会软删除，且不可恢复。确认继续？'))return;busy.value=true;try{await post(`/admin/v1/merchant/imports/${batchId.value}/revoke`,{confirm:true,reason:'商家确认撤回整包未发布版本'});revokedAt.value=new Date().toISOString();preview.value=await get<ImportPreview>(`/admin/v1/merchant/imports/${batchId.value}`);notice.value='整包已撤回。';stopPolling()}catch(e){notice.value=e instanceof Error?e.message:'撤回失败。'}finally{busy.value=false}}
 function reset(){batchId.value='';preview.value=null;notice.value='';jobId.value='';jobState.value='';revokedAt.value=null;stopPolling()}
 onUnmounted(stopPolling)
 </script>
