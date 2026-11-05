@@ -86,6 +86,7 @@ contracts 行内容、0005 改动行号。
 - 前端：`npm test -- --run` → 59 passed（含新增 `customer-api.test.ts`）；
   `npm run lint` 0 warning；`npm run build` 通过。
 - `bash scripts/check.sh` → `PASSED 44 / UNCONFIGURED 0 / FAILED 0`。
+- `bash scripts/check.sh --smoke` → `PASSED 47 / UNCONFIGURED 0 / FAILED 0`，五条 diff 逐字节一致。
 - contracts：新增 `can_copy / blocked_reason` 行；`check-contracts` 打印
   `NOTE contracts: 跨进程 rose to 15; raise CONTRACTS_CROSS`，本轮不改棘轮。
 - `0005-copyable-reply-policy.md` 后果段已补顾客端同口径一行。
