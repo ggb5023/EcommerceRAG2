@@ -36,7 +36,17 @@ jobs:
           restore-keys: |
             npm-${{ runner.os }}-
       - name: Fast gate
-        run: bash scripts/check.sh
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/check.log"
+          if ! bash scripts/check.sh > "$out" 2>&1; then
+            while IFS= read -r line; do
+              echo "::error title=check::${line}"
+            done < <(grep -E 'FAILED ITEM|^FAIL ' "$out" | head -40)
+            tail -5 "$out"
+            exit 1
+          fi
+          tail -3 "$out"
 
   db:
     runs-on: ubuntu-24.04
@@ -146,5 +156,12 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/check-db.log"
-          bash scripts/check.sh --db | tee "$log"
+          if ! bash scripts/check.sh --db > "$log" 2>&1; then
+            while IFS= read -r line; do
+              echo "::error title=check-db::${line}"
+            done < <(grep -E 'FAILED ITEM|^FAIL ' "$log" | head -40)
+            tail -5 "$log"
+            exit 1
+          fi
           grep -q '^FAILED 0$' "$log"
+          tail -3 "$log"
