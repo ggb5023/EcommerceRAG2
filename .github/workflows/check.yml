@@ -97,13 +97,11 @@ jobs:
           (ci / "bootstrap" / "pg-password").write_text(secrets.token_hex(24))
           dsn = lambda role, db: f"host=127.0.0.1 port=5432 dbname={db} user={role}"
           (ci / "migration.env").write_text("V2_MIGRATION_DSN=" + dsn("rag_migration", "ecr_v2_test_ci") + "\n")
-          # db-python needs V2_INGEST_DSN and V2_AI_DSN. Those keys are
-          # deliberately absent: the bundled Python DB suite has a pre-existing
-          # sparse/dense assertion conflict on a fresh database (see WP51 §未覆盖路径),
-          # so check.sh reports db-python as UNCONFIGURED instead of false-green.
           common = (
               "V2_MIGRATION_DSN=" + dsn("rag_migration", "ecr_v2_test_ci") + "\n"
-              "V2_GATEWAY_DSN=" + dsn("rag_v2_gateway", "ecr_v2_test_ci") + "\n")
+              "V2_GATEWAY_DSN=" + dsn("rag_v2_gateway", "ecr_v2_test_ci") + "\n"
+              "V2_INGEST_DSN=" + dsn("rag_v2_ingest", "ecr_v2_test_ci") + "\n"
+              "V2_AI_DSN=" + dsn("rag_v2_ai", "ecr_v2_test_ci") + "\n")
           (ci / "test.env").write_text(common)
           (ci / "import.env").write_text("V2_INGEST_GRPC_ADDR=127.0.0.1:1\n")
           PY
