@@ -9,7 +9,7 @@ const {
   route, router, session, data, detail, versionHistory, suggestionFilter, generateDate, selectedVersionIds, batchDialog, batchReason, batchBusy, batchResults, batchResultCounts, suggestionProgress, suggestionDetails, trialShops, contentEpoch, jobDetail, loading, unavailable, error, identityStatus, actionBusy, notice, selectedShop, formReason, dialog, dialogTarget, reviewDecision, disclosure, manifestText, selectedFiles, manifestFile, requestRole, requestScope, requestShops, statusFilter, confirmationChecked, page, title, roles, roleCatalog, canAccess, canManage, canReview, canDecideRequests, canObserve, canSeeOperations, canCreateStaff, staffUsername, staffRole, staffReason, staffBusy, staffError, staffPassword, staffCreated, createStaff, copyStaffPassword, shopQuery, roleLabel, requestableRoles, navigation, endpointForPage, clearRestrictedContent, handleFailure, toggleVersion, selectedNeedsRevision, generateSuggestion, generateSelected, openBatchConfirm, submitBatch, loadSuggestionDetail, regenerateStale, loadVersionHistory, loadPage, refreshPermission, go, shopName, formatTime, statusLabel, statusTone, badgeTone, refresh, signout, openDecision, openVersion, closeDialog, decideRequest, submitPermissionRequest, revokeGrant, submitDialogAction, loadReviewDetail, loadJobDetail, openJobAction, runJobOperation, openGrantRevoke, decideVersion, runVersionOperation, importPackage, onManifestChange, onFilesChange, themeChoice, themeLabel
 } = useAdminContext()
 const search = ref('')
-const rows = computed(() => data.value.filter((row: any) => {
+const rows = computed(() => data.value.filter((row) => {
   const q = search.value.trim().toLowerCase()
   return !q || [row.job_id, row.stage, row.status].join(' ').toLowerCase().includes(q)
 }))
@@ -26,7 +26,7 @@ const rows = computed(() => data.value.filter((row: any) => {
         <td>{{ row.item_count }}<small>待 {{ row.pending }} · 完成 {{ row.done }} · 失败 {{ row.failed }}</small></td>
         <td><small class="hash">M {{ row.manifest_sha256 }}</small><small class="hash">D {{ row.dataset_sha256 ?? '解析后生成' }}</small></td>
         <td>{{ formatTime(row.created_at) }}</td><td class="job-actions">
-          <Button v-if="canManage && ['pending','running'].includes(row.status)" variant="text" class="danger-text" @click.stop="openJobAction(row, 'cancel')">取消</Button>
+          <Button v-if="canManage && ['pending','running'].includes(row.status ?? '')" variant="text" class="danger-text" @click.stop="openJobAction(row, 'cancel')">取消</Button>
           <Button v-if="canManage && row.status === 'failed'" variant="text" @click.stop="openJobAction(row, 'retry')">重试</Button>
         </td>
       </tr><tr v-if="rows.length === 0"><td colspan="7" class="empty">暂无摄取任务。</td></tr>
@@ -34,7 +34,7 @@ const rows = computed(() => data.value.filter((row: any) => {
   </DataTable>
   <div v-if="jobDetail" class="job-items">
     <div class="section-head"><div><h2>任务 {{ jobDetail.job_id }} 的资料项</h2><p>{{ statusLabel(jobDetail.status) }} · {{ jobDetail.shop_id }} · fence {{ jobDetail.fencing_epoch }} · {{ jobDetail.cancel_requested ? '取消请求已记录' : '无取消请求' }}</p><p v-if="jobDetail.error_code || jobDetail.error">错误：{{ jobDetail.error_code ?? '—' }} · {{ jobDetail.error ?? '—' }}</p></div>
-      <Button v-if="canManage && ['pending','running'].includes(jobDetail.status)" variant="text" class="danger-text" @click="openJobAction(jobDetail, 'cancel')">取消任务</Button>
+      <Button v-if="canManage && ['pending','running'].includes(jobDetail.status ?? '')" variant="text" class="danger-text" @click="openJobAction(jobDetail, 'cancel')">取消任务</Button>
       <Button v-if="canManage && jobDetail.status === 'failed'" variant="text" @click="openJobAction(jobDetail, 'retry')">重试任务</Button>
     </div>
     <Table><thead><tr><th>资料</th><th>状态 / 阶段</th><th>版本状态</th><th>Payload hash</th><th>重试 / Fence</th><th>错误代码 / 原因</th></tr></thead><tbody>
