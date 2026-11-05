@@ -25,7 +25,7 @@ const { navigation, page, title, data, selectedShop, session, browserAuth, roleL
       <header class="page-head">
         <div><p class="eyebrow">ECOMMERCE RAG / ADMIN</p><h1>{{ title }}</h1></div>
         <div class="head-actions">
-          <label v-if="data.some((item: any) => item.shop_id)" class="shop-picker">店铺
+          <label v-if="data.some((item) => item.shop_id)" class="shop-picker">店铺
             <select v-model="selectedShop" aria-label="筛选店铺"><option value="">全部授权店铺</option><option v-for="shop in session?.allowed_shop_ids ?? []" :key="shop" :value="shop">{{ shop }}</option></select>
           </label>
           <button class="secondary" type="button" data-testid="theme-toggle" :title="`主题：${themeLabel(themeChoice)}`" @click="toggleTheme">{{ themeChoice === 'dark' ? '☾' : themeChoice === 'light' ? '☀' : '◐' }} {{ themeLabel(themeChoice) }}</button>
