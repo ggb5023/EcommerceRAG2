@@ -1,4 +1,4 @@
-export type VersionHistoryRow={version_id:string;document_id:string;title?:string;status:string;review_status:string;created_at?:string;activated_at?:string;effective_from?:string|null;effective_to?:string|null;validity_status?:string;days_until_expiry?:number}
+export type VersionHistoryRow={version_id:string;document_id:string;title?:string;status:string;review_status:string;created_at?:string;activated_at?:string;effective_from?:string|null;effective_to?:string|null;validity_status?:string;days_until_expiry?:number;status_label?:string;review_label?:string;published_at?:string|null;validity_label?:string;validity_tone?:'danger'|'warning'|'muted'}
 export function validityLabel(status?:string){
  if(status==='expired')return '已过期'
  const match=status?.match(/^expiring_in_(\d+)$/)
