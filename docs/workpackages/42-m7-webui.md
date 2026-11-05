@@ -1,7 +1,7 @@
 # 42 P1-5：M7 WebUI 闭环与只读页面
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P1-5](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P1-5（2026-11-04 本机私有快照，未入库）、
 > [0033](../decisions/0033-document-validity.md)、[0035](../decisions/0035-demo-report.md)
 
 ## 目标

@@ -1,7 +1,7 @@
 # 47 P1-7：商家库备份恢复演练
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P1-7](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P1-7（2026-11-04 本机私有快照，未入库）、
 > [backup](../backup.md)、[constraints §2](../constraints.md)
 
 ## 目标

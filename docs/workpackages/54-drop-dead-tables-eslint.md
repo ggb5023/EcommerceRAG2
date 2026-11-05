@@ -1,7 +1,7 @@
 # 54 P2：DROP 死表 + ESLint 接入
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[WP53 盘点](53-dead-code.md)、[全局审查 P2](../audits/2026-11-04-global-audit.md)、
+> 依据：[WP53 盘点](53-dead-code.md)、全局审查 P2（2026-11-04 本机私有快照，未入库）、
 > [environment-facts #3/#4](../environment-facts.md)
 
 ## 目标

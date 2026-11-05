@@ -1,7 +1,7 @@
 # 40 P1-6 修复：稠密检索走 HNSW
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P1-6](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P1-6（2026-11-04 本机私有快照，未入库）、
 > [0029](../decisions/0029-sparse-retrieval.md)
 
 ## 目标

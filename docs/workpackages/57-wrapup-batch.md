@@ -1,7 +1,7 @@
 # 57 收尾批次：any 清零 + lint 范围 + 门禁语义 + 死代码 + 镜像迁移版本
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P2](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P2（2026-11-04 本机私有快照，未入库）、
 > [WP56](../workpackages/56-ingest-dead-letter.md)、[environment-facts #1/#2](../environment-facts.md)
 
 ## 目标

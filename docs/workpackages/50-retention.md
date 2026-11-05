@@ -1,7 +1,7 @@
 # 50 P2：通用保留策略（sse_event 等）
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P2](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P2（2026-11-04 本机私有快照，未入库）、
 > [0021](../decisions/0021-usage-log-instead-of-budget.md)、
 > [backup](../backup.md)、[data-ownership](../data-ownership.md)
 

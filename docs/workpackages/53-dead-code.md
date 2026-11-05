@@ -1,7 +1,7 @@
 # 53 P2：死代码/死表清理（先盘点，再按类别处理）
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P2 表](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P2 表（2026-11-04 本机私有快照，未入库）、
 > [数据归属](../data-ownership.md)、[0032 抓取与 Tavily](../decisions/0032-intelligence-domain-and-crawling.md)
 
 ## 目标

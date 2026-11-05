@@ -42,7 +42,7 @@ jobs:
           if ! bash scripts/check.sh > "$out" 2>&1; then
             while IFS= read -r line; do
               echo "::error title=check::${line}"
-            done < <(grep -E 'FAILED ITEM|^FAIL ' "$out" | head -40)
+            done < <(grep -E 'FAILED ITEM|^FAIL |^FAILED tests/|^ERROR ' "$out" | head -40)
             tail -5 "$out"
             exit 1
           fi
@@ -159,7 +159,7 @@ jobs:
           if ! bash scripts/check.sh --db > "$log" 2>&1; then
             while IFS= read -r line; do
               echo "::error title=check-db::${line}"
-            done < <(grep -E 'FAILED ITEM|^FAIL ' "$log" | head -40)
+            done < <(grep -E 'FAILED ITEM|^FAIL |^FAILED tests/|^ERROR ' "$log" | head -40)
             tail -5 "$log"
             exit 1
           fi

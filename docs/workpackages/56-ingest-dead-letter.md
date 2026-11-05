@@ -1,7 +1,7 @@
 # 56 P2：摄取失败不静默（死信可查 + 错误不吞）
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P2](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P2（2026-11-04 本机私有快照，未入库）、
 > [agent-entry §2](../agent-entry.md)、[environment-facts #1/#2](../environment-facts.md)
 
 ## 目标

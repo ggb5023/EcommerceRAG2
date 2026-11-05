@@ -1,7 +1,7 @@
 # 45 P1-4 阶段 3：customer service/ai 的 SQL 移出 handler
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P1-4](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P1-4（2026-11-04 本机私有快照，未入库）、
 > [0025 R2/R3](../decisions/0025-code-level-rules.md)、
 > [0028](../decisions/0028-orchestration-boundary.md)、
 > [data-ownership](../data-ownership.md)

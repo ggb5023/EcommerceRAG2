@@ -206,20 +206,29 @@ class Scanner:
 
 
 def load_known(scanner, roots):
-    """Only memory retains secret values; do not archive this registry."""
+    """Only memory retains secret values; do not archive this registry.
+
+    Known-value roots exist only on machines that run the reviewed stack; on a
+    fresh checkout (CI) they are absent or unreadable to the caller. Such roots
+    are skipped, not failed: they only prime exclusions, and skipping them can
+    only make the repository scan below block more, never less.
+    """
     for root in roots:
         root = Path(root)
-        candidates = [root] if root.is_file() else root.rglob('*')
-        for path in candidates:
-            if path.is_symlink() or not path.is_file():
-                continue
-            if path.stat().st_size > 4*1024*1024:
-                continue
-            if any(part in ('node_modules', '.venv', 'venv', 'cpython') for part in path.parts):
-                continue
-            is_json_config = path.suffix.lower() == '.json' and bool(re.search(r'auth|account|browser.state|identity|realm|config|secret|oidc', path.name, re.I))
-            if path.suffix.lower() == '.env' or is_json_config or SECRET_KEY.search(path.name) or path.name in ('scope-key', 'browser-secret', 'pg-password'):
-                try:
-                    scanner.learn(path.read_bytes(), str(path))
-                except OSError:
+        try:
+            candidates = [root] if root.is_file() else root.rglob('*')
+            for path in candidates:
+                if path.is_symlink() or not path.is_file():
                     continue
+                if path.stat().st_size > 4*1024*1024:
+                    continue
+                if any(part in ('node_modules', '.venv', 'venv', 'cpython') for part in path.parts):
+                    continue
+                is_json_config = path.suffix.lower() == '.json' and bool(re.search(r'auth|account|browser.state|identity|realm|config|secret|oidc', path.name, re.I))
+                if path.suffix.lower() == '.env' or is_json_config or SECRET_KEY.search(path.name) or path.name in ('scope-key', 'browser-secret', 'pg-password'):
+                    try:
+                        scanner.learn(path.read_bytes(), str(path))
+                    except OSError:
+                        continue
+        except OSError:
+            continue

@@ -1,7 +1,7 @@
 # 41 P1-2/P1-3：单写者覆盖与文档数字真实性
 
 > 状态：见 INDEX.md　验收：见 §验收命令
-> 依据：[全局审查 P1-2/P1-3](../audits/2026-11-04-global-audit.md)、
+> 依据：全局审查 P1-2/P1-3（2026-11-04 本机私有快照，未入库）、
 > [data-ownership](../data-ownership.md)、[constraints](../constraints.md)
 
 ## 目标
