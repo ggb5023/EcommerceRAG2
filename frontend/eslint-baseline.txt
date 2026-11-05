@@ -1,5 +1,5 @@
 # ESLint warning baseline for frontend/src.
-# Generated 2026-11-05. npm run lint fails when warnings exceed this count.
+# Generated 2026-11-05. npm run lint fails when a warning group appears or grows above this baseline.
 # 27 warnings, 0 errors.
 src/admin/AdminApp.vue:26:27 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.
 src/admin/AdminApp.vue:42:26 warning @typescript-eslint/no-explicit-any Unexpected any. Specify a different type.

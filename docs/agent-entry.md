@@ -61,7 +61,7 @@ python3 scripts/check/check-db-env-health.py --env /etc/ecommerce-rag/dev.env
 ECR_SCRATCH_DSN=... ECR_SCRATCH_GATEWAY_DSN=... bash scripts/ops/verify-migrations-from-zero.sh
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式
-bash scripts/check.sh --smoke         # 45 项轮次链路基线；check-logs/doc-numbers 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
+bash scripts/check.sh --smoke         # 46 项轮次链路基线；check-logs/doc-numbers 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
 
 # 四条 smoke（改动轮次链路后必跑，与 .local/w2/ 基线逐字节比对）
 bash scripts/dev/smoke-turn.sh

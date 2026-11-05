@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
-    "lint": "eslint src --max-warnings 27",
+    "lint": "node eslint-baseline.mjs",
     "test": "vitest run",
     "test:browser": "node tests/admin.browser.mjs",
     "preview": "vite preview --host 127.0.0.1"
