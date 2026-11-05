@@ -51,7 +51,7 @@ bash scripts/check.sh --smoke 逐字节比对；无活栈时整层 UNCONFIGURED�
 
 ## 7. 门禁分层
 
-bash scripts/check.sh          快速层 43 项（默认，必须全绿）
+bash scripts/check.sh          快速层 44 项（默认，必须全绿）
 bash scripts/check.sh --smoke  加五条轮次链路（合并前必跑）
 bash scripts/check.sh --db     加持久化层（需 /etc/ecommerce-rag/test-integration.env）
 bash scripts/check.sh --e2e    加浏览器层（需隔离栈）

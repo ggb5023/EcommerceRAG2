@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"encoding/csv"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -33,5 +34,27 @@ func TestImportTemplatesAreGeneratedWithCanonicalHeaders(t *testing.T) {
 	}
 	if _, _, ok := renderImportTemplate("missing"); ok {
 		t.Fatal("unknown template accepted")
+	}
+}
+
+func TestImportTemplateProductHeaders(t *testing.T) {
+	want := []string{
+		"sku_code", "spu_code", "title", "category", "brand", "color",
+		"size_label", "size_chart_code", "capacity_ml", "length_cm",
+		"width_cm", "height_cm", "weight_g", "material", "pattern",
+		"list_price_cents", "currency", "price_observed_at",
+	}
+	if got := importTemplateSchema["product_table_v1"].Headers; !reflect.DeepEqual(got, want) {
+		t.Fatalf("product_table_v1 headers = %v, want %v", got, want)
+	}
+}
+
+func TestImportTemplateSizeChartHeaders(t *testing.T) {
+	want := []string{
+		"chart_code", "size_label", "size_system", "chest_cm", "waist_cm",
+		"hip_cm", "foot_length_cm", "height_cm", "weight_kg", "fit_note",
+	}
+	if got := importTemplateSchema["size_chart_v1"].Headers; !reflect.DeepEqual(got, want) {
+		t.Fatalf("size_chart_v1 headers = %v, want %v", got, want)
 	}
 }

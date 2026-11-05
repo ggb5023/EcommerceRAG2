@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from app.ingest.catalog import (
+    PRODUCT_ATTRIBUTES,
+    PRODUCT_BASE_FIELDS,
     PRODUCT_TABLE_SCHEMA,
+    SIZE_CHART_BASE_FIELDS,
+    SIZE_CHART_MEASUREMENTS,
     SIZE_CHART_SCHEMA,
     CatalogValidationError,
     build_typed_rows,
@@ -173,3 +177,21 @@ def test_size_chart_builds_mapping_and_rejects_unknown_system(tmp_path: Path):
     )
     with pytest.raises(CatalogValidationError, match="invalid_size_system"):
         _typed_rows(path, SIZE_CHART_SCHEMA)
+
+
+def test_product_schema_matches_template_columns():
+    template_columns = {
+        "sku_code", "spu_code", "title", "category", "brand", "color",
+        "size_label", "size_chart_code", "capacity_ml", "length_cm",
+        "width_cm", "height_cm", "weight_g", "material", "pattern",
+        "list_price_cents", "currency", "price_observed_at",
+    }
+    assert PRODUCT_BASE_FIELDS | PRODUCT_ATTRIBUTES == template_columns
+
+
+def test_size_chart_schema_matches_template_columns():
+    template_columns = {
+        "chart_code", "size_label", "size_system", "chest_cm", "waist_cm",
+        "hip_cm", "foot_length_cm", "height_cm", "weight_kg", "fit_note",
+    }
+    assert SIZE_CHART_BASE_FIELDS | SIZE_CHART_MEASUREMENTS == template_columns

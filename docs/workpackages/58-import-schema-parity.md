@@ -70,8 +70,8 @@ python3 scripts/check/check-import-schema.py   # PASS import-schema parity
 - 不把模板改成提交的静态 CSV 文件（运行时渲染保持现状）。
 - 不动 `PRODUCT_ALIASES`、`CONTROL_COLUMNS`、`SIZE_SYSTEMS`、`validate_typed_document`、
   handler 行为（BOM、示例行、错误处理）。
-- 不改 `scripts/check/check-contracts.py` 的 `CONTRACTS_CROSS` 棘轮——新增 ✅ 行会让
-  守卫打印 NOTE，棘轮由主 agent 在收尾提交单独上调。
+- 不改契约表棘轮——新增 ✅ 行会让守卫打印 NOTE，棘轮由主 agent 在收尾提交
+  单独上调。
 - 不动 `eval/`、不新增迁移、不新增接口。
 - 不提交到 `origin`（主 agent 负责 push）；提交身份
   `EcommerceRAG Maintainers <maintainers@example.invalid>`；不用 `git add .`。

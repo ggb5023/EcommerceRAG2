@@ -146,6 +146,7 @@ run fast privacy-tests "python3 -m unittest discover -s tests -p 'test_privacy*.
 run fast publication-tests "python3 -m unittest discover -s tests -p 'test_publication*.py'"
 run fast worker-harness-tests "python3 -m unittest discover -s tests -p 'test_worker_process_harness.py'"
 run fast docs-links "python3 scripts/check/check-docs.py"
+run fast import-schema "python3 scripts/check/check-import-schema.py"
 run fast openapi "python3 scripts/check/check-openapi.py"
 run_optional fast eval-corpus "python3 scripts/check/check-eval-corpus.py"
 run fast doc-baseline "python3 scripts/check/check-doc-baseline.py"
