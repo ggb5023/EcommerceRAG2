@@ -57,7 +57,7 @@
 | 48 | P2 门禁假绿修复：四个守卫的 UNCONFIGURED 语义与覆盖面 | done | — | — | `b8737b7` |
 | 49 | P2：usage_log 归因到轮次 | done | — | — | `116657d` |
 | 50 | P2：通用保留策略（sse_event 等） | done | — | — | `68ac85b` |
-| 51 | P2：CI 增加数据库层 | implemented | — | — | `c2a1a87` |
+| 51 | P2：CI 增加数据库层 | done | — | — | `c2a1a87` |
 
 ## 同步规则
 
