@@ -436,6 +436,8 @@ type JobRow struct {
 	ShopID          string
 	ManifestHash    string
 	DatasetHash     *string
+	ErrorCode       *string
+	Error           *string
 	FencingEpoch    int64
 	CancelRequested bool
 	CreatedAt       time.Time
@@ -451,7 +453,7 @@ type JobRow struct {
 // Jobs lists ingestion jobs for the caller's shops.
 func (s *Store) Jobs(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string) ([]JobRow, error) {
 	rows, err := db.Query(ctx, `SELECT j.id,j.stage,j.status,s.shop_id,j.manifest_sha256,j.dataset_sha256,
-		j.fencing_epoch,j.cancel_requested,j.created_at,j.updated_at,count(i.id),
+		j.error_code,j.error,j.fencing_epoch,j.cancel_requested,j.created_at,j.updated_at,count(i.id),
 		count(i.id) FILTER (WHERE i.status='pending'),count(i.id) FILTER (WHERE i.status='running'),
 		count(i.id) FILTER (WHERE i.status='awaiting_review'),count(i.id) FILTER (WHERE i.status='done'),
 		count(i.id) FILTER (WHERE i.status='failed') FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
@@ -466,7 +468,7 @@ func (s *Store) Jobs(ctx context.Context, db *pgxpool.Pool, tenantID int64, shop
 	for rows.Next() {
 		var row JobRow
 		if err := rows.Scan(&row.ID, &row.Stage, &row.Status, &row.ShopID, &row.ManifestHash, &row.DatasetHash,
-			&row.FencingEpoch, &row.CancelRequested, &row.CreatedAt, &row.UpdatedAt, &row.Items, &row.Pending,
+			&row.ErrorCode, &row.Error, &row.FencingEpoch, &row.CancelRequested, &row.CreatedAt, &row.UpdatedAt, &row.Items, &row.Pending,
 			&row.Running, &row.Awaiting, &row.Done, &row.Failed); err != nil {
 			return nil, err
 		}
@@ -482,21 +484,22 @@ type JobDetailRow struct {
 	ShopID          string
 	ManifestHash    string
 	DatasetHash     *string
+	ErrorCode       *string
+	Error           *string
 	FencingEpoch    int64
 	CancelRequested bool
 	LeaseExpiresAt  *time.Time
-	ErrorCode       *string
 }
 
 // JobDetail loads one ingestion job inside the caller's shops.
 func (s *Store) JobDetail(ctx context.Context, db *pgxpool.Pool, tenantID, jobID int64, shops []string) (JobDetailRow, error) {
 	var row JobDetailRow
 	err := db.QueryRow(ctx, `SELECT j.status,j.stage,s.shop_id,j.manifest_sha256,j.dataset_sha256,
-		j.fencing_epoch,j.cancel_requested,j.lease_expires_at,j.error_code FROM ingest_job j
+		j.fencing_epoch,j.cancel_requested,j.lease_expires_at,j.error_code,j.error FROM ingest_job j
 		JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
 		WHERE j.tenant_id=$1 AND j.id=$2 AND s.shop_id=ANY($3::text[]) AND s.type='admin_manifest'`,
 		tenantID, jobID, shops).Scan(&row.Status, &row.Stage, &row.ShopID, &row.ManifestHash, &row.DatasetHash,
-		&row.FencingEpoch, &row.CancelRequested, &row.LeaseExpiresAt, &row.ErrorCode)
+		&row.FencingEpoch, &row.CancelRequested, &row.LeaseExpiresAt, &row.ErrorCode, &row.Error)
 	return row, err
 }
 
@@ -509,6 +512,7 @@ type JobItemRow struct {
 	Stage             string
 	RetryCount        int32
 	ErrorCode         *string
+	Error             *string
 	CancelRequested   bool
 	FencingEpoch      int64
 	DocumentVersionID *string
@@ -520,7 +524,7 @@ type JobItemRow struct {
 // JobItems lists the items of one ingestion job.
 func (s *Store) JobItems(ctx context.Context, db *pgxpool.Pool, tenantID, jobID int64, shops []string) ([]JobItemRow, error) {
 	rows, err := db.Query(ctx, `SELECT i.id,i.data_id,i.payload_hash,i.status,i.stage,i.retry_count,
-		i.error_code,i.cancel_requested,i.fencing_epoch,i.document_version_id::text,v.status,v.review_status,v.source_hash
+		i.error_code,i.error,i.cancel_requested,i.fencing_epoch,i.document_version_id::text,v.status,v.review_status,v.source_hash
 		FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
 		JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
 		LEFT JOIN document_version v ON v.tenant_id=i.tenant_id AND v.id=i.document_version_id
@@ -534,7 +538,7 @@ func (s *Store) JobItems(ctx context.Context, db *pgxpool.Pool, tenantID, jobID 
 	for rows.Next() {
 		var row JobItemRow
 		if err := rows.Scan(&row.ID, &row.DataID, &row.PayloadHash, &row.Status, &row.Stage, &row.RetryCount,
-			&row.ErrorCode, &row.CancelRequested, &row.FencingEpoch, &row.DocumentVersionID,
+			&row.ErrorCode, &row.Error, &row.CancelRequested, &row.FencingEpoch, &row.DocumentVersionID,
 			&row.VersionStatus, &row.ReviewStatus, &row.SourceHash); err != nil {
 			return nil, err
 		}

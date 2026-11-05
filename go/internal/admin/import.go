@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -152,6 +153,23 @@ func (g *Handler) persistParsed(ctx context.Context, parsed ParsedPackage, batch
 	return g.queuePackage(ctx, parsed.Manifest, files, g.Session.TenantID, g.Session.UserID, shopID)
 }
 
+var jobErrorRedaction = regexp.MustCompile(`(?i)(?:postgres(?:ql)?://\S+|\b(?:password|host|user|dbname)\s*=\s*\S+)`)
+
+// safeJobError truncates and redacts a stored failure reason before it reaches
+// the browser. New worker writes are already sanitized; this also covers rows
+// written by older builds.
+func safeJobError(value *string) any {
+	if value == nil {
+		return nil
+	}
+	text := jobErrorRedaction.ReplaceAllString(*value, "[redacted]")
+	runes := []rune(text)
+	if len(runes) > 200 {
+		text = string(runes[:200]) + "…"
+	}
+	return text
+}
+
 func (g *Handler) adminJobs(w http.ResponseWriter, r *http.Request) {
 	scope, ok := g.requireAdmin(w, r, adminRoleMerchant, adminRoleReviewer, adminRoleObserver)
 	if !ok {
@@ -166,7 +184,7 @@ func (g *Handler) adminJobs(w http.ResponseWriter, r *http.Request) {
 	for _, job := range jobs {
 		items = append(items, map[string]any{"job_id": strconv.FormatInt(job.ID, 10), "stage": job.Stage,
 			"status": job.Status, "shop_id": job.ShopID, "manifest_sha256": job.ManifestHash,
-			"dataset_sha256": job.DatasetHash, "fencing_epoch": job.FencingEpoch,
+			"dataset_sha256": job.DatasetHash, "error_code": job.ErrorCode, "error": safeJobError(job.Error), "fencing_epoch": job.FencingEpoch,
 			"cancel_requested": job.CancelRequested, "item_count": job.Items, "pending": job.Pending,
 			"running": job.Running, "awaiting_review": job.Awaiting, "done": job.Done, "failed": job.Failed,
 			"created_at": job.CreatedAt, "updated_at": job.UpdatedAt})
@@ -194,7 +212,7 @@ func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jobStatus, jobStage, shopID, manifestHash := detail.Status, detail.Stage, detail.ShopID, detail.ManifestHash
-	datasetHash, errorCode := detail.DatasetHash, detail.ErrorCode
+	datasetHash, errorCode, jobError := detail.DatasetHash, detail.ErrorCode, detail.Error
 	fencingEpoch, cancelRequested, leaseExpiresAt := detail.FencingEpoch, detail.CancelRequested, detail.LeaseExpiresAt
 	jobItems, err := adminStore.JobItems(r.Context(), g.DB, g.Session.TenantID, jobID, scope.shops)
 	if err != nil {
@@ -205,7 +223,7 @@ func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
 	for _, item := range jobItems {
 		items = append(items, map[string]any{"item_id": strconv.FormatInt(item.ID, 10), "document_id": item.DataID,
 			"payload_hash": item.PayloadHash, "status": item.Status, "stage": item.Stage,
-			"retry_count": item.RetryCount, "error_code": item.ErrorCode, "cancel_requested": item.CancelRequested,
+			"retry_count": item.RetryCount, "error_code": item.ErrorCode, "error": safeJobError(item.Error), "cancel_requested": item.CancelRequested,
 			"fencing_epoch": item.FencingEpoch, "version_id": item.DocumentVersionID,
 			"version_status": item.VersionStatus, "review_status": item.ReviewStatus,
 			"version_hash": item.SourceHash})
@@ -224,7 +242,7 @@ func (g *Handler) adminJobDetail(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"job_id": strconv.FormatInt(jobID, 10), "status": jobStatus,
 		"stage": jobStage, "shop_id": shopID, "manifest_sha256": manifestHash, "dataset_sha256": datasetHash,
 		"fencing_epoch": fencingEpoch, "cancel_requested": cancelRequested, "lease_expires_at": leaseExpiresAt,
-		"error_code": errorCode, "items": items})
+		"error_code": errorCode, "error": safeJobError(jobError), "items": items})
 }
 
 func (e *adminConflictError) Error() string { return e.message }

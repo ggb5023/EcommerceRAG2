@@ -22,7 +22,7 @@ const rows = computed(() => data.value.filter((row: any) => {
     <template #actions><Button variant="secondary" @click="refresh">刷新</Button></template>
     <Table><thead><tr><th>任务</th><th>阶段</th><th>状态</th><th>资料项</th><th>清单 / 数据摘要</th><th>创建时间</th><th>操作</th></tr></thead><tbody>
       <tr v-for="row in rows" :key="row.job_id" class="click-row" tabindex="0" @click="loadJobDetail(row)" @keydown.enter="loadJobDetail(row)">
-        <td>{{ row.job_id }}</td><td>{{ row.stage }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge></td>
+        <td>{{ row.job_id }}</td><td>{{ row.stage }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge><small v-if="row.error_code || row.error">{{ row.error_code ?? '' }}{{ row.error ? ' · ' + row.error : '' }}</small></td>
         <td>{{ row.item_count }}<small>待 {{ row.pending }} · 完成 {{ row.done }} · 失败 {{ row.failed }}</small></td>
         <td><small class="hash">M {{ row.manifest_sha256 }}</small><small class="hash">D {{ row.dataset_sha256 ?? '解析后生成' }}</small></td>
         <td>{{ formatTime(row.created_at) }}</td><td class="job-actions">
@@ -33,12 +33,12 @@ const rows = computed(() => data.value.filter((row: any) => {
     </tbody></Table>
   </DataTable>
   <div v-if="jobDetail" class="job-items">
-    <div class="section-head"><div><h2>任务 {{ jobDetail.job_id }} 的资料项</h2><p>{{ statusLabel(jobDetail.status) }} · {{ jobDetail.shop_id }} · fence {{ jobDetail.fencing_epoch }} · {{ jobDetail.cancel_requested ? '取消请求已记录' : '无取消请求' }}</p></div>
+    <div class="section-head"><div><h2>任务 {{ jobDetail.job_id }} 的资料项</h2><p>{{ statusLabel(jobDetail.status) }} · {{ jobDetail.shop_id }} · fence {{ jobDetail.fencing_epoch }} · {{ jobDetail.cancel_requested ? '取消请求已记录' : '无取消请求' }}</p><p v-if="jobDetail.error_code || jobDetail.error">错误：{{ jobDetail.error_code ?? '—' }} · {{ jobDetail.error ?? '—' }}</p></div>
       <Button v-if="canManage && ['pending','running'].includes(jobDetail.status)" variant="text" class="danger-text" @click="openJobAction(jobDetail, 'cancel')">取消任务</Button>
       <Button v-if="canManage && jobDetail.status === 'failed'" variant="text" @click="openJobAction(jobDetail, 'retry')">重试任务</Button>
     </div>
-    <Table><thead><tr><th>资料</th><th>状态 / 阶段</th><th>版本状态</th><th>Payload hash</th><th>重试 / Fence</th><th>错误代码</th></tr></thead><tbody>
-      <tr v-for="item in jobDetail.items" :key="item.item_id"><td>{{ item.document_id }}<small>{{ item.item_id }}</small></td><td>{{ statusLabel(item.status) }} / {{ item.stage }}</td><td>{{ statusLabel(item.version_status) }} · {{ statusLabel(item.review_status) }}</td><td class="hash">{{ item.payload_hash }}</td><td>{{ item.retry_count }} / {{ item.fencing_epoch }}</td><td>{{ item.error_code ?? '—' }}</td></tr>
+    <Table><thead><tr><th>资料</th><th>状态 / 阶段</th><th>版本状态</th><th>Payload hash</th><th>重试 / Fence</th><th>错误代码 / 原因</th></tr></thead><tbody>
+      <tr v-for="item in jobDetail.items" :key="item.item_id"><td>{{ item.document_id }}<small>{{ item.item_id }}</small></td><td>{{ statusLabel(item.status) }} / {{ item.stage }}</td><td>{{ statusLabel(item.version_status) }} · {{ statusLabel(item.review_status) }}</td><td class="hash">{{ item.payload_hash }}</td><td>{{ item.retry_count }} / {{ item.fencing_epoch }}</td><td>{{ item.error_code ?? '—' }}<small v-if="item.error">{{ item.error }}</small></td></tr>
       <tr v-if="!jobDetail.items?.length"><td colspan="6" class="empty">任务没有资料项记录。</td></tr>
     </tbody></Table>
   </div>
