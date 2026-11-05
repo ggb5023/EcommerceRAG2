@@ -57,6 +57,9 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check.sh --db also runs the fast layer, including buf breaking.
+          fetch-depth: 0
       - name: Install toolchains and postgres client
         run: |
           sudo apt-get update
