@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import os
+import re
 import shutil
 import threading
 from dataclasses import dataclass
@@ -35,6 +37,16 @@ from app.ingest.runtime import load_artifact_store, load_embedding_provider
 from app.providers.contracts import ProviderError
 from app.storage import ObjectStore
 from rag.v1 import rag_pb2
+
+_log = logging.getLogger(__name__)
+
+_DSN_TEXT = re.compile(r"(?i)(?:postgres(?:ql)?://\S+|\b(?:password|host|user|dbname)\s*=\s*\S+)")
+
+
+def _safe_failure_detail(detail: object) -> str:
+    """Keep a readable failure reason without DSN/credential material."""
+    text = _DSN_TEXT.sub("[redacted]", str(detail))
+    return text[:200]
 
 
 class PackageValidationError(ValueError):
@@ -494,6 +506,13 @@ class IngestWorker:
                     if document.get("embedding_model", result.model) != result.model:
                         raise ProviderError("invalid_response", "embedding model changed during ingestion", slot="embedding")
                     document["embedding_model"] = result.model
+                if counters["no_sparse"] or counters["invalid"]:
+                    _log.warning(
+                        "sparse degradation: ok=%d no_sparse=%d invalid=%d first_reason=%s",
+                        counters["ok"], counters["no_sparse"], counters["invalid"],
+                        counters["first_reason"] or "none",
+                    )
+                document["sparse_stats"] = counters
                 if self.usage is not None and results:
                     self.usage.record(tenant_id=claim.tenant_id, slot="embedding", model=results[0].model,
                         input_tokens=sum((r.usage.input_tokens or 0) for r in results if r.usage),
@@ -582,6 +601,7 @@ class IngestWorker:
                         "catalog_sku_count": len(document.get("catalog_sku", [])),
                         "catalog_size_chart_count": len(document.get("catalog_size_chart", [])),
                         "catalog_warnings": document.get("catalog_warnings", []),
+                        "sparse_stats": document.get("sparse_stats", {}),
                     },
                     ensure_ascii=False,
                 ),
@@ -791,6 +811,7 @@ class IngestWorker:
     def _settle_failure(
         self, claim: IngestClaim, error_code: str, *, retryable: bool, detail: str
     ) -> None:
+        safe_detail = _safe_failure_detail(detail)
         try:
             with (
                 self.database.connection() as connection,
@@ -826,7 +847,7 @@ class IngestWorker:
                         stage,
                         next_retry,
                         error_code,
-                        detail[:200],
+                        safe_detail,
                         claim.tenant_id,
                         claim.job_id,
                         claim.owner_token,
@@ -841,14 +862,66 @@ class IngestWorker:
                         "pending" if next_retry else "failed",
                         stage,
                         error_code,
-                        detail[:200],
+                        safe_detail,
                         claim.tenant_id,
                         claim.job_id,
                         f"{claim.owner_token}:item:%",
                     ),
                 )
-        except psycopg.Error:
-            return
+        except psycopg.Error as error:
+            fallback_detail = _safe_failure_detail(
+                f"{safe_detail} (settle write failed: {type(error).__name__})"
+            )
+            # Do not log str(error): psycopg errors can contain the DSN or
+            # credentials. The class name plus the redacted detail is enough.
+            _log.error(
+                "ingest settlement write failed: error_code=%s detail=%s",
+                error_code,
+                fallback_detail,
+            )
+            try:
+                self._force_failure(claim, error_code, fallback_detail)
+            except psycopg.Error as fallback_error:
+                _log.error(
+                    "ingest fallback failure write failed: error_code=%s error=%s",
+                    error_code,
+                    type(fallback_error).__name__,
+                )
+
+    def _force_failure(
+        self, claim: IngestClaim, error_code: str, detail: str
+    ) -> None:
+        """Best-effort failed state after the normal settlement transaction dies."""
+        with (
+            self.database.connection() as connection,
+            connection.transaction(),
+            connection.cursor() as cursor,
+        ):
+            cursor.execute(
+                "UPDATE ingest_job SET status='failed',stage='failed',lease_expires_at=NULL,"
+                "owner_token=NULL,error_code=%s,error=%s,updated_at=now() "
+                "WHERE tenant_id=%s AND id=%s AND owner_token=%s AND fencing_epoch=%s",
+                (
+                    error_code,
+                    detail,
+                    claim.tenant_id,
+                    claim.job_id,
+                    claim.owner_token,
+                    claim.fencing_epoch,
+                ),
+            )
+            cursor.execute(
+                "UPDATE ingest_job_item SET status='failed',stage='failed',lease_expires_at=NULL,"
+                "owner_token=NULL,error_code=%s,error=%s "
+                "WHERE tenant_id=%s AND job_id=%s AND status='running' AND owner_token LIKE %s",
+                (
+                    error_code,
+                    detail,
+                    claim.tenant_id,
+                    claim.job_id,
+                    f"{claim.owner_token}:item:%",
+                ),
+            )
 
     @staticmethod
     def _mark_cancelled(cursor: Any, claim: IngestClaim) -> None:
