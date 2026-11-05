@@ -17,15 +17,17 @@ import type {PreviewChunk} from './knowledge-preview'
 import { ApiError, get, post, request, type AdminSession } from './api'
 import { adminPageFromPath, adminPathForPage, type AdminPage } from './routes'
 import { browserAuth, checkBrowserAuth, login, logout } from '../auth'
+import type { BatchItemResult } from './review-suggestion'
+import type { VersionHistoryRow } from './version-history'
 import { applyThemeChoice, loadThemeChoice, nextThemeChoice, themeLabel, type ThemeChoice } from './theme'
-import { AdminContextKey } from './admin-context'
+import { AdminContextKey, type AdminContext, type AdminDetail, type AdminRow } from './admin-context'
 import AdminShell from './AdminShell.vue'
 import AdminPageRouter from './AdminPageRouter.vue'
 import AdminDialogs from './AdminDialogs.vue'
 
-type Row = Record<string, any>
-type ItemResponse = { items: Row[] }
-type Detail = Row & { content?: PreviewChunk[] }
+type Row = AdminRow
+type ItemResponse = { items: VersionHistoryRow[] }
+type Detail = AdminDetail
 
 const route = useRoute()
 const router = useRouter()
@@ -39,10 +41,10 @@ const selectedVersionIds = ref<string[]>([])
 const batchDialog = ref(false)
 const batchReason = ref('')
 const batchBusy = ref(false)
-const batchResults = ref<any[]>([])
+const batchResults = ref<BatchItemResult[]>([])
 const batchResultCounts = ref({success:0,stale:0,failed:0})
 const suggestionProgress = ref('')
-const suggestionDetails = ref<Record<string,any>>({})
+const suggestionDetails = ref<Record<string, Detail>>({})
 const trialShops = ref<Row[]>([])
 let contentEpoch=0
 let permissionPoll:ReturnType<typeof setInterval>
@@ -214,11 +216,11 @@ function openBatchConfirm() {
 async function submitBatch() {
   if (!validBatchReason(batchReason.value)) { notice.value = '确认理由需为 10–2000 字。'; return }
   const items = data.value.filter(row => selectedVersionIds.value.includes(String(row.version_id)) && row.suggestion?.id)
-    .map(row => ({ version_id: String(row.version_id), suggestion_id: String(row.suggestion.id) }))
+    .map(row => ({ version_id: String(row.version_id), suggestion_id: String(row.suggestion?.id ?? '') }))
   if (!items.length) { notice.value = '选中的版本没有可用的建议。'; return }
   batchBusy.value = true
   try {
-    const result = await post<any>('/admin/v1/merchant/versions/batch-approve', { items, confirm: true, reason: batchReason.value.trim() })
+    const result = await post<{ results?: BatchItemResult[] }>('/admin/v1/merchant/versions/batch-approve', { items, confirm: true, reason: batchReason.value.trim() })
     batchResults.value = result.results ?? []
     batchResultCounts.value = batchCounts(batchResults.value)
     batchDialog.value = false
@@ -230,11 +232,11 @@ async function submitBatch() {
   } finally { batchBusy.value = false }
 }
 async function loadSuggestionDetail(row: Row) {
-  if (suggestionDetails.value[row.version_id]) return
-  try { suggestionDetails.value[row.version_id] = await get(`/admin/v1/merchant/reviews/${row.version_id}`) }
+  if (suggestionDetails.value[String(row.version_id)]) return
+  try { suggestionDetails.value[String(row.version_id)] = await get(`/admin/v1/merchant/reviews/${row.version_id}`) }
   catch { /* detail remains collapsed */ }
 }
-async function regenerateStale(result: any) {
+async function regenerateStale(result: BatchItemResult) {
   const row = data.value.find(item => String(item.version_id) === String(result.version_id))
   if (row) await generateSuggestion(row)
 }
@@ -242,7 +244,7 @@ async function regenerateStale(result: any) {
 async function loadVersionHistory() {
   try {
     const result = await get<ItemResponse>('/admin/v1/merchant/versions')
-    versionHistory.value = versionHistoryView((result.items ?? []) as any[])
+    versionHistory.value = versionHistoryView(result.items ?? [])
   } catch (error) {
     notice.value = error instanceof Error ? error.message : '版本历史加载失败。'
   }
@@ -588,7 +590,7 @@ const admin = {
   toggleTheme,
   browserAuth,
 }
-provide(AdminContextKey, admin)
+provide(AdminContextKey, admin as unknown as AdminContext)
 
 </script>
 
