@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import pytest
 
@@ -70,7 +71,9 @@ def test_column_probe_is_cached_inside_the_ttl():
     assert instance._sparse_column_populated(cursor) is False
     assert instance._sparse_column_populated(cursor) is False
     assert cursor.executions == 1, "the probe must be cached inside the TTL"
-    instance._sparse_mode_checked_at = 0.0
+    # A fresh machine (CI runner just booted) has monotonic() < TTL, so 0.0 would
+    # still look "fresh"; force the TTL to have actually expired.
+    instance._sparse_mode_checked_at = time.monotonic() - postgres.SPARSE_MODE_TTL_SECONDS - 1.0
     assert instance._sparse_column_populated(cursor) is False
     assert cursor.executions == 2, "a forced re-check must probe again"
 
