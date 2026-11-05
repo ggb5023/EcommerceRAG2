@@ -14,7 +14,7 @@ DROP 待授权清单，本包不执行 DROP、不新增迁移。
 
 - 七张表：`ingest_stage`、`ingest_package_file`、`ingest_package_upload`、
   `eval_case`、`eval_run`、`provider`、`provider_model`。
-- 三个模块：`python/app/web/crawler.py`、`python/app/providers/mineru.py`、
+- 三个模块：`crawler.py`（WP53 已删除）、`python/app/providers/mineru.py`、
   `python/app/providers/tavily.py`。
 - 盘点写进本文件的表；删除只限零 runtime 引用且无决策保留的项。
 - 文档与 research/refactor-input 的引用同步。
@@ -67,7 +67,7 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
 
 | 模块 | 行数 | runtime 引用 | 测试 | 结论 |
 | --- | --- | --- | --- | --- |
-| `python/app/web/crawler.py` | 478 | 0（`python/app` 无 import） | `python/tests/test_crawler.py`（263 行） | **删除候选；无决策保留** |
+| `crawler.py`（WP53 已删除） | 478 | 0（`python/app` 无 import） | `test_crawler.py`（263 行，已删除） | **已删除；无决策保留** |
 | `python/app/providers/mineru.py` | 365 | 0（仅测试 import） | `python/tests/test_external_providers.py` | **保留**：0007 明确作为离线实验能力保留 |
 | `python/app/providers/tavily.py` | 163 | 0（仅测试 import） | `python/tests/test_external_providers.py` | **保留**：0032 明确保留复用，未接线 |
 
@@ -82,8 +82,8 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
 - **C 不确定**：0 项，无阻塞。
 - **DROP 顺序建议**：`ingest_package_file` → `ingest_package_upload` → `eval_run` →
   `eval_case` → `ingest_stage`；用新迁移，不修改已执行迁移，执行前另获主 agent 授权。
-- **已删除（§3）**：`python/app/web/crawler.py`（478 行）、`python/tests/test_crawler.py`
-  （263 行）、只含包注释的 `python/app/web/__init__.py`。MinerU/Tavily 不删。
+- **已删除（§3）**：`crawler.py`（478 行）、`test_crawler.py`（263 行）、只含包注释的
+  app/web 包 `__init__.py`。MinerU/Tavily 不删。
 
 ## 验收命令
 
