@@ -11,7 +11,7 @@ const {
 } = useAdminContext()
 const search = ref('')
 const requestOpen = ref(false)
-const rows = computed(() => data.value.filter((row: any) => {
+const rows = computed(() => data.value.filter((row) => {
   const q = search.value.trim().toLowerCase()
   return !q || [row.requester_name, row.role, row.reason, row.status].join(' ').toLowerCase().includes(q)
 }))
@@ -23,7 +23,7 @@ const rows = computed(() => data.value.filter((row: any) => {
     <template #subtitle><p>审批决定不会自动扩大当前授权的 tenant/shop 范围。</p></template>
     <template #actions><Button v-if="session" variant="primary" @click="requestOpen=true">提交权限申请</Button><select v-model="statusFilter" aria-label="申请状态"><option value="">全部状态</option><option value="pending">待处理</option><option value="approved">已批准</option><option value="needs_revision">待补正</option><option value="rejected">已拒绝</option></select></template>
     <Table><thead><tr><th>申请人 / 角色</th><th>范围</th><th>理由</th><th>状态</th><th>操作</th></tr></thead><tbody>
-      <tr v-for="row in rows" :key="row.id"><td><strong>{{ row.requester_name }}</strong><small>{{ row.role }} · {{ row.id }}</small></td><td>{{ row.scope_kind === 'tenant' ? '租户' : row.shop_ids.join(', ') }}</td><td class="reason-cell">{{ row.reason }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge></td><td><Button v-if="canDecideRequests && row.status === 'pending'" variant="text" @click="openDecision(row, 'approved')">处理</Button></td></tr>
+      <tr v-for="row in rows" :key="row.id"><td><strong>{{ row.requester_name }}</strong><small>{{ row.role }} · {{ row.id }}</small></td><td>{{ row.scope_kind === 'tenant' ? '租户' : (row.shop_ids ?? []).join(', ') }}</td><td class="reason-cell">{{ row.reason }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge></td><td><Button v-if="canDecideRequests && row.status === 'pending'" variant="text" @click="openDecision(row, 'approved')">处理</Button></td></tr>
       <tr v-if="rows.length === 0"><td colspan="5" class="empty">没有符合筛选条件的申请。</td></tr></tbody></Table>
   </DataTable>
   <Drawer :open="requestOpen" title="提交权限申请" @close="requestOpen=false">
