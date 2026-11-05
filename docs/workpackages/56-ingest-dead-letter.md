@@ -20,7 +20,7 @@ Ingestion 页面看到 `error_code + error`。不新增表，不改自动重试�
   - 尝试一次独立 `_force_failure` 写库，把 job/item 标为 `failed`，保留原
     `error_code`，error 附 `settle write failed: <异常类名>`；
   - fallback 仍失败时只记录异常类名，不抛出，worker 保持运行。
-- 测试：正常 settle 写 `error_code/error`；首次写库失败时 fallback 状态为
+- 测试：正常 settle 写 error_code + error；首次写库失败时 fallback 状态为
   `failed` 且错误脱敏；纯函数 `_safe_failure_detail` 覆盖截断与脱敏。
 
 ## 稀疏退化
@@ -52,6 +52,25 @@ bash scripts/check.sh --smoke
 
 失败 job 的 integration 证据用 test-integration 环境执行一次 `-tags integration`
 用例；sparse 退化用 Python 日志断言。
+
+## 验证结果（2026-11-05）
+
+- `python`: `454 passed, 37 skipped`；新增 4 条测试（safe detail、正常 settle、
+  settle 写库失败 fallback、sparse 退化/quality JSON）。
+- `go test -count=1 ./...`: 23 个 package 结果，0 FAIL；`go vet ./...` 通过。
+- `go test -tags integration -run TestFailedJobExposesRedactedError`：PASS。
+  失败 job 的列表、详情、资料项均返回 `error_code=parse_invalid`；含 DSN/密钥形态
+  的 error 已截断为 200 字符 + `…`，不含 secret / `postgresql://` / host 值。
+- sparse 假 provider 返回无 sparse 结果：`no_sparse=2`，warning 含
+  `sparse degradation`，`document_version.quality_json` 含同样 `sparse_stats`。
+- frontend：`npm run lint` 0 errors，`npm test` 57 passed，`npm run build` 通过。
+- `bash scripts/check.sh` → `PASSED 43 / UNCONFIGURED 0 / FAILED 0`。
+- 重启后 `bash scripts/check.sh --smoke` → `PASSED 46 / UNCONFIGURED 0 / FAILED 0`，
+  五条 diff 逐字节一致。
+- 无新迁移；`ingest_job.error_code/error` 与 `ingest_job_item.error_code/error`
+  已存在，未创建 0053。
+- 服务在 Go 重建、Python worker 变更后重启（进程启动时间 21:28:53–21:28:55），
+  `/healthz` 正常。
 
 ## 不做
 
