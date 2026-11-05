@@ -54,6 +54,9 @@ func Payload(request *ragv1.ExecuteCommandRequest) ([]byte, string) {
 
 // FencingEpochMatches reports whether the caller's expected fencing epoch is
 // still the current one. Input range validation remains with the HTTP decoder.
+// It is not wired into a live Go path yet; the semantics mirror the Python
+// command comparison and the database fencing trigger, ready for a future
+// Go-side confirmation flow.
 func FencingEpochMatches(expected, current int64) bool {
 	return expected == current
 }
