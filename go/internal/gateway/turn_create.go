@@ -115,15 +115,35 @@ func resolveParentTurn(ctx context.Context, tx pgx.Tx, tenantID, conversationID 
 	return &parentID, executionID, nil
 }
 
+type turnIdempotencyDecision uint8
+
+const (
+	turnIdempotencyNew turnIdempotencyDecision = iota
+	turnIdempotencyReplay
+	turnIdempotencyConflict
+)
+
+// classifyTurnIdempotency keeps the replay/conflict decision independent of the
+// database lookup so it can be tested at the default layer.
+func classifyTurnIdempotency(found bool, storedHash, payloadHash string) turnIdempotencyDecision {
+	if !found {
+		return turnIdempotencyNew
+	}
+	if storedHash != payloadHash {
+		return turnIdempotencyConflict
+	}
+	return turnIdempotencyReplay
+}
+
 func findIdempotentTurn(ctx context.Context, tx pgx.Tx, tenantID, conversationID int64, key, payloadHash string) (*turnCreateResult, error) {
 	record, found, err := lookupTurnIdempotency(ctx, tx, tenantID, conversationID, key)
 	if err != nil {
 		return nil, newTurnCreateFailure(http.StatusServiceUnavailable, "database_unavailable", "could not check idempotency")
 	}
-	if !found {
+	switch classifyTurnIdempotency(found, record.payloadHash, payloadHash) {
+	case turnIdempotencyNew:
 		return nil, nil
-	}
-	if record.payloadHash != payloadHash {
+	case turnIdempotencyConflict:
 		return nil, newTurnCreateFailure(http.StatusConflict, "idempotency_conflict", "idempotency key was used with a different query")
 	}
 	return &turnCreateResult{
