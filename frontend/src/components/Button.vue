@@ -8,7 +8,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <!-- $attrs binds data-testid and any caller class on the single root. -->
+  <!-- $attrs binds data-testid and a caller-supplied class on the single root. -->
   <button v-bind="$attrs" :type="type" :disabled="disabled" :class="['ds-button', `ds-button-${variant}`]"><slot /></button>
 </template>
 
