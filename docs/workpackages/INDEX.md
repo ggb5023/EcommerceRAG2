@@ -58,6 +58,7 @@
 | 49 | P2：usage_log 归因到轮次 | done | — | — | `116657d` |
 | 50 | P2：通用保留策略（sse_event 等） | done | — | — | `68ac85b` |
 | 51 | P2：CI 增加数据库层 | done | — | — | `c2a1a87` |
+| 52 | P2：修复 db-python 测试冲突并接入 CI | active | — | — | — |
 
 ## 同步规则
 
