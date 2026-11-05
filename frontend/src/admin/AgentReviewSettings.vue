@@ -3,8 +3,9 @@ import {onMounted,ref} from 'vue'
 import Button from '../components/Button.vue'
 import Input from '../components/Input.vue'
 import {get,put} from './api'
+type AgentReviewSetting={enabled?:boolean;policy_version?:string;actor?:string|null;updated_at?:string|null}
 const enabled=ref(false);const policy=ref('v1');const actor=ref<string|null>(null);const updated=ref<string|null>(null);const reason=ref('');const busy=ref(false);const notice=ref('')
-async function load(){try{const value=await get<any>('/admin/v1/merchant/agent-review');enabled.value=!!value.enabled;policy.value=value.policy_version||'v1';actor.value=value.actor??null;updated.value=value.updated_at??null}catch(e){notice.value=e instanceof Error?e.message:'读取失败。'}}
+async function load(){try{const value=await get<AgentReviewSetting>('/admin/v1/merchant/agent-review');enabled.value=!!value.enabled;policy.value=value.policy_version||'v1';actor.value=value.actor??null;updated.value=value.updated_at??null}catch(e){notice.value=e instanceof Error?e.message:'读取失败。'}}
 async function save(){busy.value=true;notice.value='';try{await put('/admin/v1/merchant/agent-review',{enabled:enabled.value,policy_version:policy.value,confirm:true,reason:reason.value.trim()});notice.value='设置已保存。';reason.value='';await load()}catch(e){notice.value=e instanceof Error?e.message:'保存失败。'}finally{busy.value=false}}
 onMounted(load)
 </script>
