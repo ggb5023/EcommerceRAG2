@@ -10,16 +10,19 @@ export function canRevokeImport(status: string | undefined, revokedAt: string | 
 }
 
 export type ImportRowError={row:number;column:string;code:string;severity:string;value:string;message:string;suggested_action:string}
+export type PrecheckIssue={issue_code?:string;severity:string;snippet?:string;suggested_action?:string}
+export type PrecheckItem={item_id?:string|number;precheck_detail?:{title?:string;row_errors?:ImportRowError[];truncated?:boolean;error_count?:number};precheck_result?:PrecheckIssue[]}
+export type ImportPreview={items?:PrecheckItem[];status?:string}
 
-export function rowErrors(item:any):ImportRowError[]{
+export function rowErrors(item:PrecheckItem):ImportRowError[]{
   const rows=item?.precheck_detail?.row_errors
   return Array.isArray(rows)?rows:[]
 }
 
-export function hasBlockingPrecheck(item:any):boolean{
-  return (item?.precheck_result??[]).some((issue:any)=>issue?.severity==='block')||rowErrors(item).some(issue=>issue.severity==='block')
+export function hasBlockingPrecheck(item:PrecheckItem):boolean{
+  return (item?.precheck_result??[]).some((issue)=>issue?.severity==='block')||rowErrors(item).some(issue=>issue.severity==='block')
 }
 
-export function rowErrorsTruncated(item:any):boolean{
+export function rowErrorsTruncated(item:PrecheckItem):boolean{
   return item?.precheck_detail?.truncated===true
 }
