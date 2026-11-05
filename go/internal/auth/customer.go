@@ -71,6 +71,18 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 	return scope, nil
 }
 
+func customerScopeMismatch(scope, current *ragv1.RequestContext) string {
+	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch {
+		return "customer_scope_stale"
+	}
+	for _, id := range scope.AllowedDocumentIds {
+		if !slices.Contains(current.AllowedDocumentIds, id) {
+			return "customer_document_forbidden"
+		}
+	}
+	return ""
+}
+
 func ValidateCustomerScope(ctx context.Context, db *pgxpool.Pool, scope *ragv1.RequestContext) error {
 	if scope.ScopeAudience != "ai" || scope.Role != "customer" || scope.UserDbId != 0 || scope.AllShops || len(scope.AllowedShopIds) != 1 || scope.AllowedShopIds[0] != scope.ShopId || scope.UserId != "customer:"+scope.CustomerId || scope.CustomerId == "" || scope.CustomerSessionId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_customer_scope")
@@ -79,13 +91,8 @@ func ValidateCustomerScope(ctx context.Context, db *pgxpool.Pool, scope *ragv1.R
 	if err != nil {
 		return status.Error(codes.PermissionDenied, "customer_scope_stale")
 	}
-	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch {
-		return status.Error(codes.PermissionDenied, "customer_scope_stale")
-	}
-	for _, id := range scope.AllowedDocumentIds {
-		if !slices.Contains(current.AllowedDocumentIds, id) {
-			return status.Error(codes.PermissionDenied, "customer_document_forbidden")
-		}
+	if code := customerScopeMismatch(scope, current); code != "" {
+		return status.Error(codes.PermissionDenied, code)
 	}
 	return nil
 }

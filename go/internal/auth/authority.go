@@ -328,11 +328,15 @@ func (g *Authority) IssueScopeForShopWithTurn(ctx context.Context, requestID, sh
 	return scope, nil
 }
 
+func scopeExpiryInvalid(expiresAt, now int64) bool {
+	return expiresAt <= now || expiresAt > now+70
+}
+
 func (g *Authority) ValidateScope(ctx context.Context, scope *ragv1.RequestContext) error {
 	signature, err := hex.DecodeString(scope.ScopeSignature)
 	now := time.Now().Unix()
 	if err != nil || len(g.SigningKey) < 32 || !hmac.Equal(signature, MAC(g.SigningKey, scope)) ||
-		scope.ScopeExpiresAt <= now || scope.ScopeExpiresAt > now+70 || !scope.EnforceDocumentScope || scope.RequestId == "" {
+		scopeExpiryInvalid(scope.ScopeExpiresAt, now) || !scope.EnforceDocumentScope || scope.RequestId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_scope")
 	}
 	if scope.SubjectType == "customer" {
