@@ -247,10 +247,10 @@ if [ "$DB" -eq 1 ]; then
   fi
   if [ ! -f "$test_env" ]; then
     skip db db-admin-access "missing $test_env" "cd go && V2_INTEGRATION_ENV=$test_env go test ./internal/admin -run TestDatabaseAdministrativeAccess"
-    skip db db-localauth "missing $test_env" "cd go && V2_INTEGRATION_ENV=$test_env go test ./internal/localauth"
+    skip db db-localauth "missing $test_env" "cd go && V2_INTEGRATION_ENV=$test_env go test -tags integration ./internal/localauth"
   else
     run db db-admin-access "cd go && V2_INTEGRATION_ENV=$test_env go test ./internal/admin -run TestDatabaseAdministrativeAccess"
-    run db db-localauth "cd go && V2_INTEGRATION_ENV=$test_env go test ./internal/localauth"
+    run db db-localauth "cd go && V2_INTEGRATION_ENV=$test_env go test -tags integration ./internal/localauth"
   fi
   if [ -n "$python_reason" ]; then
     skip db db-python "$python_reason" "cd python && V2_INTEGRATION_ENV=$test_env uv run pytest tests/test_v2_ingest_database.py tests/test_postgres_retriever.py -q"

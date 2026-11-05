@@ -148,6 +148,7 @@ cd python && uv run --frozen pytest -q
 | domain | `go test ./internal/domain/ -cover`（`go-test`）+ `--smoke` |
 | turn 引擎 | `go build -o .local/v2-gateway ./cmd/gateway` + `strings` 验证符号 + 重启 + `--smoke` |
 | ingest / retrieval | 重启 + 核对进程启动时间 + `--smoke` |
+| localauth / DB 集成 | `bash scripts/check.sh --db`（`db-localauth` 使用 `go test -tags integration`） |
 | SQL / migration | 已应用迁移的各库逐文件比对 sha256（至少 dev 与 test-integration，库名与方式以 `environment-facts.md` 与 `scripts/ops/v2-migrate.py` 用法为准）+ `--db` |
 | proto | `buf lint` / `buf build` / `buf breaking` |
 | docs | `docs-links` + `docs-drift` + `doc-paths` |
