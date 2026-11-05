@@ -76,12 +76,13 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
 
 ### 分类结论与 DROP 待授权清单
 
-- **A 真死（待授权 DROP）**：`ingest_package_file`、`ingest_package_upload`、
+- **A 真死（WP54 已 DROP）**：`ingest_package_file`、`ingest_package_upload`、
   `eval_run`、`eval_case`、`ingest_stage`。
 - **B 预留（保留）**：`provider`、`provider_model`。
 - **C 不确定**：0 项，无阻塞。
-- **DROP 顺序建议**：`ingest_package_file` → `ingest_package_upload` → `eval_run` →
-  `eval_case` → `ingest_stage`；用新迁移，不修改已执行迁移，执行前另获主 agent 授权。
+- **DROP 已执行**：WP54 的 `0052_drop_dead_tables.sql` 按
+  `ingest_package_file` → `ingest_package_upload` → `eval_run` → `eval_case` →
+  `ingest_stage` 执行；dev / test-integration / eval-migration 三库均已应用。
 - **已删除（§3）**：`crawler.py`（478 行）、`test_crawler.py`（263 行）、只含包注释的
   app/web 包 `__init__.py`。MinerU/Tavily 不删。
 
