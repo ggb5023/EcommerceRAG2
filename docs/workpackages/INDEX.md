@@ -56,7 +56,7 @@
 | 47 | P1-7：商家库备份恢复演练 | done | — | — | `3742264` |
 | 48 | P2 门禁假绿修复：四个守卫的 UNCONFIGURED 语义与覆盖面 | done | — | — | `b8737b7` |
 | 49 | P2：usage_log 归因到轮次 | done | — | — | `116657d` |
-| 50 | P2：通用保留策略（sse_event 等） | implemented | 待主 agent 复核；生产最小 retention 角色 TODO | — | `d1ff7ab` |
+| 50 | P2：通用保留策略（sse_event 等） | done | — | — | `68ac85b` |
 
 ## 同步规则
 
