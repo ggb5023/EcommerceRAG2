@@ -99,7 +99,7 @@ grep -Rni 'password\|dsn\|secret' .github/workflows/check.yml
 
 - 不改产品检索行为；若发现必须改产品才能通过，停下报告。
 - 不改评测集、迁移、其它棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 提交身份：`EcommerceRAG Maintainers <maintainers@example.invalid>`。
 
 ## 未覆盖路径

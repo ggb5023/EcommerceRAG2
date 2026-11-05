@@ -54,7 +54,7 @@ curl：cancel 一条 EXECUTING 轮次 → 200/CANCELLED；suggestion 生成 + co
 
 - 不改响应体、状态码、错误文案、终态/fencing/幂等语义。
 - 不改迁移、评测集、smoke 基线或其它棘轮/预算。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 后续：WP47 P1-7 恢复演练。
 
 ## 未覆盖路径

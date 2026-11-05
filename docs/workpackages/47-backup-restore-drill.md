@@ -58,7 +58,7 @@ bash scripts/check.sh --smoke
 
 - 不在 dev 主库上备份/恢复；不启动生产 Web/Keycloak；不改生产备份脚本。
 - 不演练 OSS 远端对象存储，不写真实商家数据。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 不改迁移、评测集、ROADMAP 或其它门禁。
 
 ## 未覆盖路径

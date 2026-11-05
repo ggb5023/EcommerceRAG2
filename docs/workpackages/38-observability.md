@@ -77,7 +77,7 @@ bash scripts/check.sh --smoke
 - 不引入 Prometheus/OpenTelemetry 或新依赖。
 - 不改产品行为、迁移、评测集、棘轮/基线；不重采 smoke。
 - 不做管理台指标页；不把内部指标暴露到公共端口。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

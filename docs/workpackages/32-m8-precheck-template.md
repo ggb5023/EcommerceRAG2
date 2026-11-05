@@ -73,7 +73,7 @@ bash scripts/check.sh --smoke
 
 - 不做检索过滤（WP33）；不改 facts provider；不自动发布/下架。
 - 不调棘轮/基线；不重采 smoke；不改已执行迁移；不提交手写模板文件。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

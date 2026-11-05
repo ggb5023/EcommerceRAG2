@@ -59,7 +59,7 @@ sha256 与 manifest 哈希；precheck_detail 无 block；active 文档/版本断
 - 不新增演示身份，不新增导入/审核/发布写路径，不直接 SQL 写库。
 - 不修改 `eval/` 冻结集、`ecommerce-m2-aligned-v1` 或已执行迁移。
 - 不调棘轮/基线；不重采 smoke；不自动发布/下架真实数据。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 
@@ -93,7 +93,7 @@ sha256 与 manifest 哈希；precheck_detail 无 block；active 文档/版本断
   PASSED 45（五条 smoke 与 `.local/w2/` 逐字节一致）；`go build ./...` 与
   `go vet ./...` 通过；`bash -n` 与 `shellcheck -S warning` 通过。
 - 未改 `eval/`、`ecommerce-m2-aligned-v1`、迁移、棘轮/基线或 smoke 基线；
-  `scripts/review/` 未提交、未修改。
+  本机未跟踪目录 未提交、未修改。
 
 ## 未覆盖路径
 

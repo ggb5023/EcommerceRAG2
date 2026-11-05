@@ -55,7 +55,7 @@ bash scripts/check.sh --smoke
 
 - 不回填历史行；不改 usage_log 聚合口径；不新增归因以外的索引。
 - 不改产品响应/状态码；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 未覆盖路径
 

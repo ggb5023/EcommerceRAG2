@@ -55,7 +55,7 @@ bash scripts/check.sh --smoke
 
 - 不改 sparse 分支/默认开关、评测集、提示词、RRF 权重或候选数。
 - 不新增迁移/索引；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

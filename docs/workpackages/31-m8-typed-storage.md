@@ -62,7 +62,7 @@ data-ownership 与 migration-grants 守卫通过。
 
 - 不做预检/模板/逐行错误（WP32）；不做检索过滤（WP33）；不改 facts provider。
 - 不自动发布/下架；不调棘轮/基线；不重采 smoke；不修改已执行迁移。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

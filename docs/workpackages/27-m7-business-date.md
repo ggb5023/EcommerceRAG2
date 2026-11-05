@@ -44,7 +44,7 @@ bash scripts/check.sh --smoke
 
 - 不做版本有效期迁移/命令/API/前端（WP28/WP29）；不改检索 SQL；
 - 不调棘轮/基线；不重采 smoke；不引入依赖；
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

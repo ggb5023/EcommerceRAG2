@@ -57,7 +57,7 @@ Go 重建后用 `strings` 验证新增 store/usecase 符号，重启后进程启
 - 不搬 `resumeTurn`、customer、recovery 或其它 handler 的 SQL。
 - 不改响应体、状态码、错误文案、幂等键算法或事务边界。
 - 不改迁移、评测集、smoke 基线或其它棘轮/预算。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 后续阶段顺序：resumeTurn → customer/recovery；本包只交付 createTurn。
 
 ## 未覆盖路径

@@ -57,7 +57,7 @@ bash scripts/check.sh --smoke
 
 - 不改 facts provider；不做 WP32 遗留；不自动发布/下架；不做模糊/自然语言规格猜测。
 - 不改检索 RRF 或 embedding；不改已执行迁移；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

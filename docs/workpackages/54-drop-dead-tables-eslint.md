@@ -79,7 +79,7 @@ bash scripts/check.sh --smoke
 
 - 不删 `provider` / `provider_model`；不清 30 处原始 `any`（27 条 lint warning
   加 3 条模板/注释） ；不改其它棘轮/基线。
-- 不重采 smoke；不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不重采 smoke；不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 提交身份：`EcommerceRAG Maintainers <maintainers@example.invalid>`。
 
 ## 未覆盖路径

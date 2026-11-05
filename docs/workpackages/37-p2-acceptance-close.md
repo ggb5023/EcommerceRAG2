@@ -47,7 +47,7 @@ README 命令可直接复制粘贴；README 不重复 install.md 的详细步骤
 
 - 不改产品代码、迁移、评测集、脚本行为、棘轮或基线。
 - 不做管理台报告页；不重采 smoke；不新增依赖。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 
@@ -90,7 +90,7 @@ QUALITY wrong_answer_rate=0.132075 source_sha256=3b828cb5...
 - 门禁：`bash scripts/check.sh` PASSED 40；`bash scripts/check.sh --smoke`
   PASSED 45（五条 smoke 与基线逐字节一致）。
 - 未改产品代码、迁移、脚本行为、评测集、棘轮或 smoke 基线；未提交
-  `scripts/review/`。
+  本机未跟踪目录。
 
 ## 未覆盖路径
 

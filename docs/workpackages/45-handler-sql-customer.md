@@ -56,7 +56,7 @@ WAITING_HUMAN/lease 数据，测试后清理。
 - 不搬 recovery/authorization、不改 `store.go` 之外的状态机语义。
 - 不改响应体、状态码、错误文案、幂等键或 epoch/租约/fencing 规则。
 - 不改迁移、评测集、smoke 基线或其它棘轮/预算。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 后续顺序：WP46 recovery + 剩余 SQL（目标 baseline 0）→ WP47 P1-7 恢复演练。
 
 ## 未覆盖路径

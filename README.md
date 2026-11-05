@@ -54,7 +54,7 @@ python3 scripts/dev/demo-report.py \
 每千次 token/调用量；报告只统计 token 与次数，不含货币、金额、汇率或价格表；
 质量或转人工数据缺失时写 `NOT_MEASURED`/`null`。完整字段和口径见
 [0035](docs/decisions/0035-demo-report.md)。若系统 `python3` 未安装 PyYAML，
-可将 `python3` 换成 `python/.venv/bin/python`。
+可将 `python3` 换成 `uv run --project python python`。
 
 生产安装、证书和模型配置见 [安装](docs/install.md)。生产部署后的入口：
 

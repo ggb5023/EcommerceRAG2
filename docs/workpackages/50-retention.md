@@ -33,7 +33,7 @@ bash scripts/check.sh --smoke
 
 - 不在本工作包删除行、不改迁移、不新增分区或索引。
 - 不删审计表、usage_log；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实测盘点（2026-11-05，dev 库，只读）
 

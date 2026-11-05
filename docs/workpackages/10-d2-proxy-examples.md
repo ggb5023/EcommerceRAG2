@@ -18,7 +18,7 @@
 - `docs/agent-entry.md` §7「部署形态 / 前置代理」行补 `docs/install.md` D2 节。
 - `go/cmd/d2-proxy/main.go`：标准库 `httputil.ReverseProxy` 最小前置代理；
   注入一次 `X-Forwarded-Proto`（不覆盖已有值）、`FlushInterval=-1`、
-  反代 `/v1` `/admin/v1` `/v1/customer`（不重写路径）、SPA fallback 到 `frontend/dist`。
+  反代 `/v1` `/admin/v1` `/v1/customer`（不重写路径）、SPA fallback 到 前端构建产物（`npm run build` 输出）。
 - `scripts/dev/d2-proxy-smoke.sh`：起随机端口代理，验证 API 200、SSE 有帧、SPA 200 html；
   接入 `scripts/check.sh --e2e`（`run_optional`，无 Chromium 依赖）。
 
@@ -47,7 +47,7 @@ python3 scripts/check/check-doc-paths.py
   真实证书、域名、TLS 握手与 HTTP/2 未验证。
 - 代理验证程序只模拟 D2 的三件事，不替代真实前置代理；SSE 验证使用已完成 turn 的
   持久事件回放，不是实时流持续推送。
-- `check.sh --e2e` 的 D2 项依赖本机 dev 栈 8080 与 `frontend/dist`；缺任一项输出
+- `check.sh --e2e` 的 D2 项依赖本机 dev 栈 8080 与 前端构建产物（`npm run build` 输出）；缺任一项输出
   UNCONFIGURED，不算通过。
 - D1 内置 edge 与真实 ALB/云厂商代理未在本轮验证；D4 由既有
   `validateDeploymentForm` 单测覆盖，不在本包新增。
@@ -61,5 +61,5 @@ python3 scripts/check/check-doc-paths.py
 - `d2-proxy-smoke.sh` 三步 PASS：API 200 + `scored_total`；SSE 收到 `event:`/`status`；
   SPA 200 text/html。`check.sh --e2e` 项 `d2-proxy-smoke` PASS；fast 40、smoke 45 不变。
 - 未覆盖：nginx/caddy 语法未校验（本机无二进制）、真实 TLS/域名/HTTP2 未验证、SSE 用持久事件
-  回放而非实时持续流、D2 项依赖本机 dev 8080 与 `frontend/dist`。
+  回放而非实时持续流、D2 项依赖本机 dev 8080 与 前端构建产物（`npm run build` 输出）。
 - WP10 保持 `active`；是否转 `done` 等主 agent 复核。

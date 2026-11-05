@@ -74,7 +74,7 @@ bash scripts/check.sh --smoke
 ## 不做
 
 - 不改产品代码、迁移、评测集、ROADMAP M7 勾选或其他棘轮/基线。
-- 不重采 smoke；不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不重采 smoke；不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 
@@ -111,7 +111,7 @@ bash scripts/check.sh --smoke
   `FAIL doc numbers: migrations: documented=48 actual=49`；撤销后 PASS。
 - 文档守卫四项 PASS；`bash scripts/check.sh` PASSED 42；
   `bash scripts/check.sh --smoke` PASSED 45（五条 smoke 与基线逐字节一致）。
-- 未改产品代码、迁移、评测集或其他棘轮；`scripts/review/` 未触碰。
+- 未改产品代码、迁移、评测集或其他棘轮；本机未跟踪目录 未触碰。
 
 ## 未覆盖路径
 

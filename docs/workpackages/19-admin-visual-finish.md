@@ -50,7 +50,7 @@ WORKSPACE_URL=http://127.0.0.1:5174 bash scripts/dev/admin-visual-shots.sh
 - 不做 WP20 顾客端移动版；不做 WP21 后端债务；
 - 不改文案、断点、路由、状态、API、Go/Python/迁移、棘轮/基线/smoke；
 - 不重采 smoke 基线；不引依赖；不 `git add .`；不 push；
-- 不提交、不修改、不删除 `scripts/review/`；临时 Vite 跑完即停。
+- 不提交、不修改、不删除 本机未跟踪目录；临时 Vite 跑完即停。
 
 ## 实际交付
 

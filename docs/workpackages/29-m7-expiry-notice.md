@@ -49,8 +49,8 @@ bash scripts/check.sh --smoke
 
 - 不改检索 SQL；不自动下架；不加 cron；不新增迁移。
 - 不改现有 API 字段语义、权限、幂等或终态判定。
-- 不调棘轮/预算/基线；不重采 smoke；不引依赖；不改 `scripts/review/`。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不调棘轮/预算/基线；不重采 smoke；不引依赖；不改 本机未跟踪目录。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

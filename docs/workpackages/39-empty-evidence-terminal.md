@@ -64,7 +64,7 @@ gaps 出现该问题；契约守卫输出。
 
 - 不映射 CLARIFY；不改 customer 通道、检索、提示词或评测集。
 - 不回填历史数据；不改 `can_copy` 协议；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

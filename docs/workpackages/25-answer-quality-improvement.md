@@ -47,7 +47,7 @@ bash scripts/check.sh --smoke
 
 - 不改冻结评测集/答案点；不改检索/嵌入/索引；不重采 smoke 基线；
 - 不把 judge 结果当门禁阈值；不把 LLM-judge 写成人工复核；
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 三例证据类定性（只调查）
 

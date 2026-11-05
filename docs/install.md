@@ -138,7 +138,7 @@ D2 是「前置代理终止 TLS、网关只提供 loopback 明文」的形态，
 四件事，逐项核对：
 
 1. **TLS 终端**：证书与私钥只安装在前置代理；网关 `WEB_ROOT` 必须为空。
-2. **SPA**：前置代理提供 `frontend/dist` 的静态文件，并把未知客户端路径回退到 `/index.html`。
+2. **SPA**：前置代理提供前端构建产物（`npm run build` 的输出）的静态文件，并把未知客户端路径回退到 `/index.html`。
 3. **协议头只注入一次**：只有前置代理设置 `X-Forwarded-Proto`；不要在前面再加一层代理，
    也不要同时启用 D1。
 4. **SSE 不缓冲**：nginx 使用 `proxy_buffering off`，Caddy 使用 `flush_interval -1`，

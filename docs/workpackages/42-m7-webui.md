@@ -49,7 +49,7 @@ gap 下载 curl/浏览器证据；截图存 `.local/redesign/`。
 
 - 不改 metrics 口径、检索、评测集、迁移、报告字段；不自动发布/下架。
 - 不改 ROADMAP M7 勾选（另立验收）；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

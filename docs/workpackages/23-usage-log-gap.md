@@ -44,7 +44,7 @@ bash scripts/check.sh --smoke
 
 - 不改 `usage_log` 表结构/口径；不调棘轮/基线；不重采 smoke；
 - 不做 WP24 错答率评测；不实现顾客端 `can_copy` 统一；
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

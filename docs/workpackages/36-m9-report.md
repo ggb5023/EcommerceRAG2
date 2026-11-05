@@ -64,7 +64,7 @@ bash scripts/check.sh --smoke
 
 - 不做管理台报告页；不新增写路径；不改 customer 通道业务行为。
 - 不调棘轮/基线；不重采 smoke；不改冻结 53 例、迁移或评测语料。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 

@@ -58,7 +58,7 @@ Go 重建后用 `strings` 验证新增 store/use-case 符号，重启后进程�
 - 不搬 customer/recovery 或其它 handler 的 SQL。
 - 不改响应体、状态码、错误文案、`resume:` 幂等键算法或事务边界。
 - 不改迁移、评测集、smoke 基线或其它棘轮/预算。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 - 后续顺序：customer service/ai → recovery 与剩余 SQL + 恢复演练。
 
 ## 未覆盖路径

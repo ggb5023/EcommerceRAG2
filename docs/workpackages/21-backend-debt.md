@@ -72,7 +72,7 @@ Python 变更后：重启 ai，核对进程启动时间晚于最后提交。
 
 - 不做顾客端 `can_copy` 统一（需单独设计），只记入 `docs/refactor-input.md`；
 - 不做真实模型验证（WP22）；不改提示词/判定；不调棘轮/基线；不重采 smoke；
-- 不用 `git add .`；不提交/修改/删除 `scripts/review/`；不 push。
+- 不用 `git add .`；不提交/修改/删除 本机未跟踪目录；不 push。
 
 ## 实际交付
 

@@ -59,7 +59,7 @@ bash scripts/check.sh --smoke
 
 - 不放真实凭据、DSN、密钥或任何生产地址；不把 smoke 放进 CI 并宣称已跑。
 - 不改产品代码、迁移、评测集；不调棘轮/基线；不重采 smoke。
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 未覆盖路径
 

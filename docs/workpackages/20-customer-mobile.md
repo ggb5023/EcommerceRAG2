@@ -51,7 +51,7 @@ git grep -c data-testid frontend/src             # 与基线对照，只增不�
 
 - 不改顾客端 API、路由、状态机、现有文案；不引依赖；
 - 不做管理台移动适配；不碰 Go/Python/迁移/棘轮/基线；不重采 smoke；
-- 不用 `git add .`；不提交/修改/删除 `scripts/review/`；不 push。
+- 不用 `git add .`；不提交/修改/删除 本机未跟踪目录；不 push。
 
 ## 实际交付
 

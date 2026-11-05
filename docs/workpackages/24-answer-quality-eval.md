@@ -45,7 +45,7 @@ bash scripts/check.sh --smoke
 
 - 不改评测集/答案点/真值；不把 judge 结果当门禁阈值；不调棘轮/基线；不重采 smoke；
 - 不做 WP24 之外的模型质量声明；不把 LLM-judge 说成人工复核；
-- 不用 `git add .`；不 push；不提交/修改/删除 `scripts/review/`。
+- 不用 `git add .`；不 push；不提交/修改/删除 本机未跟踪目录。
 
 ## 实际交付
 
