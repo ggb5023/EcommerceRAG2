@@ -3,7 +3,12 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from app.graph.workflow import provider_generate_node, provider_understand_node, validate_scope
+
+from app.graph.workflow import (
+    provider_generate_node,
+    provider_understand_node,
+    validate_scope,
+)
 from app.rpc.rag import _valid_scope
 from rag.v1 import rag_pb2
 

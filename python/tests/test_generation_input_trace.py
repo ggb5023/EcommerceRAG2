@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+
 from app.graph.workflow import provider_generate_node
 from app.retrieval.postgres import PostgresRetriever
 

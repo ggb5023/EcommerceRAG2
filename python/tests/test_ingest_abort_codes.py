@@ -10,6 +10,7 @@ import re
 
 import grpc
 import pytest
+
 from app.ingest.database import (
     IngestAuthorizationError,
     IngestConflictError,
@@ -18,7 +19,7 @@ from app.ingest.database import (
 from app.rpc.ingest import IngestService
 from rag.v1 import rag_pb2
 
-LEAK = re.compile(r"(?:password|dsn|postgres|relation|column|table)\s", re.I)
+LEAK = re.compile(r"(?:password|dsn|postgres|relation|column|table)\s", re.IGNORECASE)
 
 
 class Aborted(Exception):

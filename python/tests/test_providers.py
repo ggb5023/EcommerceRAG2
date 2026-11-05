@@ -378,6 +378,7 @@ if __name__ == "__main__":
 
 def test_structured_boundary_enforces_declared_bounds_enums_and_extra_fields():
     import pytest
+
     from app.providers.aliyun_bailian import _structured
     from app.providers.contracts import ProviderError
     schema = {'type': 'object', 'additionalProperties': False, 'required': ['answer', 'ids'],
@@ -397,6 +398,7 @@ def test_schema_diagnostic_reports_constraint_without_response_or_property_text(
     import hashlib
 
     import pytest
+
     from app.providers.aliyun_bailian import _structured
     from app.providers.contracts import ProviderError
 
@@ -411,6 +413,7 @@ def test_schema_diagnostic_reports_constraint_without_response_or_property_text(
 
 def test_free_only_allocation_is_nonretryable_quota_not_bad_credentials():
     import pytest
+
     from app.providers.aliyun_bailian import HTTPResponse, _json
     from app.providers.contracts import ProviderError
     for payload in [b'{"code":"AllocationQuota.FreeTierOnly","message":"restricted"}',

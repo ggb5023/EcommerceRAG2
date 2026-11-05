@@ -210,19 +210,19 @@ def _search_retriever(cursor):
 
 
 def _search_kwargs():
-    return dict(
-        query="query",
-        query_vector=[0.0] * 1024,
-        query_sparse=[SparseWeight(token_id=1, weight=1.0)],
-        query_sparse_tokenizer="mock:mock-embedding:sparse",
-        scope={
+    return {
+        "query": "query",
+        "query_vector": [0.0] * 1024,
+        "query_sparse": [SparseWeight(token_id=1, weight=1.0)],
+        "query_sparse_tokenizer": "mock:mock-embedding:sparse",
+        "scope": {
             "tenant_id": "tenant", "tenant_db_id": "1", "allowed_shop_ids": ["shop"],
             "allowed_document_ids": ["doc-1"], "shop_id": "shop", "role": "operator",
         },
-        response_purpose="internal",
-        business_date="2026-09-29",
-        limit=8,
-    )
+        "response_purpose": "internal",
+        "business_date": "2026-09-29",
+        "limit": 8,
+    }
 
 
 def test_sparsevec_keeps_chunks_with_the_same_tokenizer_version():

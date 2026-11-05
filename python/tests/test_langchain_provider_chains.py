@@ -131,16 +131,16 @@ def test_workflow_context_preserves_reranked_prerequisites_without_widening_disc
 
     from app.graph.workflow import provider_context_gate_node
 
-    evidence = [dict(id=f'chunk-{i}', document_id=f'doc-{i}', content='supplied body',
-                     disclosure_class='external_allowed', customer_eligible=True) for i in range(10)]
-    private = dict(id='private', document_id='private', content='private body',
-                   disclosure_class='internal_only', customer_eligible=False)
+    evidence = [{"id": f'chunk-{i}', "document_id": f'doc-{i}', "content": 'supplied body',
+                     "disclosure_class": 'external_allowed', "customer_eligible": True} for i in range(10)]
+    private = {"id": 'private', "document_id": 'private', "content": 'private body',
+                   "disclosure_class": 'internal_only', "customer_eligible": False}
     async def select(_):
         raise AssertionError('workflow context must preserve its authorized ranked prerequisites')
     from langchain_core.runnables import RunnableLambda
     chains = types.SimpleNamespace(control=RunnableLambda(lambda _: None, afunc=select))
-    result = asyncio.run(provider_context_gate_node(dict(query='时效要求不明确时应先澄清什么？',
-        evidence=[private, *evidence], response_purpose='customer_reply'), chains))
+    result = asyncio.run(provider_context_gate_node({"query": '时效要求不明确时应先澄清什么？',
+        "evidence": [private, *evidence], "response_purpose": 'customer_reply'}, chains))
     assert result['evidence'] == evidence[:8]
 
 
@@ -289,7 +289,7 @@ def test_generated_qualification_citations_are_merged_and_unsupplied_ids_rejecte
 
     from app.graph.workflow import provider_generate_node
 
-    evidence = [dict(id=name, document_id=name, version_id=name, content=text)
+    evidence = [{"id": name, "document_id": name, "version_id": name, "content": text}
         for name, text in [('main', '标称容量480ml。'), ('limit', '容量不代表实际饮用量。')]]
     structured = {'answer': '标称容量480ml。', 'citation_ids': ['main'],
         'evidence_limits': '容量不代表实际饮用量。', 'next_inputs': '', 'limit_citation_ids': ['limit']}
@@ -370,15 +370,17 @@ def test_provider_runtime_factory_keeps_profile_selection_explicit():
 
 
 def test_context_selection_only_narrows_authorized_sources_and_skips_signed_generation():
-    from app.graph.workflow import provider_context_gate_node
-    from langchain_core.runnables import RunnableLambda
-    import pytest
     import types
-    evidence = [dict(id='source-news', document_id='news', content='News source conflict guidance', rerank_score=.95,
-                     disclosure_class='external_allowed', customer_eligible=True),
-                dict(id='source-order', document_id='order', content='Order refund policy conflict', rerank_score=.8,
-                     disclosure_class='external_allowed', customer_eligible=True)]
-    state = dict(query='News conflict?', evidence=evidence, response_purpose='customer_reply')
+
+    import pytest
+    from langchain_core.runnables import RunnableLambda
+
+    from app.graph.workflow import provider_context_gate_node
+    evidence = [{"id": 'source-news', "document_id": 'news', "content": 'News source conflict guidance', "rerank_score": .95,
+                     "disclosure_class": 'external_allowed', "customer_eligible": True},
+                {"id": 'source-order', "document_id": 'order', "content": 'Order refund policy conflict', "rerank_score": .8,
+                     "disclosure_class": 'external_allowed', "customer_eligible": True}]
+    state = {"query": 'News conflict?', "evidence": evidence, "response_purpose": 'customer_reply'}
     async def run():
         async def select(_): return {'structured': {'selected_ids': ['source-news']}}
         chains = types.SimpleNamespace(control=RunnableLambda(lambda _: None, afunc=select))

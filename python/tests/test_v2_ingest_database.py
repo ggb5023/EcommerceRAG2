@@ -512,9 +512,11 @@ def test_merged_pools_keep_two_role_bound_writers(db):
             (ingest, "UPDATE v2_asking_checkpoint SET consumed_at=now() WHERE false"),
             (ingest, "INSERT INTO checkpoints(thread_id) VALUES('denied')"),
         ):
-            with pytest.raises(psycopg.errors.InsufficientPrivilege):
-                with connections.connect(connections.dsn) as conn:
-                    conn.execute(statement)
+            with (
+                pytest.raises(psycopg.errors.InsufficientPrivilege),
+                connections.connect(connections.dsn) as conn,
+            ):
+                conn.execute(statement)
     finally:
         ai.close()
         ingest.close()

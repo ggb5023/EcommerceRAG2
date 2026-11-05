@@ -56,9 +56,11 @@ def test_row_factory_is_scoped_to_one_checkout():
     assert pool.checkouts == 1
     with connections.connect(AI_DSN) as connection:
         assert connection.row_factory is None
-    with pytest.raises(pools.ConnectionsError, match="no extra options"):
-        with connections.connect(AI_DSN, autocommit=True):
-            pass
+    with (
+        pytest.raises(pools.ConnectionsError, match="no extra options"),
+        connections.connect(AI_DSN, autocommit=True),
+    ):
+        pass
 
 
 def test_check_role_rejects_a_pool_handed_to_the_other_plane():

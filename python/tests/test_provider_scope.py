@@ -1,6 +1,9 @@
 import asyncio
+
 import pytest
+
 from app.chains.provider import build_provider_chains, require_scope
+
 
 def test_require_scope_rejects_missing_tenant_and_shop():
     with pytest.raises(ValueError, match="tenant_id"):

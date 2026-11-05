@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import grpc
+
 from rag.v1 import rag_pb2, rag_pb2_grpc
 
 

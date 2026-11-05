@@ -97,7 +97,7 @@ def test_settle_failure_writes_error_code_and_reason():
     assert job_params[3] == "parse_invalid"
     assert job_params[4] == "manifest line 1 failed"
     assert job_params[0] == "failed"
-    item_sql, item_params = next((sql, params) for sql, params in cursor.calls if "UPDATE ingest_job_item SET" in sql)
+    _item_sql, item_params = next((sql, params) for sql, params in cursor.calls if "UPDATE ingest_job_item SET" in sql)
     assert item_params[2] == "parse_invalid"
     assert item_params[3] == "manifest line 1 failed"
 
@@ -115,7 +115,7 @@ def test_settle_failure_falls_back_to_failed_when_write_fails(caplog):
     assert "settle write failed: OperationalError" in job_params[1]
     assert "secret" not in caplog.text
     assert "settle write failed" in caplog.text
-    item_sql, item_params = next((sql, params) for sql, params in cursor.calls if "UPDATE ingest_job_item SET" in sql)
+    _item_sql, item_params = next((sql, params) for sql, params in cursor.calls if "UPDATE ingest_job_item SET" in sql)
     assert item_params[0] == "provider_timeout"
     assert "settle write failed: OperationalError" in item_params[1]
 

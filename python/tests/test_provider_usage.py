@@ -1,6 +1,11 @@
 import logging
 
-from app.providers.usage import UsageAttribution, UsageRecorder, attribution_from_scope, use_attribution
+from app.providers.usage import (
+    UsageAttribution,
+    UsageRecorder,
+    attribution_from_scope,
+    use_attribution,
+)
 
 
 def test_record_explicit_tenant_and_nulls():
@@ -46,7 +51,9 @@ def test_provider_double_write_rows_keep_tokens_and_null_failures():
     rows=[]
     provider=object.__new__(AlibabaBailianProvider)
     provider.config=SimpleNamespace(models={"control":"m"})
-    from app.providers.usage import UsageAttribution, UsageRecorder, attribution_from_scope, use_attribution
+    from app.providers.usage import (
+        UsageRecorder,
+    )
     provider.usage=UsageRecorder(sink=rows.append)
     provider._record_usage("control",ProviderUsage(10,2,12),200,None,7)
     provider._record_usage("control",None,500,"upstream_error",7)

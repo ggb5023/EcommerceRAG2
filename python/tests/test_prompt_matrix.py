@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
+
 from app.graph.prompts import registry
 from app.graph.workflow import (
     _customer_messages,
