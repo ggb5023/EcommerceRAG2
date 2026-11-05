@@ -126,3 +126,25 @@ func TestValidityActionIsAVersionCommand(t *testing.T) {
 		t.Fatalf("validity action = %q", got)
 	}
 }
+
+func TestFencingEpochMatches(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		expected int64
+		current  int64
+		want     bool
+	}{
+		{name: "both zero", expected: 0, current: 0, want: true},
+		{name: "equal positive", expected: 3, current: 3, want: true},
+		{name: "expected behind", expected: 2, current: 3, want: false},
+		{name: "expected ahead", expected: 4, current: 3, want: false},
+		{name: "negative equality is still a match", expected: -1, current: -1, want: true},
+		{name: "negative versus current", expected: -1, current: 0, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FencingEpochMatches(tc.expected, tc.current); got != tc.want {
+				t.Fatalf("FencingEpochMatches() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

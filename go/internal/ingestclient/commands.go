@@ -52,6 +52,12 @@ func Payload(request *ragv1.ExecuteCommandRequest) ([]byte, string) {
 	return data, hex.EncodeToString(sum[:])
 }
 
+// FencingEpochMatches reports whether the caller's expected fencing epoch is
+// still the current one. Input range validation remains with the HTTP decoder.
+func FencingEpochMatches(expected, current int64) bool {
+	return expected == current
+}
+
 func (c Client) Execute(ctx context.Context, actor Actor, request *ragv1.ExecuteCommandRequest) (Outcome, error) {
 	if request == nil || c.DB == nil || c.RPC == nil || c.Sign == nil || Action(request.Action) == "" || len(request.CommandId) > 200 {
 		return Outcome{}, status.Error(codes.InvalidArgument, "invalid_command")

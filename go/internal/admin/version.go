@@ -8,6 +8,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
+	"github.com/ggb5023/EcommerceRAG/go/internal/ingestclient"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
 )
@@ -73,7 +74,7 @@ func (g *Handler) lockVersion(ctx context.Context, id int64, shops []string) (sh
 }
 
 func (g *Handler) confirmVersion(w http.ResponseWriter, r *http.Request, in adminConfirmation, shop, key, hash string, fence int64) bool {
-	if in.TenantID != g.Session.Tenant || in.ShopID != shop || in.DocumentID != key || in.VersionHash != hash || in.PermissionRevision != g.Authority.CurrentRevision() || in.ExpectedFencingEpoch != fence {
+	if in.TenantID != g.Session.Tenant || in.ShopID != shop || in.DocumentID != key || in.VersionHash != hash || in.PermissionRevision != g.Authority.CurrentRevision() || !ingestclient.FencingEpochMatches(in.ExpectedFencingEpoch, fence) {
 		httpapi.WriteError(w, 409, "confirmation_stale", "confirmation does not match the current authorized resource")
 		return false
 	}
