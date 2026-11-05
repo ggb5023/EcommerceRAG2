@@ -140,6 +140,9 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: DB gate
         shell: bash
+        # db-import-batch/customer stay UNCONFIGURED by design: this job does
+        # not start an ingest service. Run those suites locally/against an
+        # isolated stack when an ingest endpoint is available.
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/check-db.log"
