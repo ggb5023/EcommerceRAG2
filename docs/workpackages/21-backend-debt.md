@@ -37,7 +37,7 @@
 | --- | --- | --- |
 | `validate_manifest` | 138 | `python/app/ingest/cli.py` |
 | `embed` | 131 | `python/app/providers/aliyun_bailian.py` |
-| `_fetch_once` | 130 | `python/app/web/crawler.py` |
+| `_fetch_once` | 130 | （WP53 已删除） |
 | `search` | 121 | `python/app/retrieval/postgres.py` |
 | `build_provider_chains` | 117 | `python/app/chains/provider.py` |
 | `bundle_dataset` | 111 | `python/app/ingest/bundles.py` |

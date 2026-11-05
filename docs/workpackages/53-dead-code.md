@@ -82,8 +82,8 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
 - **C 不确定**：0 项，无阻塞。
 - **DROP 顺序建议**：`ingest_package_file` → `ingest_package_upload` → `eval_run` →
   `eval_case` → `ingest_stage`；用新迁移，不修改已执行迁移，执行前另获主 agent 授权。
-- **删除清单（本包 §3 执行）**：`python/app/web/crawler.py`、`python/tests/test_crawler.py`；
-  `python/app/web/__init__.py` 若只含包注释也一并删除。MinerU/Tavily 不删。
+- **已删除（§3）**：`python/app/web/crawler.py`（478 行）、`python/tests/test_crawler.py`
+  （263 行）、只含包注释的 `python/app/web/__init__.py`。MinerU/Tavily 不删。
 
 ## 验收命令
 
