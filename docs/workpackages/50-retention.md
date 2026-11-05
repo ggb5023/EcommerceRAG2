@@ -91,3 +91,28 @@ bash scripts/check.sh --smoke
    retention 角色（后者需新迁移授权）？
 4. 是否同意本阶段不做分区，按 90 天普通表删除；分区留作后续选项？
 5. 验证删除时是否允许在隔离 scratch 库加合成旧行，避免改 dev 现有数据？
+
+## 实际交付
+
+- 迁移 0051：`CREATE INDEX idx_sse_event_tenant_created ON sse_event
+  (tenant_id, created_at)`；from-zero `PASS 0051` / `PASS 51 migration checksums`。
+  dev/test-integration/eval 三库均 51 行，0051 checksum 与文件
+  `f289d18dad53769188dc39af26fe4b3a10d24f01507b22667b6c3dfe236215d4` 一致。
+- `scripts/ops/retention.sh`：默认 dry-run；`--execute` 才删；`--tenant` 或
+  `--all-tenants` 必选；`ECR_RETENTION_DSN` 缺失 exit 2；固定七表 allowlist；
+  单事务按叶子表顺序删除；`bash -n` 与 `shellcheck -S warning` 通过。
+- scratch 验证（合成 100 天旧行 + 当前新行；usage/admin 各 2 行）：
+  ```text
+  DRY-RUN sse_event 1, customer_retrieval_trace 1, customer_event 1,
+          retrieval_trace 1, tool_call_trace 1, routing_trace 1, ingest_event 1
+  DRY-RUN total 7
+  DELETED ... 每表 1，DELETED total 7
+  执行后七张目标表各剩 1 条新行；usage_log=2、admin_audit=2 未动
+  ```
+- scratch 库已在取证后 drop；dev 库未执行 retention，未删除任何 dev 行。
+- 文档：`backup.md` 增加保留与备份关系、运行方式、恢复后先 dry-run；
+  `constraints.md` 将事件/轨迹保留期与个人信息保留期标为已实现。
+- TODO：生产上线前把 `ECR_RETENTION_DSN` 从迁移/owner 角色换成最小 retention
+  角色（本轮按授权不新建角色）。
+- 分区触发条件：`sse_event` >10 GB 或删除锁时间不可接受时另立分区迁移；本阶段
+  不分区。

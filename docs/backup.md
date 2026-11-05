@@ -22,6 +22,19 @@ sudo python/.venv/bin/python scripts/ops/selfhost-restore.py \
 
 验收恢复时核对数据库结构与迁移 checksum、资料/版本/chunk 数量及 hash、客户和人工消息、来源撤销、匿名 Cookie 恢复、员工重新登录及队列重排。恢复验证和失败报告分别保留。恢复成功之前，备份不算可用；本文件不替代实际恢复证据。
 
+## 保留与备份
+
+- 事件/轨迹表（`sse_event`、`customer_event`、`customer_retrieval_trace`、
+  `retrieval_trace`、`routing_trace`、`tool_call_trace`、`ingest_event`）默认保留
+  90 天；`usage_log` 400 天；`admin_audit` 永久；`local_auth_event` 400 天。
+- `usage_log`、`admin_audit`、`local_auth_event` 不进入默认清理脚本。
+- 清理入口是 [retention.sh](../scripts/ops/retention.sh)，默认只统计；显式
+  `--execute` 才删除，`--tenant` 或 `--all-tenants` 必选，连接使用
+  `ECR_RETENTION_DSN`（迁移/owner 角色）。生产上线前应换最小 retention 角色。
+- 备份可以包含超过保留期的事件；恢复后不会自动清理，先跑 dry-run 再决定是否
+  执行。仓库不安装 cron，计划任务由部署侧手动配置。
+- 本阶段不分区；若 `sse_event` 超过 10 GB 或删除锁时间不可接受，再立分区迁移。
+
 ## OSS 异地备份
 
 本节面向工程维护：备份的是冻结评测语料、eval 资产与 git 历史，不含商家业务数据；商家备份见前文。

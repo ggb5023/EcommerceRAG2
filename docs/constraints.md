@@ -14,7 +14,7 @@
 | 新表必须显式授权给所需角色 | `check-migration-grants.py`（静态检查；`GRANT ALL TABLES` 只覆盖其出现前的表，之后建表须逐表 GRANT，见 `environment-facts.md` #4） | ✅ 静态检查 |
 | 新环境必须能"从零建库" | 无 | ❌ 未实现（批次 3 §5.1 待做） |
 | 备份必须验证可恢复 | 无 | ✅ 已演练（2026-11-05，见 [WP47](workpackages/47-backup-restore-drill.md) 与 `.local/wp47/restore-evidence.json`；PG + 本地 artifact，OSS UNCONFIGURED） |
-| 事件/轨迹保留期 | 人工 + `retention.sh`（待实现） | ⚠️ 提案：事件表 90 天、usage_log 400 天、admin_audit 永久、local_auth_event 400 天；见 [WP50](workpackages/50-retention.md)，待确认 |
+| 事件/轨迹保留期 | [retention.sh](../scripts/ops/retention.sh)（默认 dry-run，`--execute` 显式） | ✅ 已实现；口径与运行方式见 [backup.md](backup.md) §保留与备份 |
 | 数据归属变更需改 `data-ownership.md` | `check-ownership.py`（预算棘轮） | ✅ |
 | 不得统计货币金额，只统计 token 与次数 | 无 | ⚠️ 口头约定（0021）；建议加 `check-no-currency.py` |
 
@@ -41,7 +41,7 @@
 | 会话 Cookie 必须 `HttpOnly` + `SameSite` + HTTPS 下 `Secure` | 代码固定 | ✅ |
 | 授权判定集中在一处 | 无 | ⚠️ 现分散在 `auth` / `admin` / `customer` / `localauth` |
 | 密钥材料有清单与轮换流程 | 无 | ❌ 未实现 |
-| 个人信息保留期有定义 | 无 | ⚠️ 事件/顾客事件 90 天提案（WP50），待确认 |
+| 个人信息保留期有定义 | [retention.sh](../scripts/ops/retention.sh) | ✅ 顾客/事件数据 90 天，见 [backup.md](backup.md) §保留与备份 |
 | 不得新增 `SECURITY DEFINER` 函数 | 人工评审 | ⚠️ 口头约定 |
 
 ## 4. 可观测性
