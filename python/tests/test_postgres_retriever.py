@@ -7,7 +7,76 @@ from pathlib import Path
 
 import pytest
 
+from app.ingest.sparse import to_literal
+from app.providers.contracts import SparseWeight
 from app.retrieval.postgres import PostgresRetriever, _vector_literal
+
+
+def _create_mixed_retrieval_fixture(dsn: str, key: str, tokenizer: str):
+    """Create one approved document with a sparse chunk and a dense-only chunk."""
+    import psycopg
+
+    sparse_literal, reason = to_literal([SparseWeight(token_id=0, weight=1.0)])
+    assert reason is None
+    vector = "[1," + ",".join("0" for _ in range(1023)) + "]"
+    source_hash = "a" * 64
+    with psycopg.connect(dsn) as connection:
+        tenant_id, user_id = connection.execute(
+            "SELECT t.id, u.id FROM tenant t JOIN app_user u ON u.tenant_id=t.id "
+            "WHERE t.name=%s AND u.external_id=%s",
+            ("V2 LangGraph fixture tenant", "dev-user"),
+        ).fetchone()
+        source_id = connection.execute(
+            "INSERT INTO source(tenant_id,shop_id,type,uri) VALUES(%s,%s,%s,%s) RETURNING id",
+            (tenant_id, "shop-demo", "v2_retrieval_test", "fixture://" + key),
+        ).fetchone()[0]
+        document_id = connection.execute(
+            "INSERT INTO document(tenant_id,source_id,logical_key,title,doc_type,status,meta_json) "
+            "VALUES(%s,%s,%s,%s,%s,'pending',%s::jsonb) RETURNING id",
+            (tenant_id, source_id, key, "WP52 mixed fixture", "markdown", '{"shop_id":"shop-demo"}'),
+        ).fetchone()[0]
+        version_id = connection.execute(
+            "INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,"
+            "chunk_rule_version,embedding_model,pipeline_version,object_key,status,chunk_count,"
+            "disclosure_class,external_allowed,review_status,reviewed_hash,reviewed_by,reviewed_at) "
+            "VALUES(%s,%s,%s,'test-parser','structured-v2','test-embedding','test-pipeline',"
+            "concat('db://test/',%s::text),'active',2,'external_allowed',true,'approved',%s,%s,now()) RETURNING id",
+            (tenant_id, document_id, source_hash, key, source_hash, user_id),
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE document SET active_version_id=%s,status='active' WHERE tenant_id=%s AND id=%s",
+            (version_id, tenant_id, document_id),
+        )
+        for index, (content, sparse, sparse_tokenizer) in enumerate((
+            ("wp52 sparse policy", sparse_literal, tokenizer),
+            ("wp52 dense policy", None, None),
+        )):
+            connection.execute(
+                "INSERT INTO chunk(version_id,doc_id,tenant_id,shop_id,chunk_index,section_seq,"
+                "section_chunk_index,char_start,char_end,heading_path,content,embed_text,token_count,"
+                "content_type,split_reason,embedding,sparse_embedding,sparse_tokenizer_id,"
+                "embedding_model,embedding_dim,tokenizer_id,meta_json,chunk_hash) "
+                "VALUES(%s,%s,%s,%s,%s,1,%s,0,%s,%s,%s,%s,4,'text','test',"
+                "%s::halfvec(1024),%s::sparsevec,%s,'test',1024,'test-tokenizer','{}'::jsonb,%s)",
+                (version_id, document_id, tenant_id, "shop-demo", index, index, len(content),
+                 "WP52", content, content, vector, sparse, sparse_tokenizer,
+                 f"{key}-{index}"),
+            )
+        connection.commit()
+    return tenant_id, source_id, document_id, version_id
+
+
+def _delete_mixed_retrieval_fixture(dsn: str, fixture) -> None:
+    import psycopg
+
+    _, source_id, document_id, version_id = fixture
+    with psycopg.connect(dsn) as connection:
+        connection.execute("DELETE FROM chunk WHERE version_id=%s", (version_id,))
+        connection.execute("UPDATE document SET active_version_id=NULL WHERE id=%s", (document_id,))
+        connection.execute("DELETE FROM document_version WHERE id=%s", (version_id,))
+        connection.execute("DELETE FROM document WHERE id=%s", (document_id,))
+        connection.execute("DELETE FROM source WHERE id=%s", (source_id,))
+        connection.commit()
 
 
 def test_vector_literal_requires_exact_finite_1024_dimensions():
@@ -97,7 +166,10 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
             )
         connection.commit()
     try:
-        retriever = PostgresRetriever(values["V2_AI_DSN"], dense_candidates=2, sparse_candidates=2)
+        retriever = PostgresRetriever(
+            values["V2_AI_DSN"], dense_candidates=2, sparse_candidates=2,
+            sparse_retrieval="legacy", sparse_rrf_weight=0.7,
+        )
         retriever.verify_schema()
         result = retriever.search(
             query=query,
@@ -121,15 +193,21 @@ def test_postgres_retriever_reads_active_reviewed_chunks_and_filters_scope(query
         if expected_content:
             matching = next(item for item in result if item["content"] == expected_content)
             assert matching["sparse_rank"] == 1
-            if "配送" in query:
-                # This chunk is absent from dense top-2 and must be recalled by
-                # the Chinese lexical channel, even under database locale C.
-                assert matching["dense_rank"] == 0
-                assert matching["rrf_score"] == pytest.approx(0.7 / 61)
+            assert result[0]["content"] == expected_content
+            # dense_candidates is multiplied by dense_overfetch and may retry to
+            # 256 rows when the authorized set is smaller than limit. The sparse
+            # channel's recall and RRF score must stay consistent with the actual
+            # dense rank instead of assuming the chunk was absent from dense top-2.
+            assert matching["rrf_score"] == pytest.approx(
+                1 / (60 + matching["dense_rank"]) + 0.7 / 61
+            )
         else:
             assert all(item["sparse_rank"] == 0 for item in result)
             assert result[0]["rrf_score"] == pytest.approx(1 / 61)
-        assert result[0]["raw_score"] == pytest.approx(1)
+            assert result[0]["raw_score"] == pytest.approx(1)
+        # A sparse-recalled result may outrank the dense top-1 and carry a low or
+        # negative dense similarity; raw_score stays clamped to the contract.
+        assert all(-1.0 <= item["raw_score"] <= 1.0 for item in result)
         denied_scope = {
             "tenant_id": "v2-demo-tenant", "tenant_db_id": str(tenant_id),
             "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": [key + "-denied"],
@@ -179,15 +257,14 @@ def test_customer_trace_rejects_missing_or_mismatched_execution(execution):
 
 
 @pytest.mark.skipif(not os.environ.get("V2_INTEGRATION_ENV"), reason="isolated V2 configuration is not supplied")
-def test_sparse_probe_runs_against_the_real_database(caplog):
-    """The probe must execute inside the connection scope, not after it closed.
+def test_sparse_probe_runs_against_the_real_database(caplog, monkeypatch):
+    """Exercise 0029's three modes with explicit retrievers and inputs.
 
-    A silent probe (last_sparse_mode None) or a probe that never warns is exactly
-    the regression this test exists for.
+    The mixed fixture commits a sparse chunk and a dense-only chunk before the
+    first search, matching the ingest-then-probe order from WP51. Each mode gets
+    its own retriever, so the result cannot depend on an earlier global probe.
     """
     import logging
-
-    import psycopg
 
     from app.retrieval import postgres
 
@@ -195,31 +272,104 @@ def test_sparse_probe_runs_against_the_real_database(caplog):
     from v2_services import load_values
 
     values = load_values(Path(os.environ["V2_INTEGRATION_ENV"]))
-    with psycopg.connect(values["V2_INGEST_DSN"]) as conn:
-        populated = conn.execute("SELECT EXISTS(SELECT 1 FROM chunk WHERE sparse_embedding IS NOT NULL)").fetchone()[0]
-        tenant = conn.execute("SELECT id FROM tenant ORDER BY id LIMIT 1").fetchone()
-    tenant_db_id = str(tenant[0]) if tenant else "1"
-
-    original = postgres._sparse_mode_reported
-    postgres._sparse_mode_reported = False
+    dsn = values["V2_INGEST_DSN"]
+    key = "v2-sparse-probe-" + uuid.uuid4().hex[:12]
+    tokenizer = "wp52-retriever:sparse"
+    fixture = None
     try:
-        retriever = PostgresRetriever(values["V2_AI_DSN"])
-        with caplog.at_level(logging.WARNING, logger="app.retrieval.postgres"):
-            retriever.search(
-                query="退货政策",
-                query_vector=[0.0] * 1024,
-                scope={"tenant_id": "v2-demo-tenant", "tenant_db_id": tenant_db_id, "shop_id": "",
-                       "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": ["policy-a"],
-                       "role": "operator", "request_id": "sparse-probe-test"},
-                limit=3,
+        fixture = _create_mixed_retrieval_fixture(dsn, key, tokenizer)
+        tenant_id = fixture[0]
+        scope = {
+            "tenant_id": "v2-demo-tenant", "tenant_db_id": str(tenant_id),
+            "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": [key],
+            "shop_id": "shop-demo", "role": "operator", "request_id": "sparse-probe-test",
+        }
+
+        def run(mode: str, *, with_sparse: bool):
+            monkeypatch.setattr(postgres, "_sparse_mode_reported", False)
+            caplog.clear()
+            retriever = PostgresRetriever(
+                values["V2_AI_DSN"], sparse_retrieval=mode, sparse_rrf_weight=0.7,
             )
-        assert retriever.last_sparse_mode is not None, "the probe never ran (check its call site)"
-        assert retriever.last_sparse_mode == ("sparsevec" if populated else "text_heuristic")
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "app.retrieval.postgres"]
-        if not populated:
-            assert warnings, "an empty sparse_embedding column must warn once"
+            kwargs = {
+                "query": "wp52 sparse policy",
+                "query_vector": [1.0] + [0.0] * 1023,
+                "scope": scope,
+                "response_purpose": "customer_reply",
+                "limit": 3,
+            }
+            if with_sparse:
+                kwargs["query_sparse"] = [SparseWeight(token_id=0, weight=1.0)]
+                kwargs["query_sparse_tokenizer"] = tokenizer
+            with caplog.at_level(logging.WARNING, logger="app.retrieval.postgres"):
+                results = retriever.search(**kwargs)
+            warnings = [
+                record.getMessage() for record in caplog.records
+                if record.levelno == logging.WARNING and record.name == "app.retrieval.postgres"
+            ]
+            return retriever, results, warnings
+
+        retriever, results, warnings = run("legacy", with_sparse=True)
+        assert retriever.last_sparse_mode == "text_heuristic"
+        assert any("text heuristic" in warning for warning in warnings)
+        sparse_hit = next(item for item in results if item["content"] == "wp52 sparse policy")
+        assert sparse_hit["sparse_rank"] == 1
+
+        retriever, results, warnings = run("sparsevec", with_sparse=True)
+        assert retriever.last_sparse_mode == "sparsevec"
+        assert warnings == []
+        sparse_hit = next(item for item in results if item["content"] == "wp52 sparse policy")
+        dense_hit = next(item for item in results if item["content"] == "wp52 dense policy")
+        assert sparse_hit["sparse_rank"] == 1
+        assert dense_hit["sparse_rank"] == 0
+        assert retriever.last_sparse_skipped_tokenizer == 0
+
+        retriever, results, warnings = run("sparsevec", with_sparse=False)
+        assert retriever.last_sparse_mode == "dense_only"
+        assert any("produced no sparse weights" in warning for warning in warnings)
+        assert all(item["sparse_rank"] == 0 for item in results)
     finally:
-        postgres._sparse_mode_reported = original
+        if fixture is not None:
+            _delete_mixed_retrieval_fixture(dsn, fixture)
+
+
+@pytest.mark.skipif(not os.environ.get("V2_INTEGRATION_ENV"), reason="isolated V2 configuration is not supplied")
+def test_sparse_probe_sees_mixed_rows_written_before_first_search():
+    """WP51 regression: ingest commits sparse rows before the first probe."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "dev"))
+    from v2_services import load_values
+
+    values = load_values(Path(os.environ["V2_INTEGRATION_ENV"]))
+    dsn = values["V2_INGEST_DSN"]
+    key = "v2-sparse-mixed-" + uuid.uuid4().hex[:12]
+    tokenizer = "wp52-mixed:sparse"
+    fixture = None
+    try:
+        fixture = _create_mixed_retrieval_fixture(dsn, key, tokenizer)
+        retriever = PostgresRetriever(
+            values["V2_AI_DSN"], sparse_retrieval="sparsevec", sparse_rrf_weight=0.7,
+        )
+        results = retriever.search(
+            query="wp52 sparse policy",
+            query_vector=[1.0] + [0.0] * 1023,
+            scope={
+                "tenant_id": "v2-demo-tenant", "tenant_db_id": str(fixture[0]),
+                "allowed_shop_ids": ["shop-demo"], "allowed_document_ids": [key],
+                "shop_id": "shop-demo", "role": "operator",
+            },
+            response_purpose="customer_reply",
+            limit=3,
+            query_sparse=[SparseWeight(token_id=0, weight=1.0)],
+            query_sparse_tokenizer=tokenizer,
+        )
+        assert retriever.last_sparse_mode == "sparsevec"
+        sparse_hit = next(item for item in results if item["content"] == "wp52 sparse policy")
+        dense_hit = next(item for item in results if item["content"] == "wp52 dense policy")
+        assert sparse_hit["sparse_rank"] == 1
+        assert dense_hit["sparse_rank"] == 0
+    finally:
+        if fixture is not None:
+            _delete_mixed_retrieval_fixture(dsn, fixture)
 
 
 def test_catalog_filter_is_normalized_and_parameterized():
