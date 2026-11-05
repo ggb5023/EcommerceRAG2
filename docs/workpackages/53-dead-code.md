@@ -46,8 +46,8 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
 | 表 | 创建迁移 | 当前代码/查询引用 | 最后写方 | dev 行数 | 结论 |
 | --- | --- | --- | --- | --- | --- |
 | `ingest_stage` | `0001_init.sql`，0002/0022 授权 | 0；仅迁移中的建表/外键/GRANT | 无（`git log -S` 无写入历史） | 0 | **A 真死** |
-| `ingest_package_file` | `0013_durable_ingestion_worker.sql` | 0；仅迁移 | 历史 `go/cmd/server`，1cd64f2 移除 | 0 | **A 真死** |
-| `ingest_package_upload` | `0013_durable_ingestion_worker.sql` | 0；仅迁移 | 历史 `go/cmd/server`，1cd64f2 移除 | 0 | **A 真死** |
+| `ingest_package_file` | `0013_durable_ingestion_worker.sql` | 0；仅迁移 | 历史 go/cmd/server（1cd64f2 已删除） | 0 | **A 真死** |
+| `ingest_package_upload` | `0013_durable_ingestion_worker.sql` | 0；仅迁移 | 历史 go/cmd/server（1cd64f2 已删除） | 0 | **A 真死** |
 | `eval_case` | `0001_init.sql` | 0；仅建表 | 无 | 0 | **A 真死** |
 | `eval_run` | `0001_init.sql` | 0；仅建表 | 无 | 0 | **A 真死** |
 | `provider` | `0034_tenant_providers.sql` | 0 个表引用；0034/0019/data-ownership 标 P3 预留 | 无（预留） | 0 | **B 预留，保留** |
@@ -59,9 +59,9 @@ psql "$V2_GATEWAY_DSN" -X -At -c "SELECT count(*) FROM <table>"
   P3 预留与 `data-ownership.md` 的写入方声明，不能按死表删。
 - `pg_constraint` 只显示 `provider_model -> provider` 的外键；五张 A 表没有被其它表
   引用，也没有用户视图/触发器/函数引用。
-- `ingest_package_file/upload` 的旧读写代码在 `1cd64f2` 的 `go/cmd/server` 拆分中
+- `ingest_package_file` 与 `ingest_package_upload` 的旧读写代码在 `1cd64f2` 的 go/cmd/server 拆分中
   整体删除；当前 `git grep` 无命中。
-- `eval_case/eval_run` 只有 `0001_init.sql` 建表，没有代码、评测脚本或查询使用。
+- `eval_case` 与 `eval_run` 只有 `0001_init.sql` 建表，没有代码、评测脚本或查询使用。
 
 ### 三个模块
 
