@@ -1,7 +1,8 @@
 name: check
 
-# The fast layer is the CI contract. --db / --e2e / --smoke need a live stack and
-# remain a local pre-merge requirement; see docs/workpackages/07-testing-coverage.md.
+# The fast and db layers run in CI. --e2e / --smoke need a live stack and remain
+# a local pre-merge requirement; see docs/workpackages/07-testing-coverage.md and
+# docs/workpackages/51-ci-db.md.
 on:
   push:
     branches: [main]
@@ -36,3 +37,110 @@ jobs:
             npm-${{ runner.os }}-
       - name: Fast gate
         run: bash scripts/check.sh
+
+  db:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        # pgvector (PostgreSQL 16); digest matches docker/selfhost compose.
+        image: pgvector/pgvector@sha256:eac621400b7b7ff52493883e41e930e3d104695fea5b68cc0c42370cf7880067
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchains and postgres client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          sudo bash scripts/dev/bootstrap-dev.sh
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-db-${{ runner.os }}-${{ hashFiles('toolchains.lock.json', 'python/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+      - name: Install python dependencies
+        run: cd python && uv sync --frozen
+      - name: Initialize database and temporary env
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci="$RUNNER_TEMP/ci-db"
+          mkdir -p "$ci/bootstrap"
+          python3 - "$ci" <<'PY'
+          import json, secrets, sys
+          from pathlib import Path
+          ci = Path(sys.argv[1])
+          passwords = {name: secrets.token_hex(24) for name in (
+              "rag_migration", "rag_v2_gateway", "rag_v2_ai", "rag_v2_ingest", "keycloak")}
+          (ci / "bootstrap" / "config.json").write_text(json.dumps({
+              "origin": "http://127.0.0.1:8080",
+              "shop_name": "CI",
+              "database_passwords": passwords,
+              "accounts": [],
+              "realm": {},
+              "owner_username": "admin",
+          }) + "\n")
+          (ci / "bootstrap" / "pg-password").write_text(secrets.token_hex(24))
+          dsn = lambda role, db: f"host=127.0.0.1 port=5432 dbname={db} user={role}"
+          (ci / "migration.env").write_text("V2_MIGRATION_DSN=" + dsn("rag_migration", "ecr_v2_test_ci") + "\n")
+          # db-python needs V2_INGEST_DSN and V2_AI_DSN. Those keys are
+          # deliberately absent: the bundled Python DB suite has a pre-existing
+          # sparse/dense assertion conflict on a fresh database (see WP51 §未覆盖路径),
+          # so check.sh reports db-python as UNCONFIGURED instead of false-green.
+          common = (
+              "V2_MIGRATION_DSN=" + dsn("rag_migration", "ecr_v2_test_ci") + "\n"
+              "V2_GATEWAY_DSN=" + dsn("rag_v2_gateway", "ecr_v2_test_ci") + "\n")
+          (ci / "test.env").write_text(common)
+          (ci / "import.env").write_text("V2_INGEST_GRPC_ADDR=127.0.0.1:1\n")
+          PY
+          chmod 600 "$ci/migration.env" "$ci/test.env" "$ci/import.env"
+          ECR_BOOTSTRAP_ROOT="$ci/bootstrap" ECR_POSTGRES_HOST=127.0.0.1 \
+            python/.venv/bin/python scripts/ops/selfhost-db-init.py
+          for db in ecr_v2_test_ci ecr_v2_ci_scratch; do
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -c "CREATE DATABASE $db OWNER rag_migration"
+            psql -h 127.0.0.1 -U postgres -d "$db" -v ON_ERROR_STOP=1 \
+              -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm"
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -c "GRANT CONNECT ON DATABASE $db TO rag_v2_gateway,rag_v2_ai,rag_v2_ingest"
+          done
+          python/.venv/bin/python scripts/ops/v2-migrate.py --env "$ci/migration.env"
+          # A fresh migration leaves the 0017 fixture documents without versions.
+          # Seed one active version per fixture so db-env-health sees the same
+          # document/document_version consistency a provisioned test DB has.
+          psql -h 127.0.0.1 -U rag_migration -d ecr_v2_test_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO document_version(
+            tenant_id, document_id, source_hash, parser_version, chunk_rule_version,
+            embedding_model, pipeline_version, object_key, status, chunk_count, activated_at)
+          SELECT d.tenant_id, d.id, 'ci-fixture-' || d.logical_key, 'ci-fixture', 'ci-fixture',
+                 'ci-fixture', 'ci-fixture', 'ci-fixture/' || d.logical_key || '.md', 'active', 0, now()
+          FROM document d
+          WHERE d.logical_key LIKE 'v2-doc-%'
+            AND NOT EXISTS (
+              SELECT 1 FROM document_version v
+              WHERE v.tenant_id = d.tenant_id AND v.document_id = d.id);
+          SQL
+          {
+            echo "ECR_TEST_INTEGRATION_ENV=$ci/test.env"
+            echo "ECR_IMPORT_INTEGRATION_ENV=$ci/import.env"
+            echo "ECR_SCRATCH_DSN=host=127.0.0.1 port=5432 dbname=ecr_v2_ci_scratch user=rag_migration"
+            echo "ECR_SCRATCH_GATEWAY_DSN=host=127.0.0.1 port=5432 dbname=ecr_v2_ci_scratch user=rag_v2_gateway"
+          } >> "$GITHUB_ENV"
+      - name: DB gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/check-db.log"
+          bash scripts/check.sh --db | tee "$log"
+          grep -q '^FAILED 0$' "$log"
