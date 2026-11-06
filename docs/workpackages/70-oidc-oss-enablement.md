@@ -44,6 +44,9 @@ bash scripts/check.sh --smoke    # 47/0/0，五条基线逐字节一致
   audience mapper、用户 `merchant`；
 - `/etc/ecommerce-rag/oidc-dev.json`（authorization_source=database，绑定
   v2-demo-tenant/dev-user/shop-demo）与 `oidc-client-secret`（0600）；
+- Keycloak 以 `--http-relative-path=/identity` 启动，Vite dev server 代理
+  `/identity`（与自部署 compose 的形态一致），issuer 为
+  `http://127.0.0.1:5173/identity/realms/ecr-dev`——远端访问只需转发 5173 一个端口；
 - `dev.env`：身份档改为 OIDC 浏览器档、追加 OIDC 配置路径、存储档改为 oss；
   原文件有备份 `dev.env.bak-oidc-*`。
 
