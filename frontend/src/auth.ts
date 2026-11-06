@@ -34,3 +34,10 @@ export async function logout(): Promise<void> {
     browserAuth.csrf = ''
   }
 }
+
+// Admin-role accounts belong in the management console. The chat workbench is
+// the CS staff workspace, so a fresh login lands there only for staff. An
+// explicit ?stay=1 keeps the chat for an admin who deliberately wants it.
+export function shouldLandInAdmin(adminRoles: string[] | undefined, stay: boolean): boolean {
+  return !stay && Array.isArray(adminRoles) && adminRoles.length > 0
+}

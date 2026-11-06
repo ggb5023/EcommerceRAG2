@@ -6,7 +6,7 @@ import ConversationSidebar from './components/ConversationSidebar.vue'
 import MessageTimeline from './components/MessageTimeline.vue'
 import Composer from './components/Composer.vue'
 import EvidencePanel from './components/EvidencePanel.vue'
-import { browserAuth, checkBrowserAuth, login, logout } from './auth'
+import { browserAuth, checkBrowserAuth, login, logout, shouldLandInAdmin } from './auth'
 const { session, conversations, activeConversation, selectedTurn, selectedRequestId, evidence, citations, draft, input, turnStatus, clarification, connectionState, loading, unavailable, error, identityErrorStatus, busy, loadWorkspace, newConversation, selectConversation, selectRequest, send, stop, clearTurnState } = useWorkspace()
 const route = useRoute(); const router = useRouter()
 const width = ref(window.innerWidth)
@@ -28,12 +28,23 @@ function keys(event: KeyboardEvent) {
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
   }
 }
+async function landAdminInConsole(): Promise<boolean> {
+  try {
+    const response = await fetch('/admin/v1/session', { credentials: 'same-origin' })
+    if (!response.ok) return false
+    const state = await response.json() as { admin_roles?: string[] }
+    if (!shouldLandInAdmin(state.admin_roles, route.query.stay === '1')) return false
+    await router.replace('/admin/overview')
+    return true
+  } catch { return false }
+}
 async function reloadWorkspace() {
   loading.value = true
   try {
     await checkBrowserAuth()
     if (browserAuth.enabled && !browserAuth.authenticated) { clearTurnState(); session.value = null; conversations.value = []; unavailable.value = true; identityErrorStatus.value = 401; error.value = '请登录后访问工作台。'; return }
     if (browserAuth.mustChangePassword) { await router.replace('/password'); return }
+    if (await landAdminInConsole()) return
     await loadWorkspace(typeof route.params.conversation_id === 'string' ? route.params.conversation_id : undefined)
     if (activeConversation.value && route.path === '/chat') await router.replace(`/chat/${activeConversation.value.id}`)
   } catch (caught) { clearTurnState(); session.value = null; conversations.value = []; unavailable.value = true; identityErrorStatus.value = (caught as { status?: number }).status ?? 503; error.value = caught instanceof Error ? caught.message : '身份服务不可用。' }
