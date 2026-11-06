@@ -58,3 +58,17 @@ bash scripts/check.sh --smoke    # 47/0/0，五条基线逐字节一致
 ## 汇报
 
 五节格式；附启动失败原始 traceback、修复 diff、真实 OSS 往返与 OIDC 登录输出。
+
+## 测试账号（仅 dev 环境，密码由主 agent 口头交付，不入仓库）
+
+| 用户名 | 管理角色 | 入口 |
+| --- | --- | --- |
+| merchant | merchant_admin + knowledge_reviewer | /admin |
+| reviewer | knowledge_reviewer | /admin（审核/发布） |
+| observer | platform_observer | /admin（只读） |
+| access | access_admin | /admin/access/*（账号与权限、授权审计） |
+| agent | 无管理授权 | /support、/chat |
+| 顾客 | 匿名，无账号 | /shop/shop-demo |
+
+绑定在 `/etc/ecommerce-rag/oidc-dev.json`（subject→tenant/user/shop），
+角色由 dev 库 `admin_role_grant` 决定；access_admin 按 install.md 走带外 SQL 授予。
