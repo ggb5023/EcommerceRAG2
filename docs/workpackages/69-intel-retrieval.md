@@ -60,3 +60,28 @@ bash scripts/check.sh --smoke    # 47 项五条基线逐字节一致（intel 默
 
 五节格式；附迁移 GRANT、嵌入调用 usage_log 行、语义查询真实响应（含 similarity
 排序）、无 query 回退对比、0032 状态补记 diff。
+
+## 执行记录（2026-11-06）
+
+- **0057**：[0057_market_observation_embedding.sql](../../sql/migrations/0057_market_observation_embedding.sql)
+  只追加 `embedding vector(1024)` 可空列，显式重申 `rag_v2_intel` 的 SELECT/INSERT/UPDATE；
+  不建 HNSW。已应用到 `ecr_v2_dev_local` 与 `ecr_v2_test_m4`，两边均为 57 条校验和。
+- **worker**：复用 `build_provider` 的既有 embedding 客户端；成功后写入向量，异常/形状
+  不符时写 NULL 并继续 job。每次嵌入调用记 `usage_log(slot='embedding')`，mock 的
+  token 为 NULL（供应商未提供），真实供应商按 `ProviderUsage` 如实求和。
+- **RPC**：`ListObservationsRequest.query`、`Observation.similarity`、
+  `ListObservationsResponse.query_degraded` 已生成并提交 pb；空 query 保持时间序，
+  有 query 用 `embedding <=> query` 的余弦序；嵌入失败回退时间序并置
+  `query_degraded=true`，跳过 NULL 向量行。
+- **前端**：情报页增加语义搜索框、相似度列和降级提示；无货币符号。
+- **演练**（隔离栈，`V2_INTEL_ENABLED=1`，本地 Tavily 响应桩 + mock embedding）：
+  watch `market=wp69-drill-1793952185` 一个 poll 周期后产生 2 条观测；
+  无 query 返回 B、A（时间序，similarity=0）；`query=保温杯 竞品 定价` 返回
+  A similarity≈0.22946、B≈-0.26832（相似度降序），`query_degraded=false`。
+  `usage_log` 出现 `embedding|mock-embedding`（tokens NULL）与 `search|tavily`。
+  演练行、watch、intel_job 与临时环境文件已清理，隔离栈已停止。
+- **负向**：`test_query_embedding_failure_falls_back_to_time_order` 锁定嵌入失败降级；
+  `test_intel_semantic_query_orders_by_similarity_and_skips_null_embeddings` 锁定
+  NULL 行跳过与相似度排序。
+- **文档**：contracts「intel 观测读取」行扩展；0032 增加实现状态；refactor-input
+  登记直连抓取/代理出口待决；agent-entry/install 迁移数 56→57。

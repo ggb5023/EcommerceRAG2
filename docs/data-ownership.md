@@ -77,7 +77,7 @@
 | `source` | `ingest` | `admin`、`auth`、`customer`、`ingest` | 资料来源由 ingest 创建，管理/授权/顾客侧只读 | `scripts/check/check-ownership.py` |
 | `tenant_agent_review` | `admin` | `admin` | 租户审核开关由 admin 唯一写读 | `scripts/check/check-ownership.py` |
 | `v2_asking_checkpoint` | `graph` | `graph` | ASKING 检查点由 Python graph 写入并恢复，Go 不直接读写该表 | `scripts/check/check-ownership.py` |
-| `market_observation` | `intel` | `intel` | 共享层：market/category/platform + observed_at 的跨租户观测，无 tenant_id；写入方是系统抓取 worker，answer 侧角色不得出现在任何 GRANT 中 | 数据库角色隔离 |
+| `market_observation` | `intel` | `intel` | 共享层：market/category/platform + observed_at 的跨租户观测，无 tenant_id；写入方是系统抓取 worker，answer 侧角色不得出现在任何 GRANT 中；0057 增加 nullable `embedding vector(1024)`，写入方仍是 intel worker，嵌入失败写 NULL | 数据库角色隔离 |
 | `intel_watch_config` | `admin` | `admin`、`intel` | 租户层只存商家监控目标，不复制共享数据；worker 只读监控清单 | check-ownership 守卫 |
 | `intel_job` | `intel` | `intel` | 抓取任务队列：复用 ingest 的租约/fencing 语义但不写 `ingest_job`；共享任务 `tenant_id` 可 NULL，唯一写者是 intel worker | `scripts/check/check-ownership.py` |
 

@@ -155,3 +155,18 @@ intelligence 域  外部抓取的情报       → 仅内部可见，永不进对
 
 **难的不是「抓什么」，是「抓来的东西归谁」。** 现有表按租户隔离，情报天生跨租户——
 这条裂缝用「共享层 + rag_v2_intel 角色」补上，顺序就是：先定共享层，再谈能力。
+
+## 实现状态（2026-11-06）
+
+- **阶段 1（WP62）**：共享层 `market_observation`、租户层 `intel_watch_config`、
+  独立 `rag_v2_intel` 角色、scope `domain=intelligence` 已完成；共享层只允许 intel 角色读写。
+- **阶段 2（WP63）**：独立 worker、Tavily 适配器、`intel_job` 租约/fencing、
+  `IntelService.ListObservations`、管理端 watch 配置与 `/admin/intel` 页面已完成；
+  情报开关默认关闭。
+- **阶段 3（WP69）**：`market_observation.embedding vector(1024)`（0057，可空、无 HNSW）、
+  worker 复用既有 embedding provider 写入向量、`ListObservations.query` 余弦检索与
+  `similarity`/`query_degraded`、前端语义搜索框已完成。嵌入失败只写 NULL，
+  不阻塞抓取；检索跳过 NULL 行。
+- **仍待决**：直连网页抓取与 `V2_INTEL_PROXY_URL` 实际接线（原则 5）。需要真实商家
+  场景、出口策略与封禁风险数据后再设计；当前仅 Tavily 一个数据源已能闭环。
+  HNSW 索引也留到真实行量再评估。
