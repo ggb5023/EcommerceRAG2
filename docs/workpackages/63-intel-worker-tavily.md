@@ -92,7 +92,52 @@ bash scripts/check.sh --smoke    # 47 项基线逐字节一致（enabled=0，dev
 - 不做直连网页抓取/代理出口实际接线；不做情报向量检索；
 - 不改 CONTRACTS_* 棘轮（NOTE 由主 agent 单独提交）；不加依赖；不动冻结评测集。
 
-## 汇报
+## 实施与验证（2026-11-06）
 
-五节格式；附三个落点的实现位置（文件行号）、GRANT 清单、usage_log 真实行、
-ListObservations 真实响应、smoke 输出、真实 Tavily 调用的 status/耗时。
+三个落点：独立进程 `scripts/dev/v2_services.py:40/271`（intel 专属 env，
+enabled 时追加 `python -m app.intel.worker`，`:195` 健康探针）与
+`python/app/intel/worker.py`；限流 `limiter.py:8 TokenBucket` +
+`worker.py:142` RPM 1..60；默认关 `v2_services.py:123`，dev.env 为 0，
+dev 无 intel 进程。
+
+迁移/GRANT：
+```text
+PASS migration 0055 / PASS 55 migration checksums
+PASS migration 0056 / PASS 56 migration checksums
+```
+0056 补 `SELECT ON schema_migration`（0055 已执行不可改；intel 启动需校验全量
+checksum）。`intel_job` 仅 rag_v2_intel 的 SELECT/INSERT/UPDATE + sequence；
+`usage_log` INSERT + sequence；`schema_migration` SELECT。`usage_log` 的 SQL 写点
+仍是 providers 的 UsageRecorder（intel 调用），不新增第二个 writer。
+
+真实 Tavily（隔离栈 enabled=1 RPM=5 poll=5s）：
+```text
+READY V2 gateway,ai,intel
+watch=3 ecommerce/insulated bottle/competitor pricing
+job=1 done observed=5 duration=2.09s
+market_observation rows=5 distinct_url=5
+usage_log=('search','tavily',NULL,NULL,NULL,NULL,NULL)
+```
+ListObservations 经 Go admin 返回 200 + 5 行；首行 title
+`Pricing Strategy for Water Bottles...`，source_url
+`https://www.harriswaterbottle.com/pricing-strategy-for-water-bottles...`。
+去重 upsert：`before=5 after=5 title=dedupe-check`。成功路径适配器不暴露
+HTTP status，usage_log 为 NULL；429/401 由单测覆盖。
+
+测试：
+```text
+go ... -run "Intel|Watch" -v -> 5 PASS（integration CRUD PASS）
+python ... tests/test_intel_worker.py tests/test_intel_rpc.py -> 9 passed
+tests/test_v2_local_services.py -> 15 passed（enabled 0/1 与 env 隔离）
+```
+门禁：
+```text
+bash scripts/check.sh         -> PASSED 44 / UNCONFIGURED 0 / FAILED 0
+bash scripts/check.sh --smoke -> PASSED 47 / UNCONFIGURED 0 / FAILED 0（逐字节一致）
+```
+`check-contracts` 输出 `NOTE contracts: 跨进程 rose to 18; raise CONTRACTS_CROSS`，
+未改棘轮。
+
+未覆盖：只发 1 次真实 Tavily 搜索；429/401 仅单测；无直连抓取/代理/向量检索；
+测试库保留 5 条观测（一条 title=dedupe-check）与 1 条 usage_log；隔离栈已停；
+未跑 `--db`/`--e2e`/远端 Actions。
