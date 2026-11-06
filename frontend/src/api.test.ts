@@ -171,4 +171,22 @@ describe('suggestion panel', () => {
     expect(html).toContain('引用 1')
     expect(html).toContain('本地测试结果不可复制')
   })
+
+  it('offers adoption only for copyable suggestions and shows the queued notice', async () => {
+    const html = await renderToString(createSSRApp({
+      render: () => h(SuggestionPanel, {
+        busy: false,
+        error: '',
+        adoptBusy: false,
+        adoptNotice: '已提交知识草稿（任务 7），审核发布后才会参与回答。',
+        suggestion: {
+          request_id: 's2', answer: '七天内可退。', can_copy: true, blocked_reason: '',
+          citations: [{ evidence_id: 'c1', citation_index: 1, title: '退货政策', version_id: '1', snippet: 's' }],
+        },
+      }),
+    }))
+    expect(html).toContain('data-testid="suggestion-adopt"')
+    expect(html).toContain('已提交知识草稿')
+    expect(html).not.toMatch(/data-testid="suggestion-adopt"[^>]*disabled/)
+  })
 })

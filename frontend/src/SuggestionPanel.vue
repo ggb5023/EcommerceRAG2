@@ -2,9 +2,12 @@
 import {ref} from 'vue'
 import type {SuggestionView} from './customer-api'
 import CitationCard from './components/CitationCard.vue'
-defineProps<{suggestion:SuggestionView|null; busy:boolean; error:string}>()
-defineEmits<{generate:[text:string]; copy:[]}>()
+import ConfirmDialog from './components/ConfirmDialog.vue'
+defineProps<{suggestion:SuggestionView|null; busy:boolean; error:string; adoptBusy?:boolean; adoptNotice?:string}>()
+const emit=defineEmits<{generate:[text:string]; copy:[]; adopt:[]}>()
 const text=ref('')
+const confirming=ref(false)
+function confirmAdopt() { confirming.value=false; emit('adopt') }
 const blockedText:Record<string,string>={mock:'本地测试结果不可复制',no_citable_evidence:'没有可引用的资料依据',incomplete:'回答尚未完成',not_copyable:'当前建议不可复制'}
 </script>
 
@@ -24,8 +27,13 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
         </li>
       </ul>
       <button type="button" data-testid="suggestion-copy" :disabled="busy||!suggestion.can_copy" @click="$emit('copy')">复制建议</button>
+      <button type="button" data-testid="suggestion-adopt" :disabled="busy||!suggestion.can_copy||adoptBusy" @click="confirming=true">采纳为知识草稿</button>
+      <p v-if="adoptNotice" data-testid="suggestion-adopt-notice" role="status" class="adopt-notice">{{adoptNotice}}</p>
       <p v-if="!suggestion.can_copy" class="copy-blocked">{{blockedText[suggestion.blocked_reason]||'当前建议不可复制'}}</p>
     </article>
+    <ConfirmDialog :open="confirming" title="采纳为知识草稿"
+      :facts="[{label:'来源',value:'当前工单的最后一条建议'},{label:'可见性',value:'内部资料，审核发布前不参与回答'}]"
+      confirm-label="提交草稿" :busy="adoptBusy" @confirm="confirmAdopt" @cancel="confirming=false"/>
   </section>
 </template>
 
@@ -39,4 +47,5 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
 .citation-list{display:grid;gap:.45rem;padding-left:0;list-style:none}
 .citation-list li{margin:0}
 .copy-blocked{color:var(--color-warning)}
+.adopt-notice{color:var(--color-success);font-size:var(--text-sm)}
 </style>
