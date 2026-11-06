@@ -16,9 +16,9 @@
    与生成前 FAILED 的轮次，`turn_decision.rejected` 不再恒空。
    验证：Python 测试（三类轮次的 rejected 非空断言）+ 真实轮次查
    `turn_decision.rejected` + **五条 smoke 逐字节一致**（若 baseline 变化停下汇报）。
-2. **#3 budget 命名残留**：全仓 grep `provider-budget` / `budget` 字样（scripts 注释、
-   文档、变量名），统一为 usage/口径命名；文档面以 `check-docs-drift` 实测为准，
-   代码面只改命名不改行为。
+2. **#3 budget 命名残留**：全仓 grep 0021 之前的预算脚本命名与 `budget` 字样
+   （scripts 注释、变量名；文档面由 check-docs-drift 的 retired key 机制实测），
+   统一为 usage/口径命名；代码面只改命名不改行为。
 3. **#5/#6 usage 口径**：
    - 重试是真实计费调用：**按行记** usage_log（现状），把这句话写进
      `docs/metrics.md` 作为唯一口径出处（一行，不另起决策）；
