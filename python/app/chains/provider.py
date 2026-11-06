@@ -51,14 +51,23 @@ def _mapping(payload: object, field: str) -> Mapping[str, Any]:
     return payload
 
 
-def require_scope(payload: Mapping[str, Any]) -> None:
-    """Every provider chain call must carry an explicit tenant and shop."""
+SCOPE_DOMAINS = frozenset({"answer", "intelligence"})
+
+
+def require_scope(payload: Mapping[str, Any]) -> str:
+    """Every provider chain call must carry an explicit tenant, shop and domain."""
     tenant = payload.get("tenant_id")
     shop = payload.get("shop_id")
     if tenant is None or isinstance(tenant, bool) or not isinstance(tenant, (int, str)) or (isinstance(tenant, str) and not tenant.strip()):
         raise ValueError("provider chain requires tenant_id")
     if shop is None or isinstance(shop, bool) or not isinstance(shop, str) or not shop.strip():
         raise ValueError("provider chain requires shop_id")
+    domain = payload.get("domain")
+    if domain is None or domain == "":
+        return "answer"
+    if not isinstance(domain, str) or domain not in SCOPE_DOMAINS:
+        raise ValueError("provider chain requires a valid domain")
+    return domain
 
 
 @dataclass(frozen=True)

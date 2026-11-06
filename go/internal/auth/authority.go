@@ -39,6 +39,21 @@ type Session struct {
 	// succeeds; the gateway middleware blocks everything else.
 	MustChangePassword bool
 }
+
+const (
+	// ScopeDomainAnswer is the default signed domain for every existing answer
+	// path. ScopeDomainIntelligence is issued only by the host for the
+	// intelligence worker; the database role boundary still applies.
+	ScopeDomainAnswer       = "answer"
+	ScopeDomainIntelligence = "intelligence"
+)
+
+// validScopeDomain accepts the legacy empty value as answer so scopes issued
+// before the field existed keep their meaning; any other value is rejected.
+func validScopeDomain(domain string) bool {
+	return domain == "" || domain == ScopeDomainAnswer || domain == ScopeDomainIntelligence
+}
+
 type Resource struct{ Shop, Disclosure string }
 type Authority struct {
 	DB                    *pgxpool.Pool
@@ -212,6 +227,17 @@ func ActiveEvidenceVersion(managed bool, activeVersion *string, evidenceVersion 
 	return activeVersion != nil && evidenceVersion != "" && evidenceVersion == *activeVersion
 }
 
+// signScope sets the signed domain and refreshes the MAC. An empty domain is
+// the answer default; issuance only passes explicit answer/intelligence.
+func (g *Authority) signScope(scope *ragv1.RequestContext, domain string) *ragv1.RequestContext {
+	if domain == "" {
+		domain = ScopeDomainAnswer
+	}
+	scope.Domain = domain
+	scope.ScopeSignature = hex.EncodeToString(MAC(g.SigningKey, scope))
+	return scope
+}
+
 func MAC(key []byte, scope *ragv1.RequestContext) []byte {
 	unsigned := proto.Clone(scope).(*ragv1.RequestContext)
 	unsigned.ScopeSignature = ""
@@ -288,6 +314,19 @@ func (g *Authority) IssueScopeForTurn(ctx context.Context, requestID string, con
 }
 
 func (g *Authority) IssueScopeForShopWithTurn(ctx context.Context, requestID, shop, conversationID, turnID, executionID string) (*ragv1.RequestContext, error) {
+	return g.issueScopeForShopWithTurn(ctx, requestID, shop, conversationID, turnID, executionID, ScopeDomainAnswer)
+}
+
+// IssueIntelligenceScope is the host-only entry point for the intelligence
+// domain. No client can select the domain; it is a signed server decision.
+func (g *Authority) IssueIntelligenceScope(ctx context.Context, requestID, shop string) (*ragv1.RequestContext, error) {
+	return g.issueScopeForShopWithTurn(ctx, requestID, shop, "", "", "", ScopeDomainIntelligence)
+}
+
+func (g *Authority) issueScopeForShopWithTurn(ctx context.Context, requestID, shop, conversationID, turnID, executionID, domain string) (*ragv1.RequestContext, error) {
+	if !validScopeDomain(domain) || domain == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid_scope_domain")
+	}
 	if !slices.Contains(g.Session.AllowedShops, shop) {
 		return nil, status.Error(codes.PermissionDenied, "shop_not_authorized")
 	}
@@ -316,7 +355,7 @@ func (g *Authority) IssueScopeForShopWithTurn(ctx context.Context, requestID, sh
 		TenantDbId: g.Session.TenantID, UserDbId: g.Session.UserID,
 		ConversationId: conversationID, TurnId: turnID, ExecutionId: executionID, ScopeAudience: "ai",
 		BusinessDate: businessDate}
-	scope.ScopeSignature = hex.EncodeToString(MAC(g.SigningKey, scope))
+	g.signScope(scope, domain)
 	if g.RegisterScopeIdentity != nil {
 		if err = g.RegisterScopeIdentity(scope); err != nil {
 			return nil, err
@@ -338,6 +377,9 @@ func (g *Authority) ValidateScope(ctx context.Context, scope *ragv1.RequestConte
 	if err != nil || len(g.SigningKey) < 32 || !hmac.Equal(signature, MAC(g.SigningKey, scope)) ||
 		scopeExpiryInvalid(scope.ScopeExpiresAt, now) || !scope.EnforceDocumentScope || scope.RequestId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_scope")
+	}
+	if !validScopeDomain(scope.Domain) {
+		return status.Error(codes.PermissionDenied, "invalid_scope_domain")
 	}
 	if scope.SubjectType == "customer" {
 		return ValidateCustomerScope(ctx, g.DB, scope)

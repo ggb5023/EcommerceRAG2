@@ -16,3 +16,9 @@ def test_scoped_uses_numeric_tenant_for_provider_usage():
     assert scoped(state, {})["tenant_id"] == "42"
     fallback = {"scope": {"tenant_id": "v2-demo-tenant", "shop_id": "shop-demo"}}
     assert scoped(fallback, {})["tenant_id"] == "v2-demo-tenant"
+    assert scoped(fallback, {})["domain"] == "answer"
+
+
+def test_scoped_carries_explicit_domain():
+    state = {"scope": {"tenant_id": "v2-demo-tenant", "shop_id": "shop-demo", "domain": "intelligence"}}
+    assert scoped(state, {})["domain"] == "intelligence"

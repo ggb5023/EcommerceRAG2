@@ -175,7 +175,7 @@ def scoped(state: GraphState, payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("provider chain requires tenant_id")
     if shop is None or isinstance(shop, bool) or not isinstance(shop, str) or not shop.strip():
         raise ValueError("provider chain requires shop_id")
-    return {**payload, "tenant_id": tenant, "shop_id": shop}
+    return {**payload, "tenant_id": tenant, "shop_id": shop, "domain": scope.get("domain") or "answer"}
 
 
 async def provider_retrieve_node(state: GraphState, chains: ProviderChainSet) -> dict[str, Any]:

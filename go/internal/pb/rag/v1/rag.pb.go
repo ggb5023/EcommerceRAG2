@@ -237,6 +237,10 @@ type RequestContext struct {
 	// effective_from/effective_to retrieval filtering.
 	BusinessDate  string         `protobuf:"bytes,26,opt,name=business_date,json=businessDate,proto3" json:"business_date,omitempty"`
 	CatalogFilter *CatalogFilter `protobuf:"bytes,27,opt,name=catalog_filter,json=catalogFilter,proto3" json:"catalog_filter,omitempty"`
+	// Domain marker for the signed scope. Empty is treated as "answer" by
+	// consumers; Go always writes an explicit value. Intelligence scopes are
+	// issued only by the host and never grant answer-side data access.
+	Domain        string `protobuf:"bytes,28,opt,name=domain,proto3" json:"domain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -458,6 +462,13 @@ func (x *RequestContext) GetCatalogFilter() *CatalogFilter {
 		return x.CatalogFilter
 	}
 	return nil
+}
+
+func (x *RequestContext) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
 }
 
 type CatalogFilter struct {
@@ -4024,7 +4035,7 @@ var File_rag_v1_rag_proto protoreflect.FileDescriptor
 
 const file_rag_v1_rag_proto_rawDesc = "" +
 	"\n" +
-	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\x93\b\n" +
+	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\xab\b\n" +
 	"\x0eRequestContext\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
@@ -4058,7 +4069,8 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x13customer_session_id\x18\x18 \x01(\tR\x11customerSessionId\x12-\n" +
 	"\x12conversation_epoch\x18\x19 \x01(\x04R\x11conversationEpoch\x12#\n" +
 	"\rbusiness_date\x18\x1a \x01(\tR\fbusinessDate\x12<\n" +
-	"\x0ecatalog_filter\x18\x1b \x01(\v2\x15.rag.v1.CatalogFilterR\rcatalogFilter\"\x95\x02\n" +
+	"\x0ecatalog_filter\x18\x1b \x01(\v2\x15.rag.v1.CatalogFilterR\rcatalogFilter\x12\x16\n" +
+	"\x06domain\x18\x1c \x01(\tR\x06domain\"\x95\x02\n" +
 	"\rCatalogFilter\x12\x1b\n" +
 	"\tsku_codes\x18\x01 \x03(\tR\bskuCodes\x12\x16\n" +
 	"\x06colors\x18\x02 \x03(\tR\x06colors\x12\x1f\n" +

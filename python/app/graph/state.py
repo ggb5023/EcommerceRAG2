@@ -24,6 +24,7 @@ class Scope(TypedDict, total=False):
     customer_id: str
     customer_session_id: str
     conversation_epoch: int
+    domain: str
 
 
 class Evidence(TypedDict):

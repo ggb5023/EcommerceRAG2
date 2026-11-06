@@ -40,6 +40,10 @@ message RequestContext {
   // effective_from/effective_to retrieval filtering.
   string business_date = 26;
   CatalogFilter catalog_filter = 27;
+  // Domain marker for the signed scope. Empty is treated as "answer" by
+  // consumers; Go always writes an explicit value. Intelligence scopes are
+  // issued only by the host and never grant answer-side data access.
+  string domain = 28;
 }
 message CatalogFilter {
   repeated string sku_codes = 1;

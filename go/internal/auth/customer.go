@@ -43,7 +43,8 @@ func CustomerDocuments(ctx context.Context, db *pgxpool.Pool, tenant int64, shop
 func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessionID, conversationID, executionID string) (*ragv1.RequestContext, error) {
 	var timezone string
 	scope := &ragv1.RequestContext{RequestId: executionID, ConversationId: conversationID, TurnId: executionID, ExecutionId: executionID,
-		SubjectType: "customer", CustomerSessionId: sessionID, Role: "customer", ScopeAudience: "ai", EnforceDocumentScope: true}
+		SubjectType: "customer", CustomerSessionId: sessionID, Role: "customer", ScopeAudience: "ai", EnforceDocumentScope: true,
+		Domain: ScopeDomainAnswer}
 	err := db.QueryRow(ctx, `SELECT c.tenant_id,t.external_id,c.shop_id,c.customer_id,c.epoch,sh.public_permission_revision,COALESCE(sh.timezone,'Asia/Shanghai')
  FROM customer_conversation c JOIN customer_session cs ON cs.customer_id=c.customer_id AND cs.tenant_id=c.tenant_id AND cs.shop_id=c.shop_id
  JOIN tenant t ON t.id=c.tenant_id JOIN shop sh ON sh.tenant_id=c.tenant_id AND sh.id=c.shop_id
@@ -72,7 +73,7 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 }
 
 func customerScopeMismatch(scope, current *ragv1.RequestContext) string {
-	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch {
+	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch || current.Domain != scope.Domain {
 		return "customer_scope_stale"
 	}
 	for _, id := range scope.AllowedDocumentIds {
