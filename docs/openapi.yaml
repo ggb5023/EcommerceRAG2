@@ -3,7 +3,8 @@ info:
   title: EcommerceRAG browser API
   version: v1
   description: 'The only HTTP surface the browser may use. Permissions are decided by Go; Python never receives browser credentials.
-    Errors share one envelope: {"error": "<code>"}.'
+    Error responses use {"code": "<code>", "message": "<safe text>", "cause": "<category>"}.
+    cause is a coarse class (gRPC code name or Go type); it never carries SQL, DSNs, paths or credentials.'
 servers:
 - url: https://{host}:8443
   variables:
@@ -529,8 +530,18 @@ paths:
     post:
       summary: POST /admin/v1/merchant/imports
       responses:
-        '200':
-          description: OK
+        '202':
+          description: Import batch staged
+        '400':
+          description: Invalid manifest, package or confirmation
+        '403':
+          description: admin_scope_denied or ingest_not_authorized
+        '409':
+          description: import_state_conflict, version_conflict or precheck_blocked
+        '500':
+          description: ingest_schema_incomplete
+        '503':
+          description: database_unavailable, precheck_unavailable or ingest_queue_failed
   /admin/v1/merchant/imports/{id}:
     get:
       summary: GET /admin/v1/merchant/imports/{id}
@@ -547,8 +558,18 @@ paths:
     post:
       summary: POST /admin/v1/merchant/imports/{id}/confirm
       responses:
-        '200':
-          description: OK
+        '202':
+          description: Import batch confirmed and queued
+        '400':
+          description: confirmation_required
+        '403':
+          description: ingest_not_authorized
+        '409':
+          description: import_state_conflict, batch_already_confirming, precheck_blocked or version_conflict
+        '500':
+          description: ingest_schema_incomplete or confirm_settle_failed
+        '503':
+          description: database_unavailable or confirm_queue_failed
       parameters:
       - name: id
         in: path
@@ -655,8 +676,18 @@ paths:
     post:
       summary: POST /admin/v1/merchant/sources/import
       responses:
-        '200':
-          description: OK
+        '202':
+          description: Package queued through the direct import path
+        '400':
+          description: Invalid manifest or package
+        '403':
+          description: admin_scope_denied or ingest_not_authorized
+        '409':
+          description: version_conflict
+        '500':
+          description: ingest_schema_incomplete
+        '503':
+          description: database_unavailable or ingest_queue_failed
   /admin/v1/merchant/usage:
     get:
       summary: GET /admin/v1/merchant/usage

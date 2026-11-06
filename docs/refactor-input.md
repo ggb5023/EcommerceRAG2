@@ -4,6 +4,16 @@
 
 本文只记录事实与影响，不写实现方案。所有结论均为 2026-10-27 在本机实测。
 
+## WP68 已完成（2026-11-06）
+
+- #15 幂等键：改为 `admin:<shop>:<batch>:<manifest_sha256>`，旧键只在未完成时复用；
+  详见 [0036](decisions/0036-batch-scoped-ingest-idempotency.md)。
+- #9 错误映射与撤回重导入：403/409/500/503 + cause 已落地并登记 openapi；
+  撤回后同 source 同名重导入创建新版本，换 source 仍 409；详见
+  [0037](decisions/0037-reimport-and-import-error-mapping.md)。
+- #10 证据去重：Go 消费处按 chunk id 保留首次、稳定重排 rank；详见
+  [0038](decisions/0038-evidence-dedupe-by-chunk-id.md)。
+
 ## WP67 已完成（2026-11-06）
 
 - #3 预算命名残留：仅剩的 0021 旧账本注释已改名；其余 `budget` 为 live request/call

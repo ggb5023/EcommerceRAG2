@@ -61,3 +61,19 @@ bash scripts/check.sh --smoke    # 47 项五条基线逐字节一致
 
 五节格式；三个决策记录全文、每项实现 diff 行号、负向验证（旧幂等键兼容、
 重复证据去重后计数、撤回重导入的新版本链路）。
+
+## 执行记录（2026-11-06）
+
+- **0036**：`ingestIdempotencyKey(shopID, batchID, manifest)` 生成
+  `admin:<shop>:<batch>:<sha256>`；`queuePackage` 只为当前批次查询旧键，
+  且 `UnfinishedJobByKey` 只认 `pending`、`running` 或 `awaiting_review`。直连
+  `/sources/import` 无批次行，保留旧键。见 [0036](../decisions/0036-batch-scoped-ingest-idempotency.md)。
+- **0037**：错误映射在 WP68 之前已落地（`queue_failure.go` + error-taxonomy），
+  本包补 openapi 与决策记录；重导入根因是旧键命中已完成 job，已由 0036 修复。
+  未新增状态值，0057 未使用。见 [0037](../decisions/0037-reimport-and-import-error-mapping.md)。
+- **0038**：`domain.DedupeEvidence` 在 Go 消费处按 id 保留首次、稳定重排 rank；
+  `runRetrievalStage` 在授权前调用。见 [0038](../decisions/0038-evidence-dedupe-by-chunk-id.md)。
+- **负向验证**：`TestUnfinishedLegacyJobIsReusedWithoutSubmit` 与
+  `TestCompletedLegacyJobDoesNotAbsorbANewBatch` 通过；`TestReimportAfterRevokeUsesANewBatchKey`
+  通过；`test_reimport_after_revoke_creates_a_new_version` 在测试库通过；
+  `TestDedupeEvidenceKeepsFirstAndReindexes` 以 3 条输入得到 2 条并重排 1,2。
