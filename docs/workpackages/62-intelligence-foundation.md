@@ -14,7 +14,7 @@
 
 ## 迁移 0054（只追加；先登记再写库）
 
-1. 先读 `docs/data-ownership.md` 与 `scripts/check/check-ownership.py` 的登记规则，
+1. 先读 `docs/data-ownership.md` 与其守卫（check-ownership）的登记规则，
    登记两张新表与写者：共享层写者 = 系统抓取 worker（角色 `rag_v2_intel`，
    阶段 2 接线）；租户层写者 = `admin`（商家配置自己的监控清单）。
    若守卫要求"有登记必有写点"而阶段 1 尚无写点，**停下汇报**，不绕过守卫。
