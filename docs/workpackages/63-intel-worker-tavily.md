@@ -127,7 +127,9 @@ HTTP status，usage_log 为 NULL；429/401 由单测覆盖。
 测试：
 ```text
 go ... -run "Intel|Watch" -v -> 5 PASS（integration CRUD PASS）
-python ... tests/test_intel_worker.py tests/test_intel_rpc.py -> 9 passed
+python ... tests/test_intel_worker.py tests/test_intel_rpc.py
+  -> 默认 9 passed + 1 skipped（fencing 需 V2_INTEGRATION_ENV/V2_INTEL_DSN）
+  -> 带环境 10 passed（含真实 DB 租约/fencing 测试）
 tests/test_v2_local_services.py -> 15 passed（enabled 0/1 与 env 隔离）
 ```
 门禁：

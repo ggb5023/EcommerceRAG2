@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from app.intel.database import IntelJob
+from app.intel.database import IntelDatabase, IntelJob
 from app.intel.limiter import TokenBucket
 from app.intel.worker import RECRAWL_INTERVAL_HOURS, IntelWorker, backoff_seconds
 from app.providers.contracts import ProviderError
@@ -167,3 +169,57 @@ def test_token_bucket_respects_rpm_boundary():
         TokenBucket(0)
     with pytest.raises(ValueError):
         TokenBucket(61)
+
+
+def test_intel_database_fencing_integration():
+    config = os.environ.get("V2_INTEGRATION_ENV")
+    if not config:
+        pytest.skip("V2_INTEGRATION_ENV is required")
+    values = {}
+    for line in Path(config).read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value.strip().strip("\"'")
+    if not values.get("V2_INTEL_DSN"):
+        pytest.skip("V2_INTEL_DSN is not configured")
+    import psycopg
+
+    database = IntelDatabase(values["V2_INTEL_DSN"])
+    stamp = datetime.now(UTC).timestamp()
+    market = f"fencing-{int(stamp)}"
+    with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+        tenant = conn.execute("SELECT id FROM tenant WHERE external_id='v2-demo-tenant'").fetchone()[0]
+        watch_id = conn.execute(
+            """INSERT INTO intel_watch_config(tenant_id,market,category,platform,enabled)
+               VALUES(%s,%s,'c','p',true) RETURNING id""",
+            (tenant, market),
+        ).fetchone()[0]
+    try:
+        assert database.ensure_jobs(24) >= 1
+        with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+            job_id = conn.execute(
+                "SELECT id FROM intel_job WHERE watch_config_id=%s ORDER BY id DESC LIMIT 1",
+                (watch_id,),
+            ).fetchone()[0]
+        first = database.claim_job(300)
+        assert first is not None and first.id == job_id
+        with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+            conn.execute("UPDATE intel_job SET lease_expires_at=now()-interval '1 second' WHERE id=%s", (job_id,))
+        second = database.claim_job(300)
+        assert second is not None and second.id == job_id and second.fencing_epoch > first.fencing_epoch
+        url = f"https://example.test/{int(stamp)}"
+        result = TavilyResult(url, "fencing", "content", 0.5, None)
+        assert database.complete_success(first, [result]) is False
+        assert database.complete_success(second, [result]) is True
+        with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+            assert conn.execute(
+                "SELECT status,observed_count FROM intel_job WHERE id=%s", (job_id,)
+            ).fetchone() == ("done", 1)
+            assert conn.execute(
+                "SELECT count(*) FROM market_observation WHERE source_url=%s", (url,)
+            ).fetchone()[0] == 1
+    finally:
+        with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+            conn.execute("DELETE FROM market_observation WHERE market=%s", (market,))
+            conn.execute("DELETE FROM intel_job WHERE watch_config_id=%s", (watch_id,))
+            conn.execute("DELETE FROM intel_watch_config WHERE id=%s", (watch_id,))
