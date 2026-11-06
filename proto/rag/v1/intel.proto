@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package rag.v1;
+
+option go_package = "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1;ragv1";
+
+// Internal, mTLS-only read API for the shared market observations.
+service IntelService {
+  rpc ListObservations(ListObservationsRequest) returns (ListObservationsResponse);
+}
+
+message ListObservationsRequest {
+  string market = 1;
+  string category = 2;
+  string platform = 3;
+  // RFC3339 lower bound on observed_at; empty means no lower bound.
+  string since = 4;
+  int32 limit = 5;
+}
+
+message Observation {
+  string market = 1;
+  string category = 2;
+  string platform = 3;
+  string source_url = 4;
+  string title = 5;
+  double score = 6;
+  string published_date = 7;
+  string observed_at = 8;
+}
+
+message ListObservationsResponse {
+  repeated Observation items = 1;
+}

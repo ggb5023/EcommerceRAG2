@@ -22,7 +22,8 @@ def values(tmp_path):
     return services.configure({
         "PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
         "V2_GATEWAY_DSN": "gateway-connection", "V2_AI_DSN": "ai-connection",
-        "V2_INGEST_DSN": "ingest-connection", "V2_MIGRATION_DSN": "migration-connection",
+        "V2_INGEST_DSN": "ingest-connection", "V2_INTEL_DSN": "intel-connection",
+        "V2_MIGRATION_DSN": "migration-connection",
         "V2_IDENTITY_TENANT": "test-tenant", "V2_IDENTITY_USER": "test-user",
         "INGEST_STORAGE_PROFILE": "filesystem", "INGEST_ARTIFACT_ROOT": str(tmp_path),
         "V2_PROVIDER_CONFIG": "provider-config", "UNRELATED_SECRET": "do-not-propagate",
@@ -44,15 +45,23 @@ def test_real_children_receive_only_their_service_credentials(tmp_path):
             assert received["V2_GATEWAY_DSN"] == "gateway-connection"
             assert "V2_INGEST_DSN" not in received and "V2_RETRIEVER_DSN" not in received
             assert "V2_PROVIDER_CONFIG" not in received
+            assert "V2_INTEL_DSN" not in received
+        elif name == "intel":
+            assert received["V2_INTEL_DSN"] == "intel-connection"
+            assert received["V2_PROVIDER_CONFIG"] == "provider-config"
+            for key in ("V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_INGEST_DSN",
+                        "V2_AI_DSN", "V2_MIGRATION_DSN"):
+                assert key not in received, key
         else:
             # The merged ai process serves three facets, so it holds both roles;
-            # the gateway role and the migration role stay outside it.
+            # the gateway, intel and migration roles stay outside it.
             assert received["V2_RETRIEVER_DSN"] == received["V2_CHECKPOINT_DSN"] == "ai-connection"
             assert received["V2_AI_DSN"] == "ai-connection"
             assert received["V2_INGEST_DSN"] == "ingest-connection"
             assert received["V2_INGEST_GRPC_ADDR"] and received["V2_GRPC_ADDR"]
             assert received["INGEST_STORAGE_PROFILE"] == "filesystem"
             assert "V2_GATEWAY_DSN" not in received
+            assert "V2_INTEL_DSN" not in received
 
 
 @pytest.mark.parametrize("identity_profile", ["oidc", "oidc_browser"])
@@ -161,6 +170,20 @@ def test_sigterm_stops_ready_stack_without_killing_unrelated_process(tmp_path):
             process.wait(timeout=5)
         unrelated.terminate()
         unrelated.wait(timeout=5)
+
+
+def test_intel_enabled_controls_service_commands(tmp_path):
+    binary = tmp_path / "gateway"
+    disabled = services.configure(values(tmp_path) | {"V2_INTEL_ENABLED": "0"})
+    enabled = services.configure(values(tmp_path) | {"V2_INTEL_ENABLED": "1"})
+    assert set(services.service_commands(disabled, binary)) == {"gateway", "ai"}
+    assert set(services.service_commands(enabled, binary)) == {"gateway", "ai", "intel"}
+    with pytest.raises(services.StartupError):
+        services.configure(values(tmp_path) | {"V2_INTEL_ENABLED": "1", "V2_INTEL_DSN": ""})
+    with pytest.raises(services.StartupError):
+        services.configure(values(tmp_path) | {"V2_INTEL_RPM": "0"})
+    with pytest.raises(services.StartupError):
+        services.configure(values(tmp_path) | {"V2_INTEL_PROXY_URL": "http://proxy.invalid"})
 
 
 def test_business_date_reaches_both_date_consumers():

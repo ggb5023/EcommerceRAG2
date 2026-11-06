@@ -35,7 +35,7 @@
 | `catalog_size_chart` | `ingest` | `retrieval`、`admin`、`gateway` | 尺码表行与商品行同属一个摄取版本；写入方只有 Python ingest，Go/检索只读 | `scripts/check/check-ownership.py` |
 | `source_file` | `ingest` | `ingest`、`admin` | 上传清单的文件行由摄取侧建立，只增不改 | `scripts/check/check-ownership.py` |
 | `source_manifest` | `ingest` | `ingest`、`admin` | 同上，清单哈希在摄取侧落库 | `scripts/check/check-ownership.py` |
-| `usage_log` | `providers` | `providers`、`admin` | 0021：只记 token 用量，由 Python 的 ai 与 ingest 角色写入，Go 网关只读；0050 增加 nullable `request_id`/`execution_id`/`turn_id`，工作台 turn 填三列，顾客只填 `request_id`，ingest/eval 为 NULL，历史不回填 | `scripts/check/check-ownership.py` |
+| `usage_log` | `providers` | `providers`、`admin` | 0021：只记 token 用量，由 Python 的 ai 与 ingest 角色写入；intel worker 通过 providers 的 UsageRecorder 每次 Tavily 搜索记一行（`slot='search'`，tokens 为 NULL）；Go 网关只读；0050 增加 nullable `request_id`/`execution_id`/`turn_id`，工作台 turn 填三列，顾客只填 `request_id`，ingest/eval/intel 为 NULL，历史不回填 | `scripts/check/check-ownership.py` |
 | `provider` | 预留：`admin`（P3 实现，当前无写入） | — | 租户供应商表结构（0034）已就位，接口与页面属 P3；写入方预先钉在管理控制面 | `scripts/check/check-ownership.py` |
 | `provider_model` | 预留：`admin`（P3 实现，当前无写入） | — | 同上，随 `provider` 一起由管理控制面写入 | `scripts/check/check-ownership.py` |
 | `turn` | `gateway` | `admin`、`customer`、`gateway` | 轮次状态与答案由网关用例层写；终态只由 Go 决定 | `scripts/check/check-ownership.py` |
@@ -77,8 +77,9 @@
 | `source` | `ingest` | `admin`、`auth`、`customer`、`ingest` | 资料来源由 ingest 创建，管理/授权/顾客侧只读 | `scripts/check/check-ownership.py` |
 | `tenant_agent_review` | `admin` | `admin` | 租户审核开关由 admin 唯一写读 | `scripts/check/check-ownership.py` |
 | `v2_asking_checkpoint` | `graph` | `graph` | ASKING 检查点由 Python graph 写入并恢复，Go 不直接读写该表 | `scripts/check/check-ownership.py` |
-| `market_observation` | `intel`（阶段 2 接线，当前无写入） | `intel` | 共享层：market/category/platform + observed_at 的跨租户观测，无 tenant_id；写入方是系统抓取 worker，answer 侧角色不得出现在任何 GRANT 中 | 数据库角色隔离 |
-| `intel_watch_config` | `admin`（阶段 2 接线，当前无写入） | `admin`、`intel` | 租户层只存商家监控目标，不复制共享数据；worker 只读监控清单 | check-ownership 守卫 |
+| `market_observation` | `intel` | `intel` | 共享层：market/category/platform + observed_at 的跨租户观测，无 tenant_id；写入方是系统抓取 worker，answer 侧角色不得出现在任何 GRANT 中 | 数据库角色隔离 |
+| `intel_watch_config` | `admin` | `admin`、`intel` | 租户层只存商家监控目标，不复制共享数据；worker 只读监控清单 | check-ownership 守卫 |
+| `intel_job` | `intel` | `intel` | 抓取任务队列：复用 ingest 的租约/fencing 语义但不写 `ingest_job`；共享任务 `tenant_id` 可 NULL，唯一写者是 intel worker | `scripts/check/check-ownership.py` |
 
 ## 维护规则
 

@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from uuid import uuid4
@@ -29,13 +30,16 @@ PROVIDER_KEYS = {"V2_PROVIDER_CONFIG"}
 SERVICE_KEYS = {
     "gateway": {"V2_GATEWAY_DSN", "V2_IDENTITY_TENANT", "V2_IDENTITY_USER", "V2_IDENTITY_SHOP",
                 "SCOPE_SIGNING_KEY_FILE", "HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR",
-                "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE", "SYNTHETIC_BUSINESS_DATE", "METRICS_ADDR", "ECR_REPORT_PATH"},
+                "V2_CUSTOMER_ORIGIN", "V2_CUSTOMER_LOOPBACK_HTTP", "V2_CUSTOMER_VISITOR_RPM", "V2_CUSTOMER_IP_RPM", "V2_CUSTOMER_PROXY_HOST", "V2_FACTS_BASE_URL", "V2_FACTS_VERSION", "V2_IDENTITY_PROFILE", "V2_OIDC_CONFIG_FILE", "SYNTHETIC_BUSINESS_DATE", "METRICS_ADDR", "ECR_REPORT_PATH", "V2_INTEL_GRPC_ADDR"},
     "ai": {"V2_RETRIEVER_DSN", "V2_CHECKPOINT_DSN", "V2_AI_DSN", "V2_USAGE_DSN",
            "V2_GRPC_ADDR", "V2_GRPC_WORKERS",
            "V2_GRPC_REFLECTION", "AUTHORITY_HTTP_BASE", "SYNTHETIC_BUSINESS_DATE",
            "V2_INGEST_DSN", "V2_INGEST_GRPC_ADDR", "V2_INGEST_RPC_WORKERS",
            "V2_INGEST_POLL_SECONDS", "V2_INGEST_LEASE_SECONDS", "V2_INGEST_WORKER_ID", "AI_METRICS_ADDR"}
           | STORAGE_KEYS | PROVIDER_KEYS,
+    "intel": {"V2_INTEL_DSN", "V2_INTEL_GRPC_ADDR", "V2_INTEL_ENABLED", "V2_INTEL_RPM",
+              "V2_INTEL_POLL_SECONDS", "V2_INTEL_PROXY_URL", "V2_INTEL_RPC_WORKERS"}
+             | PROVIDER_KEYS,
 }
 CONFIG_KEYS = set().union(*SERVICE_KEYS.values(), COMMON_KEYS) | {
     "V2_AI_DSN", "V2_USAGE_DSN", "V2_MIGRATION_DSN", "V2_START_TIMEOUT_SECONDS", "V2_STOP_TIMEOUT_SECONDS",
@@ -116,11 +120,26 @@ def configure(values: dict[str, str]) -> dict[str, str]:
         raise StartupError("INGEST_STORAGE_PROFILE must be filesystem or oss")
     if values["INGEST_STORAGE_PROFILE"] == "filesystem" and not Path(values.get("INGEST_ARTIFACT_ROOT", "")).is_absolute():
         raise StartupError("filesystem artifacts require an absolute root")
+    intel_enabled = values.setdefault("V2_INTEL_ENABLED", "0")
+    if intel_enabled not in {"0", "1"}:
+        raise StartupError("V2_INTEL_ENABLED must be 0 or 1")
+    if intel_enabled == "1" and not values.get("V2_INTEL_DSN", "").strip():
+        raise StartupError("V2_INTEL_DSN is required when intelligence is enabled")
+    try:
+        rpm = int(values.get("V2_INTEL_RPM", "5"))
+        poll = float(values.get("V2_INTEL_POLL_SECONDS", "60"))
+    except ValueError:
+        raise StartupError("intelligence rate/poll configuration is invalid") from None
+    if not 1 <= rpm <= 60 or not 1 <= poll <= 3600:
+        raise StartupError("intelligence rate/poll configuration is out of range")
+    proxy = values.get("V2_INTEL_PROXY_URL", "").strip()
+    if proxy and urllib.parse.urlparse(proxy).scheme != "https":
+        raise StartupError("V2_INTEL_PROXY_URL must be empty or https")
     for key, default in (("HTTP_ADDR", "127.0.0.1:8080"), ("V2_GRPC_ADDR", "127.0.0.1:50052"),
-                         ("V2_INGEST_GRPC_ADDR", "127.0.0.1:50053"), ("METRICS_ADDR", "127.0.0.1:9090"),
-                         ("AI_METRICS_ADDR", "127.0.0.1:9091")):
+                         ("V2_INGEST_GRPC_ADDR", "127.0.0.1:50053"), ("V2_INTEL_GRPC_ADDR", "127.0.0.1:50054"),
+                         ("METRICS_ADDR", "127.0.0.1:9090"), ("AI_METRICS_ADDR", "127.0.0.1:9091")):
         values[key] = address(values.get(key, default), loopback=key in {"HTTP_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR"})
-    address_keys = ("HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR")
+    address_keys = ("HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR", "V2_INTEL_GRPC_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR")
     if len({values[key] for key in address_keys}) != len(address_keys):
         raise StartupError("service bind addresses must be distinct")
     values["AUTHORITY_HTTP_BASE"] = "http://" + values["HTTP_ADDR"]
@@ -173,6 +192,8 @@ def ready(name: str, values: dict[str, str]) -> bool:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open("http://" + values["HTTP_ADDR"] + "/healthz", timeout=0.5) as response:
                 return response.status == 200 and json.loads(response.read(4096)).get("status") == "ok"
+        if name == "intel":
+            return rpc_serving(values, values["V2_INTEL_GRPC_ADDR"], "rag.v1.IntelService")
         return (rpc_serving(values, values["V2_GRPC_ADDR"], "rag.v1.RagService")
                 and rpc_serving(values, values["V2_INGEST_GRPC_ADDR"], "rag.v1.IngestService")
                 and worker_heartbeat(values))
@@ -237,7 +258,7 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
                     print("FAIL V2 readiness timeout: " + ",".join(sorted(pending)), file=sys.stderr, flush=True)
                     return 1
             if not pending and not announced:
-                print(f"READY V2 gateway,ai (logs: {log_dir})", flush=True)
+                print(f"READY V2 {','.join(commands)} (logs: {log_dir})", flush=True)
                 announced = True
             time.sleep(0.1)
         return 0
@@ -245,6 +266,13 @@ def supervise(commands: dict[str, list[str]], environments: dict[str, dict[str, 
         stop_processes(processes, stop_timeout)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+
+
+def service_commands(values: dict[str, str], binary: Path) -> dict[str, list[str]]:
+    commands = {"gateway": [str(binary)], "ai": [sys.executable, "-m", "app.ai_process"]}
+    if values.get("V2_INTEL_ENABLED", "0") == "1":
+        commands["intel"] = [sys.executable, "-m", "app.intel.worker"]
+    return commands
 
 
 def main() -> int:
@@ -263,7 +291,7 @@ def main() -> int:
                                cwd=ROOT / "go", env={k: v for k, v in values.items() if k in SYSTEM_KEYS}, check=False)
         if built.returncode:
             raise StartupError("V2 gateway build failed")
-        commands = {"gateway": [str(binary)], "ai": [sys.executable, "-m", "app.ai_process"]}
+        commands = service_commands(values, binary)
         return supervise(commands, {name: service_environment(name, values) for name in commands},
                          lambda name: ready(name, values), cwd=ROOT / "python",
                          start_timeout=start_timeout, stop_timeout=stop_timeout)

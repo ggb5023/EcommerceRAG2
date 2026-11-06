@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from app import metrics
 
 LOGGER = logging.getLogger(__name__)
-SLOTS = ("control", "embedding", "rerank", "generation")
+SLOTS = ("control", "embedding", "rerank", "generation", "search")
 
 
 @dataclass(frozen=True)

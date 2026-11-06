@@ -44,6 +44,9 @@ bash scripts/dev/install-git-hooks.sh
 - 共享层角色 `rag_v2_intel` 是集群级角色，不在迁移里创建：本机由数据库管理员执行
   `CREATE ROLE rag_v2_intel LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '<随机>'`；
   自部署由数据库初始化流程按运行时密码表创建
+- 情报 worker 默认关闭（`V2_INTEL_ENABLED` 为 0）；启用时它只拿 `V2_INTEL_DSN`、
+  `V2_INTEL_GRPC_ADDR`（默认 127.0.0.1:50054）、`V2_INTEL_RPM`（1..60，默认 5）
+  与 `V2_PROVIDER_CONFIG`，不接收任何 answer 侧 DSN
 
 `V2_RPC_TLS` 留空表示进程间明文；只有显式写了取值才会走 mTLS，并需要同时给出 CA、证书和密钥三个路径。
 
