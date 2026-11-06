@@ -190,7 +190,8 @@ export type AdminContext = {
   staffCreated: Ref<string>
   shopQuery: ComputedRef<string>
   requestableRoles: ComputedRef<AdminRoleCatalogEntry[]>
-  navigation: ComputedRef<{ label: string; page: AdminPage; visible: boolean }[]>
+  navigation: ComputedRef<{ label: string; page: AdminPage; icon: string }[]>
+  navigationGroups: ComputedRef<{ label: string; items: { label: string; page: AdminPage; icon: string }[] }[]>
   themeChoice: Ref<ThemeChoice>
   themeLabel: (choice: ThemeChoice) => string
   browserAuth: { enabled: boolean; mustChangePassword: boolean }

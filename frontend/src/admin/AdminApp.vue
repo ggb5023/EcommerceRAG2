@@ -7,6 +7,7 @@ import GapsPanel from './GapsPanel.vue'
 import ShopSettings from './ShopSettings.vue'
 import AgentReviewSettings from './AgentReviewSettings.vue'
 import {versionHistoryView} from './version-history'
+import { groupedNavigation } from './navigation'
 import {batchCounts,reasonSummary,suggestionEvidence,suggestionLabel,validBatchReason} from './review-suggestion'
 import KnowledgePreview from './KnowledgePreview.vue'
 import CustomerTrial from './CustomerTrial.vue'
@@ -120,25 +121,10 @@ function roleLabel(role: string) {
 
 const requestableRoles = computed(() => roleCatalog.value.filter(item => item.enabled && item.requestable && item.storage_role))
 
-const navigation = computed(() => {
-  const items: { label: string; page: AdminPage; visible: boolean }[] = [
-    { label: '运行状态', page: 'overview', visible: canSeeOperations.value },
-    { label: '结果度量', page: 'outcomes', visible: canSeeOperations.value },
-    { label: '报告', page: 'reports', visible: canSeeOperations.value },
-    { label: '评测报告', page: 'report', visible: canManage.value || canReview.value },
-    { label: '情报观察', page: 'intel', visible: canManage.value || canReview.value },
-    { label: '内容缺口', page: 'gaps', visible: canSeeOperations.value },
-    { label: '内容巡检', page: 'inspections', visible: canSeeOperations.value },
-    { label: '账号与权限', page: 'accounts', visible: canAccess.value || canManage.value },
-    { label: '权限申请', page: 'requests', visible: true },
-    { label: '授权审计', page: 'audit', visible: canAccess.value || canReview.value },
-    { label: '店铺范围', page: 'shops', visible: canSeeOperations.value },
-    { label: '资料来源', page: 'sources', visible: canSeeOperations.value },
-    { label: '摄取任务', page: 'ingestion', visible: canSeeOperations.value },
-    { label: '版本审核', page: 'reviews', visible: canReview.value },
-  ]
-  return items.filter(item => item.visible)
-})
+const navigationGroups = computed(() => groupedNavigation({
+  access: canAccess.value, manage: canManage.value, review: canReview.value, observe: canObserve.value,
+}))
+const navigation = computed(() => navigationGroups.value.flatMap(group => group.items))
 
 function endpointForPage() {
   const q = shopQuery.value

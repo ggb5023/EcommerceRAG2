@@ -21,13 +21,13 @@ const rows = computed(() => data.value.filter((row) => {
 <section class="content-area split-layout">
   <DataTable v-model="search" title="权限申请队列" placeholder="搜索申请人 / 理由">
     <template #subtitle><p>审批决定不会自动扩大当前授权的 tenant/shop 范围。</p></template>
-    <template #actions><Button v-if="session" variant="primary" @click="requestOpen=true">提交权限申请</Button><select v-model="statusFilter" aria-label="申请状态"><option value="">全部状态</option><option value="pending">待处理</option><option value="approved">已批准</option><option value="needs_revision">待补正</option><option value="rejected">已拒绝</option></select></template>
+    <template #actions><Button v-if="session && !canAccess" variant="primary" @click="requestOpen=true">提交权限申请</Button><select v-model="statusFilter" aria-label="申请状态"><option value="">全部状态</option><option value="pending">待处理</option><option value="approved">已批准</option><option value="needs_revision">待补正</option><option value="rejected">已拒绝</option></select></template>
     <Table><thead><tr><th>申请人 / 角色</th><th>范围</th><th>理由</th><th>状态</th><th>操作</th></tr></thead><tbody>
-      <tr v-for="row in rows" :key="row.id"><td><strong>{{ row.requester_name }}</strong><small>{{ row.role }} · {{ row.id }}</small></td><td>{{ row.scope_kind === 'tenant' ? '租户' : (row.shop_ids ?? []).join(', ') }}</td><td class="reason-cell">{{ row.reason }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge></td><td><Button v-if="canDecideRequests && row.status === 'pending'" variant="text" @click="openDecision(row, 'approved')">处理</Button></td></tr>
+      <tr v-for="row in rows" :key="row.id"><td><strong>{{ row.requester_name }}</strong><small>{{ row.role }} · {{ row.id }}</small></td><td>{{ row.scope_kind === 'tenant' ? '租户' : (row.shop_ids ?? []).join(', ') }}</td><td class="reason-cell">{{ row.reason }}</td><td><Badge :tone="badgeTone(row.status)">{{ statusLabel(row.status) }}</Badge></td><td><Button v-if="canAccess && row.status === 'pending'" variant="text" @click="openDecision(row, 'approved')">处理</Button></td></tr>
       <tr v-if="rows.length === 0"><td colspan="5" class="empty">没有符合筛选条件的申请。</td></tr></tbody></Table>
   </DataTable>
   <Drawer :open="requestOpen" title="提交权限申请" @close="requestOpen=false">
-    <form v-if="session" class="side-form" @submit.prevent="submitPermissionRequest">
+    <form v-if="session && !canAccess" class="side-form" @submit.prevent="submitPermissionRequest">
       <label>申请角色<select v-model="requestRole"><option v-for="role in requestableRoles" :key="role.role_key" :value="role.storage_role ?? ''">{{ role.display_name }}（{{ role.role_key }}）</option></select></label>
       <small v-if="requestableRoles.length === 0" class="form-warning">当前角色目录没有开放可申请的权限。</small>
       <label>授权范围<select v-model="requestScope"><option value="shops">指定店铺</option><option value="tenant">当前租户</option></select></label>
