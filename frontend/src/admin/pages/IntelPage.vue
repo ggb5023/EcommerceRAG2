@@ -19,7 +19,8 @@ const watchConfigs = ref<IntelWatchConfig[]>([])
 const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
-const filters = reactive({ market: '', category: '', platform: '', since: '' })
+const queryDegraded = ref(false)
+const filters = reactive({ market: '', category: '', platform: '', since: '', query: '' })
 const form = reactive({ market: '', category: '', platform: '', enabled: true })
 
 const sinceRFC = computed(() => filters.since ? new Date(filters.since).toISOString() : '')
@@ -35,11 +36,14 @@ function failure(caught: unknown, fallback: string) {
 async function loadObservations() {
   loading.value = true
   error.value = ''
+  queryDegraded.value = false
   try {
-    observations.value = (await getIntelObservations({
+    const result = await getIntelObservations({
       market: filters.market.trim(), category: filters.category.trim(),
-      platform: filters.platform.trim(), since: sinceRFC.value,
-    })).items
+      platform: filters.platform.trim(), since: sinceRFC.value, query: filters.query.trim(),
+    })
+    observations.value = result.items
+    queryDegraded.value = result.query_degraded
   } catch (caught) {
     error.value = failure(caught, '观测加载失败。')
   } finally {
@@ -87,9 +91,10 @@ onMounted(() => { void loadObservations(); void loadWatchConfigs() })
 <template>
   <section class="content-area intel-page">
     <div class="section-head">
-      <div><h2>情报观察</h2><p>共享观测按 observed_at 排序；页面只读，不触发抓取。</p></div>
+      <div><h2>情报观察</h2><p>可按语义查询或 observed_at 排序；页面只读，不触发抓取。</p></div>
     </div>
     <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-if="queryDegraded" class="alert" role="status">语义查询暂不可用，已按时间排序。</p>
 
     <section class="intel-block" data-testid="intel-observations">
       <header class="intel-block-head"><h3>观测列表</h3><span>截至 observed_at</span></header>
@@ -98,15 +103,17 @@ onMounted(() => { void loadObservations(); void loadWatchConfigs() })
         <label>类目<input v-model="filters.category" placeholder="category"></label>
         <label>平台<input v-model="filters.platform" placeholder="platform"></label>
         <label>截止时间<input v-model="filters.since" type="datetime-local"></label>
-        <Button variant="primary" :disabled="loading" data-testid="intel-filter" @click="loadObservations">筛选</Button>
+        <label>语义搜索<input v-model="filters.query" maxlength="500" placeholder="例如：保温杯 竞品 定价" data-testid="intel-query"></label>
+        <Button variant="primary" :disabled="loading" data-testid="intel-filter" @click="loadObservations">搜索 / 筛选</Button>
       </div>
       <Table v-if="observations.length" data-testid="intel-observation-table">
-        <thead><tr><th>市场</th><th>类目</th><th>平台</th><th>标题</th><th>分数</th><th>发布日期</th><th>截至 observed_at</th><th>来源</th></tr></thead>
+        <thead><tr><th>市场</th><th>类目</th><th>平台</th><th>标题</th><th>分数</th><th>相似度</th><th>发布日期</th><th>截至 observed_at</th><th>来源</th></tr></thead>
         <tbody>
           <tr v-for="item in observations" :key="`${item.market}/${item.category}/${item.platform}/${item.source_url}`" data-testid="intel-observation-row">
             <td>{{ item.market }}</td><td>{{ item.category }}</td><td>{{ item.platform }}</td>
             <td><strong>{{ item.title || '—' }}</strong></td>
             <td>{{ item.score.toFixed(2) }}</td>
+            <td>{{ filters.query ? item.similarity.toFixed(3) : '—' }}</td>
             <td>{{ item.published_date || '日期未知' }}</td>
             <td>{{ formatTime(item.observed_at) }}</td>
             <td class="intel-url">{{ item.source_url }}</td>

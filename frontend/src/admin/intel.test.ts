@@ -13,13 +13,23 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('intel api', () => {
   it('passes market, category, platform and since filters to observations', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{"items":[]}', { status: 200 }))
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"items":[],"query_degraded":false}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     await getIntelObservations({
       market: '电商', category: '保温杯', platform: '竞品', since: '2026-11-01T00:00:00Z',
     })
     expect(fetchMock).toHaveBeenCalledWith(
       '/admin/v1/intel/observations?limit=50&market=%E7%94%B5%E5%95%86&category=%E4%BF%9D%E6%B8%A9%E6%9D%AF&platform=%E7%AB%9E%E5%93%81&since=2026-11-01T00%3A00%3A00Z',
+      { credentials: 'same-origin' },
+    )
+  })
+
+  it('passes a semantic query to observations', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"items":[],"query_degraded":false}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await getIntelObservations({ query: '保温杯竞品' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/v1/intel/observations?limit=50&query=%E4%BF%9D%E6%B8%A9%E6%9D%AF%E7%AB%9E%E5%93%81',
       { credentials: 'same-origin' },
     )
   })
@@ -55,6 +65,7 @@ describe('intel page', () => {
     const html = await renderToString(h(IntelPage))
     expect(html).toContain('情报观察')
     expect(html).toContain('观测列表')
+    expect(html).toContain('语义搜索')
     expect(html).toContain('监控配置')
     expect(html).toContain('暂无观测')
     expect(html).toContain('暂无监控配置')

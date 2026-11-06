@@ -9,7 +9,7 @@ import pytest
 from app.intel.database import IntelDatabase, IntelJob
 from app.intel.limiter import TokenBucket
 from app.intel.worker import RECRAWL_INTERVAL_HOURS, IntelWorker, backoff_seconds
-from app.providers.contracts import ProviderError
+from app.providers.contracts import EmbeddingResult, ProviderError, ProviderUsage
 from app.providers.tavily import TavilyResponse, TavilyResult
 
 
@@ -18,6 +18,7 @@ class FakeDatabase:
         self.job = job
         self.ensured = 0
         self.successes = []
+        self.embeddings = []
         self.failures = []
         self.claims = 0
 
@@ -29,8 +30,9 @@ class FakeDatabase:
         self.claims += 1
         return self.job
 
-    def complete_success(self, job, results):
+    def complete_success(self, job, results, embeddings=None):
         self.successes.append((job, tuple(results)))
+        self.embeddings.append(embeddings)
         return True
 
     def complete_failure(self, job, status, error, retry_at=None):
@@ -70,6 +72,23 @@ class FakeLimiter:
         self.calls += 1
 
 
+class FakeEmbedding:
+    def __init__(self, results=None, error=None):
+        self.results = results or []
+        self.error = error
+        self.calls = []
+
+    async def embed(self, texts, **kwargs):
+        self.calls.append((list(texts), kwargs))
+        if self.error is not None:
+            raise self.error
+        return self.results
+
+
+def dense(value: float = 1.0) -> tuple[float, ...]:
+    return (value,) + (0.0,) * 1023
+
+
 def job() -> IntelJob:
     return IntelJob(7, None, None, "电商", "保温杯", "竞品", "电商 保温杯 竞品", 0, 3)
 
@@ -81,9 +100,9 @@ def response() -> TavilyResponse:
     )
 
 
-def build(database, provider, usage=None, limiter=None):
+def build(database, provider, usage=None, limiter=None, **kwargs):
     return IntelWorker(database, provider, usage or FakeUsage(), limiter or FakeLimiter(),
-                       poll_seconds=1)
+                       poll_seconds=1, **kwargs)
 
 
 def test_success_writes_observations_and_one_search_usage_row():
@@ -97,6 +116,39 @@ def test_success_writes_observations_and_one_search_usage_row():
         "tenant_id": None, "slot": "search", "model": "tavily",
         "input_tokens": None, "output_tokens": None, "http_status": None, "error_code": None,
     }]
+
+
+def test_embedding_success_is_written_with_one_embedding_usage_row():
+    database, provider, usage = FakeDatabase(job()), FakeProvider(response()), FakeUsage()
+    embedding = FakeEmbedding([EmbeddingResult(
+        dense(), (), "embedding-model", 1024, "req", 7, ProviderUsage(7, 0, 7))])
+    worker = build(database, provider, usage, embedding=embedding,
+                   embedding_model="embedding-model")
+    assert worker.run_once() is True
+    assert len(database.embeddings) == 1
+    literal = database.embeddings[0][0]
+    assert literal is not None and literal.startswith("[1.0,0.0")
+    assert len(embedding.calls) == 1
+    assert embedding.calls[0][0] == ["标题\n摘要"]
+    assert usage.rows[1] == {
+        "tenant_id": None, "slot": "embedding", "model": "embedding-model",
+        "input_tokens": 7, "output_tokens": 0, "http_status": None, "error_code": None,
+    }
+
+
+def test_embedding_failure_is_fail_open_and_records_embedding_usage():
+    database = FakeDatabase(job())
+    provider = FakeProvider(response())
+    usage = FakeUsage()
+    embedding = FakeEmbedding(error=ProviderError("upstream_error", "down", slot="embedding", status=500))
+    worker = build(database, provider, usage, embedding=embedding,
+                   embedding_model="embedding-model")
+    assert worker.run_once() is True
+    assert database.successes[0][1] == (response().results[0],)
+    assert database.embeddings == [None]
+    assert usage.rows[1]["slot"] == "embedding"
+    assert usage.rows[1]["error_code"] == "upstream_error"
+    assert usage.rows[1]["http_status"] == 500
 
 
 def test_retryable_429_requeues_and_still_records_usage():
@@ -169,6 +221,51 @@ def test_token_bucket_respects_rpm_boundary():
         TokenBucket(0)
     with pytest.raises(ValueError):
         TokenBucket(61)
+
+
+def test_intel_semantic_query_orders_by_similarity_and_skips_null_embeddings():
+    config = os.environ.get("V2_INTEGRATION_ENV")
+    if not config:
+        pytest.skip("V2_INTEGRATION_ENV is required")
+    values = {}
+    for line in Path(config).read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value.strip().strip("\"'")
+    if not values.get("V2_INTEL_DSN"):
+        pytest.skip("V2_INTEL_DSN is not configured")
+    import psycopg
+
+    database = IntelDatabase(values["V2_INTEL_DSN"])
+    stamp = datetime.now(UTC).timestamp()
+    market = f"semantic-{int(stamp)}"
+    vectors = {
+        "close": "[" + ",".join(["1"] + ["0"] * 1023) + "]",
+        "far": "[" + ",".join(["0", "1"] + ["0"] * 1022) + "]",
+    }
+    with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+        conn.execute(
+            """INSERT INTO market_observation(
+                   market,category,platform,observed_at,source_url,payload_json,embedding)
+               VALUES(%s,'c','p',now()-interval '1 hour','https://example.test/close','{}'::jsonb,%s::vector),
+                     (%s,'c','p',now()-interval '2 hour','https://example.test/far','{}'::jsonb,%s::vector),
+                     (%s,'c','p',now(),'https://example.test/null','{}'::jsonb,NULL)""",
+            (market, vectors["close"], market, vectors["far"], market),
+        )
+    try:
+        timed = database.list_observations(market, "", "", None, 10)
+        assert [row["source_url"] for row in timed] == [
+            "https://example.test/null", "https://example.test/close", "https://example.test/far",
+        ]
+        semantic = database.list_observations(market, "", "", None, 10, vectors["close"])
+        assert [row["source_url"] for row in semantic] == [
+            "https://example.test/close", "https://example.test/far",
+        ]
+        assert semantic[0]["similarity"] > semantic[1]["similarity"]
+        assert abs(semantic[0]["similarity"] - 1.0) < 1e-9
+    finally:
+        with psycopg.connect(values["V2_MIGRATION_DSN"]) as conn:
+            conn.execute("DELETE FROM market_observation WHERE market=%s", (market,))
 
 
 def test_intel_database_fencing_integration():

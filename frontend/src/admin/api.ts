@@ -154,6 +154,7 @@ export type IntelObservation = {
   score: number
   published_date: string
   observed_at: string
+  similarity: number
 }
 
 export type IntelWatchConfig = {
@@ -170,15 +171,18 @@ export type IntelFilters = {
   category?: string
   platform?: string
   since?: string
+  query?: string
 }
 
 export const getIntelObservations = (filters: IntelFilters = {}) => {
   const query = new URLSearchParams({ limit: '50' })
-  for (const key of ['market', 'category', 'platform', 'since'] as const) {
+  for (const key of ['market', 'category', 'platform', 'since', 'query'] as const) {
     const value = filters[key]
     if (value) query.set(key, value)
   }
-  return get<{ items: IntelObservation[] }>(`/admin/v1/intel/observations?${query.toString()}`)
+  return get<{ items: IntelObservation[]; query_degraded: boolean }>(
+    `/admin/v1/intel/observations?${query.toString()}`,
+  )
 }
 export const getIntelWatchConfigs = () =>
   get<{ items: IntelWatchConfig[] }>('/admin/v1/intel/watch-configs')

@@ -83,8 +83,10 @@ class IntelDatabase:
             return None
         return IntelJob(*row)
 
-    def complete_success(self, job: IntelJob, results) -> bool:
+    def complete_success(self, job: IntelJob, results, embeddings: list[str | None] | None = None) -> bool:
         """Upsert observations and finish the job only while the fence is ours."""
+        if embeddings is not None and len(embeddings) != len(results):
+            raise ValueError("embedding count does not match observation count")
         stored = 0
         with self._connect() as conn:
             with conn.cursor() as cursor:
@@ -96,7 +98,7 @@ class IntelDatabase:
                 if row is None or row[0] != job.fencing_epoch:
                     conn.rollback()
                     return False
-                for result in results:
+                for index, result in enumerate(results):
                     if not result.url.strip():
                         continue
                     payload = json.dumps(
@@ -110,12 +112,14 @@ class IntelDatabase:
                     )
                     cursor.execute(
                         """INSERT INTO market_observation(
-                               market,category,platform,observed_at,source_url,payload_json)
-                           VALUES(%s,%s,%s,now(),%s,%s::jsonb)
+                               market,category,platform,observed_at,source_url,payload_json,embedding)
+                           VALUES(%s,%s,%s,now(),%s,%s::jsonb,%s::vector)
                            ON CONFLICT (market,category,platform,source_url)
                            DO UPDATE SET payload_json=EXCLUDED.payload_json,
-                                         observed_at=EXCLUDED.observed_at""",
-                        (job.market, job.category, job.platform, result.url, payload),
+                                         observed_at=EXCLUDED.observed_at,
+                                         embedding=EXCLUDED.embedding""",
+                        (job.market, job.category, job.platform, result.url, payload,
+                         embeddings[index] if embeddings is not None else None),
                     )
                     stored += 1
                 cursor.execute(
@@ -158,30 +162,49 @@ class IntelDatabase:
         return ok
 
     def list_observations(self, market: str, category: str, platform: str,
-                          since: datetime | None, limit: int) -> list[dict]:
+                          since: datetime | None, limit: int,
+                          query_vector: str | None = None) -> list[dict]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT market,category,platform,COALESCE(source_url,''),
-                          COALESCE(payload_json->>'title',''),
-                          COALESCE((payload_json->>'score')::double precision,0),
-                          COALESCE(payload_json->>'published_date',''),
-                          observed_at
-                   FROM market_observation
-                   WHERE (%s='' OR market=%s)
+        filters = """(%s='' OR market=%s)
                      AND (%s='' OR category=%s)
                      AND (%s='' OR platform=%s)
-                     AND (%s::timestamptz IS NULL OR observed_at >= %s)
-                   ORDER BY observed_at DESC,id DESC
-                   LIMIT %s""",
-                (market, market, category, category, platform, platform, since, since, limit),
-            ).fetchall()
+                     AND (%s::timestamptz IS NULL OR observed_at >= %s)"""
+        params = (market, market, category, category, platform, platform, since, since)
+        with self._connect() as conn:
+            if query_vector is None:
+                rows = conn.execute(
+                    """SELECT market,category,platform,COALESCE(source_url,''),
+                              COALESCE(payload_json->>'title',''),
+                              COALESCE((payload_json->>'score')::double precision,0),
+                              COALESCE(payload_json->>'published_date',''),
+                              observed_at,0.0
+                       FROM market_observation
+                       WHERE """ + filters + """
+                       ORDER BY observed_at DESC,id DESC
+                       LIMIT %s""",
+                    (*params, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT market,category,platform,COALESCE(source_url,''),
+                              COALESCE(payload_json->>'title',''),
+                              COALESCE((payload_json->>'score')::double precision,0),
+                              COALESCE(payload_json->>'published_date',''),
+                              observed_at,1.0 - (embedding <=> %s::vector)
+                       FROM market_observation
+                       WHERE """ + filters + """
+                         AND embedding IS NOT NULL
+                       ORDER BY embedding <=> %s::vector,observed_at DESC,id DESC
+                       LIMIT %s""",
+                    (query_vector, *params, query_vector, limit),
+                ).fetchall()
         return [
             {
                 "market": row[0], "category": row[1], "platform": row[2],
                 "source_url": row[3], "title": row[4], "score": float(row[5]),
                 "published_date": row[6], "observed_at": row[7].isoformat(),
+                "similarity": float(row[8]),
             }
             for row in rows
         ]

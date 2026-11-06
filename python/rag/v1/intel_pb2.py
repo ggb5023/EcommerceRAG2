@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12rag/v1/intel.proto\x12\x06rag.v1\"\x95\x01\n\x17ListObservationsRequest\x12\x16\n\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n\x08\x63\x61tegory\x18\x02 \x01(\tR\x08\x63\x61tegory\x12\x1a\n\x08platform\x18\x03 \x01(\tR\x08platform\x12\x14\n\x05since\x18\x04 \x01(\tR\x05since\x12\x14\n\x05limit\x18\x05 \x01(\x05R\x05limit\"\xf0\x01\n\x0bObservation\x12\x16\n\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n\x08\x63\x61tegory\x18\x02 \x01(\tR\x08\x63\x61tegory\x12\x1a\n\x08platform\x18\x03 \x01(\tR\x08platform\x12\x1d\n\nsource_url\x18\x04 \x01(\tR\tsourceUrl\x12\x14\n\x05title\x18\x05 \x01(\tR\x05title\x12\x14\n\x05score\x18\x06 \x01(\x01R\x05score\x12%\n\x0epublished_date\x18\x07 \x01(\tR\rpublishedDate\x12\x1f\n\x0bobserved_at\x18\x08 \x01(\tR\nobservedAt\"E\n\x18ListObservationsResponse\x12)\n\x05items\x18\x01 \x03(\x0b\x32\x13.rag.v1.ObservationR\x05items2e\n\x0cIntelService\x12U\n\x10ListObservations\x12\x1f.rag.v1.ListObservationsRequest\x1a .rag.v1.ListObservationsResponseB=Z;github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1;ragv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12rag/v1/intel.proto\x12\x06rag.v1\"\xab\x01\n\x17ListObservationsRequest\x12\x16\n\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n\x08\x63\x61tegory\x18\x02 \x01(\tR\x08\x63\x61tegory\x12\x1a\n\x08platform\x18\x03 \x01(\tR\x08platform\x12\x14\n\x05since\x18\x04 \x01(\tR\x05since\x12\x14\n\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x14\n\x05query\x18\x06 \x01(\tR\x05query\"\x90\x02\n\x0bObservation\x12\x16\n\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n\x08\x63\x61tegory\x18\x02 \x01(\tR\x08\x63\x61tegory\x12\x1a\n\x08platform\x18\x03 \x01(\tR\x08platform\x12\x1d\n\nsource_url\x18\x04 \x01(\tR\tsourceUrl\x12\x14\n\x05title\x18\x05 \x01(\tR\x05title\x12\x14\n\x05score\x18\x06 \x01(\x01R\x05score\x12%\n\x0epublished_date\x18\x07 \x01(\tR\rpublishedDate\x12\x1f\n\x0bobserved_at\x18\x08 \x01(\tR\nobservedAt\x12\x1e\n\nsimilarity\x18\t \x01(\x01R\nsimilarity\"l\n\x18ListObservationsResponse\x12)\n\x05items\x18\x01 \x03(\x0b\x32\x13.rag.v1.ObservationR\x05items\x12%\n\x0equery_degraded\x18\x02 \x01(\x08R\rqueryDegraded2e\n\x0cIntelService\x12U\n\x10ListObservations\x12\x1f.rag.v1.ListObservationsRequest\x1a .rag.v1.ListObservationsResponseB=Z;github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1;ragv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,11 +33,11 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z;github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1;ragv1'
   _globals['_LISTOBSERVATIONSREQUEST']._serialized_start=31
-  _globals['_LISTOBSERVATIONSREQUEST']._serialized_end=180
-  _globals['_OBSERVATION']._serialized_start=183
-  _globals['_OBSERVATION']._serialized_end=423
-  _globals['_LISTOBSERVATIONSRESPONSE']._serialized_start=425
-  _globals['_LISTOBSERVATIONSRESPONSE']._serialized_end=494
-  _globals['_INTELSERVICE']._serialized_start=496
-  _globals['_INTELSERVICE']._serialized_end=597
+  _globals['_LISTOBSERVATIONSREQUEST']._serialized_end=202
+  _globals['_OBSERVATION']._serialized_start=205
+  _globals['_OBSERVATION']._serialized_end=477
+  _globals['_LISTOBSERVATIONSRESPONSE']._serialized_start=479
+  _globals['_LISTOBSERVATIONSRESPONSE']._serialized_end=587
+  _globals['_INTELSERVICE']._serialized_start=589
+  _globals['_INTELSERVICE']._serialized_end=690
 # @@protoc_insertion_point(module_scope)

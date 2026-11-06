@@ -17,9 +17,16 @@ from urllib.parse import urlparse
 
 from app.configuration import verify_database
 from app.intel.database import IntelDatabase
+from app.intel.embedding import (
+    embed_dense,
+    observation_text,
+    record_embedding_usage,
+    vector_literal,
+)
 from app.intel.limiter import TokenBucket
 from app.intel.rpc import build_intel_server
-from app.providers.contracts import ProviderError
+from app.providers import build_provider, load_provider_config
+from app.providers.contracts import EmbeddingProvider, ProviderError
 from app.providers.tavily import TavilyProvider, load_tavily_config
 from app.providers.usage import UsageRecorder
 from app.rpc.server import bind
@@ -68,7 +75,9 @@ def _env_float(name: str, default: float, low: float, high: float) -> float:
 class IntelWorker:
     def __init__(self, database: IntelDatabase, provider: TavilyProvider,
                  usage: UsageRecorder | None, limiter: TokenBucket, *,
-                 poll_seconds: float = DEFAULT_POLL_SECONDS) -> None:
+                 poll_seconds: float = DEFAULT_POLL_SECONDS,
+                 embedding: EmbeddingProvider | None = None,
+                 embedding_model: str = "unknown") -> None:
         if poll_seconds <= 0:
             raise ValueError("poll interval must be positive")
         self.database = database
@@ -76,6 +85,8 @@ class IntelWorker:
         self.usage = usage
         self.limiter = limiter
         self.poll_seconds = poll_seconds
+        self.embedding = embedding
+        self.embedding_model = embedding_model or "unknown"
         self._stop = threading.Event()
 
     def stop(self) -> None:
@@ -87,6 +98,26 @@ class IntelWorker:
         self.usage.record(tenant_id=None, slot="search", model="tavily",
                           input_tokens=None, output_tokens=None,
                           http_status=http_status, error_code=error_code)
+
+    def _embed_results(self, results) -> list[str | None] | None:
+        """Return one pgvector literal or None per result; failures never block."""
+        if self.embedding is None or not results:
+            return None
+        texts = [observation_text(result.title, result.content) for result in results]
+        try:
+            embedded = asyncio.run(embed_dense(self.embedding, texts, text_type="document"))
+        except ProviderError as error:
+            record_embedding_usage(self.usage, [], self.embedding_model, error.status, error.code)
+            return None
+        except Exception:  # noqa: BLE001 - embedding is best-effort; crawl continues
+            record_embedding_usage(self.usage, [], self.embedding_model, None, "worker_error")
+            return None
+        literals = [vector_literal(result) for result in embedded]
+        if any(literal is None for literal in literals):
+            record_embedding_usage(self.usage, embedded, self.embedding_model, None, "invalid_response")
+            return None
+        record_embedding_usage(self.usage, embedded, self.embedding_model, None, None)
+        return literals
 
     def run_once(self) -> bool:
         self.database.ensure_jobs(RECRAWL_INTERVAL_HOURS)
@@ -109,7 +140,7 @@ class IntelWorker:
             self.database.complete_failure(job, "failed", "worker_error")
             return True
         self._usage(None, None)
-        self.database.complete_success(job, response.results)
+        self.database.complete_success(job, response.results, self._embed_results(response.results))
         return True
 
     def run(self) -> None:
@@ -147,10 +178,15 @@ def main() -> int:
         raise SystemExit("V2_INTEL_PROXY_URL must be empty or https")
     provider_config = os.environ.get("V2_PROVIDER_CONFIG", "/etc/ecommerce-rag/providers.env")
     provider = TavilyProvider(load_tavily_config(provider_config))
+    provider_model_config = load_provider_config(provider_config)
+    embedding = build_provider(provider_model_config, record_usage=False)
     database = IntelDatabase(dsn)
-    worker = IntelWorker(database, provider, UsageRecorder(dsn), TokenBucket(rpm),
-                         poll_seconds=poll_seconds)
-    server = build_intel_server(database)
+    usage = UsageRecorder(dsn)
+    worker = IntelWorker(database, provider, usage, TokenBucket(rpm),
+                         poll_seconds=poll_seconds, embedding=embedding,
+                         embedding_model=provider_model_config.embedding_model)
+    server = build_intel_server(database, embedding=embedding, usage=usage,
+                                embedding_model=provider_model_config.embedding_model)
     bind(server, address)
     server.start()
     thread = threading.Thread(target=worker.run, name="intel-worker", daemon=True)

@@ -16,6 +16,8 @@ message ListObservationsRequest {
   // RFC3339 lower bound on observed_at; empty means no lower bound.
   string since = 4;
   int32 limit = 5;
+  // Dense semantic query. Empty keeps the observed_at time order.
+  string query = 6;
 }
 
 message Observation {
@@ -27,8 +29,12 @@ message Observation {
   double score = 6;
   string published_date = 7;
   string observed_at = 8;
+  // Cosine similarity in [0,1]; 0 when no semantic query was used.
+  double similarity = 9;
 }
 
 message ListObservationsResponse {
   repeated Observation items = 1;
+  // True when a query was supplied but embedding failed and time order was used.
+  bool query_degraded = 2;
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,11 +18,14 @@ import (
 
 func TestIntelObservationFilter(t *testing.T) {
 	values := url.Values{"market": {"m"}, "category": {"c"}, "platform": {"p"},
-		"since": {"2026-11-01T00:00:00Z"}, "limit": {"10"}}
+		"since": {"2026-11-01T00:00:00Z"}, "query": {" 保温杯 "}, "limit": {"10"}}
 	filter, ok := parseIntelObservationFilter(values)
 	if !ok || filter.Market != "m" || filter.Category != "c" || filter.Platform != "p" ||
-		filter.Limit != 10 || filter.Since == "" {
+		filter.Limit != 10 || filter.Since == "" || filter.Query != "保温杯" {
 		t.Fatalf("unexpected filter: %+v ok=%v", filter, ok)
+	}
+	if _, ok = parseIntelObservationFilter(url.Values{"query": {strings.Repeat("q", maxIntelQueryChars+1)}}); ok {
+		t.Fatal("oversized query was accepted")
 	}
 	if _, ok = parseIntelObservationFilter(url.Values{"limit": {"0"}}); ok {
 		t.Fatal("limit 0 was accepted")
@@ -98,14 +102,21 @@ func TestIntelObservationsAndWatchCRUD(t *testing.T) {
 	})
 
 	observations := apiJSON(t, api, "GET",
-		"/admin/v1/intel/observations?market=m&category=c&platform=p&limit=10", nil, http.StatusOK)
+		"/admin/v1/intel/observations?market=m&category=c&platform=p&query=保温杯&limit=10", nil, http.StatusOK)
 	items, ok := observations["items"].([]any)
 	if !ok || len(items) != 1 {
 		t.Fatalf("observations: %+v", observations)
 	}
+	if observations["query_degraded"] != false {
+		t.Fatalf("query_degraded: %+v", observations)
+	}
 	fake := handler.Intel.(*fakeIntelRead)
-	if fake.request.Market != "m" || fake.request.Limit != 10 {
+	if fake.request.Market != "m" || fake.request.Limit != 10 || fake.request.Query != "保温杯" {
 		t.Fatalf("filters were not passed through: %+v", fake.request)
+	}
+	item := items[0].(map[string]any)
+	if item["similarity"] != float64(0) {
+		t.Fatalf("similarity was not mapped: %+v", item)
 	}
 
 	market := fmt.Sprintf("intel-test-%d", stamp)

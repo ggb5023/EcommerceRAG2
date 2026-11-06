@@ -27,8 +27,10 @@ type ListObservationsRequest struct {
 	Category string                 `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
 	Platform string                 `protobuf:"bytes,3,opt,name=platform,proto3" json:"platform,omitempty"`
 	// RFC3339 lower bound on observed_at; empty means no lower bound.
-	Since         string `protobuf:"bytes,4,opt,name=since,proto3" json:"since,omitempty"`
-	Limit         int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Since string `protobuf:"bytes,4,opt,name=since,proto3" json:"since,omitempty"`
+	Limit int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Dense semantic query. Empty keeps the observed_at time order.
+	Query         string `protobuf:"bytes,6,opt,name=query,proto3" json:"query,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -98,6 +100,13 @@ func (x *ListObservationsRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListObservationsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
 type Observation struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Market        string                 `protobuf:"bytes,1,opt,name=market,proto3" json:"market,omitempty"`
@@ -108,6 +117,8 @@ type Observation struct {
 	Score         float64                `protobuf:"fixed64,6,opt,name=score,proto3" json:"score,omitempty"`
 	PublishedDate string                 `protobuf:"bytes,7,opt,name=published_date,json=publishedDate,proto3" json:"published_date,omitempty"`
 	ObservedAt    string                 `protobuf:"bytes,8,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	// Cosine similarity in [0,1]; 0 when no semantic query was used.
+	Similarity    float64 `protobuf:"fixed64,9,opt,name=similarity,proto3" json:"similarity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,9 +209,18 @@ func (x *Observation) GetObservedAt() string {
 	return ""
 }
 
+func (x *Observation) GetSimilarity() float64 {
+	if x != nil {
+		return x.Similarity
+	}
+	return 0
+}
+
 type ListObservationsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []*Observation         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Items []*Observation         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	// True when a query was supplied but embedding failed and time order was used.
+	QueryDegraded bool `protobuf:"varint,2,opt,name=query_degraded,json=queryDegraded,proto3" json:"query_degraded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -242,17 +262,25 @@ func (x *ListObservationsResponse) GetItems() []*Observation {
 	return nil
 }
 
+func (x *ListObservationsResponse) GetQueryDegraded() bool {
+	if x != nil {
+		return x.QueryDegraded
+	}
+	return false
+}
+
 var File_rag_v1_intel_proto protoreflect.FileDescriptor
 
 const file_rag_v1_intel_proto_rawDesc = "" +
 	"\n" +
-	"\x12rag/v1/intel.proto\x12\x06rag.v1\"\x95\x01\n" +
+	"\x12rag/v1/intel.proto\x12\x06rag.v1\"\xab\x01\n" +
 	"\x17ListObservationsRequest\x12\x16\n" +
 	"\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x1a\n" +
 	"\bplatform\x18\x03 \x01(\tR\bplatform\x12\x14\n" +
 	"\x05since\x18\x04 \x01(\tR\x05since\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"\xf0\x01\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x14\n" +
+	"\x05query\x18\x06 \x01(\tR\x05query\"\x90\x02\n" +
 	"\vObservation\x12\x16\n" +
 	"\x06market\x18\x01 \x01(\tR\x06market\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x1a\n" +
@@ -263,9 +291,13 @@ const file_rag_v1_intel_proto_rawDesc = "" +
 	"\x05score\x18\x06 \x01(\x01R\x05score\x12%\n" +
 	"\x0epublished_date\x18\a \x01(\tR\rpublishedDate\x12\x1f\n" +
 	"\vobserved_at\x18\b \x01(\tR\n" +
-	"observedAt\"E\n" +
+	"observedAt\x12\x1e\n" +
+	"\n" +
+	"similarity\x18\t \x01(\x01R\n" +
+	"similarity\"l\n" +
 	"\x18ListObservationsResponse\x12)\n" +
-	"\x05items\x18\x01 \x03(\v2\x13.rag.v1.ObservationR\x05items2e\n" +
+	"\x05items\x18\x01 \x03(\v2\x13.rag.v1.ObservationR\x05items\x12%\n" +
+	"\x0equery_degraded\x18\x02 \x01(\bR\rqueryDegraded2e\n" +
 	"\fIntelService\x12U\n" +
 	"\x10ListObservations\x12\x1f.rag.v1.ListObservationsRequest\x1a .rag.v1.ListObservationsResponseB=Z;github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1;ragv1b\x06proto3"
 

@@ -12,11 +12,14 @@ import (
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
 
+const maxIntelQueryChars = 500
+
 type intelObservationFilter struct {
 	Market   string
 	Category string
 	Platform string
 	Since    string
+	Query    string
 	Limit    int32
 }
 
@@ -25,7 +28,11 @@ func parseIntelObservationFilter(values url.Values) (intelObservationFilter, boo
 		Market:   strings.TrimSpace(values.Get("market")),
 		Category: strings.TrimSpace(values.Get("category")),
 		Platform: strings.TrimSpace(values.Get("platform")),
+		Query:    strings.TrimSpace(values.Get("query")),
 		Limit:    50,
+	}
+	if len([]rune(filter.Query)) > maxIntelQueryChars {
+		return filter, false
 	}
 	if raw := strings.TrimSpace(values.Get("limit")); raw != "" {
 		limit, err := strconv.ParseInt(raw, 10, 32)
@@ -52,7 +59,7 @@ func (g *Handler) adminIntelObservations(w http.ResponseWriter, r *http.Request)
 	}
 	filter, valid := parseIntelObservationFilter(r.URL.Query())
 	if !valid {
-		httpapi.WriteError(w, http.StatusBadRequest, "invalid_intel_filter", "market/category/platform/since/limit are invalid")
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_intel_filter", "market/category/platform/since/query/limit are invalid")
 		return
 	}
 	if g.Intel == nil {
@@ -61,7 +68,7 @@ func (g *Handler) adminIntelObservations(w http.ResponseWriter, r *http.Request)
 	}
 	response, err := g.Intel.ListObservations(r.Context(), &ragv1.ListObservationsRequest{
 		Market: filter.Market, Category: filter.Category, Platform: filter.Platform,
-		Since: filter.Since, Limit: filter.Limit,
+		Since: filter.Since, Limit: filter.Limit, Query: filter.Query,
 	})
 	if err != nil {
 		httpapi.WriteError(w, http.StatusServiceUnavailable, "intel_unavailable", "intelligence service is unavailable")
@@ -73,9 +80,12 @@ func (g *Handler) adminIntelObservations(w http.ResponseWriter, r *http.Request)
 			"market": item.GetMarket(), "category": item.GetCategory(), "platform": item.GetPlatform(),
 			"source_url": item.GetSourceUrl(), "title": item.GetTitle(), "score": item.GetScore(),
 			"published_date": item.GetPublishedDate(), "observed_at": item.GetObservedAt(),
+			"similarity": item.GetSimilarity(),
 		})
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"items": items, "query_degraded": response.GetQueryDegraded(),
+	})
 }
 
 func (g *Handler) adminIntelWatchConfigs(w http.ResponseWriter, r *http.Request) {
