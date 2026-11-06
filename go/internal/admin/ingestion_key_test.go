@@ -34,6 +34,16 @@ func TestIngestIdempotencyKeyIsStableAndShopScoped(t *testing.T) {
 	}
 }
 
+// Reimport after revoke is a new batch: it must not reuse the old batch's key.
+func TestReimportAfterRevokeUsesANewBatchKey(t *testing.T) {
+	manifest := "schema_version: 1\n"
+	oldKey := ingestIdempotencyKey("shop-a", 10, manifest)
+	newKey := ingestIdempotencyKey("shop-a", 11, manifest)
+	if oldKey == newKey {
+		t.Fatalf("reimport reused key %q", oldKey)
+	}
+}
+
 func TestIngestIdempotencyKeyLegacyPathStaysShopAndManifestScoped(t *testing.T) {
 	manifest := "schema_version: 1\n"
 	if got, legacy := ingestIdempotencyKey("shop-a", 0, manifest), legacyIngestIdempotencyKey("shop-a", manifest); got != legacy {
