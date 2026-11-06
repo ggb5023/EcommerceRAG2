@@ -84,7 +84,67 @@ bash scripts/check.sh --smoke  # 47 项基线逐字节一致（改了 Go 需重�
 - 不改 CONTRACTS_* 棘轮（新增 ✅ 行 NOTE 由主 agent 单独提交）；
 - 不动报告 CLI 的生成逻辑（只允许为其补测试文件）。
 
-## 汇报
+## 实施与验证（2026-11-06）
 
-五节格式；附契约行内容、白名单剔除测试输出、真实 curl 五段头几行、前端测试输出、
-smoke 输出。
+契约行已加入 `docs/contracts.md`（跨进程，状态 ✅）：报告 CLI 五段 ↔
+`go/internal/admin/report.go:readReport` 白名单。两侧测试：
+`TestAdminReportWhitelistsSections` 与 `test_demo_report_structure.py`。
+
+Go：
+```text
+cd go && go test ./internal/admin/ -run Report -v
+  TestReportHandlerIntegration SKIP（默认层无 V2_INTEGRATION_ENV）
+  TestAdminReportWhitelistsSections PASS
+  TestReportHandlesUnavailableFiles PASS（空路径/缺文件/目录/超 1MiB/空文件/坏 JSON/数组根）
+  TestReportRequiresMerchantRole PASS（403 admin_scope_denied）
+
+带 V2_INTEGRATION_ENV=<test-integration-env> 时：
+  TestReportHandlerIntegration PASS（五段 200 + 无 admin 授权 403）
+```
+
+前端：
+```text
+cd frontend && npm test -- --run  -> 17 files / 69 tests passed
+npm run lint                      -> 0 warning, 0 error
+npm run build                     -> vue-tsc + vite pass
+```
+
+真实链路（dev，development identity）：
+```text
+报告 CLI 输出 demo-report.json；仓外 `.local/wp36/report.json` 是指向它的本地符号链接
+（不提交 JSON，不改 CLI 生成逻辑）。
+
+curl /admin/v1/report -> 200
+顶层键 -> ['handoff', 'input', 'operations', 'quality', 'tokens']
+leak/not_measured/report_version/generated_at 等非白名单顶层键未出现在响应中。
+```
+
+报告文件缺失时：
+```text
+curl -s -w '%{http_code}' /admin/v1/report
+404
+{"code":"report_unavailable","message":"evaluation report is unavailable"}
+```
+
+无 session：dev 默认是 development identity，不带 cookie 会直接使用固定身份（200）。
+临时把 `V2_IDENTITY_PROFILE` 切到 `local` 后，无 cookie 的真实 curl：
+```text
+401
+{"code":"identity_rejected","message":"identity rejected"}
+```
+
+随后已恢复 development identity 并重启，`/admin/v1/report` 回到 200；
+`TestReportHandlerIntegration` 另以真实 DB 的无授权用户验证 403。
+
+门禁：
+```text
+bash scripts/check.sh         -> PASSED 44 / UNCONFIGURED 0 / FAILED 0
+bash scripts/check.sh --smoke -> PASSED 47 / UNCONFIGURED 0 / FAILED 0（五条 diff 逐字节一致）
+```
+
+`check-contracts` 输出 `NOTE contracts: 跨进程 rose to 16; raise CONTRACTS_CROSS`；
+按工作包要求未改 `CONTRACTS_CROSS`，由主 agent 单独提交。
+
+未覆盖：报告为 dev 快照，`input.status=NOT_MEASURED`（演示包版本未全部 active），
+页面按要求显示「未测量」；未跑浏览器 e2e、`--db`、`--e2e`、远端 Actions；
+未重算任何指标、未写业务表、未新增迁移/依赖；`demo-report.py` 生成逻辑未改。
