@@ -55,11 +55,12 @@ def db(tmp_path):
             revision = conn.execute("SELECT permission_revision FROM app_user WHERE id=%s", (user,)).fetchone()[0]
         return rag_pb2.RequestContext(tenant_id=suffix, tenant_db_id=tenant, user_id="test-user", user_db_id=user, role="admin", shop_id="shop-test", allowed_shop_ids=["shop-test"], permission_revision=revision, scope_audience="ingest")
 
-    def submit(content=b"# Delivery\n\nOrders leave within two business days.\n", *, key=None):
+    def submit(content=b"# Delivery\n\nOrders leave within two business days.\n", *, key=None,
+               required_admin_role="merchant_admin"):
         sha = hashlib.sha256(content).hexdigest()
         manifest = f"schema_version: 1\nsource:\n  id: docs\n  name: Docs\npipeline_version: v2-test\ndocuments:\n  - document_id: delivery\n    title: Delivery\n    path: delivery.md\n    format: markdown\n    sha256: {sha}\n    disclosure_class: external_allowed\n"
         manifest_sha = hashlib.sha256(manifest.encode()).hexdigest()
-        return store.submit(tenant_id=suffix, user_id="test-user", shop_id="shop-test", tenant_db_id=str(tenant), user_db_id=str(user), permission_revision=scope().permission_revision, idempotency_key=key or uuid4().hex, source_id="docs", source_name="Docs", pipeline_version="v2-test", manifest_yaml=manifest, manifest_sha256=manifest_sha, package_sha256=package_payload_hash(tenant, "shop-test", manifest_sha, {"delivery.md": content}), documents=[{"document_id": "delivery", "title": "Delivery", "path": "delivery.md", "source_hash": sha, "format": "markdown", "disclosure_class": "external_allowed", "effective_from": "", "effective_to": ""}], files={"delivery.md": content})
+        return store.submit(tenant_id=suffix, user_id="test-user", shop_id="shop-test", tenant_db_id=str(tenant), user_db_id=str(user), permission_revision=scope().permission_revision, required_admin_role=required_admin_role, idempotency_key=key or uuid4().hex, source_id="docs", source_name="Docs", pipeline_version="v2-test", manifest_yaml=manifest, manifest_sha256=manifest_sha, package_sha256=package_payload_hash(tenant, "shop-test", manifest_sha, {"delivery.md": content}), documents=[{"document_id": "delivery", "title": "Delivery", "path": "delivery.md", "source_hash": sha, "format": "markdown", "disclosure_class": "external_allowed", "effective_from": "", "effective_to": ""}], files={"delivery.md": content})
 
     def execute(action, resource, *, key=None, **kwargs):
         request = rag_pb2.ExecuteCommandRequest(context=scope(), command_id=key or uuid4().hex, action=action, resource_id=str(resource), reason="Reviewed in isolated V2 acceptance", **kwargs)
@@ -196,6 +197,37 @@ def test_duplicate_submission_conflict_and_stale_scope(db):
     request.context.command_payload_sha256 = payload_digest(request)
     with pytest.raises(IngestAuthorizationError):
         db.commands.execute(request)
+
+
+def test_adoption_submission_runs_without_row_lock_privileges(db):
+    """WP80: adoption submits through rag_v2_ingest; no FOR SHARE on tenant/app_user/shop.
+
+    The grant check is skipped for the adoption audience, so the shared identity
+    SELECT must not take row locks the ingest role cannot acquire.
+    """
+    with psycopg.connect(db.values["V2_INGEST_DSN"], autocommit=True) as conn:
+        assert conn.execute("SELECT rolsuper FROM pg_roles WHERE rolname=current_user").fetchone() == (False,)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("SELECT 1 FROM tenant WHERE id=%s FOR SHARE", (db.tenant,))
+    adopted = db.submit(required_admin_role=None)
+    assert adopted.status == "pending"
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM ingest_job WHERE tenant_id=%s AND id=%s",
+            (db.tenant, adopted.job_id),
+        ).fetchone() == (1,)
+    stale = db.scope()
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        conn.execute("UPDATE app_user SET permission_revision='stale-revision' WHERE id=%s", (db.user,))
+    with pytest.raises(IngestAuthorizationError):
+        db.store.submit(
+            tenant_id=stale.tenant_id, user_id=stale.user_id, shop_id=stale.shop_id,
+            tenant_db_id=str(db.tenant), user_db_id=str(db.user),
+            permission_revision=stale.permission_revision, required_admin_role=None,
+            idempotency_key=uuid4().hex, source_id="docs", source_name="Docs",
+            pipeline_version="v2-test", manifest_yaml="schema_version: 1\n",
+            manifest_sha256="0" * 64, package_sha256="0" * 64, documents=[], files={},
+        )
 
 
 def test_expired_worker_is_fenced_and_new_owner_recovers(db):

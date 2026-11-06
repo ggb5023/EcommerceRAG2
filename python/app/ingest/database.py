@@ -140,7 +140,7 @@ class IngestDatabase:
             "SELECT t.external_id, t.status, u.external_id, u.revoked_at, s.status, u.permission_revision, u.shop_ids, u.role "
             "FROM tenant t JOIN app_user u ON u.tenant_id=t.id "
             "JOIN shop s ON s.tenant_id=t.id "
-            "WHERE t.id=%s AND u.id=%s AND s.id=%s FOR SHARE OF u,t,s",
+            "WHERE t.id=%s AND u.id=%s AND s.id=%s",
             (tenant_pk, user_pk, shop_id),
         )
         row = cursor.fetchone()
