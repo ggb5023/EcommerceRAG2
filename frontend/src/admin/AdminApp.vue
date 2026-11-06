@@ -267,6 +267,9 @@ async function loadPage() {
     identityStatus.value = 0
     if (!session.value) session.value = await get<AdminSession>('/admin/v1/session')
     if (page.value === 'outcomes' || page.value === 'reports' || page.value === 'report' || page.value === 'intel' || page.value === 'gaps' || page.value === 'inspections') { data.value = []; return }
+    // The account list needs the platform access role; merchant admins only use
+    // this page to create staff (POST /admin/v1/staff) and must not 403 here.
+    if (page.value === 'accounts' && !canAccess.value) { data.value = []; return }
     const response = await get<ItemResponse | Row>(endpointForPage())
     data.value = page.value === 'overview'
       ? [response as Row]

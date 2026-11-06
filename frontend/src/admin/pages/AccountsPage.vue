@@ -20,7 +20,8 @@ const rows = computed(() => data.value.filter((row) => {
 
 <template>
 <section class="content-area">
-  <DataTable v-model="search" title="授权范围内的账号" placeholder="搜索账号 / 角色">
+  <p v-if="!canAccess" role="status">账号列表仅平台权限管理员可查看；商家管理员可在此新增员工。</p>
+  <DataTable v-if="canAccess" v-model="search" title="授权范围内的账号" placeholder="搜索账号 / 角色">
     <template #subtitle><p>撤权状态和权限版本由服务端当前记录决定。</p></template>
     <template #actions><Button v-if="canCreateStaff" variant="primary" @click="createOpen=true">新增员工</Button></template>
     <Table>
