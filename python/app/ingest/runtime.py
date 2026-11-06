@@ -36,5 +36,5 @@ def load_artifact_store():
             raise ValueError("INGEST_ARTIFACT_ROOT must be absolute")
         return FilesystemObjectStore(root)
     if profile == "oss":
-        return AlibabaOSSObjectStore(load_oss_config())
+        return AlibabaOSSObjectStore(config=load_oss_config())
     raise ValueError("INGEST_STORAGE_PROFILE must explicitly select filesystem or oss")

@@ -171,7 +171,7 @@ if [ "$SMOKE" -eq 0 ]; then
 fi
 run fast go-test "cd go && go test -p 2 ./..."
 run fast go-vet "cd go && go vet ./..."
-run fast python-sync "cd python && uv sync --frozen"
+run fast python-sync "cd python && uv sync --frozen --group cloud"
 run fast python-tests "cd python && uv run --frozen pytest -q"
 run fast python-lint "cd python && uv run --frozen ruff check app tests ../eval ../scripts/check/artifact-cleanup-fault-smoke.py ../scripts/dev/v2_services.py"
 run fast python-imports "cd python && uv run --frozen python -c 'from app.providers.contracts import EmbeddingResult; from app.ai_process import build_ai_process; from app.rpc.server import build_server'"

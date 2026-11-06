@@ -2,7 +2,7 @@ FROM python:3.12.14-slim
 WORKDIR /app
 RUN pip install --no-cache-dir uv==0.12.16
 COPY python/pyproject.toml python/uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --group cloud
 COPY python/app ./app
 COPY python/rag ./rag
 COPY sql ./sql

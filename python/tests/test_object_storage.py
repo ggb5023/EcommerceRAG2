@@ -138,3 +138,23 @@ class AlibabaOSSObjectStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArtifactStoreSelection(unittest.TestCase):
+    def test_oss_profile_constructs_the_oss_store_with_a_config_kwarg(self):
+        from unittest.mock import patch
+
+        from app.ingest import runtime
+
+        config = OSSConfig(
+            endpoint="https://oss.example.invalid",
+            bucket="ecr-test",
+            region="cn-test",
+            access_key_id="id",
+            access_key_secret="secret",
+        )
+        with patch.dict("os.environ", {"INGEST_STORAGE_PROFILE": "oss"}), \
+             patch.object(runtime, "load_oss_config", return_value=config), \
+             patch.object(runtime, "AlibabaOSSObjectStore") as store:
+            runtime.load_artifact_store()
+        store.assert_called_once_with(config=config)
