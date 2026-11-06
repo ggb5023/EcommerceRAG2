@@ -11,6 +11,11 @@ const MIGRATED = [
   'components/StatePanel.vue',
   'components/ConfirmDialog.vue',
   'AssistantCatalog.vue',
+  'styles/base.css',
+  'styles/workbench.css',
+  'admin/admin.css',
+  'PasswordPage.vue',
+  'admin/KnowledgePreview.vue',
 ]
 
 const root = fileURLToPath(new URL('.', import.meta.url))

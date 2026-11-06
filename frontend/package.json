@@ -9,7 +9,8 @@
     "lint": "node eslint-baseline.mjs",
     "test": "vitest run",
     "test:browser": "node tests/admin.browser.mjs",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "test:visual": "node tests/visual-review.mjs"
   },
   "dependencies": {
     "vue": "^3.5.0",

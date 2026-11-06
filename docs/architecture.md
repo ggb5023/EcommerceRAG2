@@ -7,7 +7,7 @@
 ## 目标运行时
 
 ```text
-浏览器  /shop（顾客）  /support（客服）  /admin（商家）
+浏览器  /shop（顾客）  /staff（员工工作台）  /assistant（AI 查询台）  /admin（商家）
    │ HTTPS：HTTP + SSE
 ┌──▼─────────────────────────────┐
 │ Go gateway（唯一对外入口）       │

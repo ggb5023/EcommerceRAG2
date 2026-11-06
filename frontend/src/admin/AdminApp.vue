@@ -538,6 +538,7 @@ const admin = {
   roleLabel,
   requestableRoles,
   navigation,
+  navigationGroups,
   endpointForPage,
   clearRestrictedContent,
   handleFailure,

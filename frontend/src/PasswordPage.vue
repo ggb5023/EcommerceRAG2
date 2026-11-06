@@ -46,10 +46,10 @@ async function submit() {
 </template>
 
 <style scoped>
-.password-shell{min-height:100vh;display:grid;place-items:center;background:#f6f8f6;padding:16px}
-.password-card{width:min(420px,100%);display:grid;gap:12px;padding:28px;background:#fff;border:1px solid #e2e9e4;border-radius:10px}
-h1{margin:0;font-size:20px;color:#17231f}label{display:grid;gap:6px;font-size:12px;color:#52635b}
-input{padding:10px;border:1px solid #d8e2dc;border-radius:6px;font:inherit}
-button{padding:10px 14px;border:0;border-radius:6px;background:#1b654d;color:#fff;font-weight:700}
-button:disabled{opacity:.6}.error{color:#a3453e;margin:0}.hint{color:#52635b;margin:0;font-size:12px}
+.password-shell{min-height:100vh;display:grid;place-items:center;background:var(--color-bg);padding:16px}
+.password-card{width:min(420px,100%);display:grid;gap:12px;padding:28px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:10px}
+h1{margin:0;font-size:20px;color:var(--color-text)}label{display:grid;gap:6px;font-size:12px;color:var(--color-text-muted)}
+input{padding:10px;border:1px solid var(--color-border);border-radius:6px;font:inherit}
+button{padding:10px 14px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-surface);font-weight:700}
+button:disabled{opacity:.6}.error{color:var(--color-danger);margin:0}.hint{color:var(--color-text-muted);margin:0;font-size:12px}
 </style>

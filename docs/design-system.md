@@ -57,7 +57,8 @@ StatePanel：loading / error / forbidden 时替换整块内容
 
 ## 5. 视觉审查循环（agent 用）
 
-1. 启动目标栈（隔离栈或 dev）并运行 `npm run test:visual`；
+1. 启动目标栈（隔离栈或 dev），设置 `VISUAL_ADMIN_USER` / `VISUAL_ADMIN_PASSWORD` /
+   `VISUAL_STAFF_USER` / `VISUAL_STAFF_PASSWORD` 后运行 `npm run test:visual`；
 2. 读取 `.local/visual-review/manifest.json` 中的 checks 与 failures；
 3. **必须**用 Read 工具直接查看 `.local/visual-review/*.png`（明/暗、1440/390），
    不能只看 JSON 就宣称通过；

@@ -210,9 +210,11 @@ bash scripts/check.sh --e2e
 - `/shop/my-shop`：客户页；Cookie 丢失后不能恢复匿名历史。顾客 API 的 `shop_slug` 取
   `shop.public_slug`（默认 `my-shop`），不是数据库 `shop_id`（默认 `main-shop`）；传错会得到
   `404 shop_unavailable`。
-- `/staff`：员工工作台，两个标签页——「人工队列」（领取与回复顾客会话）与
-  「AI 辅助」（粘贴顾客问题生成建议回复，不代替人工发送）。旧地址 `/support`、
-  `/chat` 会自动跳转到对应标签页。
+- `/staff`：员工工作台——领取工单、回复顾客；建议面板跟随已领取工单显示在
+  会话右侧（可复制，也可采纳为知识草稿，均需人工发送/审核）。旧地址 `/support`、
+  `/chat` 会自动跳转。
+- `/assistant`：AI 查询台（商家与员工共用）——知识问答与引用；
+  `/assistant/catalog` 浏览已发布商品目录（不展示价格，库存/订单请咨询人工）。
 
 管理端写接口（导入、审核、发布等）除 session cookie 外还必须带 `Origin` 与
 `X-CSRF-Token`；CSRF token 取自 `/v1/auth/login` 响应的 `csrf_token`。只带 cookie 的
