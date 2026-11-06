@@ -79,6 +79,7 @@ export type Suggestion = {
   decision?: string
   reasons?: { code: string; detail?: string }[]
   evidence_chunk_ids?: string[]
+  rules_version?: string
 }
 
 export type Grant = {
