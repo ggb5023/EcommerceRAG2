@@ -76,6 +76,43 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 - **内置账号（默认，`--identity-profile local`）**：`selfhost.py` 只写 `accounts: []`，bootstrap 创建 `merchant` 租户、`main-shop` 店铺与一个 owner 骨架（不写密码），不启动 Keycloak。启动后打开 `https://<host>/setup` 设置 owner 密码：该页面只在 loopback 或携带启动日志中一次性 `SETUP_TOKEN` 时可访问，成功后永久关闭。之后的密码重置走 `go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>`。
 - **OIDC（`--identity-profile oidc_browser`）**：保留 Keycloak 路径，账号来自 realm 导入；Keycloak 的 bootstrap 管理员属于独立运维身份，配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。
 
+### Keycloak realm 导入（`oidc_browser`）
+
+Keycloak 26 的 realm JSON 必须同时满足以下四点，否则登录或授权会在不同阶段失败：
+
+- **自定义属性声明**：在 realm 的 user profile 中声明 `tenant_id`、`user_id`、`role`、`shop_ids`、`permission_revision`、`revoked`。未声明的属性会被 Admin REST API 静默丢弃：账号能建，但 token/数据库里没有 claim。
+- **`shop_ids` 类型**：该属性必须 `jsonType=JSON`，值为 JSON 数组字符串（如 `["main-shop"]`），不能写成逗号分隔字符串。
+- **audience mapper**：客户端加 `oidc-audience-mapper`，把 API audience 写进 access token；否则 token 的 `aud=account`，go-oidc 会拒绝。
+- **数据库侧**：`tenant.status='active'`，且 token 的 `permission_revision` 与 `app_user.permission_revision` 一致；否则授权失败。
+
+### OSS 归档（可选）
+
+`oss.env`（仓库外，0600）除凭据外必须满足：
+
+- 含 `OSS_REGION`；
+- `OSS_ENDPOINT` 带 `https://` 前缀；
+- 文件尾保留换行（按行解析，最后一行的值会被截断或丢失）。
+
+桶授权策略模板（对象动作挂 `BUCKET/*`，桶级动作挂 `BUCKET`）：
+
+```json
+{
+  "Version": "1",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["oss:GetObject", "oss:PutObject", "oss:DeleteObject"],
+     "Resource": ["acs:oss:*:*:BUCKET/*"]},
+    {"Effect": "Allow", "Action": ["oss:ListObjects", "oss:GetBucketInfo"],
+     "Resource": ["acs:oss:*:*:BUCKET"]}
+  ]
+}
+```
+
+### 情报 worker 与报告页
+
+- `rag_v2_intel` 是集群级角色，由 `selfhost-db-init.py` 按 bootstrap 密码表自动创建；迁移不执行 `CREATE ROLE`。
+- `V2_INTEL_ENABLED` 默认 0；为 0 时不启动 intel 进程，也不占用连接与端口。启用时需要 `V2_INTEL_DSN`（`rag_v2_intel` 角色）与 `V2_PROVIDER_CONFIG`。
+- 报告页读取 `ECR_REPORT_PATH`，应指向报告 CLI 写出的 `demo-report.json`。selfhost 默认未挂载报告文件；未设置或文件不存在时接口返回 404 `report_unavailable`，这是预期，不是 500。需要展示时把报告文件以只读方式挂进 gateway 容器并设置该变量。
+
 无论哪种 profile，应用都不执行 DDL；升级先备份，再运行 bootstrap 迁移任务，再启动同一版本的应用。
 
 
@@ -170,12 +207,23 @@ bash scripts/check.sh --e2e
 ## 使用与故障定位
 
 - `/admin/overview`：管理员登录，设置店铺名称、欢迎语及客户入口；上传、预览、审核和发布知识。
-- `/shop/my-shop`：客户页；Cookie 丢失后不能恢复匿名历史。
+- `/shop/my-shop`：客户页；Cookie 丢失后不能恢复匿名历史。顾客 API 的 `shop_slug` 取
+  `shop.public_slug`（默认 `my-shop`），不是数据库 `shop_id`（默认 `main-shop`）；传错会得到
+  `404 shop_unavailable`。
 - `/support`：员工登录，查看队列、领取、回复。
 - `/chat`：员工 AI 辅助区，不代替人工向客户发送消息。
+
+管理端写接口（导入、审核、发布等）除 session cookie 外还必须带 `Origin` 与
+`X-CSRF-Token`；CSRF token 取自 `/v1/auth/login` 响应的 `csrf_token`。只带 cookie 的
+脚本会得到 `403 local_request_rejected`。
 
 使用 `docker compose ... ps` 检查容器状态，`logs --tail 50 服务名` 定向检查，日志不要发布到公共 Issue。缺少模型配置、数据库迁移、OIDC、证书或账本时必须修复配置，不能切换开发身份或 fake。首次启动 Keycloak 较慢，Gateway 在身份服务就绪后自动重试启动。应用不运行 DDL；升级先备份，再运行 bootstrap 迁移任务，再启动同一版本的应用。
 
 客户消息和排队状态持久化；Go 重启后员工重新登录，人工领取重新排队，中断 AI 转人工。应用为单实例，第二个 Gateway 会拒绝获取数据库所有权。内部 RPC 证书默认 90 天，HTTPS 测试证书 30 天；部署者须在到期前更新证书、保持 SAN/CA/文件权限并重启相关服务。正式证书由部署者管理。
+
+**已知限制（2026-11-06 自部署演练）**：`--identity-profile local` 的本版管理端导入确认、
+审核、发布命令返回 403 `command_failed` / `ingest_not_authorized`；这是运行时代码缺陷，
+已记录并等待单独修复，顾客链路与只读管理页不受影响。自动化导入验收暂不要在 local
+profile 上执行。
 
 第三方许可见 [声明](../THIRD_PARTY_NOTICES.txt)。自有代码 MIT 不覆盖第三方服务、资料或模型账户的许可。

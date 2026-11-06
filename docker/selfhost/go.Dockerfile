@@ -21,5 +21,6 @@ COPY --from=build /notices /licenses/modules
 COPY --from=frontend /frontend/dist /srv/frontend
 COPY --from=build /usr/local/go/LICENSE /licenses/Go-LICENSE.txt
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 USER 65532:65532
 ENTRYPOINT ["/gateway"]
