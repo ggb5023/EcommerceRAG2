@@ -284,9 +284,27 @@ paths:
   /v1/customer/conversations:
     post:
       summary: Start a customer conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service_type:
+                  type: string
+                  enum: [pre_sales, after_sales]
+                  default: pre_sales
+                order_id:
+                  type: string
+                  description: Required for after_sales and forbidden for pre_sales.
       responses:
-        '200':
-          description: OK
+        '201':
+          description: Created
+        '400':
+          description: Invalid service_type or order_id
+        '409':
+          description: The idempotency key was reused with a different lane or order
     get:
       summary: GET /v1/customer/conversations
       responses:

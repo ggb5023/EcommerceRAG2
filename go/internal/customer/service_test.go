@@ -79,6 +79,28 @@ func TestCustomerOriginProxyAndSubmissionLimits(t *testing.T) {
 	}
 }
 
+func TestServiceLaneRules(t *testing.T) {
+	cases := []struct {
+		service, order, wantType, wantOrder, wantCode string
+	}{
+		{"", "", "pre_sales", "", ""},
+		{"pre_sales", "", "pre_sales", "", ""},
+		{"pre_sales", "ORD-2609-0005", "", "", "invalid_order_id"},
+		{"after_sales", "", "", "", "invalid_order_id"},
+		{"after_sales", "ord-2609-0005", "after_sales", "ORD-2609-0005", ""},
+		{"after_sales", "ORD", "", "", "invalid_order_id"},
+		{"after_sales", "ORD-2609-0005;DROP", "", "", "invalid_order_id"},
+		{"after_sale", "ORD-2609-0005", "", "", "invalid_service_type"},
+	}
+	for _, item := range cases {
+		service, order, code := normalizeServiceLane(item.service, item.order)
+		if service != item.wantType || order != item.wantOrder || code != item.wantCode {
+			t.Fatalf("normalizeServiceLane(%q,%q)=(%q,%q,%q), want (%q,%q,%q)",
+				item.service, item.order, service, order, code, item.wantType, item.wantOrder, item.wantCode)
+		}
+	}
+}
+
 func TestDatabaseCustomerHumanLifecycle(t *testing.T) {
 	path := os.Getenv("V2_INTEGRATION_ENV")
 	if path == "" {
@@ -294,5 +316,163 @@ func TestDatabaseCustomerHumanLifecycle(t *testing.T) {
 	var count int
 	if db.QueryRow(ctx, `SELECT count(*) FROM customer_message WHERE conversation_id=$1 AND source='agent'`, conv).Scan(&count) != nil || count != 1 {
 		t.Fatal("late or duplicate human delivery")
+	}
+}
+
+func TestDatabaseAfterSalesTicketLifecycle(t *testing.T) {
+	path := os.Getenv("V2_INTEGRATION_ENV")
+	if path == "" {
+		t.Skip("V2_INTEGRATION_ENV required")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		t.Fatal("protected integration configuration required")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("configuration unavailable")
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			values[k] = strings.Trim(v, "\"'")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	connect := func(key string) *pgxpool.Pool {
+		p, e := pgxpool.New(ctx, values[key])
+		if e != nil {
+			t.Fatal("database unavailable")
+		}
+		t.Cleanup(p.Close)
+		var name string
+		var super, bypass bool
+		if p.QueryRow(ctx, `SELECT current_database(),rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user`).Scan(&name, &super, &bypass) != nil || !strings.HasPrefix(name, "ecr_v2_test_") || super || bypass {
+			t.Fatal("isolated restricted database required")
+		}
+		return p
+	}
+	migration, db := connect("V2_MIGRATION_DSN"), connect("V2_GATEWAY_DSN")
+	slug := "ticket-test-" + ID()
+	var tenant, agent int64
+	if migration.QueryRow(ctx, `INSERT INTO tenant(name,external_id) VALUES($1,$1) RETURNING id`, slug).Scan(&tenant) != nil {
+		t.Fatal("tenant fixture failed")
+	}
+	if _, err = migration.Exec(ctx, `INSERT INTO shop(tenant_id,id,name,public_slug,customer_chat_enabled) VALUES($1,'shop-test','Synthetic shop',$2,true)`, tenant, slug); err != nil {
+		t.Fatal("shop fixture failed")
+	}
+	if migration.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids) VALUES($1,'ticket-agent','operator',ARRAY['shop-test']) RETURNING id`, tenant).Scan(&agent) != nil {
+		t.Fatal("staff fixture failed")
+	}
+	s, err := New(db, nil, bytes.Repeat([]byte{2}, 32), "v2_lingchain_mock", Config{Origin: "http://127.0.0.1", AllowLoopbackHTTP: true, VisitorRPM: 100, IPRPM: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := s.Routes()
+	request := func(handler http.Handler, method, path string, input any, cookie *http.Cookie, csrf, idem string) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(input)
+		r := httptest.NewRequest(method, path, bytes.NewReader(raw)).WithContext(ctx)
+		r.Header.Set("Origin", s.Config.Origin)
+		r.Header.Set("X-CSRF-Token", csrf)
+		r.Header.Set("Idempotency-Key", idem)
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	decode := func(w *httptest.ResponseRecorder, expected int) map[string]any {
+		t.Helper()
+		if w.Code != expected {
+			t.Fatalf("HTTP %d expected %d: %s", w.Code, expected, w.Body.String())
+		}
+		var v map[string]any
+		if json.Unmarshal(w.Body.Bytes(), &v) != nil {
+			t.Fatal("invalid response")
+		}
+		return v
+	}
+	bootstrap := request(api, "POST", "/v1/customer/session", map[string]string{"shop_slug": slug}, nil, "", "")
+	session := decode(bootstrap, 201)
+	cookie := bootstrap.Result().Cookies()[0]
+	csrf := session["csrf_token"].(string)
+	ticketCount := func(conversation string) int {
+		var count int
+		if db.QueryRow(ctx, `SELECT count(*) FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&count) != nil {
+			t.Fatal("ticket query failed")
+		}
+		return count
+	}
+	if request(api, "POST", "/v1/customer/conversations", map[string]string{"service_type": "after_sales"}, cookie, csrf, "no-order").Code != 400 {
+		t.Fatal("after-sales without an order was accepted")
+	}
+	if request(api, "POST", "/v1/customer/conversations", map[string]string{"service_type": "pre_sales", "order_id": "ORD-2609-0005"}, cookie, csrf, "pre-order").Code != 400 {
+		t.Fatal("pre-sales with an order was accepted")
+	}
+	created := decode(request(api, "POST", "/v1/customer/conversations",
+		map[string]string{"service_type": "after_sales", "order_id": "ord-2609-0005"}, cookie, csrf, "lane"), 201)
+	conversation := created["conversation_id"].(string)
+	if created["service_type"] != "after_sales" || created["order_id"] != "ORD-2609-0005" {
+		t.Fatal("lane was not bound to the conversation")
+	}
+	if request(api, "POST", "/v1/customer/conversations",
+		map[string]string{"service_type": "after_sales", "order_id": "ORD-2609-0006"}, cookie, csrf, "lane").Code != 409 {
+		t.Fatal("idempotency key reuse across orders was accepted")
+	}
+	replay := decode(request(api, "POST", "/v1/customer/conversations",
+		map[string]string{"service_type": "after_sales", "order_id": "ORD-2609-0005"}, cookie, csrf, "lane"), 201)
+	if replay["conversation_id"] != conversation {
+		t.Fatal("same key and lane created a second conversation")
+	}
+	pathConv := "/v1/customer/conversations/" + conversation
+	handoff := decode(request(api, "POST", pathConv+"/handoff", map[string]any{}, cookie, csrf, "handoff"), 200)
+	epoch := int64(handoff["epoch"].(float64))
+	// The customer handoff and the staff actions share the same durable ticket.
+	var status, order string
+	if db.QueryRow(ctx, `SELECT status,customer_id FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&status, &order) != nil || status != "OPEN" {
+		t.Fatalf("handoff did not open a ticket: %s", status)
+	}
+	if ticketCount(conversation) != 1 {
+		t.Fatal("handoff created more than one ticket")
+	}
+	staff := Staff{Tenant: tenant, User: agent, Shops: []string{"shop-test"}, Role: "operator", SessionHash: "ticket-session"}
+	staffAPI := s.StaffRoutes(staff)
+	staffPath := "/v1/support/conversations/" + conversation
+	claimed := decode(request(staffAPI, "POST", staffPath+"/claim", map[string]any{"epoch": epoch}, nil, "", "claim"), 200)
+	epoch = int64(claimed["epoch"].(float64))
+	var assignee *int64
+	if db.QueryRow(ctx, `SELECT status,assignee_user_id FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&status, &assignee) != nil || status != "ASSIGNED" || assignee == nil || *assignee != agent {
+		t.Fatal("claim did not assign the ticket")
+	}
+	queue := decode(request(staffAPI, "GET", "/v1/support/queue", nil, nil, "", ""), 200)
+	items := queue["conversations"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["ticket_status"] != "ASSIGNED" ||
+		items[0].(map[string]any)["order_id"] != "ORD-2609-0005" || items[0].(map[string]any)["service_type"] != "after_sales" {
+		t.Fatalf("staff queue did not expose the active ticket: %v", items)
+	}
+	released := decode(request(staffAPI, "POST", staffPath+"/release", map[string]any{"epoch": epoch}, nil, "", "release"), 200)
+	epoch = int64(released["epoch"].(float64))
+	if db.QueryRow(ctx, `SELECT status,assignee_user_id FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&status, &assignee) != nil || status != "OPEN" || assignee != nil {
+		t.Fatal("release did not reopen the ticket")
+	}
+	claimed = decode(request(staffAPI, "POST", staffPath+"/claim", map[string]any{"epoch": epoch}, nil, "", "claim-2"), 200)
+	epoch = int64(claimed["epoch"].(float64))
+	if request(staffAPI, "POST", staffPath+"/resolve", map[string]any{"epoch": epoch}, nil, "", "resolve").Code != 200 {
+		t.Fatal("resolve failed")
+	}
+	var ticketStatus, conversationState string
+	var resolved *time.Time
+	if db.QueryRow(ctx, `SELECT status,resolved_at FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&ticketStatus, &resolved) != nil || ticketStatus != "RESOLVED" || resolved == nil {
+		t.Fatal("resolve did not close the ticket as RESOLVED")
+	}
+	if db.QueryRow(ctx, `SELECT state FROM customer_conversation WHERE id=$1`, conversation).Scan(&conversationState) != nil || conversationState != "CLOSED" {
+		t.Fatal("resolve did not close the conversation")
+	}
+	preSales := decode(request(api, "POST", "/v1/customer/conversations", map[string]string{}, cookie, csrf, "pre"), 201)["conversation_id"].(string)
+	decode(request(api, "POST", "/v1/customer/conversations/"+preSales+"/handoff", map[string]any{}, cookie, csrf, "pre-handoff"), 200)
+	if ticketCount(preSales) != 0 {
+		t.Fatal("pre-sales handoff created a ticket")
 	}
 }

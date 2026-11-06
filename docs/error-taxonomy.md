@@ -25,6 +25,9 @@
 | `adoption_unavailable` | 503 | 是 | 知识草稿暂不可用 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（审计或摄取提交失败） |
 | `catalog_unavailable` | 503 | 是 | 商品目录暂不可用 | `go/internal/gateway/catalog_browser.go:catalogSkus`（业务日期或目录查询失败） |
 | `permission_changed` | 403 | 否 | 权限已变化，请刷新页面 | `go/internal/gateway/main.go:runTurn`、`go/internal/customer/ai.go:run` |
+| `invalid_service_type` | 400 | 否 | 不展示 | `go/internal/customer/service.go:normalizeServiceLane`（服务类型不是 pre_sales/after_sales） |
+| `invalid_order_id` | 400 | 否 | 请核对订单号 | `go/internal/customer/service.go:normalizeServiceLane`（售后缺订单号或格式非法、售前携带订单号） |
+| `conversation_idempotency_conflict` | 409 | 否 | 会话已按其他服务类型创建 | `go/internal/customer/service.go:createConversation`（幂等键复用于不同服务类型或订单） |
 | `invalid_routing_response` | — | 是 | 系统繁忙，请稍后重试 | `go/internal/gateway/main.go:runTurn`（模型返回空路由） |
 | `rag_search_failed` | — | 是 | 暂时无法检索资料 | `go/internal/gateway/turn_retrieve.go:retrieveEvidence` |
 | `invalid_evidence_labels` | — | 否 | 证据排序异常，已转人工 | `go/internal/gateway/main.go:runTurn` |

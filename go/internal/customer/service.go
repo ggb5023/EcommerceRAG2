@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,33 @@ import (
 )
 
 const CookieName = "ecr_customer"
+
+// orderIDPattern mirrors the CHECK constraint in migration 0058. The order is
+// bound at conversation creation and is never accepted from the model.
+var orderIDPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_-]{3,39}$`)
+
+// normalizeServiceLane applies the two-lane rule: pre-sales never carries an
+// order and after-sales always does. The returned code is an API error code.
+func normalizeServiceLane(serviceType, orderID string) (string, string, string) {
+	serviceType = strings.TrimSpace(serviceType)
+	if serviceType == "" {
+		serviceType = "pre_sales"
+	}
+	if serviceType != "pre_sales" && serviceType != "after_sales" {
+		return "", "", "invalid_service_type"
+	}
+	orderID = strings.ToUpper(strings.TrimSpace(orderID))
+	if serviceType == "pre_sales" {
+		if orderID != "" {
+			return "", "", "invalid_order_id"
+		}
+		return serviceType, "", ""
+	}
+	if !orderIDPattern.MatchString(orderID) {
+		return "", "", "invalid_order_id"
+	}
+	return serviceType, orderID, ""
+}
 
 type Config struct {
 	TrustedProxyIPs   []net.IP
@@ -63,6 +91,8 @@ type conversation struct {
 	Customer       string     `json:"-"`
 	State          string     `json:"state"`
 	Epoch          int64      `json:"epoch"`
+	ServiceType    string     `json:"service_type"`
+	OrderID        string     `json:"order_id,omitempty"`
 	Owner          *int64     `json:"owner_user_id,omitempty"`
 	Lease          *time.Time `json:"lease_until,omitempty"`
 	Active         *string    `json:"active_execution_id,omitempty"`
@@ -276,12 +306,29 @@ func (s *Service) createConversation(w http.ResponseWriter, r *http.Request) {
 		failure(w, 401, "customer_session_required")
 		return
 	}
+	var input struct {
+		ServiceType string `json:"service_type"`
+		OrderID     string `json:"order_id"`
+	}
+	if !body(w, r, &input) {
+		return
+	}
+	serviceType, orderID, code := normalizeServiceLane(input.ServiceType, input.OrderID)
+	if code != "" {
+		failure(w, 400, code)
+		return
+	}
 	id := Hash(v.Customer + ":" + key(r))[:48]
-	if err := upsertCustomerConversation(r.Context(), s.DB, id, v.Tenant, v.Shop, v.Customer); err != nil {
+	created, existingType, existingOrder, err := upsertCustomerConversation(r.Context(), s.DB, id, v.Tenant, v.Shop, v.Customer, serviceType, orderID)
+	if err != nil {
 		failure(w, 503, "database_unavailable")
 		return
 	}
-	output(w, 201, map[string]string{"conversation_id": id})
+	if !created && (existingType != serviceType || existingOrder != orderID) {
+		failure(w, 409, "conversation_idempotency_conflict")
+		return
+	}
+	output(w, 201, map[string]string{"conversation_id": id, "service_type": serviceType, "order_id": orderID})
 }
 func (s *Service) listConversations(w http.ResponseWriter, r *http.Request) {
 	v, resolveErr := s.resolve(r.Context(), r)
@@ -319,7 +366,16 @@ func (s *Service) getConversation(w http.ResponseWriter, r *http.Request) {
 		failure(w, 503, "database_unavailable")
 		return
 	}
-	output(w, 200, map[string]any{"conversation": c, "messages": messages})
+	view := map[string]any{"conversation": c, "messages": messages}
+	ticket, err := activeTicket(r.Context(), s.DB, c.Tenant, c.ID)
+	if err != nil {
+		failure(w, 503, "database_unavailable")
+		return
+	}
+	if ticket != nil {
+		view["ticket"] = ticket
+	}
+	output(w, 200, view)
 }
 func (s *Service) citations(w http.ResponseWriter, r *http.Request) {
 	_, c, err := s.visitorConversation(r.Context(), r)

@@ -126,11 +126,63 @@ func queueTx(ctx context.Context, tx pgx.Tx, c conversation, reason string) erro
 	if err != nil {
 		return err
 	}
+	if err = queueTicketTx(ctx, tx, c, reason); err != nil {
+		return err
+	}
 	if err = emit(ctx, tx, c, "state", map[string]any{"reason_code": reason}); err != nil {
 		return err
 	}
 	_, err = addMessage(ctx, tx, c, "system", handoffText(reason), "", nil, nil)
 	return err
+}
+
+// queueTicketTx keeps exactly one active after-sales ticket per conversation.
+// Pre-sales handoffs keep the existing behaviour and create no ticket.
+func queueTicketTx(ctx context.Context, tx pgx.Tx, c conversation, reason string) error {
+	if c.ServiceType != "after_sales" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE customer_ticket SET status='OPEN',assignee_user_id=NULL,updated_at=now()
+ WHERE tenant_id=$1 AND conversation_id=$2 AND status IN ('OPEN','ASSIGNED')`, c.Tenant, c.ID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO customer_ticket(id,tenant_id,shop_id,conversation_id,customer_id,service_type,order_id,status,reason_code)
+ VALUES($1,$2,$3,$4,$5,'after_sales',$6,'OPEN',$7) ON CONFLICT DO NOTHING`,
+		ID(), c.Tenant, c.Shop, c.ID, c.Customer, c.OrderID, reason)
+	return err
+}
+
+func claimTicketTx(ctx context.Context, tx pgx.Tx, c conversation, user int64) error {
+	if c.ServiceType != "after_sales" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE customer_ticket SET status='ASSIGNED',assignee_user_id=$3,updated_at=now()
+ WHERE tenant_id=$1 AND conversation_id=$2 AND status='OPEN'`, c.Tenant, c.ID, user)
+	return err
+}
+
+func closeTicketTx(ctx context.Context, tx pgx.Tx, c conversation, status string) error {
+	if c.ServiceType != "after_sales" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE customer_ticket SET status=$3,updated_at=now(),
+ resolved_at=CASE WHEN $3='RESOLVED' THEN now() ELSE resolved_at END,
+ closed_at=CASE WHEN $3='CLOSED' THEN now() ELSE closed_at END
+ WHERE tenant_id=$1 AND conversation_id=$2 AND status IN ('OPEN','ASSIGNED')`, c.Tenant, c.ID, status)
+	return err
+}
+
+func activeTicket(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID string) (map[string]any, error) {
+	var id, status string
+	err := db.QueryRow(ctx, `SELECT id,status FROM customer_ticket WHERE tenant_id=$1 AND conversation_id=$2
+ AND status IN ('OPEN','ASSIGNED') ORDER BY created_at DESC LIMIT 1`, tenant, conversationID).Scan(&id, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "status": status}, nil
 }
 func handoffText(reason string) string {
 	prefix := "这个问题需要人工客服处理。"
@@ -222,8 +274,10 @@ func applyConversationAction(ctx context.Context, tx pgx.Tx, c conversation, id,
 		}
 		c.State = "HUMAN"
 		c.Epoch++
-		_, err = tx.Exec(ctx, `UPDATE customer_conversation SET state='HUMAN',epoch=$2,owner_user_id=$3,owner_session_hash=$4,lease_until=now()+interval '120 seconds' WHERE id=$1`, id, c.Epoch, user, sessionHash)
-	case "heartbeat", "release", "resume-ai", "close":
+		if _, err = tx.Exec(ctx, `UPDATE customer_conversation SET state='HUMAN',epoch=$2,owner_user_id=$3,owner_session_hash=$4,lease_until=now()+interval '120 seconds' WHERE id=$1`, id, c.Epoch, user, sessionHash); err == nil {
+			err = claimTicketTx(ctx, tx, c, user)
+		}
+	case "heartbeat", "release", "resume-ai", "close", "resolve":
 		var owned bool
 		err = tx.QueryRow(ctx, `SELECT state='HUMAN' AND owner_user_id=$2 AND owner_session_hash=$3 AND lease_until>now() FROM customer_conversation WHERE id=$1`, id, user, sessionHash).Scan(&owned)
 		if err != nil || !owned {
@@ -237,11 +291,18 @@ func applyConversationAction(ctx context.Context, tx pgx.Tx, c conversation, id,
 			c.Epoch++
 		} else {
 			c.State = "AI"
+			ticketStatus := ""
 			if action == "close" {
-				c.State = "CLOSED"
+				c.State, ticketStatus = "CLOSED", "CLOSED"
+			}
+			if action == "resolve" {
+				c.State, ticketStatus = "CLOSED", "RESOLVED"
 			}
 			c.Epoch++
 			_, err = tx.Exec(ctx, `UPDATE customer_conversation SET state=$2,epoch=$3,owner_user_id=NULL,owner_session_hash=NULL,lease_until=NULL,active_execution=NULL,clarification_count=0 WHERE id=$1`, id, c.State, c.Epoch)
+			if err == nil && ticketStatus != "" {
+				err = closeTicketTx(ctx, tx, c, ticketStatus)
+			}
 		}
 	case "requeue":
 		if c.State != "HUMAN" {
@@ -370,11 +431,11 @@ func lastCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenantID int64, 
 
 // conversationSQL is the canonical row shape for customer conversations. It
 // lives in the store so service.go and ai.go hold no SQL literals.
-const conversationSQL = `SELECT id,tenant_id,shop_id,customer_id,state,epoch,owner_user_id,lease_until,active_execution,clarification_count FROM customer_conversation WHERE id=$1`
+const conversationSQL = `SELECT id,tenant_id,shop_id,customer_id,state,epoch,owner_user_id,lease_until,active_execution,clarification_count,service_type,COALESCE(order_id,'') FROM customer_conversation WHERE id=$1`
 
 func scanConversation(row pgx.Row) (conversation, error) {
 	var c conversation
-	err := row.Scan(&c.ID, &c.Tenant, &c.Shop, &c.Customer, &c.State, &c.Epoch, &c.Owner, &c.Lease, &c.Active, &c.Clarifications)
+	err := row.Scan(&c.ID, &c.Tenant, &c.Shop, &c.Customer, &c.State, &c.Epoch, &c.Owner, &c.Lease, &c.Active, &c.Clarifications, &c.ServiceType, &c.OrderID)
 	return c, err
 }
 
@@ -419,25 +480,49 @@ func createCustomerSession(ctx context.Context, db *pgxpool.Pool, tenant int64, 
 	return tx.Commit(ctx)
 }
 
-func upsertCustomerConversation(ctx context.Context, db *pgxpool.Pool, id string, tenant int64, shop, customer string) error {
-	_, err := db.Exec(ctx, `INSERT INTO customer_conversation(id,tenant_id,shop_id,customer_id) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`, id, tenant, shop, customer)
-	return err
+func upsertCustomerConversation(ctx context.Context, db *pgxpool.Pool, id string, tenant int64, shop, customer, serviceType, orderID string) (bool, string, string, error) {
+	tag, err := db.Exec(ctx, `INSERT INTO customer_conversation(id,tenant_id,shop_id,customer_id,service_type,order_id)
+ VALUES($1,$2,$3,$4,$5,NULLIF($6,'')) ON CONFLICT(id) DO NOTHING`, id, tenant, shop, customer, serviceType, orderID)
+	if err != nil {
+		return false, "", "", err
+	}
+	if tag.RowsAffected() == 1 {
+		return true, serviceType, orderID, nil
+	}
+	var existingType, existingOrder string
+	if err = db.QueryRow(ctx, `SELECT service_type,COALESCE(order_id,'') FROM customer_conversation
+ WHERE id=$1 AND tenant_id=$2 AND shop_id=$3 AND customer_id=$4`, id, tenant, shop, customer).Scan(&existingType, &existingOrder); err != nil {
+		return false, "", "", err
+	}
+	return false, existingType, existingOrder, nil
 }
 
 func listCustomerConversations(ctx context.Context, db *pgxpool.Pool, tenant int64, shop, customer string) ([]map[string]any, error) {
-	rows, err := db.Query(ctx, `SELECT id,state,epoch FROM customer_conversation WHERE tenant_id=$1 AND shop_id=$2 AND customer_id=$3 ORDER BY updated_at DESC LIMIT 100`, tenant, shop, customer)
+	rows, err := db.Query(ctx, `SELECT c.id,c.state,c.epoch,c.service_type,COALESCE(c.order_id,''),t.status
+	 FROM customer_conversation c
+	 LEFT JOIN LATERAL (SELECT status FROM customer_ticket WHERE tenant_id=c.tenant_id AND conversation_id=c.id
+	  AND status IN ('OPEN','ASSIGNED') ORDER BY created_at DESC LIMIT 1) t ON true
+	 WHERE c.tenant_id=$1 AND c.shop_id=$2 AND c.customer_id=$3 ORDER BY c.updated_at DESC LIMIT 100`, tenant, shop, customer)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := []map[string]any{}
 	for rows.Next() {
-		var id, state string
+		var id, state, serviceType, orderID string
 		var epoch int64
-		if rows.Scan(&id, &state, &epoch) != nil {
+		var ticketStatus *string
+		if rows.Scan(&id, &state, &epoch, &serviceType, &orderID, &ticketStatus) != nil {
 			return nil, errors.New("conversation_scan_failed")
 		}
-		result = append(result, map[string]any{"id": id, "state": state, "epoch": epoch})
+		item := map[string]any{"id": id, "state": state, "epoch": epoch, "service_type": serviceType}
+		if orderID != "" {
+			item["order_id"] = orderID
+		}
+		if ticketStatus != nil {
+			item["ticket_status"] = *ticketStatus
+		}
+		result = append(result, item)
 	}
 	return result, nil
 }
@@ -457,22 +542,45 @@ func customerConversationOwned(ctx context.Context, db *pgxpool.Pool, id string,
 }
 
 func loadStaffQueue(ctx context.Context, db *pgxpool.Pool, tenant int64, shops []string, user int64) ([]map[string]any, error) {
-	rows, err := db.Query(ctx, `SELECT id,state,epoch,owner_user_id,lease_until,updated_at FROM customer_conversation WHERE tenant_id=$1 AND shop_id=ANY($2::text[]) AND (state='WAITING_HUMAN' OR (state='HUMAN' AND owner_user_id=$3)) ORDER BY updated_at LIMIT 100`, tenant, shops, user)
+	// The queue is a union: after-sales conversations show while they have an
+	// active ticket, pre-sales conversations keep the original queued/owned rule.
+	rows, err := db.Query(ctx, `SELECT c.id,c.state,c.epoch,c.owner_user_id,c.lease_until,c.updated_at,
+	 c.service_type,COALESCE(c.order_id,''),t.id,t.status
+	 FROM customer_conversation c
+	 LEFT JOIN LATERAL (SELECT id,status FROM customer_ticket WHERE tenant_id=c.tenant_id AND conversation_id=c.id
+	  AND status IN ('OPEN','ASSIGNED') ORDER BY created_at DESC LIMIT 1) t ON true
+	 WHERE c.tenant_id=$1 AND c.shop_id=ANY($2::text[])
+	  AND (c.state='WAITING_HUMAN' OR (c.state='HUMAN' AND c.owner_user_id=$3))
+	  AND (t.id IS NOT NULL OR c.service_type='pre_sales')
+	 ORDER BY c.updated_at LIMIT 100`, tenant, shops, user)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, state string
+		var id, state, serviceType, orderID string
 		var epoch int64
 		var owner *int64
 		var lease *time.Time
 		var updated time.Time
-		if rows.Scan(&id, &state, &epoch, &owner, &lease, &updated) != nil {
+		var ticketID, ticketStatus *string
+		if rows.Scan(&id, &state, &epoch, &owner, &lease, &updated, &serviceType, &orderID, &ticketID, &ticketStatus) != nil {
 			return nil, errors.New("queue_scan_failed")
 		}
-		items = append(items, map[string]any{"id": id, "state": state, "epoch": epoch, "owner_user_id": owner, "lease_until": lease, "updated_at": updated})
+		item := map[string]any{"id": id, "state": state, "epoch": epoch, "owner_user_id": owner,
+			"lease_until": lease, "updated_at": updated, "service_type": serviceType}
+		if orderID != "" {
+			item["order_id"] = orderID
+		}
+		if ticketID != nil {
+			item["ticket_id"] = *ticketID
+			item["ticket_status"] = *ticketStatus
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
