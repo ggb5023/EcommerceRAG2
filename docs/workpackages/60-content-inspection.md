@@ -29,7 +29,7 @@
 ## 四条规则（v1 纯规则，只读现有表；阈值唯一出处=本包指定的 Go 常量文件）
 
 阈值钉死：`INSPECTION_WINDOW_DAYS = 30`、`INSPECTION_MIN_CLUSTER_TURNS = 2`，
-定义为 `go/internal/admin/inspection.go`（或 store 文件）中的常量，不在别处重复。
+定义为 `go/internal/admin/inspection.go`（待建）（或 store 文件）中的常量，不在别处重复。
 
 | kind | 判定 |
 | --- | --- |
