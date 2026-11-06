@@ -40,7 +40,7 @@
 cd go && go test ./internal/gateway/ -run "ScopeIdentity|LocalIdentity" -v
 bash scripts/check.sh
 bash scripts/check.sh --smoke
-# 演练栈真实链路（ECR_RUNTIME=/tmp/ecr-selfhost-drill/runtime，gateway 镜像重建后）：
+# 演练栈真实链路（runtime 目录沿用 WP65 演练栈，gateway 镜像重建后）：
 # admin 登录 → POST /admin/v1/merchant/imports 201 → precheck → review 通过 →
 # publish → 顾客 POST /v1/customer/... messages → events 里 ANSWER + citations + can_copy=true
 ```
