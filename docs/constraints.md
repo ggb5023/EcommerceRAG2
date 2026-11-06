@@ -69,7 +69,7 @@
 
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
-| 决策一文件一编号，只追加 | `check-decisions-index.py` | ✅ 37 份 |
+| 决策一文件一编号，只追加 | `check-decisions-index.py` | ✅ 38 份 |
 | 决策编号不撞车、无漏号 | `check-decisions-index.py`（已接入 `scripts/check.sh:138`） | ✅ |
 | 文档不得重复陈述同一事实 | `check-docs-drift.py`（预算 5） | ⚠️ 计划降到 0 并升为 FAIL |
 | 文档引用的路径必须存在 | `check-doc-paths.py`（已接入 `scripts/check.sh:139`） | ✅ |

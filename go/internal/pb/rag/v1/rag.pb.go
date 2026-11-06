@@ -240,9 +240,14 @@ type RequestContext struct {
 	// Domain marker for the signed scope. Empty is treated as "answer" by
 	// consumers; Go always writes an explicit value. Intelligence scopes are
 	// issued only by the host and never grant answer-side data access.
-	Domain        string `protobuf:"bytes,28,opt,name=domain,proto3" json:"domain,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Domain string `protobuf:"bytes,28,opt,name=domain,proto3" json:"domain,omitempty"`
+	// Customer service lane. Empty is treated as "pre_sales" by consumers;
+	// Go always writes an explicit value on customer scopes. After-sales scopes
+	// bind an order server-side and must carry customer_order_id.
+	ServiceType     string `protobuf:"bytes,29,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	CustomerOrderId string `protobuf:"bytes,30,opt,name=customer_order_id,json=customerOrderId,proto3" json:"customer_order_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RequestContext) Reset() {
@@ -467,6 +472,20 @@ func (x *RequestContext) GetCatalogFilter() *CatalogFilter {
 func (x *RequestContext) GetDomain() string {
 	if x != nil {
 		return x.Domain
+	}
+	return ""
+}
+
+func (x *RequestContext) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *RequestContext) GetCustomerOrderId() string {
+	if x != nil {
+		return x.CustomerOrderId
 	}
 	return ""
 }
@@ -4035,7 +4054,7 @@ var File_rag_v1_rag_proto protoreflect.FileDescriptor
 
 const file_rag_v1_rag_proto_rawDesc = "" +
 	"\n" +
-	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\xab\b\n" +
+	"\x10rag/v1/rag.proto\x12\x06rag.v1\"\xfa\b\n" +
 	"\x0eRequestContext\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
@@ -4070,7 +4089,9 @@ const file_rag_v1_rag_proto_rawDesc = "" +
 	"\x12conversation_epoch\x18\x19 \x01(\x04R\x11conversationEpoch\x12#\n" +
 	"\rbusiness_date\x18\x1a \x01(\tR\fbusinessDate\x12<\n" +
 	"\x0ecatalog_filter\x18\x1b \x01(\v2\x15.rag.v1.CatalogFilterR\rcatalogFilter\x12\x16\n" +
-	"\x06domain\x18\x1c \x01(\tR\x06domain\"\x95\x02\n" +
+	"\x06domain\x18\x1c \x01(\tR\x06domain\x12!\n" +
+	"\fservice_type\x18\x1d \x01(\tR\vserviceType\x12*\n" +
+	"\x11customer_order_id\x18\x1e \x01(\tR\x0fcustomerOrderId\"\x95\x02\n" +
 	"\rCatalogFilter\x12\x1b\n" +
 	"\tsku_codes\x18\x01 \x03(\tR\bskuCodes\x12\x16\n" +
 	"\x06colors\x18\x02 \x03(\tR\x06colors\x12\x1f\n" +

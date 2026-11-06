@@ -41,13 +41,14 @@
 | `turn` | `gateway` | `admin`、`customer`、`gateway` | 轮次状态与答案由网关用例层写；终态只由 Go 决定 | `scripts/check/check-ownership.py` |
 | `conversation` | `gateway` | `gateway`、`admin` | 会话创建与标题更新由网关写 | `scripts/check/check-ownership.py` |
 | `turn_idempotency` | `gateway` | `gateway` | 幂等键在创建/续接轮次的事务内写 | `scripts/check/check-ownership.py` |
-| `conversation_execution` | `gateway` | `gateway`、`admin` | 每次执行的状态、答案与取消标记由网关写 | `scripts/check/check-ownership.py` |
+| `conversation_execution` | `gateway` | `gateway`、`admin` | 每次执行的状态、答案与取消标记由网关写；0058 增加 `facts_json` 事实快照（售后只读查询，值为观测快照而非实时读） | `scripts/check/check-ownership.py` |
 | `message` | `gateway` | `gateway`、`customer` | 用户/助手消息随轮次事务由网关写 | `scripts/check/check-ownership.py` |
 | `sse_event` | `gateway` | `gateway`、`frontend` | SSE 事件序列由网关写；前端只消费 | `scripts/check/check-ownership.py` |
 | `evidence_snapshot` | `gateway` | `gateway`、`admin` | 每次执行的证据快照由网关检索阶段写 | `scripts/check/check-ownership.py` |
 | `citation` | `gateway` | `gateway`、`admin` | 答案引用由网关生成阶段写 | `scripts/check/check-ownership.py` |
 | `customer_conversation` | `customer` | `customer`、`admin` | 顾客会话归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
-| `customer_execution` | `customer` | `customer`、`admin` | 顾客执行状态归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
+| `customer_execution` | `customer` | `customer`、`admin` | 顾客执行状态归 customer 包唯一写者；0058 增加 `facts_json` 事实快照（售后只读查询） | `scripts/check/check-ownership.py` |
+| `customer_ticket` | `customer` | `customer`、`admin` | 售后工单随会话状态在同一事务由 customer 包写；状态迁移（OPEN/ASSIGNED/RESOLVED/CLOSED）只由 Go 决定，同一会话仅一个活动工单（0058） | `scripts/check/check-ownership.py` |
 | `customer_message` | `customer` | `customer`、`admin` | 顾客消息归 customer 包唯一写者 | `scripts/check/check-ownership.py` |
 | `feedback` | `gateway` | `admin`、`gateway` | 轮次反馈由网关在自己的事务内写；隐藏 suggestion 保留策略按 turn_id 清理 | `scripts/check/check-ownership.py` |
 | `routing_trace` | `gateway` | `gateway` | 路由追踪随轮次由网关写；隐藏 suggestion 保留策略按 request_id 清理 | `scripts/check/check-ownership.py` |

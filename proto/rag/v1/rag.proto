@@ -44,6 +44,11 @@ message RequestContext {
   // consumers; Go always writes an explicit value. Intelligence scopes are
   // issued only by the host and never grant answer-side data access.
   string domain = 28;
+  // Customer service lane. Empty is treated as "pre_sales" by consumers;
+  // Go always writes an explicit value on customer scopes. After-sales scopes
+  // bind an order server-side and must carry customer_order_id.
+  string service_type = 29;
+  string customer_order_id = 30;
 }
 message CatalogFilter {
   repeated string sku_codes = 1;
