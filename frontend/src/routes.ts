@@ -13,8 +13,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/shop/:slug', component: CustomerChat },
   { path: '/staff', component: StaffWorkspace },
   // One staff workspace: the queue and the AI-assisted reply live in tabs.
-  { path: '/support', redirect: { path: '/staff', query: { tab: 'queue' } } },
-  { path: '/support/:id', redirect: to => ({ path: '/staff', query: { tab: 'queue', id: String(to.params.id) } }) },
+  { path: '/support', redirect: { path: '/staff', query: {} } },
+  { path: '/support/:id', redirect: to => ({ path: '/staff', query: { id: String(to.params.id) } }) },
   { path: '/login', component: LoginPage },
   { path: '/password', component: PasswordPage },
   { path: '/admin', redirect: '/admin/overview' },

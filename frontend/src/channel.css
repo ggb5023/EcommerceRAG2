@@ -71,9 +71,33 @@
 .support-columns aside button {
   display: block;
 }
+.support-columns.has-suggestion {
+  grid-template-columns: 230px minmax(0, 1fr) minmax(300px, 360px);
+}
+.suggestion-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.suggestion-column .suggestion-panel {
+  margin-top: 0;
+}
+@media (max-width: 1100px) {
+  .support-columns.has-suggestion {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+  .support-columns.has-suggestion .suggestion-column {
+    grid-column: 2 / -1;
+  }
+}
 @media (max-width: 700px) {
-  .support-columns {
+  .support-columns,
+  .support-columns.has-suggestion {
     grid-template-columns: 1fr;
+  }
+  .support-columns.has-suggestion .suggestion-column {
+    grid-column: auto;
   }
   .channel-shell {
     margin: 0;
