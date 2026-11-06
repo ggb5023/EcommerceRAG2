@@ -54,7 +54,58 @@ bash scripts/check.sh                                      # 44 项 FAILED 0
 - 不在 dev 栈上演练（自部署栈独立，避免污染 dev 数据与 smoke 基线）；
 - 不改 CONTRACTS_* 棘轮。
 
-## 汇报
+## 演练结果（2026-11-06）
 
-五节格式；附 compose ps 输出、各一步容器的退出码、curl 序列真实输出、
-install.md 校正 diff 行号、未覆盖路径（oidc 剖面/quay.io 可达性等）。
+自部署栈独立于 dev：`docker compose ... ps` 显示 postgres/ai/gateway healthy；
+`db-init`/`migrate`/`bootstrap` 均 `Exited (0)`；`/healthz` HTTP 200。
+
+发现的部署缺陷并修复：Go 最终镜像原为 `scratch`，只带 CA 证书，没有
+`/usr/share/zoneinfo`；`time.LoadLocation("Asia/Shanghai")` 失败，导致
+review queue 503、导入 confirm 503 `confirm_queue_failed`。已在
+`docker/selfhost/go.Dockerfile` 增加
+`COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo`；重建 gateway 镜像后
+`/admin/v1/merchant/reviews` 恢复 200，并能看到导入的 pending 版本。
+
+owner 与顾客链路：
+- JSON 登录 200；`/admin/v1/session` 200，tenant=`merchant`、shop=`main-shop`；
+- 顾客 `shop_slug` 必须用 `public_slug=my-shop`，不是 `shop_id=main-shop`；
+- 无资料时顾客链路：session 201 → conversation 201 → message 202 →
+  SSE `message,state,message`，state=WAITING_HUMAN，reason=knowledge_missing，
+  0 citations（转人工兜底生效）。
+
+导入链路：
+- 最小 markdown 包 precheck 通过，`POST /admin/v1/merchant/imports` 201，
+  preview 200（`precheck_result=[]`）；
+- tzdata 修复后，confirm 不再是 503，但返回 **403 `ingest_not_authorized`**；
+  admin review 同样返回 **403 `command_failed`**。这是运行时代码缺陷，不在本包修：
+  本地身份 `localIdentityAdapter.Resolve` 返回 nil identity check，
+  `scopeIdentities` 校验已启用但 `RegisterScopeIdentity` 为 nil，ingest scope 未注册，
+  Go authority 拒绝该 scope。已按约定记录，另开运行时代码包。
+- 为继续验证后续检索/回答路径，用 AI 容器内直接 `IngestDatabase.submit` 诊断提交
+  （job id=1，awaiting_review），再用 SQL 将 document 4 / version 1 发布为
+  active+approved+external_allowed（这是演练工作区，不是产品发布路径）。随后顾客
+  问答：assistant 文本“本店支持7天无理由退换货…”，citations=1，
+  `can_copy=true`，`blocked_reason=""`，completed behavior=ANSWER。产品 admin
+  导入/审核/发布路径仍被上述运行时缺陷阻塞。
+
+只读页面：
+- `GET /admin/v1/report`（selfhost 未设置 ECR_REPORT_PATH）→ 404
+  `report_unavailable`，不是 500；
+- `GET /admin/v1/inspections?status=open` → 200 `{"items":[]}`。
+
+`install.md` 已补：
+- Keycloak realm 导入四要点（自定义属性声明、shop_ids JSON、audience mapper、
+  DB tenant/revision），`docs/install.md:79`；
+- OSS 三坑与 bucket 策略模板，`docs/install.md:88`；
+- `rag_v2_intel` 自动创建、`V2_INTEL_ENABLED` 默认 0、`ECR_REPORT_PATH` 404 语义，
+  `docs/install.md:110`；
+- `shop_slug=public_slug`、管理写接口的 Origin+CSRF，`docs/install.md:210`；
+- local profile 导入/审核/发布运行时缺陷的已知限制，`docs/install.md:224`。
+- 自部署 DB 已验证 `rag_v2_intel` LOGIN 且 `market_observation` 有
+  SELECT/INSERT/UPDATE GRANT。
+
+门禁：`bash scripts/check.sh` PASSED 44 / UNCONFIGURED 0 / FAILED 0。
+
+未覆盖：OIDC/Keycloak 剖面未实跑；OSS 归档未实跑；浏览器 UI 未跑；远端 Actions
+未跑；未复现 compose build 的一次性 gateway 构建失败（重建成功）；admin 导入/审核/
+发布被运行时缺陷阻塞，当前用诊断工作区完成后续 Q&A 验证。
