@@ -127,6 +127,7 @@ class IngestDatabase:
         tenant_db_id: str,
         user_db_id: str,
         permission_revision: str,
+        required_admin_role: str | None = "merchant_admin",
     ) -> tuple[int, int]:
         try:
             tenant_pk = int(tenant_db_id)
@@ -139,7 +140,7 @@ class IngestDatabase:
             "SELECT t.external_id, t.status, u.external_id, u.revoked_at, s.status, u.permission_revision, u.shop_ids, u.role "
             "FROM tenant t JOIN app_user u ON u.tenant_id=t.id "
             "JOIN shop s ON s.tenant_id=t.id "
-            "WHERE t.id=%s AND u.id=%s AND s.id=%s",
+            "WHERE t.id=%s AND u.id=%s AND s.id=%s FOR SHARE OF u,t,s",
             (tenant_pk, user_pk, shop_id),
         )
         row = cursor.fetchone()
@@ -157,10 +158,11 @@ class IngestDatabase:
             raise IngestAuthorizationError(
                 "identity is not active for the requested scope"
             )
-        cursor.execute("SELECT ecr_lock_ingest_scope(%s,%s,%s,%s,%s,%s,%s,%s)",
-                       (tenant_pk, user_pk, tenant_id, user_id, shop_id, role, permission_revision, "merchant_admin"))
-        if not cursor.fetchone()[0]:
-            raise IngestAuthorizationError("submitter scope changed")
+        if required_admin_role is not None:
+            cursor.execute("SELECT ecr_lock_ingest_scope(%s,%s,%s,%s,%s,%s,%s,%s)",
+                           (tenant_pk, user_pk, tenant_id, user_id, shop_id, role, permission_revision, required_admin_role))
+            if not cursor.fetchone()[0]:
+                raise IngestAuthorizationError("submitter scope changed")
         return tenant_pk, user_pk
 
     def submit(
@@ -172,6 +174,7 @@ class IngestDatabase:
         tenant_db_id: str,
         user_db_id: str,
         permission_revision: str,
+        required_admin_role: str | None = "merchant_admin",
         idempotency_key: str,
         source_id: str,
         source_name: str,
@@ -198,6 +201,7 @@ class IngestDatabase:
                 tenant_db_id=tenant_db_id,
                 user_db_id=user_db_id,
                 permission_revision=permission_revision,
+                required_admin_role=required_admin_role,
             )
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",

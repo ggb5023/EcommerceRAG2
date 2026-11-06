@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ensureSuggestionConversation returns the one hidden suggestion conversation
@@ -235,4 +236,27 @@ func suggestionCopyAudited(ctx context.Context, tx pgx.Tx, tenantID, userID int6
 		AND action='support.suggestion.copy' AND resource_type='execution' AND resource_id=$3 AND result='success')`,
 		tenantID, userID, requestID).Scan(&already)
 	return already, err
+}
+
+func loadSuggestionQuestion(ctx context.Context, tx pgx.Tx, tenantID int64, requestID string) (string, error) {
+	var question string
+	err := tx.QueryRow(ctx, `SELECT t.user_query FROM turn t
+		JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
+		WHERE e.tenant_id=$1 AND e.request_id=$2`, tenantID, requestID).Scan(&question)
+	return question, err
+}
+
+func suggestionAdoptionJob(ctx context.Context, db *pgxpool.Pool, tenantID, userID int64, requestID string) (string, bool, error) {
+	var jobID string
+	err := db.QueryRow(ctx, `SELECT COALESCE(metadata_json->>'job_id','') FROM admin_audit
+		WHERE tenant_id=$1 AND actor_user_id=$2 AND action='support.suggestion.adopt'
+		AND resource_type='execution' AND resource_id=$3 AND result='success'
+		ORDER BY id DESC LIMIT 1`, tenantID, userID, requestID).Scan(&jobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return jobID, true, nil
 }

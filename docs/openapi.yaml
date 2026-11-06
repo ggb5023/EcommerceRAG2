@@ -508,6 +508,22 @@ paths:
         required: true
         schema:
           type: string
+  /v1/support/suggestions/{id}/adopt:
+    post:
+      summary: POST /v1/support/suggestions/{id}/adopt
+      responses:
+        '202':
+          description: Knowledge draft queued for review
+        '200':
+          description: Already adopted (idempotent repeat)
+        '403':
+          description: suggestion_not_adoptable or role_forbidden
+        '404':
+          description: suggestion_not_found
+        '503':
+          description: adoption_unavailable
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
   /v1/catalog/skus:
     get:
       summary: GET /v1/catalog/skus

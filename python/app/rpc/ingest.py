@@ -112,8 +112,8 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
         self.commands = CommandStore(database.conn_string, artifact_store=artifact_store, connect=database.connector)
         self.scope_validator = scope_validator
 
-    def _authorize(self, scope, context):
-        if scope.scope_audience != "ingest":
+    def _authorize(self, scope, context, allowed_audiences=frozenset({"ingest"})):
+        if scope.scope_audience not in allowed_audiences:
             context.abort(grpc.StatusCode.PERMISSION_DENIED, "invalid scope audience")
         try:
             self.scope_validator(scope)
@@ -190,6 +190,7 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
         return tenant_pk, user_pk
 
     def _submit_package(self, request, context, shop_id: str) -> rag_pb2.SubmitResponse:
+        adoption = request.context.scope_audience == "ingest_adoption"
         package = _inspect_package(self._submission_request(request), context)
         tenant_pk, user_pk = self._identity_pks(request, context)
         package_sha = package_payload_hash(
@@ -203,6 +204,7 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
                 tenant_db_id=str(tenant_pk),
                 user_db_id=str(user_pk),
                 permission_revision=request.context.permission_revision,
+                required_admin_role=None if adoption else "merchant_admin",
                 idempotency_key=request.idempotency_key,
                 source_id=package["source_id"],
                 source_name=package["source_name"],
@@ -293,7 +295,7 @@ class IngestService(rag_pb2_grpc.IngestServiceServicer):
         )
 
     def Submit(self, request, context):
-        self._authorize(request.context, context)
+        self._authorize(request.context, context, frozenset({"ingest", "ingest_adoption"}))
         if self.database is None:
             context.abort(
                 grpc.StatusCode.UNAVAILABLE, "ingestion persistence is not configured"

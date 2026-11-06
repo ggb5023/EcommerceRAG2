@@ -20,6 +20,7 @@ func (g *gateway) registerCustomerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", g.cancelTurn)
 	mux.HandleFunc("POST /v1/support/suggestions", g.createSuggestion)
 	mux.HandleFunc("POST /v1/support/suggestions/{id}/copy", g.copySuggestion)
+	mux.HandleFunc("POST /v1/support/suggestions/{id}/adopt", g.adoptSuggestion)
 	mux.HandleFunc("POST /v1/support/conversations/{id}/suggestions", g.createSupportSuggestion)
 	mux.HandleFunc("GET /v1/catalog/skus", g.catalogSkus)
 	if g.customer != nil {

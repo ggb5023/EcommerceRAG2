@@ -19,6 +19,9 @@
 | --- | --- | --- | --- | --- |
 | `permission_denied` | 403 | 否 | 该问题超出可回答范围 | `go/internal/gateway/main.go:runTurn`（请求策略拒绝） |
 | `invalid_catalog_query` | 400 | 否 | 不展示 | `go/internal/gateway/catalog_browser.go:catalogSkus`（筛选或分页参数非法） |
+| `suggestion_not_found` | 404 | 否 | 不展示 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（建议不存在/不属于当前员工或店铺） |
+| `suggestion_not_adoptable` | 403 | 否 | 不展示 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（未完成、mock、不可复制或引用失效） |
+| `adoption_unavailable` | 503 | 是 | 知识草稿暂不可用 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（审计或摄取提交失败） |
 | `catalog_unavailable` | 503 | 是 | 商品目录暂不可用 | `go/internal/gateway/catalog_browser.go:catalogSkus`（业务日期或目录查询失败） |
 | `permission_changed` | 403 | 否 | 权限已变化，请刷新页面 | `go/internal/gateway/main.go:runTurn`、`go/internal/customer/ai.go:run` |
 | `invalid_routing_response` | — | 是 | 系统繁忙，请稍后重试 | `go/internal/gateway/main.go:runTurn`（模型返回空路由） |

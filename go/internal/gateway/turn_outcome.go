@@ -65,3 +65,16 @@ func appendSuggestionCopyAudit(ctx context.Context, tx pgx.Tx, tenantID, userID 
 			"citation_count": citationCount, "blocked_reason": blocked},
 	})
 }
+
+// appendSuggestionAdoptionAudit records suggestion adoption without the body.
+// It lives here because this file is one of the two sanctioned gateway->admin
+// dependencies (structure guard); new gateway files must not import admin.
+func appendSuggestionAdoptionAudit(ctx context.Context, tx pgx.Tx, tenantID, userID int64,
+	requestID, result, reason string, metadata map[string]any) error {
+	store := admin.Store{}
+	return store.AppendAudit(ctx, tx, admin.AuditEntry{
+		TenantID: tenantID, UserID: userID, Action: "support.suggestion.adopt",
+		ResourceType: "execution", ResourceID: requestID, Result: result, Reason: reason,
+		Metadata: metadata,
+	})
+}
