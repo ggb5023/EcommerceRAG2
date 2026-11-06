@@ -65,7 +65,8 @@
 | 56 | P2：摄取失败不静默（死信可查 + 错误不吞） | done | — | — | `def0cd1` |
 | 57 | 收尾批次：any 清零 + lint 范围 + 门禁语义 + 死代码 + 镜像迁移版本 | done | — | — | `f3a38a8` |
 | 58 | 导入模板双 schema 常量统一（挂账 a） | done | — | — | `061d830` |
-| 59 | 顾客端 can_copy / blocked_reason 统一（挂账 c） | implemented | — | — | `2b974e8` |
+| 59 | 顾客端 can_copy / blocked_reason 统一（挂账 c） | done | — | — | `2b974e8` |
+| 60 | 内容巡检（L3，挂账 b：0016 巡检页） | pending | — | — | — |
 
 ## 同步规则
 
