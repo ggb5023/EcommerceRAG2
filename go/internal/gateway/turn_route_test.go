@@ -7,29 +7,30 @@ import (
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
 
-// NOTE: resolveFactIntent mutates the routed response it receives. This is a
-// recorded hazard (docs/refactor-input.md item 11); the tests below pin the
-// current behaviour so a later decision to return values instead shows up as an
-// intentional change rather than an accident.
+// resolveFactIntent returns a new response; the input is read only. These tests
+// pin both the returned decision and the absence of input mutation.
 func TestResolveFactIntentOrderBranch(t *testing.T) {
 	routed := &ragv1.UnderstandResponse{RequiredFactTools: []string{"get_order_status"}, Intent: "factual",
 		Entities: []*ragv1.EntitySlot{{Name: "order_id", Value: "20261028001", Confidence: 0.9}}}
-	resource, snapshotFallback := resolveFactIntent(routed, "订单 20261028001 到哪了", "")
+	resolved, resource, snapshotFallback := resolveFactIntent(routed, "订单 20261028001 到哪了", "")
 	if snapshotFallback {
 		t.Fatal("a valid order id must not fall back")
 	}
 	if resource != "20261028001" {
 		t.Fatalf("resource = %q, want the order id", resource)
 	}
+	if len(resolved.RequiredFactTools) != 1 || resolved.RequiredFactTools[0] != "get_order_status" {
+		t.Fatalf("tools = %v", resolved.RequiredFactTools)
+	}
 	if len(routed.RequiredFactTools) != 1 || routed.RequiredFactTools[0] != "get_order_status" {
-		t.Fatalf("tools mutated to %v", routed.RequiredFactTools)
+		t.Fatalf("input was mutated to %v", routed.RequiredFactTools)
 	}
 }
 
 func TestResolveFactIntentProductBranch(t *testing.T) {
 	routed := &ragv1.UnderstandResponse{RequiredFactTools: []string{"get_stock"}, Intent: "factual",
 		Entities: []*ragv1.EntitySlot{{Name: "sku", Value: "SKU-CUP-480", Confidence: 0.9}}}
-	resource, snapshotFallback := resolveFactIntent(routed, "SKU-CUP-480 有货吗", "")
+	_, resource, snapshotFallback := resolveFactIntent(routed, "SKU-CUP-480 有货吗", "")
 	if snapshotFallback {
 		t.Fatal("a valid sku must not fall back")
 	}
@@ -40,27 +41,32 @@ func TestResolveFactIntentProductBranch(t *testing.T) {
 
 func TestResolveFactIntentUnknownKeepsTools(t *testing.T) {
 	routed := &ragv1.UnderstandResponse{RequiredFactTools: []string{"compare_products"}, Intent: "knowledge"}
-	resource, snapshotFallback := resolveFactIntent(routed, "帮我看看", "")
+	resolved, resource, snapshotFallback := resolveFactIntent(routed, "帮我看看", "")
 	if resource != "" || snapshotFallback {
 		t.Fatalf("unknown tools must not address a resource: resource=%q fallback=%v", resource, snapshotFallback)
 	}
+	if len(resolved.RequiredFactTools) != 1 || resolved.RequiredFactTools[0] != "compare_products" {
+		t.Fatalf("returned tools = %v", resolved.RequiredFactTools)
+	}
 	if len(routed.RequiredFactTools) != 1 {
-		t.Fatalf("tools mutated to %v", routed.RequiredFactTools)
+		t.Fatalf("input was mutated to %v", routed.RequiredFactTools)
 	}
 }
 
-// The invalid-identifier path rewrites the response in place; pin that too.
-func TestResolveFactIntentInvalidOrderMutatesResponse(t *testing.T) {
+func TestResolveFactIntentInvalidOrderReturnsNewClarification(t *testing.T) {
 	routed := &ragv1.UnderstandResponse{RequiredFactTools: []string{"get_logistics"}, Intent: "factual", Confidence: 0.9}
-	resource, snapshotFallback := resolveFactIntent(routed, "物流到哪了", "")
+	resolved, resource, snapshotFallback := resolveFactIntent(routed, "物流到哪了", "")
 	if resource != "" || !snapshotFallback {
 		t.Fatalf("missing order id must fall back: resource=%q fallback=%v", resource, snapshotFallback)
 	}
-	if routed.Intent != "clarification" || routed.RequiredFactTools != nil || routed.Confidence != 0.2 {
-		t.Fatalf("mutation not pinned: intent=%q tools=%v confidence=%v", routed.Intent, routed.RequiredFactTools, routed.Confidence)
+	if resolved.Intent != "clarification" || resolved.RequiredFactTools != nil || resolved.Confidence != 0.2 {
+		t.Fatalf("returned response: intent=%q tools=%v confidence=%v", resolved.Intent, resolved.RequiredFactTools, resolved.Confidence)
 	}
-	if !strings.Contains(routed.Clarification, "订单号") {
-		t.Fatalf("clarification = %q", routed.Clarification)
+	if !strings.Contains(resolved.Clarification, "订单号") {
+		t.Fatalf("clarification = %q", resolved.Clarification)
+	}
+	if routed.Intent != "factual" || len(routed.RequiredFactTools) != 1 || routed.Confidence != 0.9 || routed.Clarification != "" {
+		t.Fatalf("input mutated: %+v", routed)
 	}
 }
 

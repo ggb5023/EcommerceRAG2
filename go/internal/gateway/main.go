@@ -391,11 +391,9 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		delete(registry.cancels, requestID)
 		registry.mu.Unlock()
 	}()
-	ident := turnEventIdentity{
-		tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
-		conversationID: conversationID, executionNo: executionNo, requestID: requestID,
-	}
-	writeEvent, finish, setBehavior, setTrace := newTurnSink(ctx, g.db, ident, mockOutput)
+	ident := turnEventIdentity{tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
+		conversationID: conversationID, executionNo: executionNo, requestID: requestID}
+	writeEvent, finish, setBehavior, setTrace, setChosen := newTurnSink(ctx, g.db, ident, mockOutput)
 	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
 	if !guard.authorized() {
 		return
@@ -429,7 +427,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		finish(routeFailure.state, routeFailure.code, "")
 		return
 	}
-	factResourceID, snapshotFallback := resolveFactIntent(routed, query, history)
+	routed, factResourceID, snapshotFallback := resolveFactIntent(routed, query, history)
 	if !ensureScopeAuthorized() {
 		return
 	}
@@ -463,6 +461,8 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	if retrievalAborted {
 		return
 	}
+	// rejected is final once retrieval returns; chosen is filled by generation.
+	setTrace(rejected)
 	if retrievalFailure != nil {
 		finish(retrievalFailure.state, retrievalFailure.code, "")
 		return
@@ -488,7 +488,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 		&ragv1.GenerateRequest{Context: base, Query: query, Evidence: evidence, Facts: factResults,
 			ResponsePurpose: "customer_reply", HistorySummary: history},
 		mockOutput, snapshotFallback, evidence, ensureScopeAuthorized,
-		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent, func(ids []string) { setTrace(ids, rejected) })
+		func(item *ragv1.Evidence) (bool, error) { return g.authority().EvidenceAllowed(ctx, item) }, writeEvent, setChosen)
 	if generateAborted {
 		return
 	}

@@ -50,16 +50,19 @@ func (s *Store) IngestJobShop(ctx context.Context, db *pgxpool.Pool, tenantID in
 	return shop, err
 }
 
-// UsageSlots aggregates usage_log for the tenant, optionally from a moment on.
+// UsageSlots aggregates usage_log for the tenant plus the NULL-tenant rows,
+// which are returned with Unattributed=true. The caller must keep those rows
+// out of tenant totals.
 func (s *Store) UsageSlots(ctx context.Context, db *pgxpool.Pool, tenantID int64, since *time.Time) ([]UsageRow, error) {
-	query := `SELECT slot,model,coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),count(*),
-		count(*) FILTER (WHERE error_code IS NOT NULL) FROM usage_log WHERE tenant_id=$1`
+	query := `SELECT (tenant_id IS NULL),slot,model,coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),count(*),
+		count(*) FILTER (WHERE error_code IS NOT NULL) FROM usage_log
+		WHERE (tenant_id=$1 OR tenant_id IS NULL)`
 	args := []any{tenantID}
 	if since != nil {
 		query += " AND created_at >= $2"
 		args = append(args, *since)
 	}
-	query += " GROUP BY slot,model ORDER BY slot,model"
+	query += " GROUP BY (tenant_id IS NULL),slot,model ORDER BY (tenant_id IS NULL),slot,model"
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -68,7 +71,8 @@ func (s *Store) UsageSlots(ctx context.Context, db *pgxpool.Pool, tenantID int64
 	out := make([]UsageRow, 0)
 	for rows.Next() {
 		var row UsageRow
-		if err := rows.Scan(&row.Slot, &row.Model, &row.InputTokens, &row.OutputTokens, &row.Calls, &row.FailedCalls); err != nil {
+		if err := rows.Scan(&row.Unattributed, &row.Slot, &row.Model, &row.InputTokens,
+			&row.OutputTokens, &row.Calls, &row.FailedCalls); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -78,6 +82,7 @@ func (s *Store) UsageSlots(ctx context.Context, db *pgxpool.Pool, tenantID int64
 
 // UsageRow is one aggregated usage_log row.
 type UsageRow struct {
+	Unattributed bool `json:"-"`
 	Slot         string
 	Model        string
 	InputTokens  int64

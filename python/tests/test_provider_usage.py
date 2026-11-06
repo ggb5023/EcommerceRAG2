@@ -4,8 +4,22 @@ from app.providers.usage import (
     UsageAttribution,
     UsageRecorder,
     attribution_from_scope,
+    usage_result,
     use_attribution,
 )
+
+
+def test_null_tenant_usage_is_separated_into_unattributed():
+    rows = [
+        {"unattributed": False, "slot": "control", "model": "m",
+         "input_tokens": 10, "output_tokens": 2, "calls": 1, "failed_calls": 0},
+        {"unattributed": True, "slot": "search", "model": "tavily",
+         "input_tokens": 0, "output_tokens": 0, "calls": 1, "failed_calls": 0},
+    ]
+    result = usage_result(rows)
+    assert result["input_tokens"] == 10
+    assert result["unattributed"]["calls"] == 1
+    assert all("unattributed" not in row for row in result["by_slot"])
 
 
 def test_record_explicit_tenant_and_nulls():

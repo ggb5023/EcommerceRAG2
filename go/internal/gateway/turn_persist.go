@@ -110,20 +110,35 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 	}
 }
 
+// turnTrace is the data the terminal transaction writes. Retrieval sets the
+// rejected side once its result is known; generation only adds chosen.
+type turnTrace struct {
+	chosen   []string
+	rejected []domain.RejectedEvidence
+}
+
+func (trace *turnTrace) setTrace(rejected []domain.RejectedEvidence) {
+	trace.rejected = rejected
+}
+
+func (trace *turnTrace) setChosen(chosen []string) {
+	trace.chosen = chosen
+}
+
 // newTurnSink binds the persistence helpers to one execution so the orchestrator
-// only sees two closures: write an event and finish the turn. setTrace only
-// carries data; the decision row is written inside finishTurn's transaction.
-func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (func(string, any) error, func(string, string, string), func(string), func([]string, []domain.RejectedEvidence)) {
+// only sees closures: write an event, finish the turn, set behavior and update
+// the trace. setTrace sets rejected once after retrieval; setChosen only adds
+// the answer citations. The decision row is written inside finishTurn's
+// transaction.
+func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (
+	func(string, any) error, func(string, string, string), func(string),
+	func([]domain.RejectedEvidence), func([]string)) {
 	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
-	var chosen []string
-	var rejected []domain.RejectedEvidence
+	trace := &turnTrace{}
 	var behavior string
 	finish := func(state, code, answer string) {
-		finishTurn(ctx, db, ident, state, code, answer, behavior, mock, chosen, rejected)
+		finishTurn(ctx, db, ident, state, code, answer, behavior, mock, trace.chosen, trace.rejected)
 	}
 	setBehavior := func(value string) { behavior = value }
-	setTrace := func(chosenIDs []string, rejectedEvidence []domain.RejectedEvidence) {
-		chosen, rejected = chosenIDs, rejectedEvidence
-	}
-	return write, finish, setBehavior, setTrace
+	return write, finish, setBehavior, trace.setTrace, trace.setChosen
 }

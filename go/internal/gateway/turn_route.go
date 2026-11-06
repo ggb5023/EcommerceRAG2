@@ -11,6 +11,7 @@ import (
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // loadHistorySummary reads the bounded history of earlier turns that share the
@@ -94,41 +95,42 @@ func saveAskingCheckpoint(ctx context.Context, client ragv1.RagServiceClient, pr
 }
 
 // resolveFactIntent decides which authorized fact tool the turn needs and which
-// resource it addresses. It is pure: the decision only reads the routed response
-// and the query/history text.
+// resource it addresses. It returns a new UnderstandResponse; the input is read
+// only. The caller uses the returned response for downstream clarification.
 //
 // snapshotFallback is true when the model asked for a fact tool but the message
 // did not carry a usable identifier; the turn then falls back to knowledge and
 // answers with a snapshot qualifier.
-func resolveFactIntent(routed *ragv1.UnderstandResponse, query, history string) (factResourceID string, snapshotFallback bool) {
-	orderToolsRequired := slices.Contains(routed.RequiredFactTools, "get_order_status") || slices.Contains(routed.RequiredFactTools, "get_logistics")
-	productToolsRequired := slices.Contains(routed.RequiredFactTools, "get_stock") || slices.Contains(routed.RequiredFactTools, "get_price")
+func resolveFactIntent(routed *ragv1.UnderstandResponse, query, history string) (*ragv1.UnderstandResponse, string, bool) {
+	resolved := proto.Clone(routed).(*ragv1.UnderstandResponse)
+	orderToolsRequired := slices.Contains(resolved.RequiredFactTools, "get_order_status") || slices.Contains(resolved.RequiredFactTools, "get_logistics")
+	productToolsRequired := slices.Contains(resolved.RequiredFactTools, "get_stock") || slices.Contains(resolved.RequiredFactTools, "get_price")
 	if orderToolsRequired && productToolsRequired {
-		routed.Intent, routed.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
-		routed.RequiredFactTools = nil
-		return "", false
+		resolved.Intent, resolved.Clarification = "clarification", "请分别确认商品 SKU 和订单号后查询。"
+		resolved.RequiredFactTools = nil
+		return resolved, "", false
 	}
 	if orderToolsRequired {
-		orderID, valid := routedOrderResource(routed, query)
+		orderID, valid := routedOrderResource(resolved, query)
 		if !valid {
-			routed.Intent = "clarification"
-			routed.Clarification = "请提供有效订单号后再查询订单或物流状态。"
-			routed.Confidence = 0.2
-			routed.RequiredFactTools = nil
-			return "", true
+			resolved.Intent = "clarification"
+			resolved.Clarification = "请提供有效订单号后再查询订单或物流状态。"
+			resolved.Confidence = 0.2
+			resolved.RequiredFactTools = nil
+			return resolved, "", true
 		}
-		return orderID, false
+		return resolved, orderID, false
 	}
 	if productToolsRequired {
-		sku, valid := routedProductResource(routed, query, history)
+		sku, valid := routedProductResource(resolved, query, history)
 		if !valid {
-			routed.Intent, routed.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
-			routed.RequiredFactTools = nil
-			return "", true
+			resolved.Intent, resolved.Clarification = "clarification", "请确认唯一商品 SKU，再通过授权事实接口查询当前库存或价格；历史库存和商品描述不能代替当前事实。"
+			resolved.RequiredFactTools = nil
+			return resolved, "", true
 		}
-		return sku, false
+		return resolved, sku, false
 	}
-	return "", false
+	return resolved, "", false
 }
 
 // turnGuard centralises the two authorization checks every stage needs. It writes

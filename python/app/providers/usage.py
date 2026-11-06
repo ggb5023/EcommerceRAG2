@@ -121,10 +121,30 @@ class UsageRecorder:
         return True
 
 
+def usage_totals(rows: list[dict]) -> dict:
+    return {
+        "input_tokens": sum(int(r["input_tokens"] or 0) for r in rows),
+        "output_tokens": sum(int(r["output_tokens"] or 0) for r in rows),
+        "calls": sum(int(r["calls"] or 0) for r in rows),
+        "failed_calls": sum(int(r["failed_calls"] or 0) for r in rows),
+    }
+
+
+def usage_result(rows: list[dict]) -> dict:
+    """Split tenant rows from the NULL-tenant unattributed bucket."""
+    tenant_rows = [r for r in rows if not r["unattributed"]]
+    unattributed_rows = [r for r in rows if r["unattributed"]]
+    visible = [{k: v for k, v in row.items() if k != "unattributed"} for row in tenant_rows]
+    result = usage_totals(tenant_rows)
+    result.update({"by_slot": visible, "by_model": visible,
+                   "unattributed": usage_totals(unattributed_rows)})
+    return result
+
+
 def aggregate(dsn: str, tenant_id: int | None, *, since=None, until=None, slot: str | None = None) -> dict:
     import psycopg
     from psycopg.rows import dict_row
-    where, params = ["tenant_id IS NOT DISTINCT FROM %s"], [tenant_id]
+    where, params = ["(tenant_id = %s OR tenant_id IS NULL)"], [tenant_id]
     if since:
         where.append("created_at >= %s"); params.append(since)
     if until:
@@ -132,12 +152,10 @@ def aggregate(dsn: str, tenant_id: int | None, *, since=None, until=None, slot: 
     if slot:
         where.append("slot = %s"); params.append(slot)
     with psycopg.connect(dsn, connect_timeout=3, row_factory=dict_row) as conn:
-        rows = conn.execute(f"SELECT slot,model,coalesce(sum(input_tokens),0) input_tokens,"
+        rows = conn.execute(f"SELECT (tenant_id IS NULL) AS unattributed,slot,model,"
+            f"coalesce(sum(input_tokens),0) input_tokens,"
             f"coalesce(sum(output_tokens),0) output_tokens,count(*) calls,"
             f"count(*) FILTER (WHERE error_code IS NOT NULL) failed_calls FROM usage_log "
-            f"WHERE {' AND '.join(where)} GROUP BY slot,model ORDER BY slot,model", params).fetchall()
-    return {"input_tokens": sum(int(r["input_tokens"] or 0) for r in rows),
-            "output_tokens": sum(int(r["output_tokens"] or 0) for r in rows),
-            "calls": sum(int(r["calls"] or 0) for r in rows),
-            "failed_calls": sum(int(r["failed_calls"] or 0) for r in rows),
-            "by_slot": rows, "by_model": rows}
+            f"WHERE {' AND '.join(where)} GROUP BY (tenant_id IS NULL),slot,model "
+            f"ORDER BY (tenant_id IS NULL),slot,model", params).fetchall()
+    return usage_result(rows)

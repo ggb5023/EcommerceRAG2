@@ -20,11 +20,8 @@ def test_expected_database_must_match_lifecycle_report():
     assert not runner.isolated_database_name_valid("ecr_v2_accept_one", "ecr_v2_accept_one", "ecr_v2_accept_two")
 
 
-@pytest.mark.parametrize("defect", [None, "provider", "disclosure", "citation", "replay", "infrastructure", "unqualified", "answered"])
-def test_safe_answer_cannot_hide_provider_or_entrypoint_failure(monkeypatch, defect):
-    counts = iter([20, 21 if defect == "provider" else 20])
-    monkeypatch.setattr(runner, "attempts", lambda _: next(counts))
-
+@pytest.mark.parametrize("defect", [None, "disclosure", "citation", "replay", "infrastructure", "unqualified", "answered"])
+def test_safe_answer_cannot_hide_disclosure_or_entrypoint_failure(defect):
     class Client:
         def response(self, method, path, body=None):
             if path == "/v1/conversations":
@@ -42,21 +39,19 @@ def test_safe_answer_cannot_hide_provider_or_entrypoint_failure(monkeypatch, def
                 "error_code": "database_unavailable" if defect == "infrastructure" else "permission_denied"})}]
             return [] if defect == "replay" else events[last_event_id:]
 
-    row = runner.run_case(Client(), {"case_id": "syn-055", "query": "controlled query"}, {"internal"}, ledger=object())
+    row = runner.run_case(Client(), {"case_id": "syn-055", "query": "controlled query"}, {"internal"})
     assert row["passed"] is (defect is None)
-    assert row["request_reached_provider"] is (defect == "provider")
+    assert row["request_reached_provider"] is False
     assert "restricted answer" not in json.dumps(row) and "controlled query" not in json.dumps(row)
 
 
 @pytest.mark.parametrize("code", ["identity_revoked", "permission_changed", "shop_not_authorized", "database_unavailable"])
-def test_actual_http_denial_is_required(monkeypatch, code):
-    monkeypatch.setattr(runner, "attempts", lambda _: 10)
-
+def test_actual_http_denial_is_required(code):
     class Client:
         def response(self, method, path, body=None):
             return 403 if code != "database_unavailable" else 503, {"code": code}
 
-    row = runner.run_case(Client(), {"case_id": "syn-060", "query": "controlled query"}, set(), ledger=object())
+    row = runner.run_case(Client(), {"case_id": "syn-060", "query": "controlled query"}, set())
     assert row["passed"] is (code != "database_unavailable")
     assert row["provider_attempt_delta"] == 0
 

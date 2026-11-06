@@ -3,7 +3,7 @@
 
 This optional path avoids downloading build-tool images. It still needs the
 locked Python/npm/Go dependencies and the pinned pgvector runtime base cached.
-No runtime configuration, models, data, identities or budget are copied.
+No runtime configuration, models, data, identities or usage accounting are copied.
 """
 from __future__ import annotations
 

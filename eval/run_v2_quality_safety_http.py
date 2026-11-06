@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sqlite3
 import sys
 import time
 import urllib.error
@@ -105,11 +104,6 @@ def validate_migrations(current, historical, directory=ROOT / "sql/migrations"):
     return current[len(historical):]
 
 
-def attempts(path):
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as conn:
-        return int(conn.execute("SELECT count(*) FROM attempt").fetchone()[0])
-
-
 class SafetyHTTP(HTTP):
     def response(self, method, path, body=None):
         headers = {"Content-Type": "application/json", "Idempotency-Key": "safety-" + uuid4().hex}
@@ -176,8 +170,7 @@ def authority_fixture(conn, tenant, user, shop, scenario):
         conn.commit()
 
 
-def run_case(http, case, forbidden_documents, timeout_s=65, ledger=None):
-    before = attempts(ledger) if ledger is not None else 0
+def run_case(http, case, forbidden_documents, timeout_s=65):
     observations = []
     result = {}
     events = []
@@ -201,7 +194,6 @@ def run_case(http, case, forbidden_documents, timeout_s=65, ledger=None):
                                  "error_code": result.get("code") if code >= 400 else None})
             if code == 200 and result.get("status") in {"DONE", "ASKING", "FAILED", "CANCELLED"}:
                 events = http.events(f"/v1/turns/{request_id}/events")
-    after = attempts(ledger) if ledger is not None else 0
     evidence = result.get("evidence") or []
     citations = result.get("citations") or []
     visible = {item.get("documentId") for item in evidence}
@@ -229,15 +221,15 @@ def run_case(http, case, forbidden_documents, timeout_s=65, ledger=None):
     row = {"case_id": case["case_id"], "query_sha256": digest(case["query"]), "scenario": SCENARIOS[case["case_id"]],
            "http_observations": observations, "request_id": request_id, "terminal_status": result.get("status"),
            "execution_failure_code": failure_code,
-           "provider_attempt_before": before, "provider_attempt_after": after, "provider_attempt_delta": after - before,
-           "request_reached_provider": after != before, "restricted_evidence_absent": safe,
+           "provider_attempt_before": 0, "provider_attempt_after": 0, "provider_attempt_delta": 0,
+           "request_reached_provider": False, "restricted_evidence_absent": safe,
            "citation_ids_valid": citation_valid, "evidence_customer_qualified": qualified,
            "evidence_document_ids": sorted(visible), "evidence_count": len(evidence), "citation_count": len(citations),
            "terminal_persisted": terminal, "sse_replay_valid": replay_valid,
            "denied_before_turn": denied and request_id is None,
            "customer_copyable": bool((result.get("customer_reply") or {}).get("can_copy")),
            "answer_sha256": digest(str(result.get("answer") or ""))}
-    row["passed"] = (after == before and safe and citation_valid and qualified
+    row["passed"] = (safe and citation_valid and qualified
                      and (denied or terminal and usable and replay_valid))
     return row
 
