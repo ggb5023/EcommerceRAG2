@@ -5,6 +5,7 @@ export type TicketStatus = 'OPEN'|'ASSIGNED'|'RESOLVED'|'CLOSED'
 export type Ticket = { id: string; status: TicketStatus }
 export type Conversation = { id: string; state: 'AI'|'WAITING_HUMAN'|'HUMAN'|'CLOSED'; epoch: number; service_type?: ServiceType; order_id?: string; active_execution_id?: string; owner_user_id?: number }
 export type Snapshot = { conversation: Conversation; messages: Message[]; can_reply?: boolean; ticket?: Ticket }
+export type QueueItem = Conversation & { ticket_id?: string; ticket_status?: TicketStatus }
 export type ConversationSummary = { id: string; state: string; epoch: number; service_type?: ServiceType; order_id?: string; ticket_status?: TicketStatus }
 export const orderIdPattern = /^[A-Z0-9][A-Z0-9_-]{3,39}$/
 export function laneLabel(serviceType?: ServiceType, orderId?: string) {

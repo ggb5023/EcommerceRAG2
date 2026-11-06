@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {ref} from 'vue'
 import type {SuggestionView} from './customer-api'
-import CitationCard from './components/CitationCard.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 defineProps<{suggestion:SuggestionView|null; busy:boolean; error:string; adoptBusy?:boolean; adoptNotice?:string}>()
 const emit=defineEmits<{generate:[text:string]; copy:[]; adopt:[]}>()
@@ -21,11 +20,6 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
     <p v-if="error" role="alert">{{error}}</p>
     <article v-if="suggestion" data-testid="suggestion-result">
       <p class="message-text">{{suggestion.answer}}</p>
-      <ul v-if="suggestion.citations.length" class="citation-list">
-        <li v-for="citation in suggestion.citations" :key="citation.evidence_id" data-testid="suggestion-citation">
-          <CitationCard :citation="citation"/>
-        </li>
-      </ul>
       <button type="button" data-testid="suggestion-copy" :disabled="busy||!suggestion.can_copy" @click="$emit('copy')">复制建议</button>
       <button type="button" data-testid="suggestion-adopt" :disabled="busy||!suggestion.can_copy||adoptBusy" @click="confirming=true">采纳为知识草稿</button>
       <p v-if="adoptNotice" data-testid="suggestion-adopt-notice" role="status" class="adopt-notice">{{adoptNotice}}</p>
@@ -44,8 +38,6 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
 .suggestion-panel textarea:focus{outline:2px solid var(--color-focus);outline-offset:-2px}
 .suggestion-panel button{border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);padding:.5rem .9rem;cursor:pointer}
 .suggestion-panel button[disabled]{opacity:.5;cursor:default}
-.citation-list{display:grid;gap:.45rem;padding-left:0;list-style:none}
-.citation-list li{margin:0}
 .copy-blocked{color:var(--color-warning)}
 .adopt-notice{color:var(--color-success);font-size:var(--text-sm)}
 </style>

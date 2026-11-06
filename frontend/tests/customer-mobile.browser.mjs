@@ -13,8 +13,8 @@ const snapshot = {
   conversation: { id: 'conv-mobile', state: 'AI' },
   messages: [
     { id: 'm1', source: 'customer', text: '杯子的容量是多少？', redacted: false, citations: [] },
-    { id: 'm2', source: 'assistant', text: '这款杯子的容量是 480 毫升。', redacted: false, citations: [citation] },
-    { id: 'm3', source: 'assistant', text: '请补充具体型号。', redacted: false, citations: [] },
+    { id: 'm2', source: 'assistant', text: '这款杯子的容量是 480 毫升。', redacted: false, citations: [citation], can_copy: true, blocked_reason: '' },
+    { id: 'm3', source: 'assistant', text: '请补充具体型号。', redacted: false, citations: [], can_copy: false, blocked_reason: 'no_citable_evidence' },
   ],
 }
 

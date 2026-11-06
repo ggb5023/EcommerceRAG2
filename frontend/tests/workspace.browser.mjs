@@ -46,17 +46,11 @@ async function result(turn) {
   assert.equal(response.status(), 200)
   return response.json()
 }
-async function openEvidence() {
-  if ((await page.viewportSize()).width < 1024) await page.getByRole('button', { name: /^证据与引用 \(/ }).click()
-  await visible(page.locator('#evidence-pane'))
-}
-async function closeEvidence() {
-  if ((await page.viewportSize()).width < 1024) await page.keyboard.press('Escape')
-}
-async function restored(turn) {
-  // Completion display can precede the final GET. Wait for the persisted result
-  // binding before comparing the browser to the authoritative response.
-  await page.waitForFunction(id => document.querySelector('.result-binding')?.textContent.includes(id), turn.request_id)
+async function restored(_turn) {
+  // Completion display can precede the final GET. Wait for the assistant answer
+  // bubble before comparing the browser to the authoritative response.
+  await page.waitForFunction(() => [...document.querySelectorAll('.message.assistant .bubble')]
+    .some(element => (element.textContent ?? '').trim().length > 0))
 }
 try {
   for (const [width, height] of [[1440,900],[1280,800],[1024,768],[390,844]]) {
@@ -84,16 +78,12 @@ try {
       assert.ok(before.evidence.every(e => e.documentId && e.versionId), 'V2 evidence binding is incomplete')
       assert.ok(before.answer && before.answer.length > 0, 'actual V2 answer missing')
       assert.equal(before.customer_reply.can_copy, false)
-      await openEvidence()
-      assert.ok(await page.locator('.citation').count() > 0, 'actual citations missing')
-      assert.equal(await page.getByRole('button', { name: '复制草稿 · 模拟结果不可复制' }).isDisabled(), true)
-      const source = await page.locator('.evidence-card footer').allTextContents()
-      await closeEvidence()
-      if (width < 1024) assert.ok(await page.getByRole('button', { name: /^证据与引用 \(/ }).evaluate(e => e === document.activeElement), 'Esc must restore opener focus')
-      await page.reload(); await visible(page.locator('#question')); await restored(turn); await openEvidence()
-      assert.deepEqual(await page.locator('.evidence-card footer').allTextContents(), source, 'refresh lost versions/evidence')
+      // Staff and merchant views show the answer only; citations live in the
+      // admin review page (decision 0041 §2.6).
+      assert.equal(await page.locator('#evidence-pane').count(), 0, 'staff workbench must not render citations')
+      assert.equal(await page.locator('.citation').count(), 0, 'staff workbench must not render citation chips')
+      await page.reload(); await visible(page.locator('#question')); await restored(turn)
       assert.equal((await result(turn)).answer, before.answer)
-      await closeEvidence()
       const layout = await page.locator('#question').boundingBox()
       assert.ok(layout && layout.y >= 0 && layout.y + layout.height <= height, 'input must remain in viewport')
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'horizontal overflow')
@@ -112,7 +102,7 @@ try {
   page = await context.newPage(); page.on('pageerror', () => problems.push('browser_script_error'))
   await page.goto(base + '/chat'); await visible(page.locator('#question'))
   await test('asking-refresh-parent-child', async () => {
-    await newConversation(); const parent = await send('那个怎么样？'); await restored(parent)
+    await newConversation(); const parent = await send('那个怎么样？')
     await visible(page.getByText('需要补充信息', { exact: true }))
     assert.equal((await result(parent)).status, 'ASKING')
     await page.reload(); await visible(page.locator('#question')); await visible(page.getByText('需要补充信息', { exact: true }))

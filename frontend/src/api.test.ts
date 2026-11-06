@@ -147,7 +147,7 @@ describe('workspace contracts', () => {
 
 
 describe('suggestion panel', () => {
-  it('renders the generate form, citation cards and the blocked copy state', async () => {
+  it('renders the generate form and the blocked copy state without inline citations', async () => {
     const html = await renderToString(createSSRApp({
       render: () => h(SuggestionPanel, {
         busy: false,
@@ -167,8 +167,8 @@ describe('suggestion panel', () => {
     expect(html).toContain('生成建议')
     expect(html).toContain('复制建议')
     expect(html).toContain('disabled')
-    expect(html).toContain('示例资料')
-    expect(html).toContain('引用 1')
+    expect(html).not.toContain('示例资料')
+    expect(html).not.toContain('suggestion-citation')
     expect(html).toContain('本地测试结果不可复制')
   })
 

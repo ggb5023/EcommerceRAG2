@@ -57,7 +57,8 @@
 | 35 | customer 转人工 | `GET /admin/v1/merchant/report/handoff` | 报告页 | ✅ | 一键 | 分子/分母/rate；null 显示无数据 |
 | 36 | 版本有效期 | `POST /admin/v1/merchant/versions/{id}/validity` | 版本审核详情 | ✅ | 单条 | 需理由与 fencing epoch |
 | 34 | 用量查看 | `GET /admin/v1/merchant/usage` | 报告页 | ✅ | 一键 | by_slot/by_model token 与调用量 |
-| — | 顾客入口 | `/v1/customer/*` | `/shop/:slug` | ✅ | 单条 | 顾客问答、引用与转人工入口 |
+| — | 顾客入口 | `/v1/customer/*` | `/shop/:slug` | ✅ | 单条 | 先选售前/售后；售后必须填订单号；显示工单状态；顾客引用抽屉保留 |
+| — | 回答与引用审查 | `GET /admin/v1/merchant/answers`、`GET /admin/v1/merchant/answers/{kind}/{id}` | `/admin/merchant/answers` | ✅ | 单条 | 员工轮次与顾客 AI 消息；列表截断，详情含引用有效性/事实快照/mock；打开详情写审计 |
 
 ## 缺口清单（按优先级）
 
