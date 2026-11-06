@@ -51,6 +51,59 @@ bash scripts/check.sh --smoke
 - 不加迁移、不加接口；不动 dev 栈与 smoke 基线（必须逐字节一致）；
 - 不改 CONTRACTS_* 棘轮；不 push；提交身份固定；不用 `git add .`。
 
-## 汇报
+## 实施与验证（2026-11-06）
 
-五节格式；附根因行号、修复 diff、演练栈完整 curl 序列输出、smoke 输出。
+根因确认：`authorization.go` 只在 `scopeIdentities != nil && identityCheck != nil`
+时挂 `RegisterScopeIdentity`；local adapter 的 `Resolve` 返回 nil check，导致
+ingest scope 未绑定。
+
+修复（`go/internal/gateway/local_identity.go`）：
+- 新增窄接口 `localSessionResolver`，`localIdentityAdapter.store` 使用该接口；
+- `Resolve` 在解析 cookie 后返回 `localIdentityCheck(...)`，与 OIDC principal check 同构；
+- `localIdentityCheck` 复用 `localauth.Store.ResolveSession`，会话撤销/过期/账号禁用
+  拒绝，数据库故障返回 Unavailable；身份 tenant/user 变化拒绝；
+- 未改 scope 签名、TTL、business_date 或其它适配器。
+
+测试：
+```text
+cd go && go test ./internal/gateway/ -run "ScopeIdentity|LocalIdentity" -v
+  TestScopeIdentityRequiresBoundLiveCredential PASS
+  TestLocalIdentitySessionCheck PASS（valid/revoked/account disabled/db unavailable）
+  TestLocalIdentityScopeRegistration PASS（bind/validate + 撤销/DB 故障）
+```
+
+Dev 回归：
+```text
+go build -o .local/v2-gateway ./cmd/gateway
+strings .local/v2-gateway | grep -c identity_changed -> 1
+systemctl restart ecommerce-rag-dev
+13:14:15 .local/v2-gateway / app.ai_process，HEAD 0eeb545 13:14:06
+bash scripts/check.sh         -> PASSED 44 / UNCONFIGURED 0 / FAILED 0
+bash scripts/check.sh --smoke -> PASSED 47 / UNCONFIGURED 0 / FAILED 0
+```
+五条 smoke 逐字节一致，dev development profile 行为未变。
+
+自部署演练栈（WP65 runtime）：
+```text
+gateway 镜像重建：第一次 docker compose build gateway 出现一次瞬时 go-build exit 1；
+  单独重试成功，dmesg/journal 无 OOM；镜像 strings 含 identity_changed=1。
+gateway 重新创建后：
+  POST /v1/auth/login -> 200；GET /admin/v1/session -> 200（tenant=merchant shop=main-shop）
+  POST /admin/v1/merchant/imports -> 201（batch 3, item_count=1）
+  POST /admin/v1/merchant/imports/3/confirm -> 202
+    {"batch_id":"3","command_id":"2","job_id":"2","status":"confirmed"}
+  GET /admin/v1/merchant/reviews -> wp66-shipping version 2 pending
+  POST /admin/v1/merchant/versions/2/review -> 200 approved
+  POST /admin/v1/merchant/versions/2/publish -> 200 active（fencing_epoch=2）
+```
+
+顾客问答（真实 admin 导入的 shipping 资料）：
+```text
+assistant text: 本店通常在付款后48小时内发货。若遇节假日，发货时间可能顺延，具体请以订单页面显示的信息为准。
+citations=1 (document_id=wp66-shipping, version_id=2, evidence_id=db-chunk-4)
+can_copy=true, blocked_reason=""
+completed behavior=REPLY_BEHAVIOR_ANSWER
+```
+
+未覆盖：OIDC/Keycloak 与 OSS 剖面未重跑；自部署镜像重建的一次性构建失败未定位到
+确定原因（重试成功，无 OOM 证据）；未跑浏览器 UI；未改 CONTRACTS_* 棘轮。
