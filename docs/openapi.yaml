@@ -747,6 +747,12 @@ paths:
         required: true
         schema:
           type: string
+  /admin/v1/report:
+    get:
+      summary: GET /admin/v1/report
+      responses:
+        '200':
+          description: OK
   /admin/v1/inspections:
     get:
       summary: GET /admin/v1/inspections

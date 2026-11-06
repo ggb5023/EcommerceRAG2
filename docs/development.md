@@ -40,6 +40,7 @@ bash scripts/dev/install-git-hooks.sh
 - 稀疏检索开关（0029 第三步）：`SPARSE_RETRIEVAL=legacy|sparsevec`（默认 `legacy`）、
   `SPARSE_RRF_WEIGHT`（融合权重，默认现值 0.7）；只有显式写进运行时配置才会覆盖默认
 - 在线档另需 `V2_PROVIDER_CONFIG`；模型花费由商家平台控制，本工程只记 token 用量
+- 管理台评测报告页只读 `ECR_REPORT_PATH` 指向的 JSON 文件；未设置、文件不存在或格式不合法时接口返回 404，不重算指标
 
 `V2_RPC_TLS` 留空表示进程间明文；只有显式写了取值才会走 mTLS，并需要同时给出 CA、证书和密钥三个路径。
 

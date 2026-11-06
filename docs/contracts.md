@@ -27,6 +27,7 @@
 | 稀疏写入契约 | 跨进程 | `sql/migrations/0044_sparse_vector_wider.sql`（`sparsevec(131072)`；0037 为历史维度）与 `0038_sparse_tokenizer_id.sql`（tokenizer 标记） | `python/app/ingest/sparse.py:to_literal` / `sparse_tokenizer_id`（写入 `chunk.sparse_embedding`） | `python/tests/test_sparse_write.py`（维度、索引越界、权重、非零上限） | ✅ |
 | 建议结果与引用 | 跨进程 | `go/internal/gateway/support_suggestions.go:createSuggestion` / `copySuggestion`、`result.go:executionResult`、`recovery.go:persistExecutionTerminal`（`can_copy`） | `frontend/src/customer-api.ts`、`frontend/src/SuggestionPanel.vue`（生成/引用卡片/复制禁用态） | `go/internal/gateway/turn_decision_lifecycle_test.go:TestPersistExecutionTerminalSetsCopyability`、`support_suggestions_test.go:TestCopySuggestionDeniedWhenNotCopyable`、`go/internal/admin/store_analytics_integration_test.go:TestSuggestionTurnsExcludedFromOutcomesAndGaps` / `frontend/src/api.test.ts`（suggestion panel） | ✅ |
 | 稀疏查询契约 | 同侧 | `python/app/retrieval/postgres.py`（`SPARSE_RETRIEVAL` 开关、`<#>` sparsevec 分支、降级、`last_sparse_mode` 探针、tokenizer 版本过滤与 `last_sparse_skipped_tokenizer` 计数） | —（同侧，Python 内部契约） | `python/tests/test_sparse_query_mode.py`、`python/tests/test_sparse_mode_probe.py` | ✅ |
+| 评测报告 JSON 五段结构 | 跨进程 | `go/internal/admin/report.go:readReport`（只读透传，顶层白名单 `input` / `operations` / `handoff` / `quality` / `tokens`） | 报告 CLI（五段输出；`NOT_MEASURED` 不写 0，分母 0 写 null，无货币） | `go/internal/admin/report_test.go:TestAdminReportWhitelistsSections` / `python/tests/test_demo_report_structure.py`（五段键集、fail-closed、null 分母、无货币） | ✅ |
 
 ## 维护规则
 
