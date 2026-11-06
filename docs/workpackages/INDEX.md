@@ -71,8 +71,8 @@
 | 62 | 0032 intelligence 域——阶段 1：共享层与域标记契约 | done | — | — | `458b9dd` |
 | 63 | 0032 阶段 2：抓取 worker + Tavily 接线 + 情报接口 | done | — | — | `9f10458` |
 | 64 | 审计澄清批（0018 角色矩阵 + 前端文案 + product 边界句；scripts/review 保持仓外） | done | — | — | `c8cbc69` |
-| 65 | 自部署端到端演练与 install.md 校正 | in-progress | 运行时代码：local identity ingest scope 未注册（另包） | — | `3ae616c` |
-| 66 | 修复 local identity ingest scope 未注册（自部署导入链 403） | implemented | — | — | `0eeb545` |
+| 65 | 自部署端到端演练与 install.md 校正 | done | — | — | `3ae616c` |
+| 66 | 修复 local identity ingest scope 未注册（自部署导入链 403） | done | — | — | `0eeb545` |
 
 ## 同步规则
 
