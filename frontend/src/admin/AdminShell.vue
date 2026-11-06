@@ -10,7 +10,7 @@ const { navigation, page, title, data, selectedShop, session, browserAuth, roleL
       <div class="rail-label">工作空间</div>
       <nav aria-label="管理工作空间">
         <button v-for="item in navigation" :key="item.page" type="button" class="nav-item" :class="{ active: page === item.page }" @click="go(item.page)">
-          <span class="nav-mark" aria-hidden="true">{{ ({ overview: '◫', outcomes: '◔', reports: '▥', gaps: '◌', inspections: '◎', accounts: '♙', requests: '⇄', audit: '≡', shops: '⌂', sources: '▤', ingestion: '↻', reviews: '✓' } as Record<string, string>)[item.page] }}</span>
+          <span class="nav-mark" aria-hidden="true">{{ ({ overview: '◫', outcomes: '◔', reports: '▥', report: '▣', gaps: '◌', inspections: '◎', accounts: '♙', requests: '⇄', audit: '≡', shops: '⌂', sources: '▤', ingestion: '↻', reviews: '✓' } as Record<string, string>)[item.page] }}</span>
           {{ item.label }}
         </button>
       </nav>

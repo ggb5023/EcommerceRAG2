@@ -129,6 +129,22 @@ export type InspectionRunSummary = {
 
 const inspectionScope = (shopId = '') => shopId ? `shop_id=${encodeURIComponent(shopId)}` : ''
 
+export type ReportSection = {
+  status?: 'MEASURED' | 'NOT_MEASURED'
+  reason?: string
+  [key: string]: unknown
+}
+
+export type EvaluationReport = {
+  input: ReportSection
+  operations: ReportSection
+  handoff: ReportSection
+  quality: ReportSection
+  tokens: ReportSection
+}
+
+export const getReport = () => get<EvaluationReport>('/admin/v1/report')
+
 export const getInspections = (status = 'open', shopId = '') =>
   get<{ items: InspectionItem[] }>(`/admin/v1/inspections?status=${encodeURIComponent(status)}${inspectionScope(shopId) ? `&${inspectionScope(shopId)}` : ''}`)
 export const getInspection = (id: number, shopId = '') =>
