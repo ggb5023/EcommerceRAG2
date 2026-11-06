@@ -109,6 +109,35 @@ export type HandoffReport = {
   handoff_rate: number | null
 }
 
+export type InspectionItem = {
+  id: number
+  shop_id: string
+  kind: 'expired_not_removed' | 'newer_version_conflict' | 'unanswered_high_frequency' | 'citation_invalid'
+  severity: 'high' | 'medium' | 'low'
+  status: 'open' | 'acknowledged' | 'resolved' | 'dismissed'
+  subject_type: string
+  subject_id: string
+  evidence: Record<string, unknown>
+  detected_at: string
+  resolved_at: string | null
+}
+
+export type InspectionRunSummary = {
+  run_id: string
+  by_kind: Record<string, { inserted: number; updated: number; closed: number }>
+}
+
+const inspectionScope = (shopId = '') => shopId ? `shop_id=${encodeURIComponent(shopId)}` : ''
+
+export const getInspections = (status = 'open', shopId = '') =>
+  get<{ items: InspectionItem[] }>(`/admin/v1/inspections?status=${encodeURIComponent(status)}${inspectionScope(shopId) ? `&${inspectionScope(shopId)}` : ''}`)
+export const getInspection = (id: number, shopId = '') =>
+  get<InspectionItem>(`/admin/v1/inspections/${id}${inspectionScope(shopId) ? `?${inspectionScope(shopId)}` : ''}`)
+export const runInspections = (shopId = '') =>
+  post<InspectionRunSummary>(`/admin/v1/inspections/run${inspectionScope(shopId) ? `?${inspectionScope(shopId)}` : ''}`, {})
+export const setInspectionStatus = (id: number, status: 'acknowledged' | 'resolved' | 'dismissed', shopId = '') =>
+  post<InspectionItem>(`/admin/v1/inspections/${id}/status${inspectionScope(shopId) ? `?${inspectionScope(shopId)}` : ''}`, { status })
+
 export const get = <T>(path: string) => request<T>(path)
 export const getOutcomes = (range: '7d' | '30d' = '30d') =>
   get<ResolutionOutcome>(`/admin/v1/merchant/outcomes?range=${range}`)
