@@ -72,3 +72,12 @@ bash scripts/check.sh --smoke    # 47/0/0，五条基线逐字节一致
 
 绑定在 `/etc/ecommerce-rag/oidc-dev.json`（subject→tenant/user/shop），
 角色由 dev 库 `admin_role_grant` 决定；access_admin 按 install.md 走带外 SQL 授予。
+
+## 情报服务启用（2026-11-06 追加）
+
+dev 栈已开启 `V2_INTEL_ENABLED=1`（DSN 用 rag_v2_intel 角色，RPM=5、轮询 60s）：
+worker 监听 127.0.0.1:50054，网关 `/admin/v1/intel/observations` 返回 200。
+启用时发现并修复一个真实缺陷：每请求的 `scoped()` 副本漏拷贝 intel RPC 客户端，
+导致接口恒 503（提交 3a5cc80 + 回归测试）。当前 dev 是 mock provider，观测嵌入为
+零向量，语义查询会显示 `query_degraded=true`；真实 provider 下才有相似度排序。
+创建一条监控配置后，worker 才会真正发起 Tavily 搜索（产生外部调用与用量记录）。
