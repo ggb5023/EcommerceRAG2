@@ -137,7 +137,7 @@ func (s *scopeIdentityRegistry) validate(ctx context.Context, scope *ragv1.Reque
 }
 
 func (g *gateway) scoped(session mockSession, check func(context.Context) error) *gateway {
-	return &gateway{db: g.db, rag: g.rag, ingest: g.ingest, facts: g.facts, grpcConn: g.grpcConn, session: session, signingKey: g.signingKey, profile: g.profile,
+	return &gateway{db: g.db, rag: g.rag, ingest: g.ingest, facts: g.facts, grpcConn: g.grpcConn, intelConn: g.intelConn, intel: g.intel, session: session, signingKey: g.signingKey, profile: g.profile,
 		root: g, identityCheck: check, scopeIdentities: g.scopeIdentities, customer: g.customer}
 }
 

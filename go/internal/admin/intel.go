@@ -71,7 +71,7 @@ func (g *Handler) adminIntelObservations(w http.ResponseWriter, r *http.Request)
 		Since: filter.Since, Limit: filter.Limit, Query: filter.Query,
 	})
 	if err != nil {
-		httpapi.WriteError(w, http.StatusServiceUnavailable, "intel_unavailable", "intelligence service is unavailable")
+			httpapi.WriteError(w, http.StatusServiceUnavailable, "intel_unavailable", "intelligence service is unavailable")
 		return
 	}
 	items := make([]map[string]any, 0, len(response.GetItems()))
