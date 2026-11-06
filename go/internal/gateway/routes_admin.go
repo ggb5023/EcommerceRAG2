@@ -13,5 +13,5 @@ func (g *gateway) registerAdminRoutes(mux *http.ServeMux) {
 	if g.customer != nil {
 		customerOrigin = g.customer.Config.Origin
 	}
-	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey, CustomerOrigin: customerOrigin}).RegisterRoutes(mux)
+	(&admin.Handler{DB: g.db, Session: &g.session, Authority: g.authority(), Ingest: g.ingest, Intel: g.intel, AIConnection: g.grpcConn, Profile: g.profile, SigningKey: g.signingKey, CustomerOrigin: customerOrigin}).RegisterRoutes(mux)
 }

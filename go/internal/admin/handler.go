@@ -50,4 +50,8 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/v1/inspections/{id}", g.adminInspectionDetail)
 	mux.HandleFunc("POST /admin/v1/inspections/{id}/status", g.adminInspectionStatus)
 	mux.HandleFunc("GET /admin/v1/report", g.adminReport)
+	mux.HandleFunc("GET /admin/v1/intel/observations", g.adminIntelObservations)
+	mux.HandleFunc("GET /admin/v1/intel/watch-configs", g.adminIntelWatchConfigs)
+	mux.HandleFunc("POST /admin/v1/intel/watch-configs", g.adminIntelCreateWatchConfig)
+	mux.HandleFunc("PATCH /admin/v1/intel/watch-configs/{id}", g.adminIntelUpdateWatchConfig)
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/httpapi"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
+	"github.com/ggb5023/EcommerceRAG/go/internal/ports"
 
 	"context"
 	"crypto/sha256"
@@ -31,6 +32,7 @@ type Handler struct {
 	Session      *auth.Session
 	Authority    *auth.Authority
 	Ingest       ragv1.IngestServiceClient
+	Intel        ports.IntelClient
 	AIConnection *grpc.ClientConn
 	Profile      string
 	SigningKey   []byte

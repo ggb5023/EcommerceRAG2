@@ -23,6 +23,13 @@ type FactClient interface {
 	Lookup(ctx context.Context, scope *ragv1.RequestContext, names []string, resourceID string) ([]*ragv1.Fact, error)
 }
 
+// IntelClient is the internal, mTLS-only observation read used by the admin
+// report page. The generated IntelServiceClient satisfies this port.
+type IntelClient interface {
+	ListObservations(ctx context.Context, in *ragv1.ListObservationsRequest,
+		opts ...grpc.CallOption) (*ragv1.ListObservationsResponse, error)
+}
+
 // Authority resolves the caller's permissions and evidence visibility.
 type Authority interface {
 	Refresh(ctx context.Context) error

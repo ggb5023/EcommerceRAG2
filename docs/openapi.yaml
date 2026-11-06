@@ -753,6 +753,35 @@ paths:
       responses:
         '200':
           description: OK
+  /admin/v1/intel/observations:
+    get:
+      summary: GET /admin/v1/intel/observations
+      responses:
+        '200':
+          description: OK
+  /admin/v1/intel/watch-configs:
+    get:
+      summary: GET /admin/v1/intel/watch-configs
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: POST /admin/v1/intel/watch-configs
+      responses:
+        '201':
+          description: Created
+  /admin/v1/intel/watch-configs/{id}:
+    patch:
+      summary: PATCH /admin/v1/intel/watch-configs/{id}
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
   /admin/v1/inspections:
     get:
       summary: GET /admin/v1/inspections

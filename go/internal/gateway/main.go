@@ -75,6 +75,8 @@ type gateway struct {
 	ingest          ragv1.IngestServiceClient
 	facts           facts.Provider
 	grpcConn        *grpc.ClientConn
+	intelConn       *grpc.ClientConn
+	intel           ragv1.IntelServiceClient
 	session         mockSession
 	signingKey      []byte
 	profile         string

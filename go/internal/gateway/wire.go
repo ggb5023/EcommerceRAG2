@@ -121,6 +121,14 @@ func wireDependencies(ctx context.Context) (*gateway, *pgxpool.Pool, string, *id
 	if err != nil {
 		log.Fatal("ingest RPC configuration failed")
 	}
+	intelAddr := strings.TrimSpace(os.Getenv("V2_INTEL_GRPC_ADDR"))
+	if intelAddr == "" {
+		intelAddr = "127.0.0.1:50054"
+	}
+	intelConn, err := grpc.NewClient(intelAddr, grpc.WithTransportCredentials(rpcCredentials))
+	if err != nil {
+		log.Fatal("intel RPC configuration failed")
+	}
 	factsProvider := facts.Provider(facts.UnavailableProvider{})
 	if base := strings.TrimSpace(os.Getenv("V2_FACTS_BASE_URL")); base != "" {
 		version := strings.TrimSpace(os.Getenv("V2_FACTS_VERSION"))
@@ -129,7 +137,7 @@ func wireDependencies(ctx context.Context) (*gateway, *pgxpool.Pool, string, *id
 		}
 		factsProvider = facts.HTTPProvider{BaseURL: base, Version: version}
 	}
-	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), grpcConn: conn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter, browser: browser}
+	g := &gateway{db: db, session: session, profile: profile, rag: ragv1.NewRagServiceClient(conn), ingest: ragv1.NewIngestServiceClient(ingestConn), intel: ragv1.NewIntelServiceClient(intelConn), grpcConn: conn, intelConn: intelConn, facts: factsProvider, cancels: map[string]context.CancelFunc{}, identity: adapter, browser: browser}
 	g.signingKey, err = auth.LoadSigningKey()
 	if err != nil {
 		log.Fatal("restricted scope signing key is unavailable")
@@ -157,6 +165,7 @@ func wireDependencies(ctx context.Context) (*gateway, *pgxpool.Pool, string, *id
 		g.scopeIdentities = &scopeIdentityRegistry{}
 	}
 	cleanup := func() {
+		intelConn.Close()
 		ingestConn.Close()
 		conn.Close()
 		db.Close()
