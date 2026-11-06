@@ -1,1 +1,81 @@
-.channel-shell{max-width:1000px;margin:2rem auto;padding:1.5rem;font:16px/1.65 system-ui;color:#17312b;background:#fff}.channel-shell header{border-bottom:2px solid #16765b;padding-bottom:1rem}.channel-shell article{padding:1rem;margin:.8rem 0;background:#f2f7f5;border-radius:8px}.channel-shell article.customer{background:#e8f2ff}.channel-shell article.agent{border-left:4px solid #16765b}.channel-shell button{padding:.6rem 1rem;margin:.4rem;border:1px solid #52796c;border-radius:6px;background:#fff;color:#17312b;cursor:pointer}.channel-shell button:disabled{opacity:.5;cursor:default}.channel-shell textarea{display:block;width:100%;min-height:80px;box-sizing:border-box;padding:.7rem;font:inherit}.message-text{white-space:pre-wrap;overflow-wrap:anywhere}.channel-shell [role=alert]{color:#9b2820}.channel-shell small{display:block}.channel-shell nav a{margin-right:1rem}.support-columns{display:grid;grid-template-columns:230px 1fr;gap:2rem}.support-columns aside button{display:block}@media(max-width:700px){.support-columns{grid-template-columns:1fr}.channel-shell{margin:0}}
+/* Staff/customer channel shell. Colours come only from styles/tokens.css. */
+.channel-shell {
+  max-width: 1000px;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  font: 16px/1.65 var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.channel-shell header {
+  border-bottom: 2px solid var(--color-primary);
+  padding-bottom: 1rem;
+}
+.channel-shell article {
+  padding: 1rem;
+  margin: 0.8rem 0;
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-lg);
+}
+.channel-shell article.customer {
+  background: var(--color-primary-soft);
+}
+.channel-shell article.agent {
+  border-left: 4px solid var(--color-primary);
+}
+.channel-shell button {
+  padding: 0.6rem 1rem;
+  margin: 0.4rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.channel-shell button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.channel-shell textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  box-sizing: border-box;
+  padding: 0.7rem;
+  font: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.channel-shell [role='alert'] {
+  color: var(--color-danger);
+}
+.channel-shell small {
+  display: block;
+  color: var(--color-text-muted);
+}
+.channel-shell nav a {
+  margin-right: 1rem;
+  color: var(--color-primary);
+}
+.support-columns {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 2rem;
+}
+.support-columns aside button {
+  display: block;
+}
+@media (max-width: 700px) {
+  .support-columns {
+    grid-template-columns: 1fr;
+  }
+  .channel-shell {
+    margin: 0;
+  }
+}

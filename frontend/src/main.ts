@@ -1,5 +1,7 @@
 import './styles/base.css'
 import './styles/tokens.css'
+import './styles/workbench.css'
+import './admin/admin.css'
 import { createApp, h } from 'vue'
 import { createRouter, createWebHistory, RouterView } from 'vue-router'
 import { routes } from './routes'

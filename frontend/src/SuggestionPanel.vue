@@ -30,10 +30,13 @@ const blockedText:Record<string,string>={mock:'本地测试结果不可复制',n
 </template>
 
 <style scoped>
-.suggestion-panel{margin-top:1rem;padding:1rem;border:1px solid #c9d8d2;border-radius:8px;background:#f7fbf9}
-.suggestion-panel textarea{min-height:72px;margin-bottom:.5rem}
+.suggestion-panel{margin-top:1rem;padding:1rem;border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface-raised);color:var(--color-text)}
+.suggestion-panel h3{margin-top:0;font-size:var(--text-lg)}
+.suggestion-panel textarea{min-height:72px;margin-bottom:.5rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);font:inherit}
+.suggestion-panel textarea:focus{outline:2px solid var(--color-focus);outline-offset:-2px}
+.suggestion-panel button{border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);padding:.5rem .9rem;cursor:pointer}
 .suggestion-panel button[disabled]{opacity:.5;cursor:default}
 .citation-list{display:grid;gap:.45rem;padding-left:0;list-style:none}
 .citation-list li{margin:0}
-.copy-blocked{color:#6b5a1f}
+.copy-blocked{color:var(--color-warning)}
 </style>
