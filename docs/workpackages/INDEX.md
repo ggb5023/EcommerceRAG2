@@ -69,8 +69,8 @@
 | 60 | 内容巡检（L3，挂账 b：0016 巡检页） | done | — | — | `088d9c8` |
 | 61 | 管理台报告页（读 0035 同一份 JSON） | done | — | — | `0b9a869` |
 | 62 | 0032 intelligence 域——阶段 1：共享层与域标记契约 | done | — | — | `458b9dd` |
-| 63 | 0032 阶段 2：抓取 worker + Tavily 接线 + 情报接口 | implemented | — | — | `9f10458` |
-| 64 | 审计澄清批（0018 角色矩阵 + 前端文案 + product 边界句；scripts/review 保持仓外） | in-progress | — | — | — |
+| 63 | 0032 阶段 2：抓取 worker + Tavily 接线 + 情报接口 | done | — | — | `9f10458` |
+| 64 | 审计澄清批（0018 角色矩阵 + 前端文案 + product 边界句；scripts/review 保持仓外） | done | — | — | `c8cbc69` |
 
 ## 同步规则
 
