@@ -1,0 +1,7 @@
+return_id,order_id,sku,reason_code,status,requested_at,resolved_at
+RET-2609-0001,ORD-2609-0001,CLB-BAG-001,size_mismatch,requested,2026-09-27T15:00:00Z,
+RET-2609-0002,ORD-2609-0003,CLB-BAG-006,damaged,approved,2026-09-21T11:00:00Z,
+RET-2609-0003,ORD-2609-0006,CLB-APP-002,not_as_described,received,2026-09-22T10:00:00Z,
+RET-2609-0004,ORD-2609-0007,CLB-APP-005,size_mismatch,closed,2026-09-27T13:00:00Z,2026-09-28T14:00:00Z
+RET-2609-0005,ORD-2609-0010,CLB-BED-007,damaged,requested,2026-09-25T17:00:00Z,
+RET-2609-0006,ORD-2609-0011,CLB-BAG-002,not_as_described,approved,2026-09-27T15:00:00Z,

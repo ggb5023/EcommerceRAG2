@@ -2,8 +2,8 @@
 # One-click synthetic demo shop: start the isolated stack, import demo-store-v1,
 # review and publish it through the existing admin API, or reset only its versions.
 #
-#   bash scripts/dev/demo-shop.sh [--ports 26081] [--with-vite]
-#   bash scripts/dev/demo-shop.sh [--ports 26081] --reset
+#   bash scripts/dev/demo-shop.sh [--ports 26081] [--with-vite] [--package PATH]
+#   bash scripts/dev/demo-shop.sh [--ports 26081] --reset [--package PATH]
 #
 # All business writes go through the admin HTTP API. The script never writes SQL,
 # never touches the systemd dev stack, and never resets other tenants/shops.
@@ -26,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --ports) ports=${2:-}; shift 2 ;;
     --with-vite) with_vite=1; shift ;;
     --reset) reset=1; shift ;;
+    --package) package=${2:-}; shift 2 ;;
     --base-url) base_url=${2:-}; shift 2 ;;
     -h|--help) usage ;;
     *) usage ;;
@@ -74,6 +75,7 @@ base_url, package = sys.argv[1].rstrip("/"), Path(sys.argv[2])
 reset_only = sys.argv[3] == "1"
 manifest_bytes = (package / "manifest.yaml").read_bytes()
 manifest = yaml.safe_load(manifest_bytes)
+label = str(manifest.get("dataset_id") or package.name)
 docs = manifest.get("documents") or []
 business_date = str(manifest.get("business_date", "")).strip()
 if not docs or not business_date:
@@ -171,7 +173,7 @@ def revoke(item, auth):
         "tenant_id": auth["tenantId"], "shop_id": auth["shopId"], "document_id": document_id,
         "version_hash": source_hash, "permission_revision": auth["permission_revision"],
         "expected_fencing_epoch": item.get("fencing_epoch", 0), "confirm": True,
-        "reason": "demo-store-v1 reset: revoke only this synthetic demo source",
+        "reason": f"{label} reset: revoke only this synthetic demo source",
     }
     command(f"/admin/v1/merchant/versions/{item['version_id']}/revoke", payload)
 
@@ -197,7 +199,7 @@ def publish_document(item):
         review = {
             "expected_hash": item["source_hash"], "expected_fencing_epoch": item.get("fencing_epoch", 0),
             "permission_revision": auth["permission_revision"], "confirm": True,
-            "reason": "demo-store-v1 seed: synthetic demo review",
+            "reason": f"{label} seed: synthetic demo review",
             "decision": "approved", "disclosure_class": "external_allowed", "external_allowed": True,
         }
         command(f"/admin/v1/merchant/versions/{item['version_id']}/review", review)
@@ -211,7 +213,7 @@ def publish_document(item):
         "tenant_id": auth["tenantId"], "shop_id": auth["shopId"], "document_id": item["document_id"],
         "version_hash": item["source_hash"], "permission_revision": auth["permission_revision"],
         "expected_fencing_epoch": current.get("fencing_epoch", 0), "confirm": True,
-        "reason": "demo-store-v1 seed: synthetic demo publication",
+        "reason": f"{label} seed: synthetic demo publication",
     }
     command(f"/admin/v1/merchant/versions/{item['version_id']}/publish", publish)
     print(f"ACTIVE document={item['document_id']} version={item['version_id']}")
@@ -227,7 +229,7 @@ all_active = all(
     for doc in docs
 )
 if all_active:
-    print(f"SKIP demo-store-v1 already active manifest_sha256={hashlib.sha256(manifest_bytes).hexdigest()}")
+    print(f"SKIP {label} already active manifest_sha256={hashlib.sha256(manifest_bytes).hexdigest()}")
     raise SystemExit(0)
 
 # A reset revokes versions but keeps the immutable manifest bytes; add a
@@ -273,7 +275,7 @@ for doc in docs:
     if blocking:
         raise RuntimeError(f"precheck contains blocking rows: {doc['document_id']} {blocking}")
 status, confirmed = request(f"/admin/v1/merchant/imports/{batch}/confirm", method="POST",
-                            body=json.dumps({"confirm": True, "reason": "demo-store-v1 seed: confirm synthetic package"}).encode(),
+                            body=json.dumps({"confirm": True, "reason": f"{label} seed: confirm synthetic package"}).encode(),
                             content_type="application/json")
 if status != 202:
     raise RuntimeError(f"batch confirmation failed: {status} {confirmed}")
@@ -300,5 +302,5 @@ stale = [item for item in final if item.get("document_id") in doc_ids
          and item.get("status") not in ("active", "revoked", "superseded")]
 if stale:
     raise RuntimeError(f"demo documents still pending outside job {job_id}: {stale}")
-print(f"PASS demo-store-v1 manifest_sha256={hashlib.sha256(manifest_bytes).hexdigest()}")
+print(f"PASS {label} manifest_sha256={hashlib.sha256(manifest_bytes).hexdigest()}")
 PY

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated stack for the --db and --e2e layers.
 #
-#   bash scripts/dev/isolated-stack.sh [--db ENV] [--ports BASE] [--with-vite] [--keep]
+#   bash scripts/dev/isolated-stack.sh [--db ENV] [--ports BASE] [--with-vite] [--commerce-sim] [--keep]
 #   bash scripts/dev/isolated-stack.sh stop
 #
 # The --db file supplies the DSNs (default: the integration database). The
@@ -17,6 +17,8 @@ python="$repo/python/.venv/bin/python"
 usage() { sed -n '2,9p' "${BASH_SOURCE[0]}" >&2; exit 2; }
 
 stop_stack() {
+  local state_root=${root:-${ECR_ISOLATED_ROOT:-/tmp/ecr-isolated}}
+  local ports_file="$state_root/ports.json"
   if [[ ! -f "$ports_file" ]]; then
     echo "PASS isolated stack already stopped"
     return 0
@@ -84,6 +86,7 @@ db_env=/etc/ecommerce-rag/test-integration.env
 template=/etc/ecommerce-rag/eval-runtime.env
 base=26081
 with_vite=0
+with_commerce=0
 keep=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -92,6 +95,7 @@ while [[ $# -gt 0 ]]; do
     --ports) base=$2; shift 2 ;;
     --identity) identity=$2; shift 2 ;;
     --with-vite) with_vite=1; shift ;;
+    --commerce-sim) with_commerce=1; shift ;;
     --keep) keep=1; shift ;;
     *) usage ;;
   esac
@@ -113,7 +117,7 @@ stop_stack >/dev/null 2>&1 || true
 mkdir -p "$root"
 chmod 700 "$root"
 
-for port in "$base" $((base + 1)) $((base + 2)) $((base + 3)); do
+for port in "$base" $((base + 1)) $((base + 2)) $((base + 3)) $((base + 4)) $((base + 5)) $((base + 6)); do
   if (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
     echo "FAIL port $port is already in use; stop the previous stack first" >&2
     exit 2
@@ -124,13 +128,15 @@ gateway_port=$base
 rag_port=$((base + 1))
 ingest_port=$((base + 2))
 vite_port=$((base + 3))
+commerce_port=$((base + 4))
 
 # Build the merged runtime configuration: template options, DSNs from --db,
 # ports from --ports. Secrets stay in $root/runtime.env (0600).
-STACK_IDENTITY="$identity" "$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" <<'PY'
+STACK_IDENTITY="$identity" STACK_COMMERCE="$with_commerce" "$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" "$commerce_port" <<'PY'
 import os, pathlib, sys
 db_env, template, target = (pathlib.Path(arg) for arg in sys.argv[1:4])
 repo = pathlib.Path(sys.argv[8])
+commerce_port = int(sys.argv[9])
 sys.path.insert(0, str(repo / "scripts" / "dev"))
 from v2_services import CONFIG_KEYS
 gateway_port, rag_port, ingest_port, vite_port = sys.argv[4:8]
@@ -175,6 +181,12 @@ values["V2_GRPC_ADDR"] = f"127.0.0.1:{rag_port}"
 values["V2_INGEST_GRPC_ADDR"] = f"127.0.0.1:{ingest_port}"
 values["AUTHORITY_HTTP_BASE"] = f"http://127.0.0.1:{gateway_port}"
 values["V2_CUSTOMER_ORIGIN"] = f"http://127.0.0.1:{vite_port}"
+values["METRICS_ADDR"] = f"127.0.0.1:{int(sys.argv[4]) + 5}"
+values["AI_METRICS_ADDR"] = f"127.0.0.1:{int(sys.argv[4]) + 6}"
+if os.environ.get("STACK_COMMERCE") == "1":
+    values["V2_COMMERCE_SIM_DATASET"] = str(repo / "data" / "synthetic" / "commerce-lab-v1")
+    values["V2_COMMERCE_SIM_ADDR"] = f"127.0.0.1:{commerce_port}"
+    values["V2_FACTS_BASE_URL"] = f"http://127.0.0.1:{commerce_port}"
 values.setdefault("APP_ENV", "development")
 out = target.open("w")
 for key, value in sorted(values.items()):

@@ -1,0 +1,12 @@
+chart_code,size_label,size_system,chest_cm,waist_cm,hip_cm,height_cm,fit_note
+CLB-APPAREL-SIZES,S,unisex,88,70,92,160,常规版型
+CLB-APPAREL-SIZES,M,unisex,94,76,98,170,常规版型
+CLB-APPAREL-SIZES,L,unisex,100,82,104,178,常规版型
+CLB-APPAREL-SIZES,XL,unisex,106,88,110,183,常规版型
+CLB-BEDDING-SIZES,1.5m,bedding,,,,200,适配 150x200cm 床垫
+CLB-BEDDING-SIZES,1.8m,bedding,,,,200,适配 180x200cm 床垫
+CLB-BEDDING-SIZES,150x200,bedding,,,,200,夏被常规尺寸
+CLB-BEDDING-SIZES,200x230,bedding,,,,230,双人夏被尺寸
+CLB-BEDDING-SIZES,中高,pillow,,,,12,侧睡支撑
+CLB-BEDDING-SIZES,波浪,pillow,,,,10,颈椎贴合
+CLB-BEDDING-SIZES,48x74,pillow,,,,74,标准枕套尺寸

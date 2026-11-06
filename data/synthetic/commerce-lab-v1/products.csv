@@ -1,0 +1,33 @@
+sku,title,category,color,size_label,size_chart_code,material,care_code,price_cents,currency,attributes_json,launched_on
+CLB-DRK-001,晨雾保温杯 350ml,drinkware,雾蓝,,,304不锈钢,CUP-STEEL,6900,CNY,"{""capacity_ml"":350,""weight_g"":260}",2026-06-01
+CLB-DRK-002,晨雾保温杯 480ml,drinkware,雾蓝,,,304不锈钢,CUP-STEEL,8900,CNY,"{""capacity_ml"":480,""weight_g"":300}",2026-06-01
+CLB-DRK-003,晨雾保温杯 750ml,drinkware,墨绿,,,304不锈钢,CUP-STEEL,10900,CNY,"{""capacity_ml"":750,""weight_g"":420}",2026-06-01
+CLB-DRK-004,轻氧随行杯 420ml,drinkware,奶油白,,,Tritan,CUP-TRITAN,5900,CNY,"{""capacity_ml"":420,""weight_g"":180}",2026-06-01
+CLB-DRK-005,轻氧随行杯 600ml,drinkware,雾紫,,,Tritan,CUP-TRITAN,6900,CNY,"{""capacity_ml"":600,""weight_g"":220}",2026-06-01
+CLB-DRK-006,焖烧罐 500ml,drinkware,石墨灰,,,316不锈钢,CUP-STEEL,12900,CNY,"{""capacity_ml"":500,""weight_g"":460}",2026-06-01
+CLB-DRK-007,陶瓷内胆咖啡杯 380ml,drinkware,燕麦色,,,陶瓷+304不锈钢,CUP-CERAMIC,9900,CNY,"{""capacity_ml"":380,""weight_g"":340}",2026-06-01
+CLB-DRK-008,折叠运动水壶 650ml,drinkware,海盐蓝,,,食品级硅胶,CUP-SILICONE,4900,CNY,"{""capacity_ml"":650,""weight_g"":150}",2026-06-01
+CLB-BAG-001,城市通勤双肩包 20L,bags,炭黑,,,再生尼龙,BAG-NYLON,26900,CNY,"{""capacity_l"":20,""weight_g"":780}",2026-06-01
+CLB-BAG-002,城市通勤双肩包 26L,bags,岩灰,,,再生尼龙,BAG-NYLON,29900,CNY,"{""capacity_l"":26,""weight_g"":880}",2026-06-01
+CLB-BAG-003,轻量斜挎包 4L,bags,沙色,,,防泼水涤纶,BAG-POLYESTER,12900,CNY,"{""capacity_l"":4,""weight_g"":260}",2026-06-01
+CLB-BAG-004,周末旅行袋 32L,bags,深海军蓝,,,防泼水涤纶,BAG-POLYESTER,33900,CNY,"{""capacity_l"":32,""weight_g"":950}",2026-06-01
+CLB-BAG-005,通勤托特包 12L,bags,焦糖棕,,,植鞣革,BAG-LEATHER,39900,CNY,"{""capacity_l"":12,""weight_g"":820}",2026-06-01
+CLB-BAG-006,运动腰包 2L,bags,荧光橙,,,弹力锦纶,BAG-NYLON,8900,CNY,"{""capacity_l"":2,""weight_g"":180}",2026-06-01
+CLB-BAG-007,电脑内胆包 14 英寸,bags,深灰,,,记忆海绵+尼龙,BAG-NYLON,9900,CNY,"{""fit_inch"":14,""weight_g"":240}",2026-06-01
+CLB-BAG-008,旅行收纳袋三件套,bags,浅灰,,,防泼水涤纶,BAG-POLYESTER,7900,CNY,"{""pieces"":3,""weight_g"":210}",2026-06-01
+CLB-BED-001,全棉四件套 1.5m 床,bedding,暖白,1.5m,CLB-BEDDING-SIZES,100%新疆长绒棉,BED-COTTON,45900,CNY,"{""pieces"":4,""thread_count"":60}",2026-06-01
+CLB-BED-002,全棉四件套 1.8m 床,bedding,暖白,1.8m,CLB-BEDDING-SIZES,100%新疆长绒棉,BED-COTTON,49900,CNY,"{""pieces"":4,""thread_count"":60}",2026-06-01
+CLB-BED-003,天丝夏被 200x230cm,bedding,雾灰,200x230,CLB-BEDDING-SIZES,莱赛尔天丝,BED-TENCEL,39900,CNY,"{""fill_g"":300,""pieces"":1}",2026-06-01
+CLB-BED-004,水洗棉夏被 150x200cm,bedding,米白,150x200,CLB-BEDDING-SIZES,水洗棉,BED-COTTON,25900,CNY,"{""fill_g"":250,""pieces"":1}",2026-06-01
+CLB-BED-005,记忆棉枕 中高,bedding,本白,中高,CLB-BEDDING-SIZES,记忆棉,BED-FOAM,19900,CNY,"{""height_cm"":12,""pieces"":1}",2026-06-01
+CLB-BED-006,乳胶枕 波浪形,bedding,本白,波浪,CLB-BEDDING-SIZES,天然乳胶,BED-LATEX,29900,CNY,"{""height_cm"":10,""pieces"":1}",2026-06-01
+CLB-BED-007,全棉床笠 1.5m 床,bedding,浅灰,1.5m,CLB-BEDDING-SIZES,100%新疆长绒棉,BED-COTTON,15900,CNY,"{""pieces"":1,""thread_count"":60}",2026-06-01
+CLB-BED-008,天丝枕套一对,bedding,银灰,48x74,CLB-BEDDING-SIZES,莱赛尔天丝,BED-TENCEL,12900,CNY,"{""pieces"":2}",2026-06-01
+CLB-APP-001,轻量防晒衣 雾蓝 S,apparel,雾蓝,S,CLB-APPAREL-SIZES,锦纶+氨纶,APP-SYNTHETIC,12900,CNY,"{""upf"":50,""weight_g"":180}",2026-06-01
+CLB-APP-002,轻量防晒衣 雾蓝 M,apparel,雾蓝,M,CLB-APPAREL-SIZES,锦纶+氨纶,APP-SYNTHETIC,12900,CNY,"{""upf"":50,""weight_g"":190}",2026-06-01
+CLB-APP-003,轻量防晒衣 炭黑 L,apparel,炭黑,L,CLB-APPAREL-SIZES,锦纶+氨纶,APP-SYNTHETIC,12900,CNY,"{""upf"":50,""weight_g"":205}",2026-06-01
+CLB-APP-004,速干短袖 T 恤 暖白 M,apparel,暖白,M,CLB-APPAREL-SIZES,再生涤纶,APP-SYNTHETIC,7900,CNY,"{""weight_g"":120}",2026-06-01
+CLB-APP-005,速干短袖 T 恤 炭黑 L,apparel,炭黑,L,CLB-APPAREL-SIZES,再生涤纶,APP-SYNTHETIC,7900,CNY,"{""weight_g"":130}",2026-06-01
+CLB-APP-006,运动长裤 深灰 M,apparel,深灰,M,CLB-APPAREL-SIZES,锦纶+氨纶,APP-SYNTHETIC,19900,CNY,"{""weight_g"":260}",2026-06-01
+CLB-APP-007,运动长裤 深灰 L,apparel,深灰,L,CLB-APPAREL-SIZES,锦纶+氨纶,APP-SYNTHETIC,19900,CNY,"{""weight_g"":275}",2026-06-01
+CLB-APP-008,轻量风衣 海盐蓝 M,apparel,海盐蓝,M,CLB-APPAREL-SIZES,防泼水锦纶,APP-SYNTHETIC,25900,CNY,"{""weight_g"":320}",2026-06-01

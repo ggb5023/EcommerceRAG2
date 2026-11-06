@@ -40,6 +40,7 @@ SERVICE_KEYS = {
     "intel": {"V2_INTEL_DSN", "V2_INTEL_GRPC_ADDR", "V2_INTEL_ENABLED", "V2_INTEL_RPM",
               "V2_INTEL_POLL_SECONDS", "V2_INTEL_PROXY_URL", "V2_INTEL_RPC_WORKERS"}
              | PROVIDER_KEYS,
+    "commerce": {"V2_COMMERCE_SIM_DATASET", "V2_COMMERCE_SIM_ADDR"},
 }
 CONFIG_KEYS = set().union(*SERVICE_KEYS.values(), COMMON_KEYS) | {
     "V2_AI_DSN", "V2_USAGE_DSN", "V2_MIGRATION_DSN", "V2_START_TIMEOUT_SECONDS", "V2_STOP_TIMEOUT_SECONDS",
@@ -137,9 +138,20 @@ def configure(values: dict[str, str]) -> dict[str, str]:
         raise StartupError("V2_INTEL_PROXY_URL must be empty or https")
     for key, default in (("HTTP_ADDR", "127.0.0.1:8080"), ("V2_GRPC_ADDR", "127.0.0.1:50052"),
                          ("V2_INGEST_GRPC_ADDR", "127.0.0.1:50053"), ("V2_INTEL_GRPC_ADDR", "127.0.0.1:50054"),
-                         ("METRICS_ADDR", "127.0.0.1:9090"), ("AI_METRICS_ADDR", "127.0.0.1:9091")):
-        values[key] = address(values.get(key, default), loopback=key in {"HTTP_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR"})
+                         ("METRICS_ADDR", "127.0.0.1:9090"), ("AI_METRICS_ADDR", "127.0.0.1:9091"),
+                         ("V2_COMMERCE_SIM_ADDR", "127.0.0.1:8091")):
+        values[key] = address(values.get(key, default), loopback=key in {"HTTP_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR", "V2_COMMERCE_SIM_ADDR"})
+    commerce_dataset = values.get("V2_COMMERCE_SIM_DATASET", "").strip()
+    if commerce_dataset:
+        dataset_path = Path(commerce_dataset)
+        if not dataset_path.is_absolute() or not (dataset_path / "manifest.yaml").is_file():
+            raise StartupError("V2_COMMERCE_SIM_DATASET must be an absolute commerce-lab package")
+        values["V2_COMMERCE_SIM_DATASET"] = str(dataset_path)
+        if not values.get("V2_FACTS_BASE_URL", "").strip():
+            values["V2_FACTS_BASE_URL"] = "http://" + values["V2_COMMERCE_SIM_ADDR"]
     address_keys = ("HTTP_ADDR", "V2_GRPC_ADDR", "V2_INGEST_GRPC_ADDR", "V2_INTEL_GRPC_ADDR", "METRICS_ADDR", "AI_METRICS_ADDR")
+    if commerce_dataset:
+        address_keys = address_keys + ("V2_COMMERCE_SIM_ADDR",)
     if len({values[key] for key in address_keys}) != len(address_keys):
         raise StartupError("service bind addresses must be distinct")
     values["AUTHORITY_HTTP_BASE"] = "http://" + values["HTTP_ADDR"]
@@ -191,6 +203,10 @@ def ready(name: str, values: dict[str, str]) -> bool:
         if name == "gateway":
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open("http://" + values["HTTP_ADDR"] + "/healthz", timeout=0.5) as response:
+                return response.status == 200 and json.loads(response.read(4096)).get("status") == "ok"
+        if name == "commerce":
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open("http://" + values["V2_COMMERCE_SIM_ADDR"] + "/healthz", timeout=0.5) as response:
                 return response.status == 200 and json.loads(response.read(4096)).get("status") == "ok"
         if name == "intel":
             return rpc_serving(values, values["V2_INTEL_GRPC_ADDR"], "rag.v1.IntelService")
@@ -272,6 +288,10 @@ def service_commands(values: dict[str, str], binary: Path) -> dict[str, list[str
     commands = {"gateway": [str(binary)], "ai": [sys.executable, "-m", "app.ai_process"]}
     if values.get("V2_INTEL_ENABLED", "0") == "1":
         commands["intel"] = [sys.executable, "-m", "app.intel.worker"]
+    if values.get("V2_COMMERCE_SIM_DATASET", "").strip():
+        commands["commerce"] = [str(ROOT / ".local/commerce-sim"),
+                                "--dataset", values["V2_COMMERCE_SIM_DATASET"],
+                                "--addr", values["V2_COMMERCE_SIM_ADDR"]]
     return commands
 
 
@@ -291,6 +311,12 @@ def main() -> int:
                                cwd=ROOT / "go", env={k: v for k, v in values.items() if k in SYSTEM_KEYS}, check=False)
         if built.returncode:
             raise StartupError("V2 gateway build failed")
+        if values.get("V2_COMMERCE_SIM_DATASET", "").strip():
+            simulator = ROOT / ".local/commerce-sim"
+            built = subprocess.run(["go", "build", "-p", "2", "-o", str(simulator), "./cmd/commerce-sim"],
+                                   cwd=ROOT / "go", env={k: v for k, v in values.items() if k in SYSTEM_KEYS}, check=False)
+            if built.returncode:
+                raise StartupError("commerce simulator build failed")
         commands = service_commands(values, binary)
         return supervise(commands, {name: service_environment(name, values) for name in commands},
                          lambda name: ready(name, values), cwd=ROOT / "python",

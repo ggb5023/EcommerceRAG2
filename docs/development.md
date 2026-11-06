@@ -143,6 +143,30 @@ python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-
   需要换一个 `--document-id` 重新播种。
 - 结束断言：`GET /admin/v1/merchant/versions` 里存在 `status=active` 且 `chunk_count>0` 的版本。
 
+## 模拟电商后端（commerce-lab-v1）
+
+`data/synthetic/commerce-lab-v1` 是本地生成、可复现的拟真数据集：32 个 SKU、库存、
+24 个订单与订单行、物流与轨迹、退货、模拟外部工单、5 份知识文档与示例问题；无真实
+个人信息，订单/退货不含金额汇总。唯一出处是生成器
+`scripts/dev/generate_commerce_dataset.py`（固定 seed 与参考日期 2026-09-29）；改数据先
+改生成器再 `--write`，`--check` 验证已提交字节可复现。
+
+`go/cmd/commerce-sim` 读取该数据集，同时提供：
+
+- facts 契约 `GET /v1/facts/{tool}`（`get_stock`、`get_price`、`get_order_status`、
+  `get_logistics`、`compare_products`），严格校验版本/租户/店铺/资源绑定；
+- dev REST：`/dev/v1/orders`、`/dev/v1/orders/{id}`、`/dev/v1/inventory/{sku}`、
+  `/dev/v1/shipments/{order_id}`、`/dev/v1/tickets`（内存态）、`/healthz`。
+
+仅绑定 loopback，不参与 selfhost。三种用法：
+
+- dev 栈：`dev.env` 的 `V2_COMMERCE_SIM_DATASET` 指向数据集，supervisor 随栈启动
+  commerce 子进程，`V2_FACTS_BASE_URL` 指向它；
+- 独立启停：`scripts/dev/commerce-sim.sh start|stop|status`（默认 `127.0.0.1:8091`）；
+- 一键隔离演示：`scripts/dev/commerce-lab.sh`（隔离栈 + 模拟器 + 导入并发布知识包）。
+
+隔离栈用 `--commerce-sim` 打开模拟器（端口 `base+4`，metrics 用 `base+5/6` 避开 dev）。
+
 ## 当前环境状态
 
 环境变更后更新这一节；不要只写在对话或临时文件里。

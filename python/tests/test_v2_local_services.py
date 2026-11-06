@@ -52,6 +52,10 @@ def test_real_children_receive_only_their_service_credentials(tmp_path):
             for key in ("V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_INGEST_DSN",
                         "V2_AI_DSN", "V2_MIGRATION_DSN"):
                 assert key not in received, key
+        elif name == "commerce":
+            for key in ("V2_GATEWAY_DSN", "V2_RETRIEVER_DSN", "V2_INGEST_DSN",
+                        "V2_AI_DSN", "V2_MIGRATION_DSN", "V2_PROVIDER_CONFIG"):
+                assert key not in received, key
         else:
             # The merged ai process serves three facets, so it holds both roles;
             # the gateway, intel and migration roles stay outside it.
@@ -184,6 +188,26 @@ def test_intel_enabled_controls_service_commands(tmp_path):
         services.configure(values(tmp_path) | {"V2_INTEL_RPM": "0"})
     with pytest.raises(services.StartupError):
         services.configure(values(tmp_path) | {"V2_INTEL_PROXY_URL": "http://proxy.invalid"})
+
+
+def test_commerce_simulator_receives_only_the_dataset_and_points_facts_at_itself(tmp_path):
+    dataset = ROOT / "data" / "synthetic" / "commerce-lab-v1"
+    configured = services.configure(values(tmp_path) | {
+        "V2_COMMERCE_SIM_DATASET": str(dataset), "V2_COMMERCE_SIM_ADDR": "127.0.0.1:18091",
+    })
+    assert configured["V2_FACTS_BASE_URL"] == "http://127.0.0.1:18091"
+    commands = services.service_commands(configured, tmp_path / "gateway")
+    assert commands["commerce"][0].endswith("commerce-sim")
+    environment = services.service_environment("commerce", configured)
+    assert environment["V2_COMMERCE_SIM_DATASET"] == str(dataset)
+    assert environment["V2_COMMERCE_SIM_ADDR"] == "127.0.0.1:18091"
+    assert "V2_GATEWAY_DSN" not in environment and "V2_AI_DSN" not in environment
+    with pytest.raises(services.StartupError):
+        services.configure(values(tmp_path) | {"V2_COMMERCE_SIM_DATASET": "relative/path"})
+    with pytest.raises(services.StartupError):
+        services.configure(values(tmp_path) | {
+            "V2_COMMERCE_SIM_DATASET": str(dataset), "V2_COMMERCE_SIM_ADDR": "0.0.0.0:8091",
+        })
 
 
 def test_business_date_reaches_both_date_consumers():

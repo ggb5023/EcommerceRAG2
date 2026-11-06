@@ -1,0 +1,152 @@
+schema_version: 1
+dataset_id: commerce-lab-v1
+generated_by: scripts/dev/generate_commerce_dataset.py
+source:
+  id: commerce-lab-v1
+  name: Commerce lab v1
+pipeline_version: commerce-lab-v1
+business_date: '2026-09-29'
+seed: 20260929
+reference_date: '2026-09-29'
+facts_version: v1
+tenant_id: v2-demo-tenant
+shop_id: shop-demo
+currency: CNY
+synthetic: true
+license: internal-generated
+tenants:
+- tenant_id: v2-demo-tenant
+  shops:
+  - shop-demo
+featured_comparison:
+- CLB-DRK-002
+- CLB-DRK-003
+documents:
+- document_id: commerce-returns
+  title: 退换政策
+  path: knowledge/returns.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-09-29'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: commerce-lab-v1
+    checked_at: '2026-09-29'
+  sha256: 5c47d84dee9fe007f468ae48a0bb9c1781802aed6c9338e57a85ce4cfe5610b0
+- document_id: commerce-shipping
+  title: 发货与物流
+  path: knowledge/shipping.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-09-29'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: commerce-lab-v1
+    checked_at: '2026-09-29'
+  sha256: cce7422f4b908380fe4aa05810bf0313ed77452975bd24fb1dda3141fa42cb85
+- document_id: commerce-faq
+  title: 常见问题
+  path: knowledge/faq.md
+  format: markdown
+  doc_type: faq
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-09-29'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: commerce-lab-v1
+    checked_at: '2026-09-29'
+  sha256: 3231866b8e02c4718b0271de507adfd539edc2b4d78e4f78297f5da2959fb9fc
+- document_id: commerce-care
+  title: 护理说明
+  path: knowledge/care.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-09-29'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: commerce-lab-v1
+    checked_at: '2026-09-29'
+  sha256: 3f498ba552305130dfefbf1534e96e5a2c64c56a29207db422876328fe0f05b8
+- document_id: commerce-size-guide
+  title: 尺码指南
+  path: knowledge/size-guide.md
+  format: markdown
+  doc_type: policy
+  tenant_id: v2-demo-tenant
+  shop_id: shop-demo
+  disclosure_class: external_allowed
+  effective_from: '2026-09-29'
+  effective_to: null
+  license: internal-generated
+  authorization:
+    reference: commerce-lab-v1
+    checked_at: '2026-09-29'
+  sha256: 191cf17b633d2b177330487bdea9ee84440f31064d476474d36e176472bc3151
+files:
+- path: README.md
+  rows: 0
+  sha256: 81bed4c511262e7d6b62b99b0ed6ccc70c8247de0357da6f8d1a06122f8090f2
+- path: inventory.csv
+  rows: 32
+  sha256: 38519a6a43aef790bd206f96725a5d024e46ff9323c54827ce1c57bb3f68f1b3
+- path: knowledge/care.md
+  rows: 0
+  sha256: 3f498ba552305130dfefbf1534e96e5a2c64c56a29207db422876328fe0f05b8
+- path: knowledge/faq.md
+  rows: 0
+  sha256: 3231866b8e02c4718b0271de507adfd539edc2b4d78e4f78297f5da2959fb9fc
+- path: knowledge/returns.md
+  rows: 0
+  sha256: 5c47d84dee9fe007f468ae48a0bb9c1781802aed6c9338e57a85ce4cfe5610b0
+- path: knowledge/shipping.md
+  rows: 0
+  sha256: cce7422f4b908380fe4aa05810bf0313ed77452975bd24fb1dda3141fa42cb85
+- path: knowledge/size-guide.md
+  rows: 0
+  sha256: 191cf17b633d2b177330487bdea9ee84440f31064d476474d36e176472bc3151
+- path: order-items.csv
+  rows: 40
+  sha256: c6be4b4037ea67ef867c56efcea42e7656af50cc0e750e8e8a98214d40f23a78
+- path: orders.csv
+  rows: 24
+  sha256: 1b40e1cd65e96b853b4d52f7580541349f5c5c2de4a1dee8f3865883b8fdf401
+- path: products.csv
+  rows: 32
+  sha256: ade041be1852654354d976b9fdb3e945c8713c7cb6e1652bf1778489222c62c7
+- path: questions.jsonl
+  rows: 24
+  sha256: 4c2e12b6fccbf37874375fc6c9e1b2b50d04403bc523247d05bcfaba14ffef88
+- path: returns.csv
+  rows: 6
+  sha256: a55ac6e16dbf301b2e2eb349d50eceeaad5fbea537116af048e1d17ea5ced055
+- path: shipment-events.csv
+  rows: 66
+  sha256: a465853a00c092149f70434cfa1d7080fbba297b18ccc6bd887d0f312dcd4fd1
+- path: shipments.csv
+  rows: 18
+  sha256: a3ad84a4d956661cbe1ed239601ac6ff1d3a19990a23ef791410f479fe735eb8
+- path: size-chart.csv
+  rows: 11
+  sha256: 6863a5da18bf3e0d2e736b9d2c45246ca4c8175b0a5440f4735a44286f3dc015
+- path: tickets.csv
+  rows: 8
+  sha256: 7ee39ee925277484e1e9611735a51899250f604a5499779f851a60c785c2adc6
+notes:
+- 本地生成，无外网抓取、无真实个人信息；customer_ref 为合成编号。
+- 订单与退货不含金额汇总；商品单价仅用于 get_price 事实查询。
+- 重新生成：python3 scripts/dev/generate_commerce_dataset.py --write
