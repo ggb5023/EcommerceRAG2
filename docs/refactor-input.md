@@ -88,3 +88,20 @@
 - ~~`docs/development.md` 已不再描述账本~~ —— **此条已随 R0 清理失效**：`scripts/check.sh` 已移除
   `provider-budget` 路径，现役脚本为 `scripts/dev/provider-usage.py`；文档侧残留以总纲 R0 的实测输出为准。
 
+
+## 阶段收尾（2026-11-06，WP65–WP69 后）
+
+本轮关闭：#3/#5/#6/#7/#9/#10/#11/#12/#15/#16/#17（见上方 WP67/WP68 已完成段）。
+**仍开放（交用户审视）**：
+
+- #2 mock/真实 provider 双路径并存——测试与生产分支继续分叉；
+- #4 usage_log 写者边界（Python 写、Go 读）需一条测试守护；
+- #8 ui-only-acceptance 矩阵里的 UI 缺口（以该文实测为准）；
+- #18 情报域直连网页抓取与 `V2_INTEL_PROXY_URL` 出口未接线（0032 原则 5，
+  阶段验收边界 = Tavily 单数据源，见 0032 实现状态）；
+- market_observation 的 HNSW 索引留到真实行量再评估（WP69 备注）。
+
+**外部依赖（不在仓库内解决）**：P3 真实商家试用（等用户启动）；Keycloak oidc
+剖面的 compose 实跑（realm 导入要求已写入 install.md，本机已用真实 Keycloak
+完成过授权码全链路验证）；OSS 真实归档演练（桶权限已授予，往返验证已通过，
+备份/恢复脚本未对真实桶演练）。
