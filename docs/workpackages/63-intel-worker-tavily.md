@@ -8,7 +8,7 @@
 
 | 落点 | 决定 |
 | --- | --- |
-| 独立进程 | `scripts/dev/v2_services.py` 新增第 3 个服务键 `intel`：`python -m app.intel.worker`，专属 env（`V2_INTEL_DSN`=rag_v2_intel 角色）、独立生命周期与就绪探针。gateway/ai 进程内**零抓取代码**。 |
+| 独立进程 | 本地服务启动脚本（v2_services）新增第 3 个服务键 `intel`：`python -m app.intel.worker`，专属 env（`V2_INTEL_DSN`=rag_v2_intel 角色）、独立生命周期与就绪探针。gateway/ai 进程内**零抓取代码**。 |
 | 限流 | worker 进程内 token bucket：`V2_INTEL_RPM`（默认 5，校验 1..60）；Tavily 适配器既有 429/rate_limited 分类继续复用（retryable → 任务回退），不新增错误类别。 |
 | 默认关 | `V2_INTEL_ENABLED`（0/1，默认 0）。为 0 时 v2_services **不启动** intel 服务、worker 不占端口不占连接；dev.env 保持 0。smoke 五条基线必须逐字节一致。 |
 
@@ -44,7 +44,7 @@
 
 ## 情报接口（proto + Go admin）
 
-1. `proto/rag/v1/intel.proto`（新文件）：
+1. `proto/rag/v1/intel.proto`（待建）：
    `service IntelService { rpc ListObservations(ListObservationsRequest) returns
    (ListObservationsResponse) }`——请求 market/category/platform/since/limit（≤100），
    响应行含 market/category/platform/source_url/title/score/published_date/observed_at。
