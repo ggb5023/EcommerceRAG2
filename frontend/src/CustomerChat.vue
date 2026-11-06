@@ -72,7 +72,7 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
   <form v-if="snapshot?.conversation.state!=='CLOSED' && snapshot" class="composer" @submit.prevent="send">
     <label class="sr-only" for="question">你的问题</label>
     <div class="composer-row">
-      <textarea id="question" v-model="text" maxlength="2000" rows="2" required :disabled="busy||!!snapshot.conversation.active_execution_id"/>
+      <textarea id="question" v-model="text" maxlength="2000" rows="2" required :disabled="busy||!!snapshot.conversation.active_execution_id" @keydown.enter.exact.prevent="send"/>
       <button type="submit" class="send-action" :disabled="busy||!text.trim()||!!snapshot.conversation.active_execution_id">发送</button>
     </div>
     <button type="button" class="handoff-action" :disabled="busy||snapshot.conversation.state!=='AI'" @click="handoff">联系人工客服</button>
