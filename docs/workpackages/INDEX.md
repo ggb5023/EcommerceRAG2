@@ -73,6 +73,7 @@
 | 64 | 审计澄清批（0018 角色矩阵 + 前端文案 + product 边界句；scripts/review 保持仓外） | done | — | — | `c8cbc69` |
 | 65 | 自部署端到端演练与 install.md 校正 | done | — | — | `3ae616c` |
 | 66 | 修复 local identity ingest scope 未注册（自部署导入链 403） | done | — | — | `0eeb545` |
+| 67 | 机械债务批（refactor-input #3/#5/#6/#7/#11/#12/#16） | pending | — | — | — |
 
 ## 同步规则
 
