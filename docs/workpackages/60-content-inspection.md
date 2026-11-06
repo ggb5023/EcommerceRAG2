@@ -90,7 +90,56 @@ bash scripts/check.sh --smoke  # 47 项，基线逐字节一致（改 Go 后必�
 - 不改 CONTRACTS_* 棘轮；不新增依赖；不改冻结评测集；
 - 迁移只新增 0053，不改任何历史迁移。
 
-## 汇报
+## 实施与验证（2026-11-06）
 
-五节格式；附迁移 GRANT 行、ownership 登记行、四条规则各一次真实命中/未命中证据、
-openapi 守卫输出、smoke 输出、前端测试输出。
+迁移 `0053_inspection_report.sql` 已应用到 `ecr_v2_test_m4` 与 `ecr_v2_dev_local`：
+
+```text
+PASS migration 0053
+PASS 53 migration checksums
+```
+
+迁移内授权与 ownership 登记：
+
+```sql
+GRANT SELECT,INSERT,UPDATE,DELETE ON inspection_report TO rag_v2_gateway;
+GRANT USAGE,SELECT ON SEQUENCE inspection_report_id_seq TO rag_v2_gateway;
+```
+
+```text
+| inspection_report | admin | admin | L3 巡检报告由管理控制面唯一写读；巡检只读业务表、只写本表，不改变任何发布状态 | ownership 守卫 |
+```
+
+验证命令：
+
+```text
+bash scripts/check.sh                 -> PASSED 44 / UNCONFIGURED 0 / FAILED 0
+bash scripts/check.sh --smoke         -> PASSED 47 / UNCONFIGURED 0 / FAILED 0；五条 diff 逐字节一致
+cd go && go test ./internal/admin/ -run Inspection -v
+  -> 默认层纯测试 PASS；5 个 DB fixture 用例 SKIP（无 V2_INTEGRATION_ENV）
+  -> 带 V2_INTEGRATION_ENV=<test-integration-env> 时 5 个全部 PASS（连续两次）
+cd frontend && npm test -- --run      -> 16 files / 65 tests passed
+npm run lint / npm run build          -> 0 warning / vue-tsc + vite pass
+```
+
+dev 真实链路（synthetic business_date=2026-09-29）：
+
+```text
+fixture: document=92 version=94 effective_to=2026-09-28 status=active
+POST /admin/v1/inspections/run -> expired_not_removed inserted=1
+GET  /admin/v1/inspections?status=open -> id=1 expired_not_removed
+POST /admin/v1/inspections/1/status {"status":"resolved"} -> resolved
+GET  open -> expired 列表为空
+POST run -> expired_not_removed inserted=1（新 open id=58，resolved id=1 保留）
+```
+
+mock 过滤后的 dev 重跑：`citation_invalid updated=3, closed=51`，
+`expired_not_removed updated=1`，`unanswered_high_frequency updated=2`。
+
+四条规则证据：expired、citation_invalid、unanswered 在 dev 真实命中；
+newer 在 dev 当天为 0 命中，由 test-integration fixture
+`TestInspectionNewerVersionConflictWindow` 覆盖（30 天整包含、30 天 + 1µs 排除）。
+`citation_invalid` 只检查非 mock 回答（mock 不是已发布回答）。
+
+未覆盖：没有为 newer 造 dev 客户/员工引用 fixture；前端只做 API 层与 SSR 组件测试，
+未跑浏览器 e2e；未接模型/定时任务/自动下架；未新增依赖或调整任何棘轮。
