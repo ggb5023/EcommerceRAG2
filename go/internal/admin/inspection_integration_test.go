@@ -255,7 +255,7 @@ func TestInspectionNewerVersionConflictWindow(t *testing.T) {
 	from := time.Now().Add(-time.Duration(INSPECTION_WINDOW_DAYS) * 24 * time.Hour).Truncate(time.Microsecond)
 	documentID, activeVersion := f.createVersion("conflict-doc", "冲突资料", "active", nil, from.Add(-2*time.Hour))
 	f.addVersion(documentID, "pending", from.Add(-time.Hour))
-	f.createEmployeeCitation("conflict-inside", "conflict-doc", activeVersion, "db-chunk-1", "content", from)
+	f.createEmployeeCitation(fmt.Sprintf("conflict-inside-%d", f.stamp), "conflict-doc", activeVersion, "db-chunk-1", "content", from)
 	rows, err := adminStore.NewerVersionConflicts(f.ctx, f.gateway, f.tenant, f.shop, from)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("inside window: rows=%d err=%v", len(rows), err)
@@ -265,7 +265,7 @@ func TestInspectionNewerVersionConflictWindow(t *testing.T) {
 	}
 	documentTwo, activeTwo := f.createVersion("conflict-outside", "冲突资料二", "active", nil, from.Add(-3*time.Hour))
 	f.addVersion(documentTwo, "pending", from.Add(-2*time.Hour))
-	f.createEmployeeCitation("conflict-outside", "conflict-outside", activeTwo, "db-chunk-2", "content", from.Add(-time.Microsecond))
+	f.createEmployeeCitation(fmt.Sprintf("conflict-outside-%d", f.stamp), "conflict-outside", activeTwo, "db-chunk-2", "content", from.Add(-time.Microsecond))
 	rows, err = adminStore.NewerVersionConflicts(f.ctx, f.gateway, f.tenant, f.shop, from)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("outside window must not add a row: rows=%d err=%v", len(rows), err)
@@ -314,9 +314,9 @@ func TestInspectionCitationInvalid(t *testing.T) {
 	_ = documentID
 	valid := f.visibleEvidence(chunkID, "visible-doc", versionID, "可见内容")
 	invalid := f.visibleEvidence(chunkID+999999, "visible-doc", versionID, "可见内容")
-	f.createCustomerMessage("msg-with-citation", []*ragv1.Evidence{valid, invalid}, "顾客对话正文", time.Now())
-	f.createEmployeeCitation("req-valid-citation", "visible-doc", versionID, valid.Id, valid.Content, time.Now())
-	f.createEmployeeCitation("req-invalid-citation", "visible-doc", versionID, invalid.Id, invalid.Content, time.Now())
+	f.createCustomerMessage(fmt.Sprintf("msg-with-citation-%d", f.stamp), []*ragv1.Evidence{valid, invalid}, "顾客对话正文", time.Now())
+	f.createEmployeeCitation(fmt.Sprintf("req-valid-citation-%d", f.stamp), "visible-doc", versionID, valid.Id, valid.Content, time.Now())
+	f.createEmployeeCitation(fmt.Sprintf("req-invalid-citation-%d", f.stamp), "visible-doc", versionID, invalid.Id, invalid.Content, time.Now())
 	findings, err := f.handler.citationInspectionFindings(f.ctx, f.tenant, f.alias, f.shop)
 	if err != nil {
 		t.Fatal(err)
