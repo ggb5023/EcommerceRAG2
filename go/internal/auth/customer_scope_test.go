@@ -32,8 +32,19 @@ func TestCustomerScopeMismatch(t *testing.T) {
 		{name: "revision changed", mutate: func(_ *ragv1.RequestContext, current *ragv1.RequestContext) { current.PermissionRevision = "rev-2" }, want: "customer_scope_stale"},
 		{name: "epoch advanced", mutate: func(_ *ragv1.RequestContext, current *ragv1.RequestContext) { current.ConversationEpoch++ }, want: "customer_scope_stale"},
 		{name: "epoch regressed", mutate: func(_ *ragv1.RequestContext, current *ragv1.RequestContext) { current.ConversationEpoch-- }, want: "customer_scope_stale"},
-		{name: "scope subset allowed", mutate: func(scope *ragv1.RequestContext, _ *ragv1.RequestContext) { scope.AllowedDocumentIds = []string{"doc-b"} }, want: ""},
-		{name: "document escalation rejected", mutate: func(scope *ragv1.RequestContext, _ *ragv1.RequestContext) { scope.AllowedDocumentIds = []string{"doc-a", "doc-c"} }, want: "customer_document_forbidden"},
+		{name: "scope subset allowed", mutate: func(scope *ragv1.RequestContext, _ *ragv1.RequestContext) {
+			scope.AllowedDocumentIds = []string{"doc-b"}
+		}, want: ""},
+		{name: "document escalation rejected", mutate: func(scope *ragv1.RequestContext, _ *ragv1.RequestContext) {
+			scope.AllowedDocumentIds = []string{"doc-a", "doc-c"}
+		}, want: "customer_document_forbidden"},
+		{name: "service lane changed", mutate: func(_ *ragv1.RequestContext, current *ragv1.RequestContext) {
+			current.ServiceType = "after_sales"
+		}, want: "customer_scope_stale"},
+		{name: "order binding changed", mutate: func(scope *ragv1.RequestContext, current *ragv1.RequestContext) {
+			scope.ServiceType, scope.CustomerOrderId = "after_sales", "ORD-2609-0005"
+			current.ServiceType, current.CustomerOrderId = "after_sales", "ORD-2609-0006"
+		}, want: "customer_scope_stale"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			scope, current := customerScopePair()

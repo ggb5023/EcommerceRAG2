@@ -269,7 +269,7 @@ class LangGraphRagService:
             })
         return checked
 
-    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], history_summary: str = "", response_purpose: str = "internal", phase: str = "full") -> GraphState:
+    def run_with_evidence(self, *, query: str, scope: Scope, evidence: list[dict], facts: list[dict] | None = None, history_summary: str = "", response_purpose: str = "internal", phase: str = "full") -> GraphState:
         """Render approved evidence without allowing the graph to widen it."""
         if self.provider_chains is not None:
             raise RuntimeError("provider-backed graph requires arun")
@@ -279,6 +279,7 @@ class LangGraphRagService:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
         checked_evidence = self._validate_seed_evidence(scope, evidence, response_purpose)
+        checked_facts = self._validate_facts(facts or [])
         return self._invoke({
             "query": query,
             "scope": scope,
@@ -286,4 +287,5 @@ class LangGraphRagService:
             "seed_evidence": checked_evidence,
             "history_summary": self._validate_history(history_summary),
             "evidence": checked_evidence,
+            "facts": checked_facts,
         }, phase)

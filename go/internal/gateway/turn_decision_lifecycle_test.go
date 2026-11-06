@@ -146,7 +146,7 @@ func TestTurnDecisionResumeFinalState(t *testing.T) {
 	ctx := context.Background()
 	f := newLifecycleFixture(t, migration)
 
-	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "ASKING", "", "please clarify", "CLARIFY", true, nil, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "ASKING", "", "please clarify", "CLARIFY", true, nil, nil, nil)
 	if got := lifecycleLedgerState(t, db, f.tenantID, f.executionID); got != "ASKING" {
 		t.Fatalf("first execution ledger = %q, want ASKING", got)
 	}
@@ -159,7 +159,7 @@ func TestTurnDecisionResumeFinalState(t *testing.T) {
 	if _, err := migration.Exec(ctx, `UPDATE turn SET status='EXECUTING',answer=NULL WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.turnID); err != nil {
 		t.Fatalf("resume turn fixture: %v", err)
 	}
-	finishTurn(ctx, db, lifecycleIdentity(f, resumedExecutionID, 2), "DONE", "", "the answer", "ANSWER", true, []string{"doc-a"}, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, resumedExecutionID, 2), "DONE", "", "the answer", "ANSWER", true, []string{"doc-a"}, nil, nil)
 
 	var rows int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM turn_decision WHERE tenant_id=$1 AND turn_id=$2`,
@@ -188,7 +188,7 @@ func TestTurnDecisionCancelWritesCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "DONE", "", "must not persist", "ANSWER", true, nil, nil)
+	finishTurn(ctx, db, lifecycleIdentity(f, f.executionID, 1), "DONE", "", "must not persist", "ANSWER", true, nil, nil, nil)
 
 	if got := lifecycleExecState(t, db, f.tenantID, f.executionID); got != "CANCELLED" {
 		t.Fatalf("execution status = %q, want CANCELLED", got)
@@ -243,7 +243,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 			}
 		}
 		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
-			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, behavior: behavior, mock: mock}, state, "", "suggestion body"); err != nil {
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, behavior: behavior, mock: mock}, state, "", "suggestion body", nil); err != nil {
 			t.Fatal(err)
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -320,7 +320,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 		}
 		defer tx.Rollback(ctx)
 		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
-			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp}, "ASKING", "", "clarify"); err != nil {
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp}, "ASKING", "", "clarify", nil); err != nil {
 			t.Fatal(err)
 		}
 		if err = tx.Commit(ctx); err != nil {

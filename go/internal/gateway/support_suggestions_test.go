@@ -29,7 +29,7 @@ func TestCopySuggestionDeniedWhenNotCopyable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
-		turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "exec-" + f.stamp}, "DONE", "", "not copyable"); err != nil {
+		turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "exec-" + f.stamp}, "DONE", "", "not copyable", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {

@@ -24,6 +24,8 @@ class Scope(TypedDict, total=False):
     customer_id: str
     customer_session_id: str
     conversation_epoch: int
+    service_type: str
+    customer_order_id: str
     domain: str
 
 

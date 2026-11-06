@@ -22,6 +22,7 @@ import (
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,6 +32,10 @@ const CookieName = "ecr_customer"
 // orderIDPattern mirrors the CHECK constraint in migration 0058. The order is
 // bound at conversation creation and is never accepted from the model.
 var orderIDPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_-]{3,39}$`)
+
+// skuPattern mirrors the resource binding the facts contract accepts.
+var skuPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+var skuTokenPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
 
 // normalizeServiceLane applies the two-lane rule: pre-sales never carries an
 // order and after-sales always does. The returned code is an API error code.
@@ -64,6 +69,7 @@ type Config struct {
 type Service struct {
 	DB         *pgxpool.Pool
 	Rag        ragv1.RagServiceClient
+	Facts      facts.Provider
 	SigningKey []byte
 	Profile    string
 	Config     Config
@@ -508,7 +514,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request, c conversation,
 
 // All data used here is rechecked at read time, including persisted SSE replay.
 func (s *Service) publicMessage(ctx context.Context, c conversation, id string) (map[string]any, error) {
-	source, content, citations, created, state, behavior, mock, err := loadCustomerMessage(ctx, s.DB, c.Tenant, c.ID, id)
+	source, content, citations, created, state, behavior, mock, facts, err := loadCustomerMessage(ctx, s.DB, c.Tenant, c.ID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +545,12 @@ func (s *Service) publicMessage(ctx context.Context, c conversation, id string) 
 	}
 	canCopy, blocked := false, "not_copyable"
 	if source == "assistant" {
-		canCopy, blocked = domain.CanCopyReply(state, behavior, len(view), mock)
+		factCount := 0
+		var savedFacts []json.RawMessage
+		if json.Unmarshal(facts, &savedFacts) == nil {
+			factCount = len(savedFacts)
+		}
+		canCopy, blocked = domain.CanCopyReply(state, behavior, len(view), factCount, mock)
 	}
 	return map[string]any{"id": id, "source": source, "text": content, "citations": view, "redacted": redacted, "created_at": created,
 		"can_copy": canCopy, "blocked_reason": blocked}, nil

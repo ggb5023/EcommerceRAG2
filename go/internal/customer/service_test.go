@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/commercesim"
+	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -474,5 +477,149 @@ func TestDatabaseAfterSalesTicketLifecycle(t *testing.T) {
 	decode(request(api, "POST", "/v1/customer/conversations/"+preSales+"/handoff", map[string]any{}, cookie, csrf, "pre-handoff"), 200)
 	if ticketCount(preSales) != 0 {
 		t.Fatal("pre-sales handoff created a ticket")
+	}
+}
+
+func TestAfterSalesFactPlanBindsOrderAndSKU(t *testing.T) {
+	entities := func(values ...*ragv1.EntitySlot) []*ragv1.EntitySlot { return values }
+	understood := func(tools []string, slots []*ragv1.EntitySlot) *ragv1.UnderstandResponse {
+		return &ragv1.UnderstandResponse{RequiredFactTools: tools, Entities: slots}
+	}
+	orderEntity := &ragv1.EntitySlot{Name: "order_id", Value: "ORD-2609-0005", Confidence: 1}
+	otherOrder := &ragv1.EntitySlot{Name: "order_id", Value: "ORD-2609-0006", Confidence: 1}
+	skuEntity := &ragv1.EntitySlot{Name: "sku", Value: "CLB-DRK-002", Confidence: 1}
+	cases := []struct {
+		name    string
+		request *ragv1.UnderstandResponse
+		query   string
+		reason  string
+	}{
+		{"order tool uses the bound order", understood([]string{"get_order_status"}, entities(orderEntity)), "订单到哪了", ""},
+		{"order tool needs no repeated identifier", understood([]string{"get_logistics"}, nil), "物流到哪了", ""},
+		{"different order asks for confirmation", understood([]string{"get_order_status"}, entities(otherOrder)), "订单到哪了", "order_clarification"},
+		{"compare_products is outside the customer channel", understood([]string{"compare_products"}, nil), "对比一下", "unsupported_request"},
+		{"realtime without a supported tool goes to staff", understood(nil, nil), "帮我退款", "unsupported_request"},
+		{"stock tool needs an explicit sku", understood([]string{"get_stock"}, entities(skuEntity)), "CLB-DRK-002 还有库存吗", ""},
+		{"sku not present in the current query", understood([]string{"get_stock"}, entities(skuEntity)), "这个还有库存吗", "sku_clarification"},
+		{"two sku candidates are ambiguous", understood([]string{"get_stock"}, entities(skuEntity)), "CLB-DRK-002 和 CLB-DRK-003 哪个有库存", "sku_clarification"},
+		{"the bound order is not mistaken for a sku", understood([]string{"get_stock"}, entities(skuEntity)), "订单 ORD-2609-0005 里的 CLB-DRK-002 有库存吗", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, reason := afterSalesFactPlan(tc.request, "ORD-2609-0005", tc.query)
+			if reason != tc.reason {
+				t.Fatalf("reason=%q want %q", reason, tc.reason)
+			}
+		})
+	}
+}
+
+func TestValidateProposalAcceptsFactBackedAnswers(t *testing.T) {
+	fact := &ragv1.Fact{ToolName: "get_logistics", ResourceId: "ORD-2609-0005",
+		ValueJson: `{"order_id":"ORD-2609-0005","status":"in_transit"}`, ObservedAt: "2026-09-29T12:00:00Z"}
+	proposalFor := func(facts []*ragv1.Fact) proposal {
+		return proposal{Answer: "物流显示运输中。", Decision: &ragv1.ReplyDecision{
+			Behavior: ragv1.ReplyBehavior_REPLY_BEHAVIOR_ANSWER, ReasonCode: "grounded"}, Facts: facts}
+	}
+	if ValidateProposal(proposalFor([]*ragv1.Fact{fact})) != nil {
+		t.Fatal("fact-backed answer was rejected")
+	}
+	if ValidateProposal(proposalFor(nil)) == nil {
+		t.Fatal("answer without evidence or facts was accepted")
+	}
+	unknown := &ragv1.Fact{ToolName: "compare_products", ResourceId: fact.ResourceId,
+		ValueJson: fact.ValueJson, ObservedAt: fact.ObservedAt}
+	if ValidateProposal(proposalFor([]*ragv1.Fact{unknown})) == nil {
+		t.Fatal("unsupported fact tool was accepted")
+	}
+	mismatch := &ragv1.Fact{ToolName: fact.ToolName, ResourceId: "ORD-2609-0006",
+		ValueJson: `{"order_id":"ORD-2609-0007","status":"in_transit"}`, ObservedAt: fact.ObservedAt}
+	if ValidateProposal(proposalFor([]*ragv1.Fact{mismatch})) == nil {
+		t.Fatal("fact value and resource mismatch was accepted")
+	}
+	many := []*ragv1.Fact{fact, fact, fact, fact, fact}
+	if ValidateProposal(proposalFor(many)) == nil {
+		t.Fatal("more than four facts were accepted")
+	}
+}
+
+type stubFacts struct {
+	fact *ragv1.Fact
+	err  error
+}
+
+func (s stubFacts) Lookup(_ context.Context, tool string, _ *ragv1.RequestContext, resource string) (*ragv1.Fact, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &ragv1.Fact{ToolName: tool, ResourceId: resource, ValueJson: s.fact.ValueJson,
+		ObservedAt: s.fact.ObservedAt, IsMock: s.fact.IsMock}, nil
+}
+
+func afterSalesScope() *ragv1.RequestContext {
+	return &ragv1.RequestContext{TenantId: "v2-demo-tenant", UserId: "customer:CUST-0001",
+		ShopId: "shop-demo", AllowedShopIds: []string{"shop-demo"},
+		ServiceType: "after_sales", CustomerOrderId: "ORD-2609-0005"}
+}
+
+func TestCustomerFactsLookupUsesOnlyTheBoundOrder(t *testing.T) {
+	fact := &ragv1.Fact{ValueJson: `{"order_id":"ORD-2609-0005","status":"shipped"}`,
+		ObservedAt: "2026-09-29T12:00:00Z"}
+	s := &Service{Facts: stubFacts{fact: fact}}
+	state := &customerRunState{scope: afterSalesScope(), orderTools: []string{"get_order_status"}}
+	if !s.lookupCustomerFacts(context.Background(), state) {
+		t.Fatalf("lookup failed: %s", state.reason)
+	}
+	if len(state.facts) != 1 || state.facts[0].ResourceId != "ORD-2609-0005" || state.facts[0].ToolName != "get_order_status" {
+		t.Fatalf("unexpected facts %+v", state.facts)
+	}
+	failed := &customerRunState{scope: afterSalesScope(), orderTools: []string{"get_logistics"}}
+	s.Facts = stubFacts{err: facts.ErrUnauthorized}
+	if s.lookupCustomerFacts(context.Background(), failed) {
+		t.Fatal("provider failure was accepted")
+	}
+	if failed.reason != "fact_provider_unauthorized" {
+		t.Fatalf("reason=%q", failed.reason)
+	}
+}
+
+func TestFactRevalidationRejectsForeignResources(t *testing.T) {
+	valid := &ragv1.Fact{ToolName: "get_logistics", ResourceId: "ORD-2609-0005",
+		ValueJson: `{"order_id":"ORD-2609-0005","status":"in_transit"}`, ObservedAt: "2026-09-29T12:00:00Z"}
+	s := &Service{Facts: stubFacts{fact: valid}}
+	if reason := s.revalidateFacts(context.Background(), afterSalesScope(), []*ragv1.Fact{valid}); reason != "" {
+		t.Fatalf("valid fact rejected: %s", reason)
+	}
+	foreign := &ragv1.Fact{ToolName: valid.ToolName, ResourceId: "ORD-2609-0006",
+		ValueJson: `{"order_id":"ORD-2609-0006","status":"in_transit"}`, ObservedAt: valid.ObservedAt}
+	if reason := s.revalidateFacts(context.Background(), afterSalesScope(), []*ragv1.Fact{foreign}); reason != "permission_changed" {
+		t.Fatalf("foreign order reason=%q", reason)
+	}
+}
+
+func TestCustomerFactsLookupAgainstTheCommerceSimulator(t *testing.T) {
+	dataset, err := commercesim.Load(filepath.Join("..", "..", "..", "data", "synthetic", "commerce-lab-v1"))
+	if err != nil {
+		t.Fatalf("load commerce dataset: %v", err)
+	}
+	server := httptest.NewServer(commercesim.New(dataset).Handler())
+	t.Cleanup(server.Close)
+	scope := &ragv1.RequestContext{TenantId: dataset.Manifest.TenantID, UserId: "customer:CUST-0001",
+		ShopId: dataset.Manifest.ShopID, AllowedShopIds: []string{dataset.Manifest.ShopID},
+		ServiceType: "after_sales", CustomerOrderId: "ORD-2609-0005"}
+	s := &Service{Facts: facts.HTTPProvider{BaseURL: server.URL, Version: dataset.Manifest.FactsVersion}}
+	state := &customerRunState{scope: scope, orderTools: []string{"get_order_status"}}
+	if !s.lookupCustomerFacts(context.Background(), state) {
+		t.Fatalf("simulator lookup failed: %s", state.reason)
+	}
+	if len(state.facts) != 1 || state.facts[0].ResourceId != "ORD-2609-0005" || !state.facts[0].GetIsMock() {
+		t.Fatalf("unexpected simulator fact %+v", state.facts)
+	}
+	state = &customerRunState{scope: scope, productTool: []string{"get_stock"}, sku: "CLB-DRK-002"}
+	if !s.lookupCustomerFacts(context.Background(), state) {
+		t.Fatalf("simulator stock lookup failed: %s", state.reason)
+	}
+	if len(state.facts) != 1 || state.facts[0].ResourceId != "CLB-DRK-002" {
+		t.Fatalf("unexpected simulator stock fact %+v", state.facts)
 	}
 }

@@ -6,9 +6,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func updateExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer, answerHash string) error {
-	_, err := tx.Exec(ctx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,finished_at=now()
-		WHERE tenant_id=$1 AND id=$2`, id.tenantID, id.executionID, state, code, answer, answerHash)
+func updateExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer, answerHash string, factsJSON []byte) error {
+	_, err := tx.Exec(ctx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,facts_json=COALESCE($7,facts_json),finished_at=now()
+		WHERE tenant_id=$1 AND id=$2`, id.tenantID, id.executionID, state, code, answer, answerHash, factsJSON)
 	return err
 }
 
@@ -22,6 +22,16 @@ func updateTurnTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, st
 func insertAssistantMessage(ctx context.Context, tx pgx.Tx, tenantID, turnID int64, answer string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO message(tenant_id,turn_id,role,content) VALUES($1,$2,'assistant',$3)`, tenantID, turnID, answer)
 	return err
+}
+
+// countExecutionFacts reports stored fact snapshots. Suggestion turns never
+// authorise copying from facts; they still require citations.
+func countExecutionFacts(ctx context.Context, tx pgx.Tx, tenantID, executionID int64) (int, error) {
+	var facts int
+	err := tx.QueryRow(ctx, `SELECT CASE WHEN t.kind='user' THEN COALESCE(jsonb_array_length(e.facts_json),0) ELSE 0 END
+		FROM conversation_execution e JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
+		WHERE e.tenant_id=$1 AND e.id=$2`, tenantID, executionID).Scan(&facts)
+	return facts, err
 }
 
 func countExecutionCitations(ctx context.Context, tx pgx.Tx, tenantID, executionID int64) (int, error) {

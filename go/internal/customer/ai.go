@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +21,33 @@ type proposal struct {
 	Answer   string
 	Decision *ragv1.ReplyDecision
 	Evidence []*ragv1.Evidence
+	Facts    []*ragv1.Fact
 	Mock     bool
+}
+
+// customerFactTools is the read-only set an after-sales answer may rely on.
+// compare_products stays outside the customer channel.
+var customerFactTools = map[string]string{
+	"get_order_status": "order_id",
+	"get_logistics":    "order_id",
+	"get_stock":        "sku",
+	"get_price":        "sku",
+}
+
+func validCustomerFact(fact *ragv1.Fact) bool {
+	if fact == nil || strings.TrimSpace(fact.ValueJson) == "" || fact.ResourceId == "" {
+		return false
+	}
+	field, ok := customerFactTools[fact.ToolName]
+	if !ok || fact.ResourceId == "" {
+		return false
+	}
+	var value map[string]any
+	if json.Unmarshal([]byte(fact.ValueJson), &value) != nil || value[field] != fact.ResourceId {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339, fact.ObservedAt)
+	return err == nil
 }
 
 // ValidateProposal checks structure and provenance. Semantic correctness is
@@ -32,7 +59,7 @@ func ValidateProposal(p proposal) error {
 	behavior, reason := p.Decision.Behavior, p.Decision.ReasonCode
 	switch behavior {
 	case ragv1.ReplyBehavior_REPLY_BEHAVIOR_ANSWER:
-		if reason != "grounded" || len(p.Evidence) == 0 {
+		if reason != "grounded" || (len(p.Evidence) == 0 && len(p.Facts) == 0) {
 			return errors.New("missing_support")
 		}
 	case ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY:
@@ -65,17 +92,29 @@ func ValidateProposal(p proposal) error {
 	if len(decisionIDs) != len(ids) {
 		return errors.New("decision_citation_mismatch")
 	}
+	if len(p.Facts) > 4 {
+		return errors.New("too_many_facts")
+	}
+	for _, fact := range p.Facts {
+		if !validCustomerFact(fact) {
+			return errors.New("invalid_fact")
+		}
+	}
 	return nil
 }
 
 type customerRunState struct {
-	p         proposal
-	reason    string
-	stage     string
-	scope     *ragv1.RequestContext
-	history   string
-	rewritten string
-	evidence  []*ragv1.Evidence
+	p           proposal
+	reason      string
+	stage       string
+	scope       *ragv1.RequestContext
+	history     string
+	rewritten   string
+	evidence    []*ragv1.Evidence
+	facts       []*ragv1.Fact
+	orderTools  []string
+	productTool []string
+	sku         string
 }
 
 func (s *Service) validateCustomerScope(ctx context.Context, scope *ragv1.RequestContext) error {
@@ -120,7 +159,10 @@ func (s *Service) run(execution, conversationID, sessionID, query string) {
 	if !s.understandCustomer(ctx, state, query, sessionID, conversationID, execution) {
 		return
 	}
-	if !s.searchCustomerEvidence(ctx, state, query) {
+	if !s.lookupCustomerFacts(ctx, state) {
+		return
+	}
+	if !s.searchCustomerEvidence(ctx, state, query, len(state.facts) > 0) {
 		return
 	}
 	if !s.generateCustomerAnswer(ctx, state, query) {
@@ -149,8 +191,25 @@ func (s *Service) understandCustomer(ctx context.Context, state *customerRunStat
 		return false
 	}
 	if len(understood.RequiredFactTools) > 0 || understood.InformationSource == "realtime_business" {
-		state.reason = "unsupported_request"
-		return false
+		if scope.ServiceType != "after_sales" {
+			state.reason = "unsupported_request"
+			return false
+		}
+		orderTools, productTools, sku, reason := afterSalesFactPlan(understood, scope.CustomerOrderId, query)
+		if reason == "sku_clarification" || reason == "order_clarification" {
+			message := "请确认唯一商品 SKU 后再查询当前库存或价格。"
+			if reason == "order_clarification" {
+				message = "本次售后会话只绑定一个订单，请确认要查询的订单号。"
+			}
+			state.p = proposal{Answer: message, Decision: &ragv1.ReplyDecision{Behavior: ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY, ReasonCode: "missing_context"}, Mock: s.Profile != "v2_langchain_bailian"}
+			state.reason = ""
+			return false
+		}
+		if reason != "" {
+			state.reason = reason
+			return false
+		}
+		state.orderTools, state.productTool, state.sku = orderTools, productTools, sku
 	}
 	if understood.Clarification != "" {
 		state.p = proposal{Answer: understood.Clarification, Decision: &ragv1.ReplyDecision{Behavior: ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY, ReasonCode: "missing_context"}, Mock: s.Profile != "v2_langchain_bailian"}
@@ -164,7 +223,110 @@ func (s *Service) understandCustomer(ctx context.Context, state *customerRunStat
 	return true
 }
 
-func (s *Service) searchCustomerEvidence(ctx context.Context, state *customerRunState, query string) bool {
+// afterSalesFactPlan validates the model's read-only tool request. The order is
+// always the one bound to the conversation; a different explicit order becomes
+// a clarification, never a lookup.
+func afterSalesFactPlan(understood *ragv1.UnderstandResponse, orderID, query string) (orderTools, productTools []string, sku, reason string) {
+	for _, tool := range understood.RequiredFactTools {
+		switch tool {
+		case "get_order_status", "get_logistics":
+			orderTools = append(orderTools, tool)
+		case "get_stock", "get_price":
+			productTools = append(productTools, tool)
+		default:
+			return nil, nil, "", "unsupported_request"
+		}
+	}
+	for _, entity := range understood.Entities {
+		if entity == nil || entity.Name != "order_id" {
+			continue
+		}
+		value := strings.ToUpper(strings.TrimSpace(entity.Value))
+		if value != "" && value != orderID {
+			return nil, nil, "", "order_clarification"
+		}
+	}
+	if len(orderTools) == 0 && len(productTools) == 0 {
+		// realtime_business without a supported tool means a write/unknown
+		// capability; human staff handle it.
+		return nil, nil, "", "unsupported_request"
+	}
+	if len(productTools) > 0 {
+		value, ok := routedCustomerSKU(understood, query, orderID)
+		if !ok {
+			return nil, nil, "", "sku_clarification"
+		}
+		sku = value
+	}
+	return orderTools, productTools, sku, ""
+}
+
+// routedCustomerSKU accepts only one explicit SKU-shaped token in the current
+// message. History is deliberately not used: an after-sales lookup must be
+// restated in the request that authorizes it.
+func routedCustomerSKU(understood *ragv1.UnderstandResponse, query, orderID string) (string, bool) {
+	id := ""
+	for _, entity := range understood.Entities {
+		if entity == nil || entity.Name != "sku" {
+			continue
+		}
+		value := strings.TrimSpace(entity.Value)
+		if id != "" || value == "" || !skuPattern.MatchString(value) {
+			return "", false
+		}
+		id = value
+	}
+	if id == "" {
+		return "", false
+	}
+	tokens := map[string]bool{}
+	for _, token := range skuTokenPattern.FindAllString(query, -1) {
+		if !strings.EqualFold(token, orderID) {
+			tokens[token] = true
+		}
+	}
+	if len(tokens) != 1 {
+		return "", false
+	}
+	for token := range tokens {
+		return id, token == id
+	}
+	return "", false
+}
+
+type factLookup struct {
+	names    []string
+	resource string
+}
+
+func (s *Service) lookupCustomerFacts(ctx context.Context, state *customerRunState) bool {
+	if len(state.orderTools) == 0 && len(state.productTool) == 0 {
+		return true
+	}
+	provider := s.Facts
+	if provider == nil {
+		provider = facts.UnavailableProvider{}
+	}
+	lookups := []factLookup{}
+	if len(state.orderTools) > 0 {
+		lookups = append(lookups, factLookup{state.orderTools, state.scope.CustomerOrderId})
+	}
+	if len(state.productTool) > 0 {
+		lookups = append(lookups, factLookup{state.productTool, state.sku})
+	}
+	for _, item := range lookups {
+		rows, err := facts.Lookup(ctx, provider, state.scope, item.names, item.resource)
+		if err != nil {
+			state.stage = "facts"
+			state.reason = facts.FailureCode(err)
+			return false
+		}
+		state.facts = append(state.facts, rows...)
+	}
+	return true
+}
+
+func (s *Service) searchCustomerEvidence(ctx context.Context, state *customerRunState, query string, allowEmpty bool) bool {
 	state.stage = "search"
 	ctx = observability.PrepareRPC(ctx, "customer", "search", state.scope.GetRequestId())
 	search, err := s.Rag.Search(ctx, &ragv1.SearchRequest{Context: state.scope, Query: state.rewritten, ResponsePurpose: "customer_chat"})
@@ -200,9 +362,17 @@ func (s *Service) searchCustomerEvidence(ctx context.Context, state *customerRun
 			break
 		}
 	}
-	if !complete || len(evidence) == 0 {
+	if !complete {
 		state.reason = "knowledge_missing"
 		return false
+	}
+	if len(evidence) == 0 {
+		if !allowEmpty {
+			state.reason = "knowledge_missing"
+			return false
+		}
+		state.evidence = nil
+		return true
 	}
 	state.evidence = evidence
 	return true
@@ -210,8 +380,9 @@ func (s *Service) searchCustomerEvidence(ctx context.Context, state *customerRun
 
 func (s *Service) generateCustomerAnswer(ctx context.Context, state *customerRunState, query string) bool {
 	state.stage = "generation"
+	state.p.Facts = state.facts
 	ctx = observability.PrepareRPC(ctx, "customer", "generate", state.scope.GetRequestId())
-	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: state.scope, Query: query, Evidence: state.evidence, ResponsePurpose: "customer_chat", HistorySummary: state.history})
+	generated, err := s.Rag.Generate(ctx, &ragv1.GenerateRequest{Context: state.scope, Query: query, Evidence: state.evidence, Facts: state.facts, ResponsePurpose: "customer_chat", HistorySummary: state.history})
 	if err != nil {
 		return false
 	}
@@ -337,7 +508,8 @@ func (s *Service) finishReason(ctx context.Context, tx pgx.Tx, c conversation, s
 	// Every ACL or publication change bumps and locks this revision. Holding
 	// its share lock serializes publication with revocation at commit time.
 	revision, err := lockShopPublicRevision(ctx, tx, c.Tenant, c.Shop)
-	if err != nil || revision != scope.PermissionRevision || scope.ConversationEpoch != uint64(c.Epoch) || scope.ScopeExpiresAt <= time.Now().Unix() {
+	if err != nil || revision != scope.PermissionRevision || scope.ConversationEpoch != uint64(c.Epoch) || scope.ScopeExpiresAt <= time.Now().Unix() ||
+		c.ServiceType != scope.ServiceType || c.OrderID != scope.CustomerOrderId {
 		reason = "permission_changed"
 	}
 	if reason == "" {
@@ -355,7 +527,40 @@ func (s *Service) finishReason(ctx context.Context, tx pgx.Tx, c conversation, s
 			reason = "permission_changed"
 		}
 	}
+	if reason == "" && len(p.Facts) > 0 {
+		reason = s.revalidateFacts(ctx, scope, p.Facts)
+	}
 	return reason, nil
+}
+
+// revalidateFacts re-runs the authorized lookup at commit time. Values may have
+// changed since generation; the answer keeps its own observed_at, so only the
+// binding and the caller's authorization are rechecked.
+func (s *Service) revalidateFacts(ctx context.Context, scope *ragv1.RequestContext, items []*ragv1.Fact) string {
+	provider := s.Facts
+	if provider == nil {
+		provider = facts.UnavailableProvider{}
+	}
+	groups := map[string][]string{}
+	for _, fact := range items {
+		if !validCustomerFact(fact) {
+			return "permission_changed"
+		}
+		if field := customerFactTools[fact.ToolName]; field == "order_id" {
+			if fact.ResourceId != scope.CustomerOrderId {
+				return "permission_changed"
+			}
+		} else if !skuPattern.MatchString(fact.ResourceId) {
+			return "permission_changed"
+		}
+		groups[fact.ResourceId] = append(groups[fact.ResourceId], fact.ToolName)
+	}
+	for resource, names := range groups {
+		if _, err := facts.Lookup(ctx, provider, scope, names, resource); err != nil {
+			return facts.FailureCode(err)
+		}
+	}
+	return ""
 }
 
 func (s *Service) finishFailure(ctx context.Context, tx pgx.Tx, c conversation, execution, reason string) error {
@@ -382,7 +587,13 @@ func (s *Service) finishSuccess(ctx context.Context, tx pgx.Tx, c conversation, 
 	if err != nil {
 		return err
 	}
-	if err = completeCustomerExecution(ctx, tx, execution, executionState, behavior.String(), p.Decision.ReasonCode, p.Answer, raw, p.Mock); err != nil {
+	factsRaw := []byte("[]")
+	if len(p.Facts) > 0 {
+		if factsRaw, err = json.Marshal(p.Facts); err != nil {
+			return err
+		}
+	}
+	if err = completeCustomerExecution(ctx, tx, execution, executionState, behavior.String(), p.Decision.ReasonCode, p.Answer, raw, factsRaw, p.Mock); err != nil {
 		return err
 	}
 	if behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_HANDOFF {

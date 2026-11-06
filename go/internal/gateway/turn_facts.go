@@ -61,7 +61,7 @@ func lookupFacts(client FactClient, input factInput) (factsResult, error) {
 // row. Trace writes stay best-effort, exactly as before.
 func runFactStage(ctx context.Context, client FactClient, db *pgxpool.Pool, tenantID int64, requestID string,
 	tools []string, resourceID string, scope *ragv1.RequestContext,
-	authorized func() bool, writeEvent func(string, any) error) (rows []*ragv1.Fact, failure *stageFailure, aborted bool) {
+	authorized func() bool, writeEvent func(string, any) error, storeFacts func([]*ragv1.Fact)) (rows []*ragv1.Fact, failure *stageFailure, aborted bool) {
 	resolution, err := lookupFacts(client, factInput{ctx: ctx, scope: scope, names: tools, resourceID: resourceID})
 	if err != nil {
 		for _, toolName := range tools {
@@ -69,6 +69,7 @@ func runFactStage(ctx context.Context, client FactClient, db *pgxpool.Pool, tena
 		}
 		return nil, &stageFailure{state: "FAILED", code: facts.FailureCode(err)}, false
 	}
+	storeFacts(resolution.facts)
 	for _, fact := range resolution.facts {
 		if !authorized() {
 			return nil, nil, true

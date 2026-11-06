@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from . import (
     control,
+    generation_after_sales,
     generation_applicability,
     generation_base,
     generation_customer,
@@ -19,7 +20,7 @@ from . import (
 )
 
 VARIANTS: dict[str, tuple[str, str]] = {
-    "control": ("app.graph.prompts.control", "v1"),
+    "control": ("app.graph.prompts.control", "v2"),
     "generation_base": ("app.graph.prompts.generation_base", "v2"),
     "generation_facts": ("app.graph.prompts.generation_facts", "v1"),
     "generation_plan": ("app.graph.prompts.generation_plan", "v2"),
@@ -29,11 +30,13 @@ VARIANTS: dict[str, tuple[str, str]] = {
     "generation_applicability": ("app.graph.prompts.generation_applicability", "v1"),
     "generation_reason": ("app.graph.prompts.generation_reason", "v1"),
     "generation_customer": ("app.graph.prompts.generation_customer", "v1"),
+    "generation_after_sales": ("app.graph.prompts.generation_after_sales", "v1"),
 }
 
 ASSETS: dict[str, str] = {
     "control_system": control.CONTROL_SYSTEM,
     "control_customer_suffix": control.CONTROL_CUSTOMER_SUFFIX,
+    "control_after_sales_suffix": control.CONTROL_AFTER_SALES_SUFFIX,
     "context_gate": control.CONTEXT_GATE_SYSTEM,
     "freshness_supplement": control.FRESHNESS_SUPPLEMENT,
     "missing_reference_supplement": control.MISSING_REFERENCE_SUPPLEMENT,
@@ -59,11 +62,14 @@ ASSETS: dict[str, str] = {
     "reason": generation_reason.INSTRUCTION,
     "customer": generation_customer.INSTRUCTION,
     "customer_suffix": generation_customer.SUFFIX,
+    "customer_after_sales": generation_after_sales.INSTRUCTION,
+    "customer_after_sales_suffix": generation_after_sales.SUFFIX,
 }
 
 # Workflow-facing names; no prompt text is defined in workflow.py.
 CONTROL_SYSTEM = control.CONTROL_SYSTEM
 CONTROL_CUSTOMER_SUFFIX = control.CONTROL_CUSTOMER_SUFFIX
+CONTROL_AFTER_SALES_SUFFIX = control.CONTROL_AFTER_SALES_SUFFIX
 CONTEXT_GATE_SYSTEM = control.CONTEXT_GATE_SYSTEM
 CONTROL_FRESHNESS_SUPPLEMENT = control.FRESHNESS_SUPPLEMENT
 CONTROL_MISSING_REFERENCE_SUPPLEMENT = control.MISSING_REFERENCE_SUPPLEMENT
@@ -85,6 +91,8 @@ GENERATION_CAPABILITY_EXTERNAL = generation_base.CAPABILITY_EXTERNAL
 GENERATION_CAPABILITY_RECALL = generation_base.CAPABILITY_RECALL
 GENERATION_CUSTOMER_INSTRUCTION = generation_customer.INSTRUCTION
 GENERATION_CUSTOMER_SUFFIX = generation_customer.SUFFIX
+GENERATION_AFTER_SALES_INSTRUCTION = generation_after_sales.INSTRUCTION
+GENERATION_AFTER_SALES_SUFFIX = generation_after_sales.SUFFIX
 GENERATION_FACT_REMINDER = generation_base.FACT_REMINDER
 GENERATION_CITATION_REMINDER = generation_base.CITATION_REMINDER
 GENERATION_LIMITS_REMINDER = generation_base.LIMITS_REMINDER

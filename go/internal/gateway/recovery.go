@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -37,15 +38,23 @@ type executionIdentity struct {
 
 // The caller locks the execution row. Result, turn and terminal events become
 // visible together. Sequences come from durable events, including after a crash.
-func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer string) error {
+func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer string, facts []*ragv1.Fact) error {
 	sum := sha256.Sum256([]byte(answer))
-	if err := updateExecutionTerminal(ctx, tx, id, state, code, answer, hex.EncodeToString(sum[:])); err != nil {
+	var factsJSON []byte
+	if facts != nil {
+		encoded, err := json.Marshal(facts)
+		if err != nil {
+			return err
+		}
+		factsJSON = encoded
+	}
+	if err := updateExecutionTerminal(ctx, tx, id, state, code, answer, hex.EncodeToString(sum[:]), factsJSON); err != nil {
 		return err
 	}
 	if err := updateTurnTerminal(ctx, tx, id, state, answer); err != nil {
 		return err
 	}
-	citationCount := 0
+	citationCount, factCount := 0, 0
 	if state == "DONE" {
 		if err := insertAssistantMessage(ctx, tx, id.tenantID, id.turnID, answer); err != nil {
 			return err
@@ -54,9 +63,13 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 		if err != nil {
 			return err
 		}
-		citationCount = citations
+		facts, err := countExecutionFacts(ctx, tx, id.tenantID, id.executionID)
+		if err != nil {
+			return err
+		}
+		citationCount, factCount = citations, facts
 	}
-	canCopy, blocked := domain.CanCopyReply(state, id.behavior, citationCount, id.mock)
+	canCopy, blocked := domain.CanCopyReply(state, id.behavior, citationCount, factCount, id.mock)
 	if state == "DONE" {
 		if err := upsertCustomerReply(ctx, tx, id.tenantID, id.executionID, answer, id.mock, canCopy, blocked); err != nil {
 			return err
@@ -104,7 +117,7 @@ func (g *gateway) recoverInterruptedExecutions(ctx context.Context) (int, error)
 		if item.state == "CANCEL_REQUESTED" || item.cancel {
 			state, code = "CANCELLED", "cancelled"
 		}
-		if err = persistExecutionTerminal(ctx, tx, item.id, state, code, ""); err != nil {
+		if err = persistExecutionTerminal(ctx, tx, item.id, state, code, "", nil); err != nil {
 			return 0, err
 		}
 		ident := turnEventIdentity{tenantID: item.id.tenantID, executionID: item.id.executionID,

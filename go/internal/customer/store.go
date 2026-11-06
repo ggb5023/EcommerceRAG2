@@ -200,6 +200,10 @@ func handoffText(reason string) string {
 		prefix = "AI 服务暂时无法完成回答。"
 	case "clarification_exhausted":
 		prefix = "补充信息后仍不足以可靠回答。"
+	default:
+		if strings.HasPrefix(reason, "fact_") {
+			prefix = "实时订单、物流或库存查询暂时不可用。"
+		}
 	}
 	return prefix + "已进入人工客服等待队列，尚未有客服接单。您可以继续留言。"
 }
@@ -611,12 +615,12 @@ func loadCustomerEvents(ctx context.Context, db *pgxpool.Pool, tenant int64, con
 	return batch, nil
 }
 
-func loadCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID, id string) (source, content string, citations []byte, created time.Time, state, behavior string, mock bool, err error) {
+func loadCustomerMessage(ctx context.Context, db *pgxpool.Pool, tenant int64, conversationID, id string) (source, content string, citations []byte, created time.Time, state, behavior string, mock bool, facts []byte, err error) {
 	err = db.QueryRow(ctx, `SELECT m.source,m.content,m.citations_json,m.created_at,
-		COALESCE(e.state,''),COALESCE(e.behavior,''),COALESCE(e.is_mock,false)
+		COALESCE(e.state,''),COALESCE(e.behavior,''),COALESCE(e.is_mock,false),COALESCE(e.facts_json,'[]')
 		FROM customer_message m LEFT JOIN customer_execution e ON e.tenant_id=m.tenant_id AND e.id=m.execution_id
 		WHERE m.tenant_id=$1 AND m.conversation_id=$2 AND m.id=$3`,
-		tenant, conversationID, id).Scan(&source, &content, &citations, &created, &state, &behavior, &mock)
+		tenant, conversationID, id).Scan(&source, &content, &citations, &created, &state, &behavior, &mock, &facts)
 	return
 }
 
@@ -697,8 +701,8 @@ func failCustomerExecution(ctx context.Context, tx pgx.Tx, execution, reason str
 	return err
 }
 
-func completeCustomerExecution(ctx context.Context, tx pgx.Tx, execution, state, behavior, reason, answer string, evidence []byte, mock bool) error {
-	_, err := tx.Exec(ctx, `UPDATE customer_execution SET state=$2,behavior=$3,reason_code=$4,answer=$5,evidence_json=$6,is_mock=$7,finished_at=now() WHERE id=$1`, execution, state, behavior, reason, answer, evidence, mock)
+func completeCustomerExecution(ctx context.Context, tx pgx.Tx, execution, state, behavior, reason, answer string, evidence, facts []byte, mock bool) error {
+	_, err := tx.Exec(ctx, `UPDATE customer_execution SET state=$2,behavior=$3,reason_code=$4,answer=$5,evidence_json=$6,facts_json=$7,is_mock=$8,finished_at=now() WHERE id=$1`, execution, state, behavior, reason, answer, evidence, facts, mock)
 	return err
 }
 

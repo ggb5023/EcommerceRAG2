@@ -168,6 +168,9 @@ func buildGateway() (*gatewayRuntime, func()) {
 			}
 		}
 		g.customer, err = customer.New(db, g.rag, g.signingKey, profile, config)
+		if err == nil {
+			g.customer.Facts = g.facts
+		}
 		if err != nil || g.customer.Recover(ctx) != nil {
 			log.Fatal("customer channel initialization failed")
 		}
@@ -393,7 +396,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}()
 	ident := turnEventIdentity{tenantID: g.session.TenantID, executionID: executionID, turnID: turnID,
 		conversationID: conversationID, executionNo: executionNo, requestID: requestID}
-	writeEvent, finish, setBehavior, setTrace, setChosen := newTurnSink(ctx, g.db, ident, mockOutput)
+	writeEvent, finish, setBehavior, setTrace, setChosen, setFacts := newTurnSink(ctx, g.db, ident, mockOutput)
 	guard := turnGuard{ctx: ctx, authority: g.authority(), finish: finish}
 	if !guard.authorized() {
 		return
@@ -433,7 +436,7 @@ func (g *gateway) runTurn(ctx context.Context, requestID string, conversationID,
 	}
 	factResults, factFailure, factAborted := runFactStage(ctx, factProvider{provider: g.facts}, g.db,
 		g.session.TenantID, requestID, routed.RequiredFactTools, factResourceID, base,
-		ensureScopeAuthorized, writeEvent)
+		ensureScopeAuthorized, writeEvent, setFacts)
 	if factAborted {
 		return
 	}

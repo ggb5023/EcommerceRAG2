@@ -45,14 +45,21 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 	scope := &ragv1.RequestContext{RequestId: executionID, ConversationId: conversationID, TurnId: executionID, ExecutionId: executionID,
 		SubjectType: "customer", CustomerSessionId: sessionID, Role: "customer", ScopeAudience: "ai", EnforceDocumentScope: true,
 		Domain: ScopeDomainAnswer}
-	err := db.QueryRow(ctx, `SELECT c.tenant_id,t.external_id,c.shop_id,c.customer_id,c.epoch,sh.public_permission_revision,COALESCE(sh.timezone,'Asia/Shanghai')
+	err := db.QueryRow(ctx, `SELECT c.tenant_id,t.external_id,c.shop_id,c.customer_id,c.epoch,sh.public_permission_revision,COALESCE(sh.timezone,'Asia/Shanghai'),c.service_type,COALESCE(c.order_id,'')
  FROM customer_conversation c JOIN customer_session cs ON cs.customer_id=c.customer_id AND cs.tenant_id=c.tenant_id AND cs.shop_id=c.shop_id
  JOIN tenant t ON t.id=c.tenant_id JOIN shop sh ON sh.tenant_id=c.tenant_id AND sh.id=c.shop_id
  WHERE c.id=$1 AND cs.id=$2 AND c.state='AI' AND c.active_execution=$3 AND cs.revoked_at IS NULL
  AND cs.expires_at>now() AND cs.idle_until>now() AND t.status='active' AND sh.status='active' AND sh.customer_chat_enabled`, conversationID, sessionID, executionID).
-		Scan(&scope.TenantDbId, &scope.TenantId, &scope.ShopId, &scope.CustomerId, &scope.ConversationEpoch, &scope.PermissionRevision, &timezone)
+		Scan(&scope.TenantDbId, &scope.TenantId, &scope.ShopId, &scope.CustomerId, &scope.ConversationEpoch, &scope.PermissionRevision, &timezone, &scope.ServiceType, &scope.CustomerOrderId)
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, "customer_scope_invalid")
+	}
+	if scope.ServiceType == "" {
+		scope.ServiceType = "pre_sales"
+	}
+	if (scope.ServiceType == "after_sales") != (scope.CustomerOrderId != "") ||
+		(scope.ServiceType != "pre_sales" && scope.ServiceType != "after_sales") {
+		return nil, status.Error(codes.PermissionDenied, "customer_service_lane_invalid")
 	}
 	scope.UserId = "customer:" + scope.CustomerId
 	scope.AllowedShopIds = []string{scope.ShopId}
@@ -73,7 +80,7 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 }
 
 func customerScopeMismatch(scope, current *ragv1.RequestContext) string {
-	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch || current.Domain != scope.Domain {
+	if current.CustomerId != scope.CustomerId || current.TenantDbId != scope.TenantDbId || current.TenantId != scope.TenantId || current.ShopId != scope.ShopId || current.PermissionRevision != scope.PermissionRevision || current.ConversationEpoch != scope.ConversationEpoch || current.Domain != scope.Domain || current.ServiceType != scope.ServiceType || current.CustomerOrderId != scope.CustomerOrderId {
 		return "customer_scope_stale"
 	}
 	for _, id := range scope.AllowedDocumentIds {
@@ -87,6 +94,10 @@ func customerScopeMismatch(scope, current *ragv1.RequestContext) string {
 func ValidateCustomerScope(ctx context.Context, db *pgxpool.Pool, scope *ragv1.RequestContext) error {
 	if scope.ScopeAudience != "ai" || scope.Role != "customer" || scope.UserDbId != 0 || scope.AllShops || len(scope.AllowedShopIds) != 1 || scope.AllowedShopIds[0] != scope.ShopId || scope.UserId != "customer:"+scope.CustomerId || scope.CustomerId == "" || scope.CustomerSessionId == "" {
 		return status.Error(codes.PermissionDenied, "invalid_customer_scope")
+	}
+	if (scope.ServiceType != "pre_sales" && scope.ServiceType != "after_sales") ||
+		((scope.ServiceType == "after_sales") != (scope.CustomerOrderId != "")) {
+		return status.Error(codes.PermissionDenied, "invalid_customer_service_lane")
 	}
 	current, err := IssueCustomerScope(ctx, db, make([]byte, 32), scope.CustomerSessionId, scope.ConversationId, scope.ExecutionId)
 	if err != nil {

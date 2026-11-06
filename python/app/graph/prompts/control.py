@@ -53,3 +53,7 @@ MISSING_REFERENCE_SUPPLEMENT = (
 AMBIGUOUS_HISTORY_SUPPLEMENT = (
     ' 前文比较多个商品、标准或规则但未选择，当前只用代词或沿用指代时，必须intent=clarification且clarification询问具体哪一项；不要进入检索后猜测版本。'
 )
+
+CONTROL_AFTER_SALES_SUFFIX = (
+    ' This authenticated after-sales session is bound to exactly one order supplied by the customer. The order identifier is already known: do not extract, ask for, or substitute another order identifier. The read-only tools available for this order are get_order_status, get_logistics, get_stock and get_price. Requests for this order\'s status or shipment, or for a product\'s current stock or price, may request those tools; never request compare_products. The assistant cannot refund, change an address, cancel an order, or perform any write; such requests are for human staff and must not be described as completed. Tool names describe routing, never permission to execute.'
+)

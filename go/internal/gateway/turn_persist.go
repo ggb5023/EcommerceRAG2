@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
+	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
 
 // turnEventIdentity names the rows one streamed event belongs to. Stage code
@@ -72,7 +73,7 @@ func recordToolCall(ctx context.Context, db *pgxpool.Pool, tenantID int64, reque
 // one transaction. Cancellation wins over the requested state, exactly as the
 // inline version did, and the ledger records that final state too.
 func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, state, code, answer, behavior string, mock bool,
-	chosen []string, rejected []domain.RejectedEvidence) {
+	chosen []string, rejected []domain.RejectedEvidence, facts []*ragv1.Fact) {
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	tx, err := db.Begin(finishCtx)
@@ -98,7 +99,7 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 	err = persistExecutionTerminal(finishCtx, tx, executionIdentity{
 		tenantID: ident.tenantID, executionID: ident.executionID, turnID: ident.turnID,
 		conversationID: ident.conversationID, executionNo: ident.executionNo, requestID: ident.requestID, behavior: behavior, mock: mock,
-	}, state, code, answer)
+	}, state, code, answer, facts)
 	if err == nil {
 		err = appendTurnDecision(finishCtx, tx, ident, state, code, chosen, rejected)
 	}
@@ -115,6 +116,7 @@ func finishTurn(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, 
 type turnTrace struct {
 	chosen   []string
 	rejected []domain.RejectedEvidence
+	facts    []*ragv1.Fact
 }
 
 func (trace *turnTrace) setTrace(rejected []domain.RejectedEvidence) {
@@ -132,13 +134,14 @@ func (trace *turnTrace) setChosen(chosen []string) {
 // transaction.
 func newTurnSink(ctx context.Context, db *pgxpool.Pool, ident turnEventIdentity, mock bool) (
 	func(string, any) error, func(string, string, string), func(string),
-	func([]domain.RejectedEvidence), func([]string)) {
+	func([]domain.RejectedEvidence), func([]string), func([]*ragv1.Fact)) {
 	write := func(kind string, payload any) error { return writeTurnEvent(db, ident, kind, payload) }
 	trace := &turnTrace{}
 	var behavior string
 	finish := func(state, code, answer string) {
-		finishTurn(ctx, db, ident, state, code, answer, behavior, mock, trace.chosen, trace.rejected)
+		finishTurn(ctx, db, ident, state, code, answer, behavior, mock, trace.chosen, trace.rejected, trace.facts)
 	}
 	setBehavior := func(value string) { behavior = value }
-	return write, finish, setBehavior, trace.setTrace, trace.setChosen
+	setFacts := func(facts []*ragv1.Fact) { trace.facts = facts }
+	return write, finish, setBehavior, trace.setTrace, trace.setChosen, setFacts
 }

@@ -78,3 +78,53 @@ def test_customer_generation_has_no_staff_capability_or_internal_limit_rendering
     assert result['answer'] == 'Use a soft sponge.'
     assert 'evidence_limits' not in generation.request['response_schema']['required']
     assert '不输出document_id' in generation.request['messages'][0]['content']
+
+
+def test_customer_scope_lane_binding_is_required():
+    base = {'tenant_id': 't', 'user_id': 'c', 'permission_revision': 'p', 'role': 'customer',
+            'allowed_shop_ids': ['s'], 'allowed_document_ids': ['d'], 'subject_type': 'customer',
+            'customer_id': 'c', 'customer_session_id': 'cs', 'conversation_epoch': 1}
+    validate_scope(dict(base))
+    validate_scope(dict(base, service_type='pre_sales'))
+    validate_scope(dict(base, service_type='after_sales', customer_order_id='ORD-2609-0005'))
+    with pytest.raises(PermissionError, match='order binding'):
+        validate_scope(dict(base, service_type='after_sales'))
+    with pytest.raises(PermissionError, match='order binding'):
+        validate_scope(dict(base, service_type='pre_sales', customer_order_id='ORD-2609-0005'))
+    with pytest.raises(PermissionError, match='service lane'):
+        validate_scope(dict(base, service_type='after_sale'))
+
+
+def test_after_sales_control_declares_the_bound_read_only_order():
+    class Control:
+        async def ainvoke(self, request):
+            self.request = request
+            return {'structured': {'rewritten_query': '订单到哪了？', 'intent': 'factual',
+                'information_source': 'realtime_business', 'required_fact_tools': ['get_logistics'],
+                'entities': [], 'clarification': '', 'confidence': .9}}
+    control = Control()
+    asyncio.run(provider_understand_node({'query': '订单到哪了？',
+        'scope': {'subject_type': 'customer', 'service_type': 'after_sales',
+                  'customer_order_id': 'ORD-2609-0005'}}, SimpleNamespace(control=control)))
+    system = control.request['messages'][0]['content']
+    assert 'bound to exactly one order' in system
+    assert 'cannot refund' in system
+
+
+def test_after_sales_generation_allows_fact_snapshots_but_forbids_writes():
+    class Generation:
+        async def ainvoke(self, request):
+            self.request = request
+            return {'structured': {'answer': '订单已发货，物流显示运输中。', 'citation_ids': [],
+                                   'behavior': 'ANSWER', 'reason_code': 'grounded'}}
+    generation = Generation()
+    facts = [{'tool_name': 'get_logistics', 'resource_id': 'ORD-2609-0005',
+              'observed_at': '2026-09-29T12:00:00Z', 'is_mock': True,
+              'value_json': '{"order_id": "ORD-2609-0005", "status": "in_transit"}'}]
+    result = asyncio.run(provider_generate_node({'query': '订单到哪了？', 'evidence': [], 'facts': facts,
+        'response_purpose': 'customer_chat',
+        'scope': {'subject_type': 'customer', 'service_type': 'after_sales'}}, SimpleNamespace(generation=generation)))
+    system = generation.request['messages'][0]['content']
+    assert '售后只读客服场景' in system
+    assert '已退款' in system
+    assert result['reply_decision']['behavior'] == 'ANSWER'

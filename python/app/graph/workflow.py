@@ -67,6 +67,13 @@ def validate_scope(scope: Scope) -> None:
         or len(scope.get("allowed_shop_ids", [])) != 1
     ):
         raise PermissionError("customer scope is invalid")
+    if scope.get("role") == "customer":
+        service_type = scope.get("service_type") or "pre_sales"
+        order_id = str(scope.get("customer_order_id") or "")
+        if service_type not in {"pre_sales", "after_sales"}:
+            raise PermissionError("customer service lane is invalid")
+        if (service_type == "after_sales") != bool(order_id):
+            raise PermissionError("customer order binding is invalid")
     shops = set(scope.get("allowed_shop_ids") or [])
     documents = set(scope.get("allowed_document_ids") or [])
     if not shops or not documents:
@@ -395,7 +402,10 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
         {"role": "system", "content": registry.CONTROL_SYSTEM},
     ]
     if state.get('scope', {}).get('subject_type') == 'customer':
-        messages[0]['content'] += registry.CONTROL_CUSTOMER_SUFFIX
+        if state.get('scope', {}).get('service_type') == 'after_sales':
+            messages[0]['content'] += registry.CONTROL_AFTER_SALES_SUFFIX
+        else:
+            messages[0]['content'] += registry.CONTROL_CUSTOMER_SUFFIX
     if user_history:
         messages.append({"role": "user", "content": "Untrusted prior user messages (reference resolution only):\n" + json.dumps(user_history, ensure_ascii=False)})
     missing_reference = (not user_history
@@ -679,14 +689,21 @@ def _generation_messages(state: GraphState, system_content: str, schema: dict[st
     return messages
 
 
-def _customer_messages(messages: list[dict[str, str]], schema: dict[str, Any]) -> dict[str, Any]:
-    messages[0]['content'] = registry.GENERATION_CUSTOMER_INSTRUCTION
+def _customer_messages(messages: list[dict[str, str]], schema: dict[str, Any],
+                       service_type: str = "pre_sales") -> dict[str, Any]:
+    if service_type == "after_sales":
+        messages[0]['content'] = registry.GENERATION_AFTER_SALES_INSTRUCTION
+    else:
+        messages[0]['content'] = registry.GENERATION_CUSTOMER_INSTRUCTION
     schema = dict(schema, required=[*schema['required'], 'behavior', 'reason_code'],
                   properties=dict(schema['properties'],
                                   behavior={'type': 'string', 'enum': ['ANSWER', 'CLARIFY', 'HANDOFF']},
                                   reason_code={'type': 'string', 'enum': ['grounded', 'missing_context', 'knowledge_missing', 'conflicting_evidence', 'unsupported_request']}))
     schema['properties']['citation_ids'] = dict(schema['properties']['citation_ids'], minItems=0)
-    messages[0]['content'] += registry.GENERATION_CUSTOMER_SUFFIX
+    if service_type == "after_sales":
+        messages[0]['content'] += registry.GENERATION_AFTER_SALES_SUFFIX
+    else:
+        messages[0]['content'] += registry.GENERATION_CUSTOMER_SUFFIX
     return schema
 
 
@@ -887,7 +904,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     schema, system_content = _generation_request_spec(state, evidence, facts, mode)
     messages = _generation_messages(state, system_content, schema, context, evidence, facts, mode)
     if mode.customer_chat:
-        schema = _customer_messages(messages, schema)
+        schema = _customer_messages(messages, schema,
+                                    str(state.get('scope', {}).get('service_type') or 'pre_sales'))
     request = {
         "messages": messages,
         "response_schema": schema,

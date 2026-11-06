@@ -139,3 +139,19 @@ func TestSyntheticBusinessDateOverridesTheShopTimezone(t *testing.T) {
 		t.Fatalf("synthetic date = %q, want 2026-09-29", got)
 	}
 }
+
+func TestCustomerServiceLaneIsCoveredByTheScopeMAC(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	scope := signedScope(t, key)
+	scope.ServiceType, scope.CustomerOrderId = "pre_sales", ""
+	first := MAC(key, scope)
+	scope.ServiceType, scope.CustomerOrderId = "after_sales", "ORD-2609-0005"
+	second := MAC(key, scope)
+	if hmac.Equal(first, second) {
+		t.Fatal("service lane and order binding must be part of the signed scope")
+	}
+	scope.CustomerOrderId = "ORD-2609-0006"
+	if hmac.Equal(second, MAC(key, scope)) {
+		t.Fatal("the bound order must be part of the signed scope")
+	}
+}
