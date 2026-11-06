@@ -95,7 +95,8 @@ jobs:
           from pathlib import Path
           ci = Path(sys.argv[1])
           passwords = {name: secrets.token_hex(24) for name in (
-              "rag_migration", "rag_v2_gateway", "rag_v2_ai", "rag_v2_ingest", "keycloak")}
+              "rag_migration", "rag_v2_gateway", "rag_v2_ai", "rag_v2_ingest",
+              "rag_v2_intel", "keycloak")}
           (ci / "bootstrap" / "config.json").write_text(json.dumps({
               "origin": "http://127.0.0.1:8080",
               "shop_name": "CI",
