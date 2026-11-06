@@ -148,6 +148,32 @@ def test_ingest_review_publish_replay_rollback_revoke(db):
     assert cleanup_orphans(db.objects, db.store.conn_string) == 0
 
 
+def test_reimport_after_revoke_creates_a_new_version(db):
+    _first_job, first = ingest(db)
+    published, _ = approve_publish(db, first)
+    revoked, _ = db.execute(rag_pb2.INGEST_COMMAND_ACTION_REVOKE, first[0],
+                            expected_hash=first[1], expected_fencing_epoch=published.fencing_epoch)
+    assert revoked.status == "revoked"
+    with psycopg.connect(db.values["V2_AI_DSN"]) as conn:
+        document = conn.execute(
+            "SELECT id,active_version_id,status FROM document WHERE tenant_id=%s AND logical_key='delivery'",
+            (db.tenant,)).fetchone()
+    assert document is not None and document[1] is None and document[2] == "pending"
+    _second_job, second = ingest(db, b"# Delivery\n\nOrders leave within three business days.\n")
+    assert second[0] != first[0]
+    assert second[3:5] == ("ready", "pending")
+    approve_publish(db, second)
+    with psycopg.connect(db.values["V2_AI_DSN"]) as conn:
+        documents = conn.execute(
+            "SELECT id,active_version_id,status FROM document WHERE tenant_id=%s AND logical_key='delivery'",
+            (db.tenant,)).fetchall()
+        versions = conn.execute(
+            "SELECT id,status FROM document_version WHERE tenant_id=%s AND document_id=%s ORDER BY id",
+            (db.tenant, document[0])).fetchall()
+    assert documents == [(document[0], second[0], "active")]
+    assert versions == [(first[0], "revoked"), (second[0], "active")]
+
+
 def test_duplicate_submission_conflict_and_stale_scope(db):
     first = db.submit(key="duplicate")
     assert db.submit(key="duplicate").job_id == first.job_id

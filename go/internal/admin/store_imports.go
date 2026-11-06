@@ -428,6 +428,39 @@ func (s *Store) Sources(ctx context.Context, db *pgxpool.Pool, tenantID int64, s
 	return items, rows.Err()
 }
 
+// UnfinishedJob is an in-flight ingest job found through a legacy idempotency
+// key. PackageSHA256 is the stored payload hash, not a recomputed value.
+type UnfinishedJob struct {
+	ID             int64
+	ManifestSHA256 string
+	PackageSHA256  string
+	Status         string
+	ItemCount      int64
+}
+
+// UnfinishedJobByKey finds a pending, running or awaiting-review job for the
+// legacy key. Completed jobs are deliberately invisible: a batch-scoped key must
+// be allowed to queue a new version after the old job finished.
+func (s *Store) UnfinishedJobByKey(ctx context.Context, db *pgxpool.Pool, tenantID int64, shopID, key string) (UnfinishedJob, bool, error) {
+	var job UnfinishedJob
+	err := db.QueryRow(ctx, `SELECT j.id,j.manifest_sha256,COALESCE(p.payload_hash,''),j.status,count(i.id)
+		FROM ingest_job j JOIN source s ON s.tenant_id=j.tenant_id AND s.id=j.source_id
+		LEFT JOIN ingest_payload p ON p.tenant_id=j.tenant_id AND p.job_id=j.id
+		LEFT JOIN ingest_job_item i ON i.tenant_id=j.tenant_id AND i.job_id=j.id
+		WHERE j.tenant_id=$1 AND s.shop_id=$2 AND j.idempotency_key=$3
+		  AND j.status IN ('pending','running','awaiting_review')
+		GROUP BY j.id,j.manifest_sha256,p.payload_hash,j.status
+		ORDER BY j.id DESC LIMIT 1`, tenantID, shopID, key).
+		Scan(&job.ID, &job.ManifestSHA256, &job.PackageSHA256, &job.Status, &job.ItemCount)
+	if err == pgx.ErrNoRows {
+		return UnfinishedJob{}, false, nil
+	}
+	if err != nil {
+		return UnfinishedJob{}, false, err
+	}
+	return job, true, nil
+}
+
 // JobRow is one ingestion job summary.
 type JobRow struct {
 	ID              int64

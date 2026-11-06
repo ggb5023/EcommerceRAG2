@@ -35,6 +35,29 @@ const (
 	ReasonNotCustomerEligible = "not_customer_eligible"
 )
 
+// DedupeEvidence keeps the first occurrence of each chunk id, preserves the
+// upstream order, and assigns contiguous citation indexes to the kept list.
+// Empty ids and nil items are left for FilterEvidence's contract check.
+func DedupeEvidence(raw []*ragv1.Evidence) []*ragv1.Evidence {
+	keep := make([]*ragv1.Evidence, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, item := range raw {
+		if item != nil && item.GetId() != "" {
+			if _, duplicate := seen[item.GetId()]; duplicate {
+				continue
+			}
+			seen[item.GetId()] = struct{}{}
+		}
+		keep = append(keep, item)
+	}
+	for index, item := range keep {
+		if item != nil {
+			item.Rank = int32(index + 1)
+		}
+	}
+	return keep
+}
+
 // FilterEvidence applies the customer-facing rules to raw candidates. It is pure:
 // no database, no context, no client. The document scope, resource disclosure
 // class and active-version checks arrive pre-computed in grants. Rejected

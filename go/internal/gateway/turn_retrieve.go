@@ -136,6 +136,7 @@ func runRetrievalStage(ctx context.Context, client ragv1.RagServiceClient, db *p
 	if searchFailure != nil {
 		return nil, nil, searchFailure, false
 	}
+	raw = domain.DedupeEvidence(raw)
 	grants, grantFailure := authorizeEvidence(check, raw)
 	if grantFailure != nil {
 		return nil, nil, grantFailure, false

@@ -32,7 +32,7 @@ type adminJobConfirmation struct {
 }
 
 func (g *Handler) queuePackage(ctx context.Context, manifest string, files []*ragv1.PackageFile,
-	tenantID, userID int64, shopID string) (queuedPackage, error) {
+	tenantID, userID int64, shopID string, batchID int64) (queuedPackage, error) {
 	scope, err := g.Authority.IssueScopeForShop(ctx, httpapi.NewRequestID(), shopID)
 	if err != nil {
 		return queuedPackage{}, err
@@ -44,7 +44,18 @@ func (g *Handler) queuePackage(ctx context.Context, manifest string, files []*ra
 			return queuedPackage{}, err
 		}
 	}
-	key := ingestIdempotencyKey(shopID, manifest)
+	key := ingestIdempotencyKey(shopID, batchID, manifest)
+	// Batches created before the batch-scoped key may still have an unfinished
+	// job under the legacy key. Reuse it rather than parsing the package twice.
+	if batchID > 0 {
+		if legacy, found, lookupErr := adminStore.UnfinishedJobByKey(ctx, g.DB, tenantID, shopID,
+			legacyIngestIdempotencyKey(shopID, manifest)); lookupErr != nil {
+			return queuedPackage{}, lookupErr
+		} else if found {
+			return queuedPackage{JobID: legacy.ID, ManifestSHA256: legacy.ManifestSHA256,
+				PackageSHA256: legacy.PackageSHA256, ItemCount: int(legacy.ItemCount), Status: legacy.Status}, nil
+		}
+	}
 	response, err := g.Ingest.Submit(ctx, &ragv1.SubmitRequest{
 		Context: scope, IdempotencyKey: key, ManifestYaml: manifest, Files: files,
 		TenantDbId: strconv.FormatInt(tenantID, 10), UserDbId: strconv.FormatInt(userID, 10), ShopId: shopID,
@@ -109,10 +120,24 @@ func validJobConfirmation(input adminJobConfirmation, session auth.Session, jobI
 		len(strings.TrimSpace(input.Reason)) >= 10 && len(input.Reason) <= 2000
 }
 
-// ingestIdempotencyKey is the key the ingest service deduplicates on: the shop
-// plus the manifest content. Same shop and manifest always yield the same key, so
-// a retried confirmation cannot queue a second job (refactor-input #14).
-func ingestIdempotencyKey(shopID, manifest string) string {
-	manifestDigest := sha256.Sum256([]byte(manifest))
-	return "admin:" + shopID + ":" + hex.EncodeToString(manifestDigest[:])
+// ingestIdempotencyKey is the key the ingest service deduplicates on. The batch
+// id keeps two same-content batches as two jobs; a retry of one batch still
+// reuses its own job. The legacy direct-import path has no batch row, so it
+// keeps the old shop+manifest key.
+func ingestIdempotencyKey(shopID string, batchID int64, manifest string) string {
+	if batchID <= 0 {
+		return legacyIngestIdempotencyKey(shopID, manifest)
+	}
+	return "admin:" + shopID + ":" + strconv.FormatInt(batchID, 10) + ":" + manifestDigest(manifest)
+}
+
+// legacyIngestIdempotencyKey is the pre-batch key. It is only consulted to adopt
+// an unfinished job; completed legacy jobs must not absorb a new batch.
+func legacyIngestIdempotencyKey(shopID, manifest string) string {
+	return "admin:" + shopID + ":" + manifestDigest(manifest)
+}
+
+func manifestDigest(manifest string) string {
+	digest := sha256.Sum256([]byte(manifest))
+	return hex.EncodeToString(digest[:])
 }

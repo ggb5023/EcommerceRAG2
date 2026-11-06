@@ -32,6 +32,34 @@ func equalIDs(got []*ragv1.Evidence, want ...string) bool {
 	return true
 }
 
+func TestDedupeEvidenceKeepsFirstAndReindexes(t *testing.T) {
+	first := evidence("a")
+	first.Rank, first.Content = 2, "first"
+	duplicate := evidence("a")
+	duplicate.Rank, duplicate.Content = 1, "duplicate"
+	second := evidence("b")
+	second.Rank = 7
+	got := DedupeEvidence([]*ragv1.Evidence{first, second, duplicate})
+	if !equalIDs(got, "a", "b") {
+		t.Fatalf("dedupe kept %v, want [a b]", ids(got))
+	}
+	if got[0].Content != "first" {
+		t.Fatalf("dedupe kept content %q, want the first occurrence", got[0].Content)
+	}
+	if got[0].Rank != 1 || got[1].Rank != 2 {
+		t.Fatalf("ranks = %d,%d, want 1,2", got[0].Rank, got[1].Rank)
+	}
+}
+
+func TestDedupeEvidenceLeavesContractErrorsToFilter(t *testing.T) {
+	noID := evidence("")
+	nilItem := (*ragv1.Evidence)(nil)
+	got := DedupeEvidence([]*ragv1.Evidence{noID, nilItem})
+	if len(got) != 2 || got[0] != noID || got[1] != nilItem {
+		t.Fatalf("dedupe changed the contract-check input: %v", got)
+	}
+}
+
 func TestFilterEvidencePermission(t *testing.T) {
 	raw := []*ragv1.Evidence{evidence("allowed"), evidence("denied")}
 	grants := []EvidenceGrant{{Allowed: true}, {Allowed: false}}

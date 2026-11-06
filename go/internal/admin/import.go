@@ -150,7 +150,7 @@ func (g *Handler) persistParsed(ctx context.Context, parsed ParsedPackage, batch
 		}
 		files = append(files, &ragv1.PackageFile{Path: upload.DeclaredName, Content: content})
 	}
-	return g.queuePackage(ctx, parsed.Manifest, files, g.Session.TenantID, g.Session.UserID, shopID)
+	return g.queuePackage(ctx, parsed.Manifest, files, g.Session.TenantID, g.Session.UserID, shopID, batchID)
 }
 
 var jobErrorRedaction = regexp.MustCompile(`(?i)(?:postgres(?:ql)?://\S+|\b(?:password|host|user|dbname)\s*=\s*\S+)`)
