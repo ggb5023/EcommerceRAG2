@@ -45,4 +45,8 @@ func (g *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/v1/merchant/versions/{id}/validity", g.adminValidityVersion)
 	mux.HandleFunc("GET /admin/v1/merchant/versions", g.adminVersions)
 	mux.HandleFunc("GET /admin/v1/merchant/commands/{id}", g.adminCommandResult)
+	mux.HandleFunc("POST /admin/v1/inspections/run", g.adminRunInspections)
+	mux.HandleFunc("GET /admin/v1/inspections", g.adminListInspections)
+	mux.HandleFunc("GET /admin/v1/inspections/{id}", g.adminInspectionDetail)
+	mux.HandleFunc("POST /admin/v1/inspections/{id}/status", g.adminInspectionStatus)
 }

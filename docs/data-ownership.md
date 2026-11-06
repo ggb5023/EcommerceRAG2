@@ -25,6 +25,7 @@
 | `turn_decision` | `admin` | `admin`（B6 之后由管理端读） | 每次 execution 一行决策记录（`tenant_id, execution_id` 唯一），写入方只有 `store_turn.go`；与 execution/turn 终态同事务，`ON CONFLICT DO UPDATE`；chosen/rejected 空时为 `[]` 而非 NULL | `scripts/check/check-ownership.py`；`TestAppendTurnDecisionRoundTripAndOverwrite` |
 | `local_credential` | `localauth` | `localauth` | 凭据与账号同生共死，必须和 `app_user` 同事务写入；`local_*` 表只由本地登录模块拥有 | `scripts/check/check-ownership.py`；`TestStaffCreationRespectsGrantBoundary` |
 | `admin_audit` | `admin`、`localauth`、`ingestclient` | `admin` | 审计是横切关注点：控制命令受理/回执、账号初始化、管理操作都要留痕，三处都在同一个 gateway 进程内，收口会引入无意义的跨包依赖 | `scripts/check/check-ownership.py` |
+| `inspection_report` | `admin` | `admin` | L3 巡检报告由管理控制面唯一写读；巡检只读业务表、只写本表，不改变任何发布状态 | `scripts/check/check-ownership.py` |
 | `admin_permission_request` | `admin` | `admin` | 权限申请与审批属于管理控制面，只有一个入口 | `scripts/check/check-ownership.py` |
 | `local_session` | `localauth` | `localauth` | 会话随账号吊销/改密失效，必须与账号同一事务 | `scripts/check/check-ownership.py` |
 | `customer_session` | `customer` | `customer`、`auth` | 顾客匿名会话与员工会话的鉴权模型不同，各自拥有 | `scripts/check/check-ownership.py` |

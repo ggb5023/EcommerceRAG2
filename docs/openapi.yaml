@@ -747,6 +747,42 @@ paths:
         required: true
         schema:
           type: string
+  /admin/v1/inspections:
+    get:
+      summary: GET /admin/v1/inspections
+      responses:
+        '200':
+          description: OK
+  /admin/v1/inspections/run:
+    post:
+      summary: POST /admin/v1/inspections/run
+      responses:
+        '200':
+          description: OK
+  /admin/v1/inspections/{id}:
+    get:
+      summary: GET /admin/v1/inspections/{id}
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /admin/v1/inspections/{id}/status:
+    post:
+      summary: POST /admin/v1/inspections/{id}/status
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
   /v1/customer/conversations/{id}/citations/{message}:
     get:
       summary: GET /v1/customer/conversations/{id}/citations/{message}
