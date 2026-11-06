@@ -77,7 +77,7 @@ def main():
     actual={db:tool.database_evidence(cmd,db) for db in ('ecr_v2','keycloak')}
     if actual!=manifest['databases']:raise ValueError('restored database contents differ')
     # CONNECT grants are database-level privileges and outside pg_dump's scope.
-    grants='REVOKE CONNECT ON DATABASE ecr_v2 FROM PUBLIC; GRANT CONNECT ON DATABASE ecr_v2 TO rag_v2_gateway,rag_v2_ai,rag_v2_ingest; REVOKE CONNECT ON DATABASE keycloak FROM PUBLIC;'
+    grants='REVOKE CONNECT ON DATABASE ecr_v2 FROM PUBLIC; GRANT CONNECT ON DATABASE ecr_v2 TO rag_v2_gateway,rag_v2_ai,rag_v2_ingest,rag_v2_intel; REVOKE CONNECT ON DATABASE keycloak FROM PUBLIC;'
     subprocess.run(cmd+['exec','-T','postgres','psql','-U','postgres','-v','ON_ERROR_STOP=1'],input=grants.encode(),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     result={'status':'PASS','database_restore_verified':True,'backup_manifest_sha256':hashlib.sha256((backup/'manifest.json').read_bytes()).hexdigest(),'databases':actual,'applications_started':False,'real_service_acceptance':False}
     with os.fdopen(os.open(dest/'restore-evidence.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as f:json.dump(result,f,indent=2)

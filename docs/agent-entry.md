@@ -20,7 +20,7 @@
 | `python/app/providers` | 模型适配（Bailian / MinerU / Tavily） | — |
 | `frontend/src` | 管理端 + 顾客端 SPA | — |
 | `eval/` | 冻结评测（53 例对齐集） | 产品代码 |
-| `sql/migrations/` | 53 条迁移，**只追加** | 修改历史文件 |
+| `sql/migrations/` | 54 条迁移，**只追加** | 修改历史文件 |
 | `scripts/check/` | 守卫 | — |
 
 ## 2. 分层与纪律

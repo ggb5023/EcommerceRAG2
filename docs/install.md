@@ -34,7 +34,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 这一步失败时先看 `docker compose ps -a` 与对应一次性任务的日志。
 
 Python 镜像在构建时拷贝 `sql/`，并把 `V2_MIGRATION_DIR` 指向 `/app/sql/migrations`；当前
-镜像快照包含 53 条迁移。升级代码后必须先重建 `ai` 镜像再 `up -d`——只重启旧镜像会继续
+镜像快照包含 54 条迁移。升级代码后必须先重建 `ai` 镜像再 `up -d`——只重启旧镜像会继续
 携带旧迁移快照（本机旧镜像实测只有 31 条），与库内 checksum 或新表结构不一致。
 
 首次安装（内置账号档）：

@@ -55,7 +55,7 @@ def initialize(args):
     for name,owner in [('gateway',65532),('ai',65532),('ingest',65532),('worker',65532),('artifacts',65532),('web',65532),('bootstrap',0),('identity',1000)]:
         p=runtime/name;p.mkdir(mode=0o700)
         if os.geteuid()==0:os.chown(p,owner,owner)
-    passwords={r:secrets.token_hex(32) for r in ['rag_migration','rag_v2_gateway','rag_v2_ai','rag_v2_ingest','keycloak']}
+    passwords={r:secrets.token_hex(32) for r in ['rag_migration','rag_v2_gateway','rag_v2_ai','rag_v2_ingest','rag_v2_intel','keycloak']}
     write(runtime/'bootstrap/pg-password',secrets.token_hex(32),0)
     client=secrets.token_hex(32)
     # Local profile keeps Keycloak off: the bootstrap job creates a single owner
