@@ -133,7 +133,7 @@ describe('SSE transport', () => {
 describe('workspace contracts', () => {
   it('exposes every zone route without changing the API boundary', async () => {
     const { routes } = await import('./routes')
-    expect(routes.map((route) => route.path)).toEqual(['/shop/:slug','/staff','/support','/support/:id','/login','/password','/admin','/admin/:pathMatch(.*)*','/','/chat','/chat/:conversation_id','/:pathMatch(.*)*'])
+    expect(routes.map((route) => route.path)).toEqual(['/shop/:slug','/staff','/support','/support/:id','/login','/password','/admin','/admin/:pathMatch(.*)*','/','/assistant','/assistant/catalog','/chat','/chat/:conversation_id','/:pathMatch(.*)*'])
   })
 
   it('maps active and terminal service states without inventing frontend terminals', () => {

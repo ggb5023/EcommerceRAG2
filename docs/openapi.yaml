@@ -508,6 +508,27 @@ paths:
         required: true
         schema:
           type: string
+  /v1/catalog/skus:
+    get:
+      summary: GET /v1/catalog/skus
+      responses:
+        '200':
+          description: Published product rows for the current shop
+        '400':
+          description: invalid_catalog_query
+        '403':
+          description: role_forbidden or admin_scope_denied
+        '503':
+          description: catalog_unavailable
+      parameters:
+      - {name: shop_id, in: query, schema: {type: string}}
+      - {name: q, in: query, schema: {type: string}}
+      - {name: category, in: query, schema: {type: string}}
+      - {name: sku, in: query, schema: {type: string}}
+      - {name: attribute_key, in: query, schema: {type: string}}
+      - {name: attribute_value, in: query, schema: {type: string}}
+      - {name: page, in: query, schema: {type: integer, minimum: 1}}
+      - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
   /admin/v1/merchant/gaps:
     get:
       summary: GET /admin/v1/merchant/gaps

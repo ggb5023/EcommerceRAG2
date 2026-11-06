@@ -43,3 +43,26 @@ func TestCatalogFilterRejectsUnknownAttributes(t *testing.T) {
 		t.Fatal("unknown attribute accepted")
 	}
 }
+
+func TestCatalogBrowseQueryKeepsVisibilityAndHidesCommercialColumns(t *testing.T) {
+	query, args := catalogBrowseQuery(2, "shop-demo", "2026-11-06",
+		catalogBrowseFilter{Page: 2, PageSize: 10, Attribute: "capacity_ml", AttrValue: "480"})
+	for _, want := range []string{
+		"v.status='active'", "d.active_version_id=v.id", "v.review_status='approved'",
+		"v.effective_from IS NULL OR v.effective_from <= $3::date",
+		"v.effective_to IS NULL OR v.effective_to > $3::date",
+		"cs.attributes ->> $7 = $8",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("query missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"list_price", "currency", "stock", "inventory"} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("catalog browse must not select %q", forbidden)
+		}
+	}
+	if len(args) != 10 || args[8].(int) != 10 || args[9].(int) != 10 {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}

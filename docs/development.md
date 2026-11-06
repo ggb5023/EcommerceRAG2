@@ -65,7 +65,7 @@ bash scripts/dev/install-git-hooks.sh
    不需要额外种子。库在、表没了属于静默失效，别先怀疑身份配置。
 4. 启动前端：在 `frontend/` 运行 `npm run dev`，用 `VITE_API_PROXY_TARGET` 指向 gateway 的 HTTP 端口；`/v1` 与 `/admin/v1` 走同一个代理目标。
 
-`frontend/` 是唯一入口，`/staff`（员工工作台：队列 + AI 辅助）、`/shop/:slug`、`/admin/*` 都在同一个 origin 下；浏览器仍然只访问 Go，前端不做授权判断。开发机常驻启动用一条命令：
+`frontend/` 是唯一入口，`/staff`（员工工作台）、`/assistant` 与 `/assistant/catalog`（知识问答与商品目录）、`/shop/:slug`、`/admin/*` 都在同一个 origin 下；浏览器仍然只访问 Go，前端不做授权判断。开发机常驻启动用一条命令：
 
 ```bash
 cd frontend && VITE_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev -- --port 5173
