@@ -52,3 +52,31 @@ bash scripts/check.sh --smoke    # 47 项，五条基线逐字节一致（改 tu
 ## 汇报
 
 五节格式；每条债务附 diff 行号与测试输出；#12 若选择"评估后不改"必须给出理由。
+
+## 执行记录（2026-11-06）
+
+- **#16**：实际实现在 Go，不在 Python 编排层。终态与落库由 Go 拥有（0028），Python
+  不产出 `turn_decision`。`turn_persist.go` 的 `turnTrace` 让 `setTrace(rejected)`
+  在检索返回后立即调用，生成阶段只调用 `setChosen`。证据：临时集成 harness 驱动
+  真实 `runTurn`（测试库 + fake RAG client，返回一条未授权证据），得到
+  `state=ASKING`，psql 读出
+  `538|653|666|ASKING|[{"id": "wp67-rejected", "reason": "not_authorized"}]|[]`；
+  验证后已清理该租户 fixture 与临时测试文件。
+- **#3**：0021 旧账本命名只剩 `scripts/ops/selfhost-build-local.py` 一处注释，
+  已改为 usage accounting；docs-drift 实测输出
+  `PASS documentation drift: 95 documents, 120 instructions tracked`。
+  其余 `budget` 字样是 live request/call budget 与门禁棘轮（`RUN_TURN_BUDGET` 等），
+  不属于货币账本，改名会改变冻结评测或门禁语义，未动。
+- **#5/#6**：`docs/metrics.md` 新增“用量口径”两行（重试按行计费、NULL 租户进
+  `unattributed`）。Go `usageResponse` 与 Python `usage_result` 各自分离
+  `tenant_id IS NULL`；`TestUsageResponseSeparatesUnattributedRows` 与
+  `test_null_tenant_usage_is_separated_into_unattributed` 锁定。
+- **#7**：删除 `run_case` 的 `ledger` 参数、`attempts()` 与 `sqlite3` 依赖；
+  `eval/test_v2_quality_safety_http.py` 31 passed。
+- **#11**：`resolveFactIntent` 返回 `proto.Clone`，输入只读；路由测试同时断言返回值和
+  输入未被修改。
+- **#12**：评估后不改。`turnGuard.finish` 就是 `newTurnSink` 创建的同一个 `finish`
+  闭包，终端写入仍只有 `finishTurn` 一条路径；改成返回错误会连带修改
+  `runFactStage` / `runRetrievalStage` / `runGenerationStage` 的签名、
+  `ensureScopeAuthorized` 回调与 abort 语义，风险大于收益，且不改变可观测行为。
+  结论记录在此，保持现状。

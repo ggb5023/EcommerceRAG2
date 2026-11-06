@@ -4,6 +4,18 @@
 
 本文只记录事实与影响，不写实现方案。所有结论均为 2026-10-27 在本机实测。
 
+## WP67 已完成（2026-11-06）
+
+- #3 预算命名残留：仅剩的 0021 旧账本注释已改名；其余 `budget` 为 live request/call
+  budget 与门禁棘轮。
+- #5/#6 usage 口径：重试按行计入 `usage_log` 的口径已写入 `docs/metrics.md`；
+  `tenant_id IS NULL` 在 Go/Python 聚合中单独归入 `unattributed`。
+- #7 `run_case` 的旧 `ledger` 注入参数与对应测试已删除。
+- #11 `resolveFactIntent` 返回克隆值，不再修改入参。
+- #12 `turnGuard` 终结路径评估后保持现状：它复用同一个 `finish` 闭包，没有第二条
+  `finishTurn` 路径；改签名风险大于收益。
+- #16 `setTrace` 已提前到检索返回后调用，ASKING 与生成前 FAILED 也会落 rejected。
+
 ## 待决问题
 
 1. ~~遗留表 `window` / `attempt` 仍在库中~~ —— **此条已证伪**：dev 库（全 schema）无 `window` / `attempt`，

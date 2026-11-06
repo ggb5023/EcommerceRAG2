@@ -21,6 +21,13 @@
 | `CANCELLED` | 单独成桶，不并入 `failed` | 已实现：`cancelled` 独立字段；`failed` 不含取消 |
 | `wrong_answer_rate` | 只能来自离线评测或人工标注；不得从 `DONE` 推断 | 实测：**13.21%**（LLM-judge，53 例，2026-11-02；WP25 v2：correct 39、partial 7、wrong 7；此前 v1 为 20.75%；语义评审，非精确答案点匹配；partial 单列） |
 
+## 用量口径（`usage_log`）
+
+- 重试是真实计费调用，按次落行：一次业务调用触发一次瞬时重试时，`usage_log` 写两行，
+  两行各自计入调用次数与 token，不合并、不去重。
+- `tenant_id IS NULL` 的行（启动自检 / 健康检查）不属于任何租户；聚合时单独归入
+  `unattributed` 桶，不进入租户合计、`by_slot` 或 `by_model`。
+
 ## ASKING 的判定优先级
 
 1. 存在 `parent_turn_id` 关联的更晚 DONE 子轮 → `clarified`；
