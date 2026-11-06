@@ -2,11 +2,19 @@
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute} from 'vue-router'
 import CitationCard from './components/CitationCard.vue'
-import {channel,ChannelError,watchChannel,messageCopyState,type Snapshot,type Citation,type Message} from './customer-api'
+import {channel,ChannelError,watchChannel,messageCopyState,laneLabel,ticketStatusText,orderIdPattern,type Snapshot,type Citation,type Message,type ServiceType} from './customer-api'
 const route=useRoute(); const slug=String(route.params.slug)
 const shop=ref({name:'客户咨询',welcome_message:''}); const csrf=ref(''); const snapshot=ref<Snapshot|null>(null)
 const text=ref(''); const error=ref(''); const busy=ref(false); const sources=ref<Citation[]>([])
-const stateText=computed(()=>({AI:snapshot.value?.conversation.active_execution_id?'正在查找店铺知识…':'AI 知识客服',WAITING_HUMAN:'正在等待人工客服领取；暂无法提供预计响应时间。',HUMAN:'人工客服正在为你服务',CLOSED:'本次会话已结束'}[snapshot.value?.conversation.state??'AI']))
+const pickerOpen=ref(false); const lane=ref<ServiceType>('pre_sales'); const orderInput=ref(''); const startError=ref('')
+const activeLane=computed(()=>snapshot.value?.conversation.service_type??'pre_sales')
+const laneText=computed(()=>laneLabel(activeLane.value,snapshot.value?.conversation.order_id))
+const ticketLine=computed(()=>ticketStatusText(snapshot.value?.ticket?.status))
+const stateText=computed(()=>{
+  if(!snapshot.value)return pickerOpen.value?'请选择服务类型':'正在连接店铺…'
+  if(snapshot.value.ticket)return ticketLine.value||'售后工单处理中'
+  return ({AI:snapshot.value.conversation.active_execution_id?'正在查找店铺知识…':'AI 知识客服',WAITING_HUMAN:'正在等待人工客服领取；暂无法提供预计响应时间。',HUMAN:'人工客服正在为你服务',CLOSED:'本次会话已结束'}[snapshot.value.conversation.state])
+})
 const chatEl=ref<HTMLElement|null>(null); const messagesEl=ref<HTMLElement|null>(null)
 const drawerOpen=ref(false); const activeMessage=ref<Message|null>(null); const sourcesLoading=ref(false)
 const stickToBottom=ref(true); const showJump=ref(false); const copiedId=ref(''); const copyNotice=ref('')
@@ -21,15 +29,21 @@ function closeSources(){drawerOpen.value=false;activeMessage.value=null;sources.
 async function loadSources(message:Message){if(!snapshot.value)return;sourcesLoading.value=true;try{sources.value=(await channel<{citations:Citation[]}>(`/v1/customer/conversations/${snapshot.value.conversation.id}/citations/${message.id}`)).citations}finally{sourcesLoading.value=false}}
 async function openSources(message:Message){if(!snapshot.value)return;activeMessage.value=message;drawerOpen.value=true;copyNotice.value='';sources.value=[];try{await loadSources(message)}catch(e){failed(e);closeSources()}}
 async function refresh(){if(!snapshot.value)return;const epoch=viewEpoch;const id=snapshot.value.conversation.id;const result=await channel<Snapshot>(`/v1/customer/conversations/${id}`);if(epoch!==viewEpoch||snapshot.value?.conversation.id!==id)return;snapshot.value=result;if(drawerOpen.value&&activeMessage.value){const updated=result.messages?.find(message=>message.id===activeMessage.value?.id);if(!updated)closeSources();else{activeMessage.value=updated;if(updated.citations.length)await loadSources(updated).catch(failed);else sources.value=[]}}else if(sources.value.length)sources.value=[]}
-async function enter(fresh=false){const epoch=++viewEpoch;controller.abort();controller=new AbortController();closeSources();snapshot.value=null;sources.value=[];text.value='';busy.value=true;error.value='';stickToBottom.value=true;showJump.value=false;try{
+function stopWatch(){controller.abort();controller=new AbortController()}
+async function openConversation(id:string){const epoch=viewEpoch;snapshot.value=await channel<Snapshot>(`/v1/customer/conversations/${id}`);if(epoch!==viewEpoch)return;stopWatch();void watchChannel(`/v1/customer/conversations/${id}/events`,controller.signal,refresh,e=>{if(epoch===viewEpoch)failed(e)})}
+async function enter(){const epoch=++viewEpoch;stopWatch();closeSources();snapshot.value=null;sources.value=[];text.value='';busy.value=true;error.value='';pickerOpen.value=false;stickToBottom.value=true;showJump.value=false;try{
  shop.value=await channel(`/v1/customer/shops/${encodeURIComponent(slug)}`)
  const session=await channel<{csrf_token:string}>('/v1/customer/session',{shop_slug:slug});csrf.value=session.csrf_token
  const list=await channel<{conversations:{id:string;state:string}[]}>('/v1/customer/conversations')
- let id=fresh?undefined:list.conversations.find(c=>c.state!=='CLOSED')?.id
- if(!id)id=(await channel<{conversation_id:string}>('/v1/customer/conversations',{},csrf.value)).conversation_id
- snapshot.value=await channel<Snapshot>(`/v1/customer/conversations/${id}`)
- void watchChannel(`/v1/customer/conversations/${id}/events`,controller.signal,refresh,e=>{if(epoch===viewEpoch)failed(e)})
+ const id=list.conversations.find(c=>c.state!=='CLOSED')?.id
+ if(id)await openConversation(id);else pickerOpen.value=true
  }catch(e){failed(e)}finally{busy.value=false;nextTick(()=>scrollLatest('auto'))}}
+async function startConversation(){if(busy.value)return;startError.value='';const order=orderInput.value.trim().toUpperCase();if(lane.value==='after_sales'&&!orderIdPattern.test(order)){startError.value='请输入正确订单号，例如 ORD-2609-0005。';return}
+ busy.value=true;error.value='';try{const body=lane.value==='after_sales'?{service_type:'after_sales',order_id:order}:{service_type:'pre_sales'}
+  const created=await channel<{conversation_id:string}>('/v1/customer/conversations',body,csrf.value)
+  viewEpoch++;pickerOpen.value=false;await openConversation(created.conversation_id);await refresh();nextTick(()=>scrollLatest('auto'))
+ }catch(e){startError.value=e instanceof Error?e.message:'创建会话失败，请稍后重试。'}finally{busy.value=false}}
+function newConsult(){if(!snapshot.value)return;lane.value=activeLane.value;orderInput.value=snapshot.value.conversation.order_id??'';startError.value='';pickerOpen.value=true}
 async function send(){if(!text.value.trim()||!snapshot.value)return;busy.value=true;error.value='';stickToBottom.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/messages`,{text:text.value},csrf.value);text.value='';await refresh();nextTick(()=>scrollLatest('auto'))}catch(e){failed(e)}finally{busy.value=false}}
 async function handoff(){if(!snapshot.value)return;busy.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/handoff`,{},csrf.value);await refresh()}catch(e){failed(e)}finally{busy.value=false}}
 function beginPress(message:Message){cancelPress();if(message.source!=='assistant'||!messageCopyState(message).canCopy)return;pressTimer=setTimeout(()=>void copyMessage(message),600)}
@@ -45,15 +59,37 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
   <header class="chat-header">
     <div class="chat-topline">
       <div class="chat-identity"><h1>{{shop.name}}</h1><strong role="status">{{stateText}}</strong></div>
-      <button v-if="snapshot" type="button" class="quiet-action" :disabled="busy" @click="enter(true)">开始新咨询</button>
+      <button v-if="snapshot" type="button" class="quiet-action" :disabled="busy" @click="newConsult">开始新咨询</button>
     </div>
+    <div v-if="snapshot" class="lane-line"><span class="lane-chip">{{laneText}}</span></div>
     <details v-if="shop.welcome_message" class="shop-note"><summary>店铺说明</summary><p>{{shop.welcome_message}}</p></details>
     <small v-if="snapshot" class="new-note">新咨询保留旧会话及消息，不会结束原有人工排队或接管。</small>
   </header>
 
-  <section ref="messagesEl" class="messages" aria-label="咨询记录" @scroll="onMessagesScroll">
+  <section v-if="pickerOpen" class="lane-picker" aria-label="选择服务类型">
+    <h2>请选择服务类型</h2>
+    <div class="lane-options" role="radiogroup" aria-label="服务类型">
+      <button type="button" role="radio" :aria-checked="lane==='pre_sales'" :class="{selected:lane==='pre_sales'}" @click="lane='pre_sales';startError=''">
+        <strong>售前咨询</strong><span>商品、尺码、政策与配送咨询</span>
+      </button>
+      <button type="button" role="radio" :aria-checked="lane==='after_sales'" :class="{selected:lane==='after_sales'}" @click="lane='after_sales';startError=''">
+        <strong>售后咨询</strong><span>订单、物流、退换与库存查询</span>
+      </button>
+    </div>
+    <label v-if="lane==='after_sales'" class="order-field">订单号
+      <input v-model="orderInput" autocomplete="off" spellcheck="false" placeholder="例如 ORD-2609-0005" @input="startError=''">
+      <small>订单号见下单成功页或发货通知。售后 AI 只读查询；退款、改地址、取消由人工处理。</small>
+    </label>
+    <p v-if="startError" role="alert" class="chat-error">{{startError}}</p>
+    <div class="lane-actions">
+      <button type="button" class="send-action" :disabled="busy||(lane==='after_sales'&&!orderInput.trim())" @click="startConversation">{{busy?'正在创建…':'开始咨询'}}</button>
+      <button v-if="snapshot" type="button" class="quiet-action" @click="pickerOpen=false">返回当前会话</button>
+    </div>
+  </section>
+
+  <section v-else ref="messagesEl" class="messages" aria-label="咨询记录" @scroll="onMessagesScroll">
     <p v-if="error" role="alert" class="chat-error">{{error}}</p>
-    <div v-if="!snapshot" class="enter-state"><button type="button" :disabled="busy" @click="enter()">{{busy?'正在连接…':'重新进入'}}</button></div>
+    <div v-if="!snapshot && !pickerOpen" class="enter-state"><button type="button" :disabled="busy" @click="enter()">{{busy?'正在连接…':'重新进入'}}</button></div>
     <article v-for="m in snapshot?.messages" :key="m.id" :class="m.source" @pointerdown="beginPress(m)" @pointerup="cancelPress" @pointercancel="cancelPress" @pointermove="cancelPress">
       <strong>{{({customer:'你',assistant:'AI 客服',agent:'人工客服',system:'服务提示'})[m.source]}}</strong>
       <p class="message-text">{{m.text}}</p>
@@ -69,7 +105,7 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
     <button v-if="showJump" type="button" class="jump-action" @click="scrollLatest()">回到最新</button>
   </section>
 
-  <form v-if="snapshot?.conversation.state!=='CLOSED' && snapshot" class="composer" @submit.prevent="send">
+  <form v-if="snapshot?.conversation.state!=='CLOSED' && snapshot && !pickerOpen" class="composer" @submit.prevent="send">
     <label class="sr-only" for="question">你的问题</label>
     <div class="composer-row">
       <textarea id="question" v-model="text" maxlength="2000" rows="2" required :disabled="busy||!!snapshot.conversation.active_execution_id" @keydown.enter.exact.prevent="send"/>
@@ -77,7 +113,11 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
     </div>
     <button type="button" class="handoff-action" :disabled="busy||snapshot.conversation.state!=='AI'" @click="handoff">联系人工客服</button>
   </form>
-  <div v-if="snapshot" class="chat-notes"><small>匿名历史保存在当前浏览器会话中；丢失 Cookie 后无法找回。</small><small>当前价格、库存、订单和配送承诺请联系人工。</small></div>
+  <div v-if="snapshot && !pickerOpen" class="chat-notes">
+    <small v-if="activeLane==='after_sales'">售后 AI 只读查询订单、物流、库存与价格；退款、改地址、取消订单由人工客服处理。</small>
+    <small v-else>当前价格、库存、订单和配送承诺请联系人工。</small>
+    <small>匿名历史保存在当前浏览器会话中；丢失 Cookie 后无法找回。</small>
+  </div>
 
   <div v-if="drawerOpen" class="source-backdrop" @click.self="closeSources">
     <aside class="source-drawer" role="complementary" aria-label="回答来源">
@@ -96,6 +136,18 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
 .chat-identity{min-width:0}.chat-identity h1{margin:0;font-size:18px;line-height:1.3;overflow-wrap:anywhere}.chat-identity strong{display:block;margin-top:2px;color:var(--color-text-muted);font-size:12px;font-weight:500}
 .shop-note{margin-top:6px;color:var(--color-text-muted);font-size:12px}.shop-note summary{display:flex;align-items:center;min-height:44px;cursor:pointer}.shop-note p{margin:4px 0 0;font-size:12px;line-height:1.5}
 .new-note{display:block;margin-top:2px;color:var(--color-text-muted);font-size:11px;line-height:1.45}
+.lane-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.lane-chip{padding:2px 8px;border:1px solid var(--color-border);border-radius:999px;background:var(--color-bg-subtle);color:var(--color-text);font-size:12px;font-weight:600}
+.lane-picker{flex:1;min-height:0;overflow-y:auto;display:grid;align-content:start;gap:14px;padding:20px 16px}
+.lane-picker h2{margin:0;font-size:17px}
+.lane-options{display:grid;gap:10px}
+.lane-options button{display:grid;gap:4px;min-height:64px;padding:12px 14px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);text-align:left;font:inherit}
+.lane-options button strong{font-size:15px}.lane-options button span{color:var(--color-text-muted);font-size:13px}
+.lane-options button.selected{border-color:var(--color-primary);box-shadow:0 0 0 2px var(--color-primary-soft)}
+.order-field{display:grid;gap:6px;color:var(--color-text);font-size:14px;font-weight:600}
+.order-field input{min-height:44px;padding:10px 12px;border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);background:var(--color-surface);color:var(--color-text);font:inherit;font-weight:400}
+.order-field small{color:var(--color-text-muted);font-size:12px;font-weight:400;line-height:1.5}
+.lane-actions{display:flex;gap:10px;flex-wrap:wrap;justify-self:start}
 .messages{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px;overscroll-behavior:contain;scroll-padding-bottom:12px}
 .messages article{max-width:85%;padding:12px;border:1px solid var(--color-border);border-radius:16px;background:var(--color-surface);overflow-wrap:anywhere}
 .messages article strong{display:block;margin-bottom:4px;color:var(--color-text-muted);font-size:11px}

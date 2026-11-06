@@ -45,7 +45,11 @@ try{
  assert.equal(versions.length,4)
  for(const v of versions){if(v.status==='active'){assert.equal(v.review_status,'approved');continue;}assert.equal(v.status,'ready');const detail=await adminApi('/admin/v1/merchant/reviews/'+v.version_id);assert.ok(detail.content.length);const session=await adminApi('/admin/v1/session');await adminApi('/admin/v1/merchant/versions/'+v.version_id+'/review',{confirm:true,decision:'approved',disclosure_class:'external_allowed',external_allowed:true,expected_hash:v.source_hash,expected_fencing_epoch:detail.fencing_epoch,permission_revision:session.permission_revision,reason:'Controlled synthetic customer milestone review approved.'});const current=await adminApi('/admin/v1/session');await adminApi('/admin/v1/merchant/versions/'+v.version_id+'/publish',{confirm:true,tenant_id:current.tenant_id,shop_id:v.shop_id,document_id:v.document_id,version_hash:v.source_hash,permission_revision:current.permission_revision,expected_fencing_epoch:detail.fencing_epoch,reason:'Controlled synthetic customer milestone publication.'})}
  checks.push('four_real_ingestion_review_publication_lifecycles')
- await customerPage.goto(base+'/shop/my-shop');await customerPage.locator('#question').waitFor()
+ await customerPage.goto(base+'/shop/my-shop')
+ // A fresh visitor must choose a service lane before the composer appears.
+ const lanePicker=customerPage.getByRole('radiogroup',{name:'服务类型'})
+ if(await lanePicker.count()){await customerPage.getByRole('radio',{name:/售前咨询/}).click();await customerPage.getByRole('button',{name:'开始咨询'}).click()}
+ await customerPage.locator('#question').waitFor()
  await customerPage.locator('#question').fill('岚叶杯的容量是多少？');await customerPage.getByRole('button',{name:'发送',exact:true}).click()
  await customerPage.locator('article.assistant .message-text').filter({hasText:'450'}).waitFor({timeout:75000})
  await customerPage.getByRole('button',{name:/查看来源/}).last().click();await customerPage.getByRole('complementary',{name:'回答来源'}).waitFor()
