@@ -136,13 +136,14 @@ func (s *Store) NewerVersionConflicts(ctx context.Context, db *pgxpool.Pool, ten
 					JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
 					JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
 					WHERE es.tenant_id=v.tenant_id AND es.version_id=v.id::text AND conv.shop_id=$2
-					  AND e.created_at>=$3) AS employee_refs,
+					  AND e.is_mock=false AND e.created_at>=$3) AS employee_refs,
 				(SELECT count(DISTINCT m.id) FROM customer_message m
 					JOIN customer_conversation cc ON cc.tenant_id=m.tenant_id AND cc.id=m.conversation_id
+					LEFT JOIN customer_execution ce ON ce.tenant_id=m.tenant_id AND ce.id=m.execution_id
 					WHERE m.tenant_id=v.tenant_id AND cc.shop_id=$2 AND m.source='assistant'
-					  AND m.created_at>=$3
-					  AND EXISTS(SELECT 1 FROM jsonb_array_elements(m.citations_json) ce
-						WHERE ce->>'version_id'=v.id::text)) AS customer_refs
+					  AND (m.execution_id IS NULL OR ce.is_mock=false) AND m.created_at>=$3
+					  AND EXISTS(SELECT 1 FROM jsonb_array_elements(m.citations_json) ce2
+						WHERE ce2->>'version_id'=v.id::text)) AS customer_refs
 			FROM document_version v
 			JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
 			JOIN source s ON s.tenant_id=d.tenant_id AND s.id=d.source_id
@@ -233,7 +234,7 @@ func (s *Store) InspectionGatewayCitations(ctx context.Context, db *pgxpool.Pool
 		JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
 		JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
 		JOIN customer_reply cr ON cr.tenant_id=e.tenant_id AND cr.execution_id=e.id
-		WHERE c.tenant_id=$1 AND conv.shop_id=$2 AND e.status='DONE'
+		WHERE c.tenant_id=$1 AND conv.shop_id=$2 AND e.status='DONE' AND e.is_mock=false
 		ORDER BY e.id,c.citation_index`, tenantID, shopID)
 	if err != nil {
 		return nil, err
@@ -256,7 +257,9 @@ func (s *Store) InspectionCustomerCitations(ctx context.Context, db *pgxpool.Poo
 	rows, err := db.Query(ctx, `SELECT m.id,m.citations_json
 		FROM customer_message m
 		JOIN customer_conversation cc ON cc.tenant_id=m.tenant_id AND cc.id=m.conversation_id
+		LEFT JOIN customer_execution ce ON ce.tenant_id=m.tenant_id AND ce.id=m.execution_id
 		WHERE m.tenant_id=$1 AND cc.shop_id=$2 AND m.source='assistant'
+		  AND (m.execution_id IS NULL OR ce.is_mock=false)
 		  AND jsonb_array_length(m.citations_json)>0
 		ORDER BY m.created_at DESC,m.id`, tenantID, shopID)
 	if err != nil {
