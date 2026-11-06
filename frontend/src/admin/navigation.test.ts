@@ -9,6 +9,7 @@ describe('grouped admin navigation', () => {
     const result = pages({ access: false, manage: true, review: false, observe: false })
     expect(result).toContain('overview')
     expect(result).toContain('sources')
+    expect(result).toContain('answers')
     expect(result).toContain('accounts')
     expect(result).not.toContain('reviews')
     expect(result).not.toContain('audit')
@@ -19,6 +20,7 @@ describe('grouped admin navigation', () => {
     expect(result).toContain('accounts')
     expect(result).toContain('audit')
     expect(result).not.toContain('reviews')
+    expect(result).not.toContain('answers')
     expect(result).not.toContain('overview')
   })
 

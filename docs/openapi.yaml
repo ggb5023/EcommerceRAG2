@@ -444,6 +444,51 @@ paths:
       responses:
         '200':
           description: OK
+  /admin/v1/merchant/answers:
+    get:
+      summary: Staff and customer answers for citation review
+      parameters:
+      - name: kind
+        in: query
+        schema:
+          type: string
+          enum: [staff, customer, all]
+      - name: mock
+        in: query
+        schema:
+          type: boolean
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: before
+        in: query
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+  /admin/v1/merchant/answers/{kind}/{id}:
+    get:
+      summary: Full answer with citations and fact snapshots
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [staff, customer]
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
   /admin/v1/merchant/gaps/export:
     post:
       summary: Export content gaps as JSONL

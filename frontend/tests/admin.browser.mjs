@@ -11,6 +11,7 @@ const routes = [
   ['/admin/merchant/sources', '资料来源'],
   ['/admin/merchant/ingestion', '摄取任务'],
   ['/admin/merchant/reviews', '版本审核'],
+  ['/admin/merchant/answers', '回答与引用'],
 ]
 const viewports = [
   { width: 1440, height: 900 },

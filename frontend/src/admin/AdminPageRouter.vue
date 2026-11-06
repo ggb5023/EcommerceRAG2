@@ -15,10 +15,11 @@ import ShopsPage from './pages/ShopsPage.vue'
 import SourcesPage from './pages/SourcesPage.vue'
 import IngestionPage from './pages/IngestionPage.vue'
 import ReviewsPage from './pages/ReviewsPage.vue'
+import AnswersPage from './pages/AnswersPage.vue'
 import NotFoundPage from './pages/NotFoundPage.vue'
 const { page } = useAdminContext()
 const pages: Record<string, unknown> = { overview: OverviewPage, outcomes: OutcomesPage, reports: ReportsPage, report: ReportPage, intel: IntelPage, gaps: GapsPage, inspections: InspectionsPage, accounts: AccountsPage,
-  requests: RequestsPage, audit: AuditPage, shops: ShopsPage, sources: SourcesPage, ingestion: IngestionPage, reviews: ReviewsPage,
+  requests: RequestsPage, audit: AuditPage, shops: ShopsPage, sources: SourcesPage, ingestion: IngestionPage, reviews: ReviewsPage, answers: AnswersPage,
   'not-found': NotFoundPage }
 const current = computed(() => pages[page.value] ?? NotFoundPage)
 </script>

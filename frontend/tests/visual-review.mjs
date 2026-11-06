@@ -21,6 +21,7 @@ const routes = [
   ['admin', '/admin/access/audit', '授权审计', 'admin-audit'],
   ['admin', '/admin/merchant/shops', '店铺范围', 'admin-shops'],
   ['admin', '/admin/merchant/reviews', '版本审核', 'admin-reviews'],
+  ['admin', '/admin/merchant/answers', '回答与引用', 'admin-answers'],
   ['staff', '/staff', '客服工作台', 'staff-queue'],
   ['staff', '/assistant', null, 'assistant-qa'],
   ['staff', '/assistant/catalog', '商品目录', 'assistant-catalog'],

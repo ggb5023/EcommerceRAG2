@@ -28,7 +28,11 @@ export function groupedNavigation(flags: NavRoleFlags): NavGroup[] {
         { label: '资料来源', page: 'sources', icon: '▤' },
         { label: '摄取任务', page: 'ingestion', icon: '↻' },
         { label: '版本审核', page: 'reviews', icon: '✓' },
-      ] as NavItem[]).filter((item) => (item.page === 'reviews' ? flags.review : operations)),
+        { label: '回答与引用', page: 'answers', icon: '❝' },
+      ] as NavItem[]).filter((item) => {
+        if (item.page === 'answers') return flags.review || flags.manage
+        return item.page === 'reviews' ? flags.review : operations
+      }),
     },
     {
       label: '权限',

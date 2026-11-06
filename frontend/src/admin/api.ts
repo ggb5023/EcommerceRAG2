@@ -244,3 +244,51 @@ export const post = <T>(path: string, body: unknown) => request<T>(path, {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 })
+
+export type AnswerRow = {
+  kind: 'staff' | 'customer'
+  id: string
+  request_id: string
+  created_at: string
+  shop_id: string
+  question: string
+  answer: string
+  citation_count: number
+  fact_count: number
+  is_mock: boolean
+  behavior: string
+  state: string
+}
+
+export type AnswerCitation = {
+  citation_index: number
+  evidence_id: string
+  document_id: string
+  version_id: string
+  title: string
+  snippet: string
+  disclosure_class: string
+  valid: boolean
+}
+
+export type AnswerFact = {
+  tool_name: string
+  resource_id: string
+  observed_at: string
+  value_json: string
+  is_mock: boolean
+}
+
+export type AnswerList = { items: AnswerRow[]; next_before?: string }
+export type AnswerDetail = AnswerRow & { citations: AnswerCitation[]; facts: AnswerFact[] }
+
+export function answerListPath(kind: string, mock: string, before?: string) {
+  const params = new URLSearchParams({ kind, limit: '20' })
+  if (mock) params.set('mock', mock)
+  if (before) params.set('before', before)
+  return `/admin/v1/merchant/answers?${params.toString()}`
+}
+
+export function answerDetailPath(kind: string, id: string) {
+  return `/admin/v1/merchant/answers/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`
+}

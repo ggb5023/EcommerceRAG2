@@ -1,5 +1,5 @@
 export const adminPages = [
-  'overview', 'outcomes', 'reports', 'report', 'intel', 'gaps', 'inspections', 'accounts', 'requests', 'audit', 'shops', 'sources', 'ingestion', 'reviews',
+  'overview', 'outcomes', 'reports', 'report', 'intel', 'gaps', 'inspections', 'accounts', 'requests', 'audit', 'shops', 'sources', 'ingestion', 'reviews', 'answers',
 ] as const
 
 export type AdminPage = typeof adminPages[number]
@@ -20,6 +20,7 @@ const paths: Record<AdminPage, string> = {
   sources: '/admin/merchant/sources',
   ingestion: '/admin/merchant/ingestion',
   reviews: '/admin/merchant/reviews',
+  answers: '/admin/merchant/answers',
 }
 
 const pagesByPath = new Map(Object.entries(paths).map(([page, path]) => [path, page as AdminPage]))

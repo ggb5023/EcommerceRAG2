@@ -256,9 +256,14 @@ fi
 vite_pid=0
 if [[ $with_vite -eq 1 ]]; then
   # Vite must proxy to this stack's gateway, not the default dev gateway.
-  ( cd "$repo/frontend" && VITE_API_PROXY_TARGET="http://127.0.0.1:$gateway_port" \
-      setsid nohup npm run dev -- --port "$vite_port" --strictPort >>"$log" 2>&1 & echo $! > "$root/vite.pid" )
-  vite_pid=$(cat "$root/vite.pid")
+  # Start it in the current shell so $! is the long-lived process, not a
+  # wrapper subshell that exits before the stack is stopped.
+  pushd "$repo/frontend" >/dev/null
+  VITE_API_PROXY_TARGET="http://127.0.0.1:$gateway_port" \
+    setsid nohup npm run dev -- --port "$vite_port" --strictPort >>"$log" 2>&1 &
+  vite_pid=$!
+  popd >/dev/null
+  echo "$vite_pid" > "$root/vite.pid"
   deadline=$(( $(date +%s) + 90 ))
   until curl -sS -o /dev/null -m 1 "http://127.0.0.1:$vite_port/" 2>/dev/null; do
     [[ $(date +%s) -lt $deadline ]] || fail "vite did not become ready on port $vite_port"

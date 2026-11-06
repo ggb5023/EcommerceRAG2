@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
-import { ApiError, get, post } from './api'
+import { ApiError, answerDetailPath, answerListPath, get, post } from './api'
 import OutcomesSummary from './OutcomesSummary.vue'
 import GapsView from './GapsView.vue'
 
@@ -89,5 +89,18 @@ describe('gaps panel rendering', () => {
     expect(html).toContain('暂无内容缺口')
     expect(html).toContain('data-testid="gaps-export"')
     expect(html).toContain('data-testid="gaps-empty"')
+  })
+})
+
+describe('answer review paths', () => {
+  it('encodes the list filters and the opaque cursor', () => {
+    expect(answerListPath('all', '')).toBe('/admin/v1/merchant/answers?kind=all&limit=20')
+    expect(answerListPath('customer', 'false', '2026-11-06T10:00:00Z'))
+      .toBe('/admin/v1/merchant/answers?kind=customer&limit=20&mock=false&before=2026-11-06T10%3A00%3A00Z')
+  })
+
+  it('keeps ids inside one path segment', () => {
+    expect(answerDetailPath('staff', '12')).toBe('/admin/v1/merchant/answers/staff/12')
+    expect(answerDetailPath('customer', 'a/b')).toBe('/admin/v1/merchant/answers/customer/a%2Fb')
   })
 })

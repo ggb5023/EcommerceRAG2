@@ -75,7 +75,7 @@ const themeChoice = ref<ThemeChoice>(loadThemeChoice())
 const page = computed(() => adminPageFromPath(route.path))
 const title = computed(() => ({
   overview: '运行状态', outcomes: '结果度量', reports: '报告', report: '评测报告', intel: '情报观察', gaps: '内容缺口', inspections: '内容巡检', accounts: '账号与权限', requests: '权限申请', audit: '授权审计',
-  shops: '店铺范围', sources: '资料来源', ingestion: '摄取任务', reviews: '版本审核',
+  shops: '店铺范围', sources: '资料来源', ingestion: '摄取任务', reviews: '版本审核', answers: '回答与引用',
   'not-found': '页面不可用',
 }[page.value]))
 const roles = computed(() => new Set(session.value?.admin_roles ?? []))
