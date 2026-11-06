@@ -188,7 +188,7 @@ func TestBrowserCallbackBindsStateNonceAndOneUse(t *testing.T) {
 
 func TestBrowserRejectsRedirectsAndPublicHTTP(t *testing.T) {
 	f := newBrowserFixture(t)
-	for _, path := range []string{"//other.example/chat", "https://other.example/chat", "/chat/../admin", "/chat?x=1", "/admin/overview"} {
+	for _, path := range []string{"//other.example/chat", "https://other.example/chat", "/chat/../admin", "/chat?x=1", "/admin/overview", "/staff?tab=queue"} {
 		out := httptest.NewRecorder()
 		f.b.Handle(out, httptest.NewRequest("GET", "/v1/auth/login?app=customer&return_to="+url.QueryEscape(path), nil))
 		if out.Code != 401 {

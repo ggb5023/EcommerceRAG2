@@ -66,11 +66,11 @@ bash scripts/check.sh --smoke    # 47/0/0，五条基线逐字节一致
 | merchant | merchant_admin + knowledge_reviewer | /admin |
 | reviewer | knowledge_reviewer | /admin（审核/发布） |
 | access | access_admin | /admin/access/*（账号与权限、授权审计） |
-| agent | 无管理授权 | /support、/chat |
+| staff | 无管理授权 | /staff（队列 / AI 辅助） |
 | 顾客 | 匿名，无账号 | /shop/shop-demo |
 
 按用户决定，只保留 merchant（商家管理员）、reviewer（审核员）、access（平台权限管理员）
-与 agent（普通员工）四个身份；observer（平台观察员）账号已删除：Keycloak 用户删除、
+与 staff（普通员工）四个身份；observer（平台观察员）账号已删除：Keycloak 用户删除、
 绑定移除、`app_user` 标记 revoked、grant 置 revoked（保留行以维护审计与外键）。
 角色目录中的平台角色仍保留，供平台型部署使用，单商家部署不需要 observer。
 绑定在 `/etc/ecommerce-rag/oidc-dev.json`（subject→tenant/user/shop），

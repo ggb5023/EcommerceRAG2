@@ -172,7 +172,7 @@ func (b *Browser) destination(app, path string) (string, error) {
 	if err != nil || u.IsAbs() || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || strings.ContainsAny(path, "\\\r\n") {
 		return "", ErrInvalid
 	}
-	if app == "customer" && (path == "/support" || (strings.HasPrefix(path, "/support/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/support/"))) || path == "/chat" || (strings.HasPrefix(path, "/chat/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/chat/")))) {
+	if app == "customer" && (path == "/staff" || path == "/support" || (strings.HasPrefix(path, "/support/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/support/"))) || path == "/chat" || (strings.HasPrefix(path, "/chat/") && conversationPathID.MatchString(strings.TrimPrefix(path, "/chat/")))) {
 		return b.config.CustomerOrigin + path, nil
 	}
 	if app == "admin" && slices.Contains([]string{"/admin/overview", "/admin/access/accounts", "/admin/access/requests", "/admin/access/audit", "/admin/merchant/shops", "/admin/merchant/sources", "/admin/merchant/ingestion", "/admin/merchant/reviews"}, path) {

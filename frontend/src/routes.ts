@@ -1,7 +1,6 @@
 import type { RouteRecordRaw } from 'vue-router'
-import App from './App.vue'
 import CustomerChat from './CustomerChat.vue'
-import SupportDesk from './SupportDesk.vue'
+import StaffWorkspace from './StaffWorkspace.vue'
 import AdminApp from './admin/AdminApp.vue'
 import LoginPage from './LoginPage.vue'
 import PasswordPage from './PasswordPage.vue'
@@ -10,14 +9,16 @@ import PasswordPage from './PasswordPage.vue'
 // browser talks to; nothing here grants or checks permissions.
 export const routes: RouteRecordRaw[] = [
   { path: '/shop/:slug', component: CustomerChat },
-  { path: '/support', component: SupportDesk },
-  { path: '/support/:id', component: SupportDesk },
+  { path: '/staff', component: StaffWorkspace },
+  // One staff workspace: the queue and the AI-assisted reply live in tabs.
+  { path: '/support', redirect: { path: '/staff', query: { tab: 'queue' } } },
+  { path: '/support/:id', redirect: to => ({ path: '/staff', query: { tab: 'queue', id: String(to.params.id) } }) },
   { path: '/login', component: LoginPage },
   { path: '/password', component: PasswordPage },
   { path: '/admin', redirect: '/admin/overview' },
   { path: '/admin/:pathMatch(.*)*', component: AdminApp },
-  { path: '/', redirect: '/chat' },
-  { path: '/chat', name: 'chat', component: App },
-  { path: '/chat/:conversation_id', name: 'conversation', component: App, props: true },
-  { path: '/:pathMatch(.*)*', redirect: '/chat' },
+  { path: '/', redirect: '/staff' },
+  { path: '/chat', redirect: { path: '/staff', query: { tab: 'assist' } } },
+  { path: '/chat/:conversation_id', redirect: to => ({ path: '/staff', query: { tab: 'assist', conversation: String(to.params.conversation_id) } }) },
+  { path: '/:pathMatch(.*)*', redirect: '/staff' },
 ]

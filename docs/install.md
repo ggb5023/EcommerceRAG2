@@ -50,7 +50,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 #    https://shop.example.com:8443/setup?token=<令牌>
 #    页面会把令牌换成短期的 HttpOnly cookie，并 303 到不带 token 的 /setup；
 #    反向代理的访问日志请对 token= 参数打码（例如 log_format 里替换该查询参数）。
-# 4. 设置 owner 密码 → 自动跳转 /login?app=admin → 登录 → /admin（普通员工登录进入 /chat）
+# 4. 设置 owner 密码 → 自动跳转 /login?app=admin → 登录 → /admin（普通员工登录进入 /staff）
 ```
 
 `/setup` 返回 `409 setup_requires_bootstrap` 说明一次性编排没有完成（`db-init`/`migrate`/`bootstrap`
@@ -210,8 +210,9 @@ bash scripts/check.sh --e2e
 - `/shop/my-shop`：客户页；Cookie 丢失后不能恢复匿名历史。顾客 API 的 `shop_slug` 取
   `shop.public_slug`（默认 `my-shop`），不是数据库 `shop_id`（默认 `main-shop`）；传错会得到
   `404 shop_unavailable`。
-- `/support`：员工登录，查看队列、领取、回复。
-- `/chat`：员工 AI 辅助区，不代替人工向客户发送消息。
+- `/staff`：员工工作台，两个标签页——「人工队列」（领取与回复顾客会话）与
+  「AI 辅助」（粘贴顾客问题生成建议回复，不代替人工发送）。旧地址 `/support`、
+  `/chat` 会自动跳转到对应标签页。
 
 管理端写接口（导入、审核、发布等）除 session cookie 外还必须带 `Origin` 与
 `X-CSRF-Token`；CSRF token 取自 `/v1/auth/login` 响应的 `csrf_token`。只带 cookie 的
