@@ -145,6 +145,50 @@ export type EvaluationReport = {
 
 export const getReport = () => get<EvaluationReport>('/admin/v1/report')
 
+export type IntelObservation = {
+  market: string
+  category: string
+  platform: string
+  source_url: string
+  title: string
+  score: number
+  published_date: string
+  observed_at: string
+}
+
+export type IntelWatchConfig = {
+  id: number
+  market: string
+  category: string
+  platform: string
+  enabled: boolean
+  created_at: string
+}
+
+export type IntelFilters = {
+  market?: string
+  category?: string
+  platform?: string
+  since?: string
+}
+
+export const getIntelObservations = (filters: IntelFilters = {}) => {
+  const query = new URLSearchParams({ limit: '50' })
+  for (const key of ['market', 'category', 'platform', 'since'] as const) {
+    const value = filters[key]
+    if (value) query.set(key, value)
+  }
+  return get<{ items: IntelObservation[] }>(`/admin/v1/intel/observations?${query.toString()}`)
+}
+export const getIntelWatchConfigs = () =>
+  get<{ items: IntelWatchConfig[] }>('/admin/v1/intel/watch-configs')
+export const createIntelWatchConfig = (body: Omit<IntelWatchConfig, 'id' | 'created_at'>) =>
+  post<IntelWatchConfig>('/admin/v1/intel/watch-configs', body)
+export const updateIntelWatchConfig = (id: number, body: Partial<Pick<IntelWatchConfig, 'market' | 'category' | 'platform' | 'enabled'>>) =>
+  request<IntelWatchConfig>(`/admin/v1/intel/watch-configs/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+
 export const getInspections = (status = 'open', shopId = '') =>
   get<{ items: InspectionItem[] }>(`/admin/v1/inspections?status=${encodeURIComponent(status)}${inspectionScope(shopId) ? `&${inspectionScope(shopId)}` : ''}`)
 export const getInspection = (id: number, shopId = '') =>
