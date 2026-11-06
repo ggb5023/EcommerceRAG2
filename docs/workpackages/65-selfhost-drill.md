@@ -17,8 +17,8 @@
 ## 步骤
 
 1. 重建 selfhost 镜像（python/go Dockerfile 从当前 main 构建，含 0056 迁移）。
-2. `python3 scripts/ops/selfhost.py init --runtime <新目录> --identity-profile local`
-   （先 local：无 keycloak 依赖；oidc 剖面单独评估）。
+2. 按 install.md 记录的方式初始化 runtime 目录（identity 先选 local：
+   无 keycloak 依赖；oidc 剖面单独评估）。
 3. `ECR_RUNTIME=<目录> docker compose up -d`，观察 db-init/migrate/bootstrap
    退出码与 gateway/ai 健康检查。
 4. 按 install.md 步骤实操：读 SETUP_TOKEN 设置 owner 密码 → 登录管理台 API →
