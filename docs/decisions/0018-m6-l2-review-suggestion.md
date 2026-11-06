@@ -125,3 +125,21 @@ CREATE TABLE review_suggestion (
 - **agent**：C1–C4、decision、reasons、evidence_chunk_ids；只写 `review_suggestion`。
 - **商家**：批量勾选并确认；`reviewed_*` 由商家动作产生。
 - **本阶段**：只更新方案，无迁移/接口/前端/测试运行。
+
+## 9. 角色矩阵与审计说明（2026-11-06 补，审计澄清）
+
+审核结论存在两条角色通道，均为有意设计：
+
+| 通道 | 角色 | 端点 | 约束 |
+| --- | --- | --- | --- |
+| 单审 | knowledge_reviewer | `POST /admin/v1/merchant/versions/{id}/review` | 逐条人工判定 |
+| 商家自助确认 | merchant_admin | `POST /admin/v1/merchant/versions/batch-approve` | 仅限建议为 `approved`；逐条校验 content_hash 一致、版本 pending、shop 权限；任一条失败整批不写；幂等 |
+
+两条通道都写 `reviewed_by` / `reviewed_at` / `reviewed_hash`，审计不混用（值相同
+但语义不同，§1 已述）。batch-approve 不是"绕过"审核：被确认的版本都有 agent
+建议 `approved` 作为前置条件；它是有意的商家自助路径（§5.2）。
+
+**职责分离声明**：`knowledge_reviewer` 单角色既可审核又可发布（publish /
+rollback / revoke 同为该角色，见 version 命令实现）。这是对 3 人小团队的有意
+简化，**当前无"审核人 ≠ 发布人"约束、无双人复核**；扩团队或引入 agent 自动发布
+前，必须先引入双人复核并重审本矩阵（见 refactor-input）。

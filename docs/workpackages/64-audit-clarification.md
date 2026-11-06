@@ -7,9 +7,9 @@
 
 ## 目标
 
-把六条核实结论中"属实但从未写清"的部分落进文档，做三处低风险文案修正，
-并把 `scripts/review/`（dsh 侧确定性审查采集器）入库。**不改变任何运行时行为、
-权限矩阵与审核流程。**
+把六条核实结论中"属实但从未写清"的部分落进文档，做三处低风险文案修正。
+`scripts/review/` 按用户决定**保持仓外现状**（不入库、不进 CI）。
+**不改变任何运行时行为、权限矩阵与审核流程。**
 
 ## 步骤
 
@@ -17,7 +17,7 @@
    - `POST /admin/v1/merchant/versions/batch-approve` 是 merchant_admin 的商家
      自助确认路径（建议必须 approved、content_hash 一致、pending、shop 权限、
      任一条失败整批不写、幂等），与 reviewer 单审并存；两条通道都写
-     `reviewed_by/reviewed_at/reviewed_hash`，审计不混用；
+     `reviewed_by`、`reviewed_at`、`reviewed_hash`，审计不混用；
    - 写明「knowledge_reviewer 单角色可审可发（publish/rollback/revoke 同角色）
      是对 3 人团队的有意简化，无审核人≠发布人约束；扩团队前需引入双人复核」。
 2. **前端文案**：`review-suggestion.ts` 的「AI 建议」→「规则建议」；
@@ -29,16 +29,9 @@
    员工辅助模式（0005：客服是最后一道关）。
 4. **refactor-input.md 待决问题区加一条前置条件**：任何 agent 自动发布路径上线
    前，必须先建「必要人工审查清单」门禁；当前无自动发布路径，L3（WP60）为
-   发现与提示，无门禁属预期状态。
-5. **`scripts/review/` 入库**：
-   - `git add scripts/review/collect.py scripts/review/README.md`；
-   - `collect.py` 的 `/etc/ecommerce-rag/dev.env` 加环境变量覆盖
-     （`ECR_DEV_ENV`，默认保持原值），消除机器专属绝对路径的硬编码；
-   - `scripts/check/privacy_guard.py` 的 `PUBLIC_DOCUMENT_PATHS` 加
-     `scripts/review/README.md`（否则被 blocked_path 的 .md 规则拦下）；
-   - README 补一句「CI 不运行本采集器；按 0015 由开发/审查 agent 本地执行，
-     退出码 1 表示存在 blocker（棘轮上升等合法变更也会报，由主 agent 裁定）」；
-   - 不接 CI 门禁（棘轮合法上调会误报 blocker，不把开发审查器当产品门禁）。
+   发现与提示，无门禁属预期状态。**（用户本轮未点名，暂缓，未做。）**
+5. **`scripts/review/` 去向**：用户 2026-11-06 拍板「保持现状不变」——继续不跟踪、
+   不进 CI，按 0015 由开发/审查 agent 本地执行。本包不改动、不提交该目录。
 
 ## 验收命令
 
@@ -57,7 +50,7 @@ git status --short                       # scripts/review/ 已跟踪，工作区
   审核人≠发布人约束（那是后续设计决策，不是澄清）；
 - 不动 WP63 的代码路径（python/app/intel、ports、proto、/admin/intel）；
 - 不改 L3 巡检逻辑与四类清单（"五类"出处未提供，不在本包对齐）；
-- 不把 collect.py 接进 CI；不改 CONTRACTS_* 棘轮。
+- 不改 `scripts/review/`（用户决定保持现状）；不改 CONTRACTS_* 棘轮。
 
 ## 汇报
 

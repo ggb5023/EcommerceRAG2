@@ -100,7 +100,8 @@ func (s *Store) ReviewDetail(ctx context.Context, db *pgxpool.Pool, tenantID, ve
 func (s *Store) LatestSuggestion(ctx context.Context, db *pgxpool.Pool, tenantID, versionID int64, contentHash string) ([]byte, error) {
 	var payload []byte
 	err := db.QueryRow(ctx, `SELECT jsonb_build_object('decision',decision,'reasons',reasons,
-		'evidence_chunk_ids',evidence_chunk_ids,'created_at',created_at)
+		'evidence_chunk_ids',evidence_chunk_ids,'created_at',created_at,
+		'rules_version',agent_rules_version)
 		FROM review_suggestion WHERE tenant_id=$1 AND version_id=$2 AND content_hash=$3
 		ORDER BY created_at DESC,id DESC LIMIT 1`, tenantID, versionID, contentHash).Scan(&payload)
 	return payload, err

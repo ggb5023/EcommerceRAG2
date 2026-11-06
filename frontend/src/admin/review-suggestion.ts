@@ -1,8 +1,8 @@
 export type SuggestionReason={code:string;detail?:string}
 export type BatchItemResult={version_id:string;suggestion_id?:string;ok:boolean;code?:string;detail?:string}
 export function suggestionLabel(decision?: string|null): string {
-  if (decision === 'approved') return 'AI 建议：可审核'
-  if (decision === 'needs_revision') return 'AI 建议：需修改'
+  if (decision === 'approved') return '规则建议：可审核'
+  if (decision === 'needs_revision') return '规则建议：需修改'
   return '无建议'
 }
 export function reasonSummary(reasons: SuggestionReason[]|undefined, limit=2): string {

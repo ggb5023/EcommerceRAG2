@@ -2,8 +2,8 @@ import {describe,expect,it} from 'vitest'
 import {batchCounts,reasonSummary,suggestionEvidence,suggestionLabel,validBatchReason} from './review-suggestion'
 describe('review suggestion ui',()=>{
  it('renders decisions without claiming approval',()=>{
-  expect(suggestionLabel('approved')).toBe('AI 建议：可审核')
-  expect(suggestionLabel('needs_revision')).toBe('AI 建议：需修改')
+  expect(suggestionLabel('approved')).toBe('规则建议：可审核')
+  expect(suggestionLabel('needs_revision')).toBe('规则建议：需修改')
   expect(suggestionLabel()).toBe('无建议')
   expect(suggestionLabel('approved')).not.toContain('已批准')
  })
