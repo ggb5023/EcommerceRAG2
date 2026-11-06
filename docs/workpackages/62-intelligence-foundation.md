@@ -76,7 +76,57 @@ bash scripts/check.sh --smoke    # 47 项，五条基线逐字节一致（proto 
 - 不手改 pb 生成文件；不改 CONTRACTS_* 棘轮（新增 ✅ 行 NOTE 由主 agent 单独提交）；
 - 不改历史迁移、不新增依赖。
 
-## 汇报
+## 实施与验证（2026-11-06）
 
-五节格式；附契约行、proto diff、GRANT 清单、buf 三连输出、两侧测试输出、
-smoke 输出、隔离权限验证的 permission denied 原始行。
+角色由主 agent 创建；开发 agent 未执行 CREATE/ALTER ROLE。本机两个库均可见
+`rag_v2_intel`（LOGIN、非超级用户），密码在仓外。迁移 0054 已应用两库：
+```text
+PASS migration 0054
+PASS 54 migration checksums
+```
+同迁移 GRANT（answer 侧角色不出现在共享表）：
+```sql
+GRANT SELECT,INSERT,UPDATE ON market_observation TO rag_v2_intel;
+GRANT USAGE,SELECT ON SEQUENCE market_observation_id_seq TO rag_v2_intel;
+GRANT SELECT,INSERT,UPDATE,DELETE ON intel_watch_config TO rag_v2_gateway;
+GRANT USAGE,SELECT ON SEQUENCE intel_watch_config_id_seq TO rag_v2_gateway;
+GRANT SELECT ON intel_watch_config TO rag_v2_intel;
+```
+真实角色连接：
+```text
+rag_v2_ai/ingest/gateway market_observation SELECT=DENIED 42501
+rag_v2_intel market_observation SELECT=OK rows=0
+rag_v2_gateway/intel intel_watch_config SELECT=OK rows=0
+```
+`role_table_grants` 中共享表运行时角色只有 `rag_v2_intel`；租户表为 gateway
+全写与 intel 只读。ownership 守卫输出：
+```text
+WARN intel_watch_config: declares admin but no write site found (document may be stale)
+WARN market_observation: declares intel but no write site found (document may be stale)
+PASS data ownership: 57 tables declared, 166 write sites checked
+```
+守卫不要求“登记必有写点”，只告警；阶段 1 无 worker/admin 写点，保留 WARN，
+未写假 SQL、未用“预留”掩盖，阶段 2 接线后消失。
+契约先行：新增「scope 域标记」；proto `string domain = 28;`，`buf generate`
+生成并提交，Python `field 28 type 9`；`buf lint/build/breaking` 全过。
+`check-contracts` 输出 `NOTE contracts: 跨进程 rose to 17; raise CONTRACTS_CROSS`，未改棘轮。
+测试：
+```text
+go test ./internal/auth/ -run Domain -v -> 4 PASS
+python ... pytest -q tests/test_provider_scope.py -> 5 passed
+```
+默认签发 answer；`IssueIntelligenceScope` 是宿主专用入口，未接任何路由；
+`require_scope` 接受 answer/intelligence，未知拒绝，缺省 answer。
+门禁：
+```text
+bash scripts/check.sh -> PASSED 44
+bash scripts/check.sh --smoke -> PASSED 47（五条逐字节一致）
+```
+重建/重启：
+```text
+strings .local/v2-gateway | grep -c IssueIntelligenceScope -> 1
+gateway/ai_process 启动 10:35:07，HEAD 458b9dd 10:34:29
+```
+0032 状态行改「已采纳」，decisions/INDEX 同步，条款正文未改。
+未覆盖：无抓取 worker、Tavily、情报页面/数据行；未跑 `--db`/`--e2e`/浏览器/远端 Actions；
+最终 `buf breaking` 以已含字段的 main 为基准，提交前旧基准运行已通过。

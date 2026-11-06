@@ -68,7 +68,7 @@
 | 59 | 顾客端 can_copy / blocked_reason 统一（挂账 c） | done | — | — | `2b974e8` |
 | 60 | 内容巡检（L3，挂账 b：0016 巡检页） | done | — | — | `088d9c8` |
 | 61 | 管理台报告页（读 0035 同一份 JSON） | done | — | — | `0b9a869` |
-| 62 | 0032 intelligence 域——阶段 1：共享层与域标记契约 | pending | — | — | — |
+| 62 | 0032 intelligence 域——阶段 1：共享层与域标记契约 | implemented | — | — | `458b9dd` |
 
 ## 同步规则
 
