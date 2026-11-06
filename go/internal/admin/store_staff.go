@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Write helpers for staff provisioning. They join the caller's transaction: the
@@ -55,4 +56,21 @@ func (s *Store) IssueStaffGrant(ctx context.Context, tx pgx.Tx, tenantID, userID
 		return 0, err
 	}
 	return grantID, nil
+}
+
+// StaffAccount is one target account for a proxied permission request.
+type StaffAccount struct {
+	ID         int64
+	ExternalID string
+	Shops      []string
+	Revoked    bool
+}
+
+// TargetAccount loads a staff account inside the tenant for proxy grants.
+func (s *Store) TargetAccount(ctx context.Context, db *pgxpool.Pool, tenantID, userID int64) (StaffAccount, error) {
+	var account StaffAccount
+	err := db.QueryRow(ctx, `SELECT id,COALESCE(external_id,''),COALESCE(shop_ids,ARRAY[]::text[]),revoked_at IS NOT NULL
+		FROM app_user WHERE tenant_id=$1 AND id=$2`, tenantID, userID).
+		Scan(&account.ID, &account.ExternalID, &account.Shops, &account.Revoked)
+	return account, err
 }

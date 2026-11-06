@@ -277,7 +277,8 @@ func (g *Handler) adminOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Handler) adminAccounts(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleAccess)
+	// merchant_admin sees a scoped, read-only account list; access_admin manages it.
+	scope, ok := g.requireAdmin(w, r, adminRoleAccess, adminRoleMerchant)
 	if !ok {
 		return
 	}
@@ -326,6 +327,7 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		UserID string   `json:"user_id"`
 		Role   string   `json:"role"`
 		Scope  string   `json:"scope_kind"`
 		Shops  []string `json:"shop_ids"`
@@ -335,21 +337,60 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 400, "invalid_request", "permission request is invalid")
 		return
 	}
-	requestable, catalogErr := adminStore.RoleCatalogRequestable(r.Context(), g.DB, in.Role)
-	if err := catalogErr; errors.Is(err, pgx.ErrNoRows) {
-		httpapi.WriteError(w, 400, "role_not_requestable", "the requested administrative role is not available")
+	requestedBy := g.Session.UserID
+	proxyTarget := int64(0)
+	accessScopeKind, accessShops, accessErr := adminStore.RoleGrantScope(r.Context(), g.DB,
+		g.Session.TenantID, g.Session.UserID, adminRoleAccess)
+	if accessErr == nil {
+		// The platform access role maintains grants by proxying for the target;
+		// it never submits a request for itself.
+		target, parseErr := strconv.ParseInt(strings.TrimSpace(in.UserID), 10, 64)
+		if parseErr != nil || target < 1 || target == g.Session.UserID {
+			httpapi.WriteError(w, 403, "access_admin_self_request_forbidden",
+				"the platform access role assigns grants to other accounts")
+			return
+		}
+		account, accountErr := adminStore.TargetAccount(r.Context(), g.DB, g.Session.TenantID, target)
+		if accountErr != nil || account.Revoked {
+			httpapi.WriteError(w, 403, "admin_scope_denied", "target account is unavailable")
+			return
+		}
+		if !accessGrantCovers(accessScopeKind, accessShops, in.Shops) {
+			httpapi.WriteError(w, 403, "admin_scope_denied", "target scope is outside the current identity scope")
+			return
+		}
+		for _, shop := range in.Shops {
+			if !contains(account.Shops, shop) {
+				httpapi.WriteError(w, 403, "admin_scope_denied", "target shop is outside the account scope")
+				return
+			}
+		}
+		proxyTarget = target
+		requestedBy = target
+	} else if strings.TrimSpace(in.UserID) != "" && strings.TrimSpace(in.UserID) != strconv.FormatInt(g.Session.UserID, 10) {
+		httpapi.WriteError(w, 403, "admin_scope_denied", "only the platform access role can request for another account")
 		return
-	} else if err != nil {
-		httpapi.WriteError(w, 503, "role_catalog_unavailable", "administrative role catalog is unavailable")
-		return
-	} else if !requestable {
-		httpapi.WriteError(w, 400, "role_not_requestable", "the requested administrative role cannot be self-requested")
+	}
+	if proxyTarget == 0 {
+		requestable, catalogErr := adminStore.RoleCatalogRequestable(r.Context(), g.DB, in.Role)
+		if err := catalogErr; errors.Is(err, pgx.ErrNoRows) {
+			httpapi.WriteError(w, 400, "role_not_requestable", "the requested administrative role is not available")
+			return
+		} else if err != nil {
+			httpapi.WriteError(w, 503, "role_catalog_unavailable", "administrative role catalog is unavailable")
+			return
+		} else if !requestable {
+			httpapi.WriteError(w, 400, "role_not_requestable", "the requested administrative role cannot be self-requested")
+			return
+		}
+	} else if !proxyGrantableRoles[in.Role] {
+		httpapi.WriteError(w, 400, "role_not_grantable", "this role cannot be granted by proxy")
 		return
 	}
 	if in.Shops == nil {
 		in.Shops = []string{}
 	}
-	canonical, _ := json.Marshal(map[string]any{"tenant_id": g.Session.TenantID, "user_id": g.Session.UserID,
+	canonical, _ := json.Marshal(map[string]any{"tenant_id": g.Session.TenantID, "user_id": requestedBy,
 		"role": in.Role, "scope_kind": in.Scope, "shop_ids": in.Shops, "reason": strings.TrimSpace(in.Reason)})
 	sum := sha256.Sum256(canonical)
 	tx, err := g.DB.BeginTx(r.Context(), pgx.TxOptions{})
@@ -359,16 +400,21 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	id, err := adminStore.CreatePermissionRequest(r.Context(), tx, PermissionRequest{
-		TenantID: g.Session.TenantID, RequestedBy: g.Session.UserID, Role: in.Role, ScopeKind: in.Scope,
+		TenantID: g.Session.TenantID, RequestedBy: requestedBy, Role: in.Role, ScopeKind: in.Scope,
 		ShopIDs: in.Shops, Reason: strings.TrimSpace(in.Reason), PayloadHash: hex.EncodeToString(sum[:]),
 	})
 	if err != nil {
 		httpapi.WriteError(w, 503, "request_create_failed", "could not create permission request")
 		return
 	}
+	metadata := map[string]any{"role": in.Role, "scope_kind": in.Scope, "shop_ids": in.Shops}
+	if proxyTarget != 0 {
+		metadata["proxy"] = true
+		metadata["target_user_id"] = strconv.FormatInt(proxyTarget, 10)
+	}
 	if err = auditAdmin(r.Context(), tx, g.Session.TenantID, g.Session.UserID, "permission.request.create",
 		"admin_permission_request", strconv.FormatInt(id, 10), "", "", 0, strings.TrimSpace(in.Reason), "success",
-		map[string]any{"role": in.Role, "scope_kind": in.Scope, "shop_ids": in.Shops}); err != nil {
+		metadata); err != nil {
 		httpapi.WriteError(w, 503, "request_create_failed", "could not record permission request")
 		return
 	}
@@ -376,11 +422,32 @@ func (g *Handler) adminCreateRequest(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, 503, "request_create_failed", "could not commit permission request")
 		return
 	}
-	httpapi.WriteJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "status": "pending"})
+	httpapi.WriteJSON(w, 201, map[string]any{"id": strconv.FormatInt(id, 10), "status": "pending",
+		"proxy": proxyTarget != 0})
+}
+
+var proxyGrantableRoles = map[string]bool{
+	"merchant_admin": true, "knowledge_reviewer": true, "platform_observer": true,
+}
+
+// accessGrantCovers reports whether the access actor's grant covers every
+// requested shop. A tenant-scoped grant covers everything.
+func accessGrantCovers(scopeKind string, granted, requested []string) bool {
+	if scopeKind == "tenant" {
+		return true
+	}
+	for _, shop := range requested {
+		if !contains(granted, shop) {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Handler) adminDecideRequest(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleAccess, adminRoleMerchant)
+	// Approval belongs to the platform access role; merchants may see requests
+	// but cannot decide them.
+	scope, ok := g.requireAdmin(w, r, adminRoleAccess)
 	if !ok {
 		return
 	}

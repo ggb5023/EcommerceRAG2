@@ -19,6 +19,7 @@
 | --- | --- | --- | --- | --- |
 | `permission_denied` | 403 | 否 | 该问题超出可回答范围 | `go/internal/gateway/main.go:runTurn`（请求策略拒绝） |
 | `invalid_catalog_query` | 400 | 否 | 不展示 | `go/internal/gateway/catalog_browser.go:catalogSkus`（筛选或分页参数非法） |
+| `access_admin_self_request_forbidden` | 403 | 否 | 不展示 | `go/internal/admin/admin.go:adminCreateRequest`（平台权限管理员只能代他人发起） |
 | `suggestion_not_found` | 404 | 否 | 不展示 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（建议不存在/不属于当前员工或店铺） |
 | `suggestion_not_adoptable` | 403 | 否 | 不展示 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（未完成、mock、不可复制或引用失效） |
 | `adoption_unavailable` | 503 | 是 | 知识草稿暂不可用 | `go/internal/gateway/support_adoptions.go:adoptSuggestion`（审计或摄取提交失败） |

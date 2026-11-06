@@ -22,14 +22,19 @@ var staffUsername = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$`)
 // staffRoles are the only roles ecr_issue_admin_grant can approve. access_admin
 // is out of band; offering it here would always fail with 42501.
 var staffRoles = map[string]bool{"merchant_admin": true, "knowledge_reviewer": true}
+var accessStaffRoles = map[string]bool{"merchant_admin": true, "knowledge_reviewer": true, "platform_observer": true}
 
 // adminCreateStaff creates the account, its one-time credential, the pending
 // permission request and the grant in a single transaction. The initial password
 // is returned once and never logged.
 func (g *Handler) adminCreateStaff(w http.ResponseWriter, r *http.Request) {
-	scope, ok := g.requireAdmin(w, r, adminRoleMerchant)
+	scope, ok := g.requireAdmin(w, r, adminRoleAccess, adminRoleMerchant)
 	if !ok {
 		return
+	}
+	grantable := staffRoles
+	if _, _, accessErr := adminStore.RoleGrantScope(r.Context(), g.DB, g.Session.TenantID, g.Session.UserID, adminRoleAccess); accessErr == nil {
+		grantable = accessStaffRoles
 	}
 	var in struct {
 		Username string   `json:"username"`
@@ -49,9 +54,9 @@ func (g *Handler) adminCreateStaff(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_username", "username must be 3-64 characters of letters, digits, dot, dash or underscore")
 		return
 	}
-	if !staffRoles[in.Role] {
+	if !grantable[in.Role] {
 		httpapi.WriteError(w, http.StatusBadRequest, "role_not_grantable",
-			"only merchant_admin and knowledge_reviewer can be granted here; access_admin needs an out-of-band grant")
+			"this role cannot be granted here; access_admin needs an out-of-band grant")
 		return
 	}
 	if len(in.Reason) < 10 || len(in.Reason) > 2000 {

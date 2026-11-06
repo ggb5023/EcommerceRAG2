@@ -71,7 +71,7 @@ owner 骨架，owner 骨架必须先于 `/setup`。
 
 安装账号保存在受限 bootstrap 目录下的 accounts.json 文件，只在本地私下查看，首次使用后修改密码。
 
-- **员工与 access_admin**：管理台「新增员工」只能授予 `merchant_admin` 与 `knowledge_reviewer`；`access_admin` 属于带外授权，页面不提供。转移或新增 `access_admin` 需要运维以 migrator 身份执行
+- **员工与 access_admin**：管理台「新增员工」只能授予 `merchant_admin` 与 `knowledge_reviewer`；`access_admin` 属于带外授权，页面不提供。转移或新增 `access_admin` 需要运维以 migrator 身份执行；授权后由 access_admin 在管理台为其他账号代申请并审批（merchant_admin 只读员工授权、可提交自己的申请）
   `INSERT INTO admin_role_grant(...) ... ON CONFLICT (tenant_id,user_id,role) DO UPDATE ...` 并自行记录审计，不通过 HTTP 接口。
 - **内置账号（默认，`--identity-profile local`）**：`selfhost.py` 只写 `accounts: []`，bootstrap 创建 `merchant` 租户、`main-shop` 店铺与一个 owner 骨架（不写密码），不启动 Keycloak。启动后打开 `https://<host>/setup` 设置 owner 密码：该页面只在 loopback 或携带启动日志中一次性 `SETUP_TOKEN` 时可访问，成功后永久关闭。之后的密码重置走 `go run ./cmd/local-account reset-password --env <0600 运行配置> --user <用户名>`。
 - **OIDC（`--identity-profile oidc_browser`）**：保留 Keycloak 路径，账号来自 realm 导入；Keycloak 的 bootstrap 管理员属于独立运维身份，配置在受限 `identity.env`。首次导入 realm 后不要用旧导入文件覆盖运行账号。

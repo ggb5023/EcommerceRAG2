@@ -86,6 +86,13 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 			t.Fatal("could not create isolated manager grant fixture")
 		}
 	}
+	var merchantOnly int64
+	if err = migration.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids) VALUES($1,'merchant-only','operator',ARRAY['shop-a']) RETURNING id`, tenant).Scan(&merchantOnly); err != nil {
+		t.Fatal("could not create isolated merchant-only fixture")
+	}
+	if _, err = migration.Exec(ctx, `INSERT INTO admin_role_grant(tenant_id,user_id,role,scope_kind,shop_ids,granted_by) VALUES($1,$2,'merchant_admin','shops',ARRAY['shop-a'],$2)`, tenant, merchantOnly); err != nil {
+		t.Fatal("could not create isolated merchant-only grant")
+	}
 	router := func(user int64, name, role string) http.Handler {
 		session := &auth.Session{TenantID: tenant, UserID: user, Tenant: alias, User: name, Role: role, Shop: "shop-a", AllowedShops: []string{"shop-a"}}
 		authority := &auth.Authority{DB: gateway, Session: session, RevisionMu: &sync.RWMutex{}}
@@ -95,6 +102,7 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 		return mux
 	}
 	managerAPI, memberAPI := router(manager, "manager", "admin"), router(member, "member", "operator")
+	merchantOnlyAPI := router(merchantOnly, "merchant-only", "operator")
 	request := func(api http.Handler, method, path string, body any, expected int) map[string]any {
 		t.Helper()
 		raw, err := json.Marshal(body)
@@ -118,6 +126,9 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 		request(managerAPI, "GET", "/admin/v1/"+path, nil, 200)
 		request(memberAPI, "GET", "/admin/v1/"+path, nil, 403)
 	}
+	// A merchant admin sees the scoped account list read-only.
+	request(merchantOnlyAPI, "GET", "/admin/v1/access/accounts", nil, 200)
+	request(merchantOnlyAPI, "GET", "/admin/v1/access/audit", nil, 200)
 	request(managerAPI, "GET", "/admin/v1/merchant/agent-review", nil, 200)
 	request(managerAPI, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": true, "policy_version": "v1", "confirm": true, "reason": "Enable model assistance for isolated test"}, 200)
 	request(managerAPI, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": false, "policy_version": "v1", "confirm": true, "reason": "Disable model assistance for isolated test"}, 200)
@@ -135,9 +146,14 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 	}
 	makeRequest(memberAPI, "knowledge_reviewer", "shops", []string{"shop-a"}, 400)
 	makeRequest(memberAPI, "merchant_admin", "shops", []string{"shop-b"}, 400)
-	self := makeRequest(managerAPI, "merchant_admin", "shops", []string{"shop-a"}, 201)
 	decision := map[string]any{"confirm": true, "decision": "approved", "reason": "Approve controlled isolated administrative access"}
-	request(managerAPI, "POST", "/admin/v1/access/requests/"+self["id"].(string)+"/decision", decision, 409)
+	// The platform access role proxies for others and cannot request for itself.
+	request(managerAPI, "POST", "/admin/v1/access/requests", map[string]any{
+		"role": "merchant_admin", "scope_kind": "shops", "shop_ids": []string{"shop-a"},
+		"reason": "Access role self request must be rejected"}, 403)
+	self := makeRequest(merchantOnlyAPI, "merchant_admin", "shops", []string{"shop-a"}, 201)
+	// Merchants may request but not decide.
+	request(merchantOnlyAPI, "POST", "/admin/v1/access/requests/"+self["id"].(string)+"/decision", decision, 403)
 	memberRequests := request(memberAPI, "GET", "/admin/v1/access/requests", nil, 200)
 	if len(memberRequests["items"].([]any)) != 0 {
 		t.Fatal("member can read another user's permission request")
@@ -155,6 +171,24 @@ func TestDatabaseAdministrativeAccessLifecycle(t *testing.T) {
 		t.Fatal("HTTP approval did not issue a real grant")
 	}
 	request(managerAPI, "POST", fmt.Sprintf("/admin/v1/access/grants/%d/revoke", grant), map[string]any{"confirm": true, "reason": "Revoke the temporary isolated administrative grant"}, 200)
+
+	// Proxy grant: the access role requests for a target and approves it.
+	proxy := request(managerAPI, "POST", "/admin/v1/access/requests", map[string]any{
+		"user_id": fmt.Sprintf("%d", merchantOnly), "role": "knowledge_reviewer",
+		"scope_kind": "shops", "shop_ids": []string{"shop-a"},
+		"reason": "Proxy grant for isolated acceptance"}, 201)
+	request(managerAPI, "POST", "/admin/v1/access/requests/"+proxy["id"].(string)+"/decision", decision, 200)
+	var proxyGrant int
+	if gateway.QueryRow(ctx, `SELECT count(*) FROM admin_role_grant WHERE tenant_id=$1 AND user_id=$2
+		AND role='knowledge_reviewer' AND status='active'`, tenant, merchantOnly).Scan(&proxyGrant) != nil || proxyGrant != 1 {
+		t.Fatal("proxy approval did not issue the grant")
+	}
+	var proxyAudit int
+	if gateway.QueryRow(ctx, `SELECT count(*) FROM admin_audit WHERE tenant_id=$1
+		AND action='permission.request.create' AND metadata_json->>'proxy'='true'
+		AND metadata_json->>'target_user_id'=$2`, tenant, fmt.Sprintf("%d", merchantOnly)).Scan(&proxyAudit) != nil || proxyAudit != 1 {
+		t.Fatal("proxy request audit is missing")
+	}
 	request(memberAPI, "GET", "/admin/v1/session", nil, 403)
 	var auditCount int
 	if gateway.QueryRow(ctx, `SELECT count(*) FROM admin_audit WHERE tenant_id=$1`, tenant).Scan(&auditCount) != nil || auditCount < 5 {
