@@ -225,8 +225,9 @@ func (s *Service) understandCustomer(ctx context.Context, state *customerRunStat
 }
 
 // afterSalesFactPlan validates the model's read-only tool request. The order is
-// always the one bound to the conversation; a different explicit order becomes
-// a clarification, never a lookup.
+// always the one bound to the conversation; a different explicit order, or a
+// bare identifier from the bound order's family, becomes a clarification, never
+// a lookup.
 func afterSalesFactPlan(understood *ragv1.UnderstandResponse, orderID, query string) (orderTools, productTools []string, sku, reason string) {
 	// An explicit order cue is a user assertion about which order they mean.
 	// It must be checked even when the control model emits no order entity:
@@ -252,6 +253,21 @@ func afterSalesFactPlan(understood *ragv1.UnderstandResponse, orderID, query str
 		}
 		value := strings.ToUpper(strings.TrimSpace(entity.Value))
 		if value != "" && value != orderID {
+			return nil, nil, "", "order_clarification"
+		}
+	}
+	// A bare identifier in the bound order's family ("ORD-2609-0001" for the
+	// bound "ORD-2609-0005") is another order even when the control model omits
+	// an order entity. Only order tools make the family relevant; product-only
+	// requests keep treating such tokens as ordinary text.
+	if len(orderTools) > 0 {
+		ignored := make([]string, 0, len(understood.Entities))
+		for _, entity := range understood.Entities {
+			if entity != nil {
+				ignored = append(ignored, entity.Value)
+			}
+		}
+		if len(domain.OrderFamilyReferences(query, orderID, ignored)) > 0 {
 			return nil, nil, "", "order_clarification"
 		}
 	}

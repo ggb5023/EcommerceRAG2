@@ -65,6 +65,37 @@ func TestExplicitOrderReferencesRequireAnOrderCue(t *testing.T) {
 	}
 }
 
+func TestOrderFamilyReferencesOnlyMatchTheSameIdentifierFamily(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		query  string
+		bound  string
+		ignore []string
+		want   []string
+	}{
+		{"bare different order in the same family", "帮我查一下 ORD-2609-0001 的物流到哪了？", "ORD-2609-0005", nil, []string{"ORD-2609-0001"}},
+		{"first segment is compared case-insensitively", "ord-2609-0001 到哪了", "ORD-2609-0005", nil, []string{"ord-2609-0001"}},
+		{"underscore separator keeps the family", "ORD_2609_0006 什么状态", "ORD-2609-0005", nil, []string{"ORD_2609_0006"}},
+		{"different prefix is not an order", "ABC-2609-0005 到哪了", "ORD-2609-0005", nil, nil},
+		{"pure numeric token has no family shape", "26090005 到哪了", "ORD-2609-0005", nil, nil},
+		{"the bound order may be repeated", "ORD-2609-0005 到哪了", "ORD-2609-0005", nil, nil},
+		{"model entity values are excluded", "ORD-2609-0006 什么状态", "ORD-2609-0005", []string{"ORD-2609-0006"}, nil},
+		{"a different segment count is not the family", "ORD-2609 到哪了", "ORD-2609-0005", nil, nil},
+		{"a different segment class is not the family", "ORD-2609-ABCD 到哪了", "ORD-2609-0005", nil, nil},
+		{"a separator-free bound has no family", "ORD26090006 到哪了", "ORD26090005", nil, nil},
+		{"a purely numeric bound has no family", "2609-0006 到哪了", "2609-0005", nil, nil},
+		{"an unrelated sku token stays out", "CLB-DRK-002 有库存吗", "ORD-2609-0005", nil, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := OrderFamilyReferences(test.query, test.bound, test.ignore)
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("OrderFamilyReferences(%q,%q,%v) = %v, want %v",
+					test.query, test.bound, test.ignore, got, test.want)
+			}
+		})
+	}
+}
+
 func TestIsOrderIdentifierAndResourceTokens(t *testing.T) {
 	if !IsOrderIdentifier("V2-ORDER-001") || IsOrderIdentifier("../secret") || IsOrderIdentifier("") {
 		t.Fatal("identifier shape check is wrong")
