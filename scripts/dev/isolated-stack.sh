@@ -76,6 +76,54 @@ PY
   echo "PASS isolated stack stopped"
 }
 
+# A gateway owns its database through the session advisory lock (742019,1).
+# Advisory locks are database-local, so only the target database matters: the
+# dev or test stack may keep running on another database. The DSN is never
+# printed; psycopg failures are reported without driver detail.
+check_target_database() {
+  "$python" - "$db_env" <<'PY'
+import pathlib, sys
+
+try:
+    import psycopg
+except ImportError:
+    print('UNCONFIGURED psycopg is missing from python/.venv; cannot inspect the target database', file=sys.stderr)
+    raise SystemExit(2)
+
+path = pathlib.Path(sys.argv[1])
+values = {}
+try:
+    for line in path.read_text().splitlines():
+        if '=' in line and not line.lstrip().startswith('#'):
+            key, value = line.split('=', 1)
+            values[key.strip()] = value.strip().strip('"\'')
+except OSError:
+    print(f'UNCONFIGURED cannot read {path}; cannot inspect the target database', file=sys.stderr)
+    raise SystemExit(2)
+dsn = values.get('V2_MIGRATION_DSN') or values.get('V2_GATEWAY_DSN')
+if not dsn:
+    print(f'UNCONFIGURED {path} has neither V2_MIGRATION_DSN nor V2_GATEWAY_DSN', file=sys.stderr)
+    raise SystemExit(2)
+try:
+    with psycopg.connect(dsn, connect_timeout=10) as db:
+        database, held = db.execute("""
+            SELECT current_database(), count(*)
+            FROM pg_locks
+            WHERE locktype='advisory' AND classid=742019 AND objid=1 AND granted
+              AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+            """).fetchone()
+except Exception:
+    # Driver errors can echo the DSN. Report only that the check could not run.
+    print(f'UNCONFIGURED cannot inspect the advisory lock state of the target database in {path}', file=sys.stderr)
+    raise SystemExit(2)
+if held:
+    print(f'FAIL target database {database} is already owned by another gateway '
+          f'(advisory lock 742019,1); stop that stack or pass a different --db', file=sys.stderr)
+    raise SystemExit(1)
+print(f'PASS target database {database} has no owning gateway')
+PY
+}
+
 if [[ "${1:-}" == "stop" ]]; then
   shift
   stop_all=0
@@ -141,6 +189,11 @@ done
 stop_stack >/dev/null 2>&1 || true
 mkdir -p "$root"
 chmod 700 "$root"
+
+# Refuse to start on a database another gateway already owns. This runs after
+# the local stack is stopped (its lock is released) and before the port checks,
+# so a stale owner is reported as such instead of as a confusing startup race.
+check_target_database
 
 for port in "$base" $((base + 1)) $((base + 2)) $((base + 3)) $((base + 4)) $((base + 5)) $((base + 6)); do
   if (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
@@ -227,14 +280,16 @@ out.close()
 target.chmod(0o600)
 PY
 
-# The browser specs need the stack's database and a fixed local password.
+# The browser specs need the stack's database and fixed local passwords.
 login_user=stack-login
 login_password=${ECR_BROWSER_LOGIN_PASSWORD:-stack-login-Passw0rd!}
+login_new_password=${ECR_BROWSER_LOGIN_NEW_PASSWORD:-browser-final-pass-123456}
 browser_env="$root/browser.env"
 migration_dsn=$(sed -n "s/^V2_MIGRATION_DSN=//p" "$db_env" | head -1 | tr -d "\"'")
 {
   printf 'V2_MIGRATION_DSN=%s\n' "$migration_dsn"
   printf 'LOGIN_PASSWORD=%s\n' "$login_password"
+  printf 'LOGIN_NEW_PASSWORD=%s\n' "$login_new_password"
   printf 'LOGIN_USER=%s\n' "$login_user"
   printf 'WORKSPACE_URL=http://127.0.0.1:%s\n' "$vite_port"
 } > "$browser_env"
@@ -275,13 +330,28 @@ until (echo > "/dev/tcp/127.0.0.1/$ingest_port") 2>/dev/null; do
   sleep 1
 done
 
-# Seed the login account the browser spec needs: an operator that must change its
-# password on first login. Re-running is harmless (the CLI reports the conflict).
-if go -C "$repo/go" run ./cmd/local-account create --env "$root/runtime.env" --user "$login_user" <<< "$login_password" >/dev/null 2>&1; then
-  echo "PASS seeded login account $login_user"
-else
+# Seed the login account the browser spec needs. `create` only runs on the first
+# startup; `reset-password` runs every time so a previous failed run cannot leave
+# the account locked or holding a stale password. It forces a change on the next
+# login and revokes every live session. Unexpected CLI output is surfaced, never
+# swallowed.
+login_output="$root/login-seed.log"
+if go -C "$repo/go" run ./cmd/local-account create --env "$root/runtime.env" --user "$login_user" <<< "$login_password" >"$login_output" 2>&1; then
+  echo "PASS created login account $login_user"
+elif grep -qi "already exists" "$login_output"; then
   echo "PASS login account $login_user already present"
+else
+  echo "FAIL could not create login account $login_user:" >&2
+  tail -n 5 "$login_output" >&2 || true
+  fail "login account seed failed"
 fi
+if ! go -C "$repo/go" run ./cmd/local-account reset-password --env "$root/runtime.env" --user "$login_user" <<< "$login_password" >"$login_output" 2>&1; then
+  echo "FAIL could not reset login account $login_user:" >&2
+  tail -n 5 "$login_output" >&2 || true
+  fail "login account reset failed"
+fi
+chmod 600 "$login_output"
+echo "PASS reset login account $login_user (forced change on next login, sessions revoked)"
 
 vite_pid=0
 if [[ $with_vite -eq 1 ]]; then
