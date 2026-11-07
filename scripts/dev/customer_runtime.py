@@ -29,7 +29,6 @@ import shutil
 import socket
 import ssl
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.request
@@ -56,9 +55,18 @@ PYTHON = ROOT / 'python/.venv/bin/python'
 FRONTEND = ROOT / 'frontend'
 CHROMIUM = os.environ.get('CHROMIUM_PATH', '/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome')
 STATE_FILE = RUNTIME_ROOT / 'state.json'
+# The gateway rate-limits logins per source IP (localauth.IPMinuteLimit = 10).
+# One login spec run sends 8 attempts, so a second run started immediately
+# would be rejected with 429 before its fifth check. Remember when the previous
+# run ended and let the sliding minute window drain first.
+LOGIN_MARKER = ROOT / '.local' / 'local-login' / 'last-run'
+LOGIN_RATE_WINDOW = 65
 PHASE1 = ('customer-service', 'customer-source', 'customer-control', 'keycloak')
 CONTROLLED = ('customer-service', 'customer-source', 'customer-control', 'keycloak', 'selfhost-restore')
 WRITERS = ('gateway', 'ai', 'ingest', 'worker', 'keycloak')
+# The teardown sweep may only remove projects this harness creates. Anything
+# else (notably the long-lived ecr-merchant project) is left untouched.
+HARNESS_PROJECT = re.compile(r'^(?:ecr-wp91|ecr-restore-wp91-[a-z0-9-]+)$')
 
 
 class Unconfigured(Exception):
@@ -90,11 +98,11 @@ def save_state(value):
         json.dump(value, stream, indent=2)
 
 
-def command(args, *, env=None, cwd=ROOT, timeout=None, check=True, capture=False):
-    completed = subprocess.run(args, cwd=cwd, env=env, timeout=timeout,
+def command(args, *, env=None, cwd=ROOT, timeout=None, check=True, capture=False, input=None):
+    completed = subprocess.run(args, cwd=cwd, env=env, timeout=timeout, input=input,
                                stdout=subprocess.PIPE if capture else None,
                                stderr=subprocess.PIPE if capture else None,
-                               text=True)
+                               text=True, check=False)
     if check and completed.returncode != 0:
         raise RuntimeError(f'command failed ({completed.returncode}): {Path(args[0]).name}')
     return completed
@@ -405,13 +413,43 @@ def spec_environment(name, out):
     return env
 
 
+def local_identity_state(gateway):
+    """Health and session state of the local identity stack; never raises urllib errors."""
+    health_url = f'http://{gateway}/healthz'
+    session_url = f'http://{gateway}/v1/auth/session'
+    try:
+        with urllib.request.urlopen(health_url, timeout=3) as response:
+            if response.status != 200:
+                raise RuntimeError(f'local identity stack at http://{gateway} is not healthy')
+        with urllib.request.urlopen(session_url, timeout=3) as response:
+            return json.loads(response.read())
+    except (OSError, ValueError):
+        raise RuntimeError(f'local identity stack at http://{gateway} is not reachable') from None
+
+
+def validate_local_identity(gateway):
+    state = local_identity_state(gateway)
+    if state.get('mode') != 'local':
+        raise RuntimeError(f'local identity stack at http://{gateway} is not running the local profile '
+                           f'(mode={state.get("mode") or "unknown"}); restart it with --identity local')
+
+
 def local_login_environment():
     ports_file = Path(os.environ.get('ECR_LOCAL_PORTS_FILE', '/tmp/ecr-isolated-local/ports.json'))
     browser_env = ports_file.parent / 'browser.env'
-    if not ports_file.exists() or not browser_env.exists():
-        unconfigured(f'missing {ports_file} or {browser_env}; start the local identity stack')
-    ports = json.loads(ports_file.read_text())
+    runtime_env = ports_file.parent / 'runtime.env'
+    for required in (ports_file, browser_env, runtime_env):
+        if not required.exists():
+            unconfigured(f'missing {required}; start the local identity stack with '
+                         f'isolated-stack.sh --identity local --ports 26091')
+    try:
+        ports = json.loads(ports_file.read_text())
+    except ValueError:
+        raise RuntimeError(f'{ports_file} is not valid JSON; restart the local identity stack') from None
+    gateway = ports.get('gateway')
     vite = ports.get('vite')
+    if not gateway:
+        unconfigured(f'{ports_file} has no gateway address')
     if not vite:
         unconfigured('the local identity stack has no Vite port')
     env = dict(os.environ)
@@ -420,12 +458,56 @@ def local_login_environment():
         key, _, value = line.partition('=')
         values[key] = value
     password = values.get('LOGIN_PASSWORD')
+    new_password = values.get('LOGIN_NEW_PASSWORD') or os.environ.get('LOGIN_NEW_PASSWORD')
     if not password:
         unconfigured(f'{browser_env} has no LOGIN_PASSWORD')
+    if not new_password:
+        unconfigured(f'{browser_env} has no LOGIN_NEW_PASSWORD; restart the local identity stack')
+    validate_local_identity(gateway)
     env.update({'WORKSPACE_URL': f'http://{vite}', 'ECR_BROWSER_ENV': str(browser_env),
-                'LOGIN_USER': values.get('LOGIN_USER', 'owner'), 'LOGIN_PASSWORD': password,
-                'CHROMIUM_PATH': CHROMIUM})
+                'ECR_LOCAL_PORTS_FILE': str(ports_file), 'ECR_LOCAL_RUNTIME_ENV': str(runtime_env),
+                'LOGIN_USER': values.get('LOGIN_USER', 'stack-login'), 'LOGIN_PASSWORD': password,
+                'LOGIN_NEW_PASSWORD': new_password, 'CHROMIUM_PATH': CHROMIUM})
     return env
+
+
+def reset_local_login(env):
+    """Reset the seeded local account before each login spec run.
+
+    reset-password clears the lock state, revokes live sessions and forces a
+    password change on the next login, so a failed earlier run cannot poison the
+    next one. The password travels on stdin only.
+    """
+    runtime_env = Path(env['ECR_LOCAL_RUNTIME_ENV'])
+    if not runtime_env.exists():
+        unconfigured(f'missing {runtime_env}; start the local identity stack')
+    user = env['LOGIN_USER']
+    completed = command(['go', '-C', str(ROOT / 'go'), 'run', './cmd/local-account',
+                         'reset-password', '--env', str(runtime_env), '--user', user],
+                        check=False, capture=True, input=env['LOGIN_PASSWORD'] + '\n', timeout=300)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or '').strip()
+        raise RuntimeError(f'could not reset local login account {user}' + (f': {detail}' if detail else ''))
+    info(f'PASS reset local login account {user} (forced change on next login, sessions revoked)')
+
+
+def wait_login_rate_window():
+    """Sleep out the gateway's per-IP login window left by the previous run."""
+    try:
+        last = LOGIN_MARKER.stat().st_mtime
+    except OSError:
+        return
+    remaining = LOGIN_RATE_WINDOW - (time.time() - last)
+    if remaining > 0:
+        info(f'WAIT {remaining:.0f}s for the local login rate-limit window '
+             f'({LOGIN_RATE_WINDOW}s after the previous login spec run)')
+        time.sleep(remaining)
+
+
+def mark_login_rate_window():
+    LOGIN_MARKER.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    LOGIN_MARKER.touch(mode=0o600)
+    os.chmod(LOGIN_MARKER, 0o600)
 
 
 def run_spec(name, *, report=None):
@@ -433,8 +515,15 @@ def run_spec(name, *, report=None):
         raise RuntimeError(f'unknown spec {name}')
     if name == 'login':
         # Login uses the local identity stack, not the controlled Compose project.
-        completed = command(['node', 'tests/login.browser.mjs'], cwd=FRONTEND,
-                            env=local_login_environment(), check=False)
+        env = local_login_environment()
+        wait_login_rate_window()
+        reset_local_login(env)
+        try:
+            completed = command(['node', 'tests/login.browser.mjs'], cwd=FRONTEND, env=env, check=False)
+        finally:
+            # The marker is written even on failure: the attempts already hit
+            # the limiter and the next run must still wait for the window.
+            mark_login_rate_window()
         info(f'{"PASS" if completed.returncode == 0 else "FAIL"} login spec')
         return completed.returncode
     if not (RUNTIME / 'compose.env').exists():
@@ -538,8 +627,10 @@ def restore(args):
         remember_report('selfhost-restore', out)
     finally:
         # Free the shared origin and keep the restored volumes for inspection.
+        # The oidc profile is required: without it Compose leaves Keycloak (and
+        # the network it holds) behind after every restore run.
         if restored_env.exists():
-            compose(restored_env, ['down'], check=False, timeout=120)
+            compose(restored_env, ['--profile', 'oidc', 'down'], check=False, timeout=120)
         try:
             start_stack(RUNTIME / 'compose.env', build=False)
         except Exception:
@@ -551,20 +642,80 @@ def restore(args):
     return spec.returncode
 
 
+def docker_ids(args):
+    result = command(['docker', *args], check=False, capture=True, timeout=60)
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def compose_projects():
+    """Compose project labels that still have containers or networks."""
+    projects = set(docker_ids(['ps', '-a', '--format', '{{.Label "com.docker.compose.project"}}']))
+    projects |= set(docker_ids(['network', 'ls', '--format', '{{.Label "com.docker.compose.project"}}']))
+    projects.discard('')
+    return projects
+
+
+def sweep_harness_projects():
+    """Remove residual containers/networks of harness-owned projects only.
+
+    The allowlist is exactly ecr-wp91 and ecr-restore-wp91-*; every other
+    project (notably ecr-merchant) is left running. The sweep is best effort and
+    only runs after the Compose teardown reported success.
+    """
+    projects = compose_projects()
+    if 'ecr-merchant' in projects:
+        info('WARN Compose project ecr-merchant is not harness-owned; left untouched')
+    removed = []
+    for project in sorted(projects):
+        if not HARNESS_PROJECT.fullmatch(project):
+            continue
+        containers = docker_ids(['ps', '-aq', '--filter', f'label=com.docker.compose.project={project}'])
+        if containers:
+            command(['docker', 'rm', '-f', *containers], check=False, capture=True, timeout=120)
+        networks = docker_ids(['network', 'ls', '-q', '--filter', f'label=com.docker.compose.project={project}'])
+        for attempt in range(3):
+            if not networks:
+                break
+            result = command(['docker', 'network', 'rm', *networks], check=False, capture=True, timeout=120)
+            if result.returncode == 0:
+                break
+            time.sleep(1)
+        removed.append(project)
+    return removed
+
+
 def down(args):
+    failed = []
     if (RUNTIME / 'compose.env').exists():
-        compose(RUNTIME / 'compose.env', ['--profile', 'oidc', 'down', '--remove-orphans',
-                                          *(['--volumes'] if args.clean else [])],
-                check=False, timeout=180)
+        result = compose(RUNTIME / 'compose.env', ['--profile', 'oidc', 'down', '--remove-orphans',
+                                                   *(['--volumes'] if args.clean else [])],
+                         check=False, timeout=180)
+        if result.returncode != 0:
+            failed.append(str(RUNTIME))
     for entry in state().get('restored', []):
         env_file = Path(entry['runtime']) / 'compose.env'
-        if env_file.exists():
-            command(['docker', 'compose', '--env-file', str(env_file), '-f', str(COMPOSE),
-                     'down', '--remove-orphans', *(['--volumes'] if args.clean else [])],
-                    check=False, capture=True, timeout=180)
-        if args.clean:
-            shutil.rmtree(entry['runtime'], ignore_errors=True)
+        if not env_file.exists():
+            continue
+        result = command(['docker', 'compose', '--env-file', str(env_file), '-f', str(COMPOSE),
+                          '--profile', 'oidc', 'down', '--remove-orphans',
+                          *(['--volumes'] if args.clean else [])],
+                         check=False, capture=True, timeout=180)
+        if result.returncode != 0:
+            failed.append(entry['runtime'])
+    if failed:
+        # Keep the runtime directories: they describe what the next `down` must
+        # still tear down, and deleting them would hide the leak.
+        info('FAIL controlled runtime teardown failed for ' + ', '.join(failed)
+             + '; runtime directories retained')
+        return 1
+    residual = sweep_harness_projects()
+    if residual:
+        info('PASS removed residual harness Compose projects: ' + ', '.join(residual))
     if args.clean:
+        for entry in state().get('restored', []):
+            shutil.rmtree(entry['runtime'], ignore_errors=True)
         shutil.rmtree(RUNTIME, ignore_errors=True)
         STATE_FILE.unlink(missing_ok=True)
         info('PASS controlled runtime volumes and runtime directory removed')
