@@ -235,8 +235,10 @@ func (s *Store) RecordEvent(ctx context.Context, event Event) error {
 
 // DisableUser is the account-level switch: revoked_at plus both revocation
 // columns, every live session revoked, and one audit row, in one transaction.
+// It shares the ingest knowledge lock so an adoption submission either sees the
+// revoked account or completes before the revoke (decision 0042).
 func (s *Store) DisableUser(ctx context.Context, tenantID, targetID, actorID int64) error {
-	return s.withTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
+	return s.withKnowledgeTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
 		if actorID == targetID {
 			return ErrSelfDisable
 		}
@@ -278,8 +280,9 @@ func (s *Store) DisableUser(ctx context.Context, tenantID, targetID, actorID int
 }
 
 // EnableUser clears all three revocation columns; old sessions stay revoked.
+// It takes the same knowledge-then-account lock order as DisableUser.
 func (s *Store) EnableUser(ctx context.Context, tenantID, targetID, actorID int64) error {
-	return s.withTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
+	return s.withKnowledgeTenantLock(ctx, tenantID, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE app_user SET revoked_at=NULL, revoked_by=NULL,
 			revoked_reason=NULL WHERE tenant_id=$1 AND id=$2 AND revoked_at IS NOT NULL`,
 			tenantID, targetID)
@@ -305,6 +308,32 @@ func (s *Store) withTenantLock(ctx context.Context, tenantID int64, fn func(pgx.
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(742019,$1)`, tenantID); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// withKnowledgeTenantLock serializes account revocation with the Python ingest
+// plane. It takes the same `knowledge:<tenant.id>` transaction lock that
+// adoption `submit`, the worker claim and ingest commands take, and only then
+// the local (742019, tenant_id) account lock. The fixed order keeps every
+// process on knowledge -> account; taking the account lock first would deadlock
+// against a submit that holds knowledge and waits for the account rows.
+// tenantID is the tenant primary key, not the external id.
+func (s *Store) withKnowledgeTenantLock(ctx context.Context, tenantID int64, fn func(pgx.Tx) error) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+		fmt.Sprintf("knowledge:%d", tenantID)); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(742019,$1)`, tenantID); err != nil {
 		return err
 	}

@@ -5,12 +5,14 @@ package localauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -207,5 +209,133 @@ func TestDisableRevokesSessionsAndEnableKeepsThemRevoked(t *testing.T) {
 	}
 	if events != 2 {
 		t.Fatalf("want two audit events, got %d", events)
+	}
+}
+
+// holdKnowledgeLock keeps the one-argument advisory lock keyed by hashtext(key)
+// on a separate connection until the returned function runs.
+func holdKnowledgeLock(t *testing.T, ctx context.Context, dsn, key string) func() {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("knowledge lock connect: %v", err)
+	}
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		_ = conn.Close(ctx)
+		t.Fatalf("knowledge lock begin: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, key); err != nil {
+		_ = tx.Rollback(ctx)
+		_ = conn.Close(ctx)
+		t.Fatalf("acquire knowledge lock: %v", err)
+	}
+	return func() {
+		_ = tx.Rollback(context.Background())
+		_ = conn.Close(context.Background())
+	}
+}
+
+// knowledgeLockWaiter reports whether a backend is blocked on the knowledge
+// lock. Polling pg_locks replaces sleep-based timing: the test only proceeds
+// once the waiting statement provably reached the lock.
+func knowledgeLockWaiter(t *testing.T, ctx context.Context, dsn, key string) bool {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("probe connect: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	var waiting bool
+	// pg_locks encodes a one-argument bigint advisory key as the high/low
+	// 32-bit halves of classid/objid with objsubid=1 (the two-int form uses 2).
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_locks
+		WHERE locktype='advisory' AND NOT granted AND objsubid=1
+		  AND ((classid::bigint << 32) + objid::bigint)=hashtext($1)::bigint)`, key).Scan(&waiting); err != nil {
+		t.Fatalf("probe pg_locks: %v", err)
+	}
+	return waiting
+}
+
+func waitForKnowledgeLockWaiter(t *testing.T, ctx context.Context, dsn, key string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if knowledgeLockWaiter(t, ctx, dsn, key) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no backend waited for the knowledge lock %q", key)
+}
+
+func accountLockIsFree(t *testing.T, ctx context.Context, dsn string, tenantID int64) bool {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("account lock probe connect: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	var acquired bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(742019,$1)`, tenantID).Scan(&acquired); err != nil {
+		t.Fatalf("account lock probe: %v", err)
+	}
+	if acquired {
+		if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock(742019,$1)`, tenantID); err != nil {
+			t.Fatalf("account lock release: %v", err)
+		}
+	}
+	return acquired
+}
+
+// TestDisableAndEnableTakeTheKnowledgeLockBeforeTheAccountLock proves the fixed
+// lock order from decision 0042. While a side connection holds the knowledge
+// lock, Disable/Enable must block on it; the account lock must still be free,
+// which would be false if the code took (742019, tenant) first. Releasing the
+// knowledge lock lets the operation finish.
+func TestDisableAndEnableTakeTheKnowledgeLockBeforeTheAccountLock(t *testing.T) {
+	migrator, gateway := integrationDSNs(t)
+	store, f := newFixture(t, migrator, gateway, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var operatorID int64
+	if err := store.DB.QueryRow(ctx, `INSERT INTO app_user(tenant_id,external_id,role,shop_ids)
+		VALUES($1,'operator','operator',ARRAY['main-shop']) RETURNING id`, f.tenantID).Scan(&operatorID); err != nil {
+		t.Fatalf("insert operator: %v", err)
+	}
+	addCredential(t, store, f.tenantID, operatorID)
+	key := fmt.Sprintf("knowledge:%d", f.tenantID)
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{"disable", func() error { return store.DisableUser(ctx, f.tenantID, operatorID, f.ownerID) }},
+		{"enable", func() error { return store.EnableUser(ctx, f.tenantID, operatorID, f.ownerID) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			release := holdKnowledgeLock(t, ctx, migrator, key)
+			defer release()
+			done := make(chan error, 1)
+			go func() { done <- test.call() }()
+			waitForKnowledgeLockWaiter(t, ctx, migrator, key)
+			if !accountLockIsFree(t, ctx, migrator, f.tenantID) {
+				t.Fatal("the account lock was taken before the knowledge lock")
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("%s finished while the knowledge lock was held: %v", test.name, err)
+			default:
+			}
+			release()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("%s after release: %v", test.name, err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("%s did not finish after the knowledge lock was released", test.name)
+			}
+		})
 	}
 }
