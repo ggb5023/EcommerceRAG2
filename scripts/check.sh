@@ -12,11 +12,15 @@ fi
 
 usage() {
   cat <<'EOF'
-usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigured]
+usage: bash scripts/check.sh [--db] [--e2e] [--controlled-e2e] [--all] [--cov] [--allow-unconfigured]
 
   (no flag)  fast layer only: static checks, unit tests and builds
   --db       fast layer plus the real-database layer (needs the integration env files)
   --e2e      fast layer plus the browser layer (needs an isolated stack with --with-vite and Chromium)
+  --controlled-e2e
+             with --e2e, also prepare the controlled selfhost runtime and run
+             customer-service -> customer-source -> customer-control -> keycloak,
+             then the backup/restore verification (needs Docker and the real provider)
   --smoke    fast layer plus the five turn-chain smokes (needs a live dev stack)
   --all      fast layer plus both of the above
   --cov      collect Go and Python coverage into .local/coverage/ (report only, no threshold)
@@ -40,10 +44,12 @@ COV=0
 ALL=0
 STACK=0
 ALLOW_UNCONFIGURED=0
+CONTROLLED=0
 for arg in "$@"; do
   case "$arg" in
     --db) DB=1 ;;
     --e2e) E2E=1 ;;
+    --controlled-e2e) CONTROLLED=1; E2E=1 ;;
     --smoke) SMOKE=1 ;;
     --all) DB=1; E2E=1; ALL=1 ;;
     --cov) COV=1 ;;
@@ -334,6 +340,15 @@ if [ "$E2E" -eq 1 ]; then
   fi
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)
+    if [ "$CONTROLLED" -eq 1 ]; then
+      case "$name" in
+        customer-service|customer-source|customer-control|keycloak|selfhost-restore)
+          # Controlled mode runs these in the fixed order below; selfhost-restore
+          # only runs after the backup/restore phase.
+          continue
+          ;;
+      esac
+    fi
     if [ "$name" = "login" ]; then
       # The login flow needs the local-account identity stack and its Vite.
       local_ports=${ECR_LOCAL_PORTS_FILE:-/tmp/ecr-isolated-local/ports.json}
@@ -407,6 +422,30 @@ if [ "$E2E" -eq 1 ]; then
       run e2e "e2e-$name" "cd frontend && node tests/$name.browser.mjs"
     fi
   done
+  if [ "$CONTROLLED" -eq 1 ]; then
+    controlled_status=0
+    bash scripts/dev/customer-runtime.sh up || controlled_status=$?
+    if [ "$controlled_status" -eq 2 ]; then
+      for name in customer-service customer-source customer-control keycloak selfhost-restore; do
+        skip e2e "e2e-$name" "controlled runtime prerequisites are unconfigured" "bash scripts/dev/customer-runtime.sh run-spec $name"
+      done
+    elif [ "$controlled_status" -ne 0 ]; then
+      for name in customer-service customer-source customer-control keycloak selfhost-restore; do
+        failed=$((failed + 1))
+        failed_items+=("[e2e] e2e-$name (controlled runtime up failed)")
+        printf '[e2e] e2e-%s FAILED (controlled runtime up failed)\n' "$name"
+      done
+    else
+      # Phase 1 order matters: keycloak needs the knowledge published by
+      # customer-service, and customer-source leaves the original version active.
+      for name in customer-service customer-source customer-control keycloak; do
+        run_optional e2e "e2e-$name" "bash scripts/dev/customer-runtime.sh run-spec $name"
+      done
+      # Phase 2: stop source writers, seal a backup, restore into a new project,
+      # start it on the same origin and resume a prior guest session.
+      run_optional e2e e2e-selfhost-restore "bash scripts/dev/customer-runtime.sh restore"
+    fi
+  fi
   layer_end e2e
 fi
 

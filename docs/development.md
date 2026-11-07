@@ -109,6 +109,41 @@ Keycloak/自部署运行时的 6 个 spec（customer-control/service/source、se
 keycloak、v2-restart）在缺少 `CUSTOMER_*`、`KEYCLOAK_ACCOUNTS_FILE` 或
 `V2_RESTART_RUNTIME_ENV` 时显示 UNCONFIGURED，而不是 FAILED；`--all` 仍严格。
 
+### 受控自部署运行时（`--controlled-e2e`）
+
+`bash scripts/check.sh --e2e --controlled-e2e` 在隔离栈之外再准备一套**独立的**自部署栈：
+新 Compose project `ecr-wp91`、新 volume、运行时目录默认仓库下
+`.local/controlled-runtime`、报告写 `/var/lib/ecommerce-rag/wp91/`，origin 固定为
+`https://127.0.0.1:18443`。gateway 在容器内也监听 18443 并映射 `18443:18443`。OIDC
+discovery 发生在 gateway 开始监听之前，所以 `oidc.json` 额外写 `backchannel_url`
+（Compose 内为 `http://keycloak:8080`）：discovery、JWKS 与 introspection 走内网 Keycloak，
+issuer 与浏览器端点仍保持公开 origin，token 校验不受影响。证书为本地自签，含
+`IP:127.0.0.1` SAN。真实 provider 只读 `/etc/ecommerce-rag/providers.env`（运行期副本
+在 0700 运行时目录内，不进仓库、不打印）。启动顺序固定为
+postgres → db-init → migrate → bootstrap → keycloak → gateway/ai：Keycloak 需要 db-init
+建库、bootstrap 写 realm；gateway 不能在 realm 导入完成前做 discovery。
+
+前置：root、可用的 Docker、上述 provider 文件、Playwright Chromium，以及 compose 固定的
+Keycloak digest 镜像。缺任一项时受控项记 UNCONFIGURED（exit 2），不换成别的镜像，也不记 PASS。
+镜像每次 `up` 都从当前 checkout 构建（Compose 缓存使重复构建很快），避免旧镜像静默跑旧迁移集。
+
+Phase 1 顺序固定，不能打乱：`customer-service` → `customer-source` → `customer-control` →
+`keycloak`（keycloak 依赖 customer-service 已发布的知识）。Phase 2 停掉源栈的写入服务
+（gateway/ai/keycloak），用 `selfhost-backup.py` 封装备份，`selfhost-restore.py` 恢复到新的
+`ecr-restore-wp91-*` project 与目录，在同 origin 启动恢复栈并跑 `selfhost-restore` spec，
+随后停掉恢复栈并重启源栈。
+
+```bash
+bash scripts/check.sh --e2e --controlled-e2e   # 全量：期望 61 PASS / 1 UNCONFIGURED（v2-restart）/ 0 FAIL
+bash scripts/dev/customer-runtime.sh status
+bash scripts/dev/customer-runtime.sh up --fresh # 重建 project/volume（换一枚干净库）
+bash scripts/dev/customer-runtime.sh run-spec customer-service
+bash scripts/dev/customer-runtime.sh down --clean
+```
+
+`login` 不在受控 Compose 里：它使用 `isolated-stack.sh --identity local --ports 26291` 与
+`reset-password` 后的本地账号；WP91 不修改隔离栈脚本，也不对共享测试库运行登录用例。
+
 `frontend/tests/admin.browser.mjs` 需要审核队列里至少有一份待审版本，否则会停在
 `no reviewable version available`。用下面这条脚本补齐，它**只走管理 HTTP 接口**（创建导入批次 → 确认 → 轮询审核队列），
 不写任何 SQL：

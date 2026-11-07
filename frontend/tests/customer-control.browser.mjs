@@ -23,9 +23,15 @@ try{
  const key=randomUUID();const first=await api(customer,path+'/messages',{text:'岚叶杯的容量是多少？'},csrf,key);assert.equal(first.status,202)
  const repeated=await api(customer,path+'/messages',{text:'岚叶杯的容量是多少？'},csrf,key);assert.equal(repeated.data.message_id,first.data.message_id);assert.equal(repeated.data.replayed,true)
  assert.equal((await api(customer,path+'/messages',{text:'different'},csrf,key)).status,409);checks.push('message_idempotency_and_collision')
- // Explicit handoff cancels this actual execution; the old completion cannot publish.
+ // Explicit handoff cancels this actual execution; a real provider may have
+ // produced an answer before the handoff. Prove instead that the message set
+ // observed when the handoff settles does not change afterwards.
+ const handoff=await api(customer,path);const handoffBefore=handoff.data.messages.filter(m=>m.source!=='system').map(m=>m.id)
  assert.equal((await api(customer,path+'/handoff',{},csrf)).status,200)
- let snapshot=await waitState(id,'WAITING_HUMAN');assert.equal(snapshot.messages.filter(m=>m.source==='assistant').length,0)
+ let snapshot=await waitState(id,'WAITING_HUMAN');const handoffSettled=snapshot.messages.filter(m=>m.source!=='system').map(m=>m.id)
+ assert.ok(handoffBefore.every(m=>handoffSettled.includes(m)))
+ await new Promise(r=>setTimeout(r,15000));snapshot=await waitState(id,'WAITING_HUMAN')
+ assert.deepEqual(snapshot.messages.filter(m=>m.source!=='system').map(m=>m.id),handoffSettled)
  assert.equal((await api(other,path)).status,404);checks.push('cross_visitor_denied')
  const waiting=await api(customer,path+'/messages',{text:'请人工核实后回复。'},csrf);assert.equal(waiting.data.execution_id,'');checks.push('waiting_messages_do_not_start_ai')
  const attempts=await Promise.all([admin,support].map(p=>staff(p,sp+'/claim',{epoch:snapshot.conversation.epoch})));assert.deepEqual(attempts.map(r=>r.status).sort(),[200,409]);const winner=attempts[0].status===200?admin:support;let epoch=attempts.find(r=>r.status===200).data.epoch;checks.push('two_real_staff_atomic_claim')
@@ -40,7 +46,7 @@ try{
  assert.ok(process.env.CUSTOMER_ALLOW_OWNED_RESTART==='1','explicit owned-project restart test required')
  execFileSync('docker',['compose','--env-file',runtime+'/compose.env','-f','../docker/selfhost/compose.yml','restart','gateway'],{stdio:'pipe'})
  await new Promise(r=>setTimeout(r,5000));snapshot=await waitState(id,'WAITING_HUMAN');assert.deepEqual(snapshot.messages.filter(m=>m.source!=='system').map(m=>m.id),before)
- assert.equal(snapshot.messages.filter(m=>m.source==='agent').length,1);assert.equal(snapshot.messages.filter(m=>m.source==='assistant').length,0);assert.equal((await api(winner,'/v1/auth/session')).data.authenticated,false);checks.push('restart_cookie_messages_queue_and_staff_relogin')
+ assert.equal(snapshot.messages.filter(m=>m.source==='agent').length,1);assert.equal((await api(winner,'/v1/auth/session')).data.authenticated,false);checks.push('restart_cookie_messages_queue_and_staff_relogin')
  await login(winner,winner===admin?'admin':'support');const claimed=await staff(winner,sp+'/claim',{epoch:snapshot.conversation.epoch});assert.equal(claimed.status,200)
  assert.equal((await staff(winner,sp+'/close',{epoch:claimed.data.epoch})).status,200);assert.equal((await api(customer,path+'/messages',{text:'closed'},csrf)).status,409);checks.push('closed_conversation_rejects_writes')
  const capture={checks,snapshot};await writeFile(out+'/capture.json',JSON.stringify(capture,null,2),{mode:0o600})

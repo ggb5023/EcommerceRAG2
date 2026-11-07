@@ -22,7 +22,10 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const root = fileURLToPath(new URL('../../', import.meta.url))
 let ownedStack
 let stackLog
-const context = await browser.newContext()
+// The controlled selfhost origin is a local self-signed HTTPS endpoint. The flag
+// is explicit so the default isolated-stack (plain HTTP) run keeps verifying TLS.
+const contextOptions = process.env.KEYCLOAK_BROWSER_IGNORE_HTTPS === '1' ? { ignoreHTTPSErrors: true } : {}
+const context = await browser.newContext(contextOptions)
 const page = await context.newPage()
 const checks = []
 let finished = false
@@ -277,7 +280,7 @@ try {
     await stackLog?.close()
   }
   await writeFile(output + '/report.json', JSON.stringify({ report_version: 'keycloak-browser-v1', status: finished ? 'PASS' : 'NOT_PASSED', checks,
-    provider_profile: 'v2_langchain_mock', turn_id: turn?.request_id ?? null, result_sha256: resultHash ?? null,
+    provider_profile: process.env.KEYCLOAK_BROWSER_PROVIDER_PROFILE ?? 'v2_langchain_mock', turn_id: turn?.request_id ?? null, result_sha256: resultHash ?? null,
     reviewer_kind: 'agent', human_review_completed: false, real_service_acceptance: false,
     implementation_sha256: Object.fromEntries(await Promise.all(['go/internal/identity/browser.go', 'go/internal/gateway/identity.go', 'frontend/src/auth.ts'].map(async p => [p, createHash('sha256').update(await readFile(root + p)).digest('hex')]))) }, null, 2), { mode: 0o600, flag: 'wx' })
   console.log(JSON.stringify({ report_directory: output, status: finished ? 'PASS' : 'NOT_PASSED' }))
