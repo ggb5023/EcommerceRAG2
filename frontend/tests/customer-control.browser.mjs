@@ -4,6 +4,7 @@ import {chromium} from 'playwright'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
 import {randomUUID,createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
+import {retry} from './transport-retry.mjs'
 const runtime=process.env.CUSTOMER_RUNTIME_DIR;const out=process.env.CUSTOMER_REPORT_DIR;assert.ok(runtime&&out)
 const base=process.env.CUSTOMER_BASE_URL??'https://merchant.example.test:18443'
 await mkdir(out,{mode:0o700});const accounts=JSON.parse(await readFile(runtime+'/bootstrap/accounts.json')).accounts
@@ -11,7 +12,7 @@ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'
 const contexts=await Promise.all([0,1,2,3].map(()=>browser.newContext({ignoreHTTPSErrors:true})))
 const [customer,other,admin,support]=await Promise.all(contexts.map(c=>c.newPage()));const checks=[]
 async function login(page,name){
- await page.goto(base+'/v1/auth/login?app=customer&return_to=/support')
+ await retry(()=>page.goto(base+'/v1/auth/login?app=customer&return_to=/support'))
  // After a gateway restart the Go session is gone but the Keycloak SSO cookie
  // remains, so the callback can complete before the login form ever renders.
  for(let i=0;i<80;i++){
@@ -22,11 +23,13 @@ async function login(page,name){
  }
  await page.waitForURL(url=>['/support','/staff'].includes(url.pathname))
 }
-async function api(page,path,body,csrf,idem=randomUUID()) {return page.evaluate(async({path,body,csrf,idem})=>{const r=await fetch(path,{...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf??'','Idempotency-Key':idem},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body,csrf,idem})}
+// The idempotency key is created once per api() call and reused by every
+// retried evaluate, so a lost response never turns into a second side effect.
+async function api(page,path,body,csrf,idem=randomUUID()) {return retry(()=>page.evaluate(async({path,body,csrf,idem})=>{const r=await fetch(path,{...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf??'','Idempotency-Key':idem},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body,csrf,idem}))}
 async function staff(page,path,body,idem){const auth=(await api(page,'/v1/auth/session')).data;return api(page,path,body,auth.csrf_token,idem)}
 async function waitState(id,state){for(let i=0;i<160;i++){const r=await api(customer,'/v1/customer/conversations/'+id);if(r.data.conversation.state===state&&!r.data.conversation.active_execution_id)return r.data;await new Promise(r=>setTimeout(r,1000))}throw Error('state timeout')}
 try{
- await customer.goto(base+'/');await other.goto(base+'/');await login(admin,'admin');await login(support,'support')
+ await retry(()=>customer.goto(base+'/'));await retry(()=>other.goto(base+'/'));await login(admin,'admin');await login(support,'support')
  const session=await api(customer,'/v1/customer/session',{shop_slug:'my-shop'});assert.equal(session.status,201);const csrf=session.data.csrf_token
  await api(other,'/v1/customer/session',{shop_slug:'my-shop'})
  const id=(await api(customer,'/v1/customer/conversations',{},csrf)).data.conversation_id;const path='/v1/customer/conversations/'+id;const sp='/v1/support/conversations/'+id

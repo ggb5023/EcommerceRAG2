@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {chromium} from 'playwright'
 import {readFile,writeFile,mkdir,chmod,lstat} from 'node:fs/promises'
 import {createHash,randomUUID} from 'node:crypto'
+import {retry} from './transport-retry.mjs'
 const runtime=process.env.CUSTOMER_RUNTIME_DIR;assert.ok(runtime)
 const base=process.env.CUSTOMER_BASE_URL??'https://merchant.example.test:18443'
 const output=process.env.CUSTOMER_REPORT_DIR;assert.ok(output)
@@ -14,7 +15,6 @@ const checks=[];const errors=[]
 const admin=await browser.newContext({ignoreHTTPSErrors:true});const staff=await browser.newContext({ignoreHTTPSErrors:true});const customer=await browser.newContext({ignoreHTTPSErrors:true})
 for(const ctx of [admin,staff,customer])ctx.on('page',p=>p.on('pageerror',e=>errors.push(e.message)))
 const adminPage=await admin.newPage();const staffPage=await staff.newPage();const customerPage=await customer.newPage()
-async function retry(fn,attempts=3){let last;for(let i=0;i<attempts;i++){try{return await fn()}catch(e){last=e;if(i===attempts-1||!/(ERR_NETWORK_CHANGED|Failed to fetch)/.test(String(e)))throw e;await new Promise(r=>setTimeout(r,700))}}throw last}
 async function login(page,user,path){return retry(async()=>{
  await page.goto(base+path)
  const state=await page.evaluate(()=>fetch('/v1/auth/session').then(r=>r.json()))
@@ -25,7 +25,9 @@ async function login(page,user,path){return retry(async()=>{
  }
  await page.waitForURL(base+path,{timeout:20000})
 })}
-async function api(page,path,body){return retry(()=>page.evaluate(async({path,body})=>{const s=await fetch('/v1/auth/session').then(r=>r.json());const r=await fetch(path,{credentials:'same-origin',...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf_token,'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body}))}
+// The idempotency key is created once per api() call and reused by every
+// retried evaluate, so a lost response never turns into a second side effect.
+async function api(page,path,body){const idem=body===undefined?undefined:randomUUID();return retry(()=>page.evaluate(async({path,body,idem})=>{const s=await fetch('/v1/auth/session').then(r=>r.json());const r=await fetch(path,{credentials:'same-origin',...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf_token,'Idempotency-Key':idem},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body,idem}))}
 async function adminApi(path,body){await login(adminPage,accounts.find(a=>a.username==='admin'),'/admin/merchant/reviews');const response=await api(adminPage,path,body);assert.ok(response.status<400,`admin API ${response.status}`);return response.data}
 try{
  await login(adminPage,accounts.find(a=>a.username==='admin'),'/admin/merchant/sources')
@@ -46,7 +48,7 @@ try{
  assert.equal(versions.length,4)
  for(const v of versions){if(v.status==='active'){assert.equal(v.review_status,'approved');continue;}assert.equal(v.status,'ready');const detail=await adminApi('/admin/v1/merchant/reviews/'+v.version_id);assert.ok(detail.content.length);const session=await adminApi('/admin/v1/session');await adminApi('/admin/v1/merchant/versions/'+v.version_id+'/review',{confirm:true,decision:'approved',disclosure_class:'external_allowed',external_allowed:true,expected_hash:v.source_hash,expected_fencing_epoch:detail.fencing_epoch,permission_revision:session.permission_revision,reason:'Controlled synthetic customer milestone review approved.'});const current=await adminApi('/admin/v1/session');await adminApi('/admin/v1/merchant/versions/'+v.version_id+'/publish',{confirm:true,tenant_id:current.tenant_id,shop_id:v.shop_id,document_id:v.document_id,version_hash:v.source_hash,permission_revision:current.permission_revision,expected_fencing_epoch:detail.fencing_epoch,reason:'Controlled synthetic customer milestone publication.'})}
  checks.push('four_real_ingestion_review_publication_lifecycles')
- await customerPage.goto(base+'/shop/my-shop')
+ await retry(()=>customerPage.goto(base+'/shop/my-shop'))
  // A fresh visitor must choose a service lane before the composer appears.
  const lanePicker=customerPage.getByRole('radiogroup',{name:'服务类型'})
  const question=customerPage.locator('#question')
@@ -58,18 +60,18 @@ try{
  await customerPage.getByRole('button',{name:/查看来源/}).last().click();await customerPage.getByRole('complementary',{name:'回答来源'}).waitFor()
  // The drawer overlays the composer actions; close it before the handoff click.
  await customerPage.getByRole('button',{name:'收起来源'}).click()
- const checkedAnswer=await customerPage.evaluate(async()=>{const c=await fetch('/v1/customer/conversations').then(r=>r.json());return fetch('/v1/customer/conversations/'+c.conversations[0].id).then(r=>r.json())})
+ const checkedAnswer=await retry(()=>customerPage.evaluate(async()=>{const c=await fetch('/v1/customer/conversations').then(r=>r.json());return fetch('/v1/customer/conversations/'+c.conversations[0].id).then(r=>r.json())}))
  await writeFile(output+'/browser-answer-capture.json',JSON.stringify(checkedAnswer,null,2),{mode:0o600})
  checks.push('browser_real_ai_answer_and_authorized_sources')
  await customerPage.getByRole('button',{name:'联系人工客服'}).click();await customerPage.getByText(/正在等待人工客服领取/).waitFor()
- const cid=(await customerPage.evaluate(()=>fetch('/v1/customer/conversations').then(r=>r.json()))).conversations[0].id
+ const cid=(await retry(()=>customerPage.evaluate(()=>fetch('/v1/customer/conversations').then(r=>r.json())))).conversations[0].id
  await login(staffPage,accounts.find(a=>a.username==='support'),'/support');await staffPage.getByRole('button',{name:new RegExp(cid.slice(-8))}).click();await staffPage.getByRole('button',{name:'领取会话'}).click();await staffPage.getByRole('button',{name:'发送人工回复'}).waitFor()
  // The support page also has a paste-question textarea; target the reply box.
  await staffPage.getByRole('textbox',{name:'人工回复'}).fill('您好，我是人工客服，已接到您的咨询。');await staffPage.getByRole('button',{name:'发送人工回复'}).click();await customerPage.getByText('您好，我是人工客服，已接到您的咨询。').waitFor({timeout:10000});checks.push('actual_customer_handoff_claim_human_reply')
- await customerPage.reload();await customerPage.getByText('您好，我是人工客服，已接到您的咨询。').waitFor();checks.push('customer_cookie_reload_recovery')
+ await retry(()=>customerPage.reload());await customerPage.getByText('您好，我是人工客服，已接到您的咨询。').waitFor();checks.push('customer_cookie_reload_recovery')
  // /staff normalizes ?tab=queue on mount and drops the conversation id, so the
  // reloaded page shows the queue; reopening the owned ticket must still work.
- await staffPage.reload();await staffPage.getByRole('button',{name:new RegExp(cid.slice(-8))}).click();await staffPage.getByRole('button',{name:'发送人工回复'}).waitFor();checks.push('staff_claim_reload_recovery')
+ await retry(()=>staffPage.reload());await staffPage.getByRole('button',{name:new RegExp(cid.slice(-8))}).click();await staffPage.getByRole('button',{name:'发送人工回复'}).waitFor();checks.push('staff_claim_reload_recovery')
  await staffPage.getByRole('button',{name:'交回 AI'}).click();await customerPage.getByText('AI 知识客服',{exact:true}).waitFor();checks.push('explicit_return_to_ai')
  for(const [name,ctx] of [['staff',staff],['admin',admin],['customer',customer]]){await ctx.storageState({path:output+'/'+name+'-browser-state.json'});await chmod(output+'/'+name+'-browser-state.json',0o600)}
  assert.deepEqual(errors,[])

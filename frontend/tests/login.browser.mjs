@@ -36,9 +36,11 @@ let finished = false
 try {
   await step('anonymous-workspace-prompts-login', async () => {
     await page.goto(base + '/chat')
-    // App.vue renders the anonymous state on /chat with an entry point to /login;
-    // the form itself only exists on /login.
-    await page.getByText('请登录客服工作台', { exact: true }).waitFor({ timeout: 15000 })
+    // /chat redirects to /assistant; App.vue renders the anonymous state there
+    // with an entry point to /login. The form itself only exists on /login.
+    await page.waitForURL(/\/assistant$/)
+    assert.equal(new URL(page.url()).pathname, '/assistant')
+    await page.getByText('请登录 AI 查询台', { exact: true }).waitFor({ timeout: 15000 })
     await page.getByRole('button', { name: '登录', exact: true }).click()
     await page.waitForURL(/\/login/)
     assert.equal(new URL(page.url()).pathname, '/login')
@@ -61,13 +63,17 @@ try {
   })
   await step('new-password-enters-workspace', async () => {
     await submitLogin(next)
-    await page.waitForURL(/\/chat/)
-    await page.getByText('客服工作台', { exact: true }).waitFor({ timeout: 15000 })
+    await page.waitForURL(/\/assistant$/)
+    // The authenticated workspace exposes the local logout and a real session.
+    await page.getByRole('button', { name: '退出登录' }).waitFor({ timeout: 15000 })
+    const session = await page.evaluate(() => fetch('/v1/auth/session').then(response => response.json()))
+    assert.equal(session.authenticated, true)
+    assert.equal(session.mode, 'local')
   })
   await step('logout-clears-session', async () => {
     await page.getByRole('button', { name: '退出登录' }).click()
     // After logout the anonymous workspace state must be back.
-    await page.getByText('请登录客服工作台', { exact: true }).waitFor({ timeout: 15000 })
+    await page.getByText('请登录 AI 查询台', { exact: true }).waitFor({ timeout: 15000 })
   })
   await step('repeated-failures-lock-the-account', async () => {
     await page.goto(base + '/login')
