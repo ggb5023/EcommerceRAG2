@@ -37,3 +37,27 @@ after-015 同时请求状态与物流；重跑 12 个事实型 case ×1，gate �
 - 不把非目标 case 的变化当作通过；任何回退先停下核查；
 - 不打印密钥/DSN/cookie；
 - 不提交本地未跟踪的审查目录，不用 `git add .`。
+
+## 实施记录（worktree `wp95`，2026-11-08）
+
+- `CONTROL_AFTER_SALES_SUFFIX`：写执行类（取消/退款/退货换货/改址/上门取件）显式
+  `intent=factual`、`information_source=realtime_business`、`required_fact_tools=[]`，
+  不得归为 knowledge、不得声称已执行；同类政策/材料/资格问题仍为 knowledge 且空工具；
+  配送争议（已签收但未收到/丢失/破损）同时请求 `get_order_status` 与 `get_logistics`，
+  普通“到哪了”只请求所需工具；不同订单实体指令原样保留。`CONTROL_SYSTEM` 未改。
+- `control` 版本 v3→v4；`python/tests/test_prompt_matrix.py` 锁 v4，并断言上述
+  写路由、政策保持 knowledge、配送争议双工具与不同订单指令均存在。
+- `eval/run_after_sales_service.py` 的 `provider_identity` 新增 `prompt_variants`、
+  逐资产 `prompt_asset_sha256`、聚合 `prompt_assets_sha256`，并把
+  `python/app/graph/prompts/control.py`、`registry.py` 纳入 `implementation_sha256`；
+  `eval/test_after_sales_service.py` 新增对应单测。
+- 离线验证：`pytest tests/test_prompt_matrix.py` 24 passed；`bash eval/run.sh offline`
+  354 passed，after-sales PLAN cases=12；`ruff check app tests ../eval` 通过；
+  `bash scripts/check.sh` 快速层 PASSED 44 / UNCONFIGURED 0 / FAILED 0。
+- 预期 live 变化仅为 after-015（双工具，ANSWER）、after-104/105
+  （`unsupported_request`，HANDOFF + OPEN 工单）；after-106 仍走
+  `knowledge_missing`、after-107 仍为 `unsupported_request`，其余 8 例应逐字节不变。
+  gate 目标 PASS 12/12，报告保持 `real_service_acceptance=false` 且无货币字段。
+- 本 worktree 未调用模型、未起隔离栈、未建 DB/env；由主 agent 用
+  `ecr_v2_test_wp95`/26181、`--profile v2_langchain_bailian`、无已发布知识执行
+  12×1，按新 capture SHA-256 绑定 review 后跑 gate；完成后恢复 mock 并停栈。
