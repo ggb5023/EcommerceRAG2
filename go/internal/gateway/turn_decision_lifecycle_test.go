@@ -223,6 +223,52 @@ func TestTurnDecisionRecoveryWritesLedger(t *testing.T) {
 	}
 }
 
+func TestPersistExecutionTerminalStoresBehavior(t *testing.T) {
+	ctx := context.Background()
+	migration, db := lifecycleDBs(t)
+	persist := func(t *testing.T, f lifecycleFixture, state, behavior string) string {
+		t.Helper()
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "behavior-" + f.stamp,
+			behavior: behavior}, state, "", "body", nil); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var stored string
+		if err = db.QueryRow(ctx, `SELECT COALESCE(behavior,'') FROM conversation_execution WHERE tenant_id=$1 AND id=$2`,
+			f.tenantID, f.executionID).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+
+	t.Run("done clarify keeps the decision", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if got := persist(t, f, "DONE", "CLARIFY"); got != "CLARIFY" {
+			t.Fatalf("behavior=%q, want CLARIFY", got)
+		}
+	})
+	t.Run("done answer keeps the decision", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if got := persist(t, f, "DONE", "ANSWER"); got != "ANSWER" {
+			t.Fatalf("behavior=%q, want ANSWER", got)
+		}
+	})
+	t.Run("failed never keeps an answer behavior", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if got := persist(t, f, "FAILED", "ANSWER"); got != "" {
+			t.Fatalf("behavior=%q, want NULL", got)
+		}
+	})
+}
+
 func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 	ctx := context.Background()
 	migration, gatewayDB := lifecycleDBs(t)

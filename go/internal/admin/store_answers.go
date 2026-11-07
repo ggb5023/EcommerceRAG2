@@ -60,7 +60,7 @@ var errAnswerNotFound = errors.New("answer_not_found")
 
 const staffAnswerRowsSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,conv.shop_id,t.user_query,
 	COALESCE(e.answer,''),(SELECT count(*) FROM citation c WHERE c.tenant_id=e.tenant_id AND c.execution_id=e.id),
-	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,e.status,e.status
+	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,COALESCE(e.behavior,''),e.status
 	FROM turn t
 	JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
 	JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
@@ -122,11 +122,7 @@ func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID 
 				&row.Answer, &row.CitationCount, &row.FactCount, &row.IsMock, &row.Behavior, &row.State); err != nil {
 				return err
 			}
-			if answerKind == "staff" {
-				row.Behavior = staffAnswerBehavior(row.State)
-			} else {
-				row.Behavior = normalizeAnswerBehavior(row.Behavior)
-			}
+			row.Behavior = answerBehavior(row.Behavior, row.State)
 			rows = append(rows, row)
 		}
 		return result.Err()
@@ -161,7 +157,7 @@ func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID 
 
 const staffAnswerDetailSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,conv.shop_id,t.user_query,
 	COALESCE(e.answer,''),(SELECT count(*) FROM citation c WHERE c.tenant_id=e.tenant_id AND c.execution_id=e.id),
-	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,e.status,e.status,
+	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,COALESCE(e.behavior,''),e.status,
 	e.id,CASE WHEN jsonb_typeof(e.facts_json)='array' THEN e.facts_json ELSE '[]'::jsonb END
 	FROM turn t
 	JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
@@ -214,7 +210,7 @@ func (s *Store) MerchantAnswer(ctx context.Context, db *pgxpool.Pool, tenantID i
 			&detail.Behavior, &detail.State, &executionID, &factsJSON); err != nil {
 			return detail, errAnswerNotFound
 		}
-		detail.Behavior = staffAnswerBehavior(detail.State)
+		detail.Behavior = answerBehavior(detail.Behavior, detail.State)
 		citations, err := s.staffAnswerCitations(ctx, db, tenantID, executionID)
 		if err != nil {
 			return detail, err
@@ -228,7 +224,7 @@ func (s *Store) MerchantAnswer(ctx context.Context, db *pgxpool.Pool, tenantID i
 			&detail.Behavior, &detail.State, &executionID, &factsJSON, &citationsJSON); err != nil {
 			return detail, errAnswerNotFound
 		}
-		detail.Behavior = normalizeAnswerBehavior(detail.Behavior)
+		detail.Behavior = answerBehavior(detail.Behavior, detail.State)
 		citations, err := s.customerAnswerCitations(ctx, db, tenantID, citationsJSON)
 		if err != nil {
 			return detail, err
@@ -245,6 +241,16 @@ func (s *Store) MerchantAnswer(ctx context.Context, db *pgxpool.Pool, tenantID i
 
 func normalizeAnswerBehavior(value string) string {
 	return strings.TrimPrefix(value, "REPLY_BEHAVIOR_")
+}
+
+// answerBehavior prefers the decision Go stored on the execution. Only a
+// legacy NULL row falls back to inferring from the terminal state, which is
+// why a DONE row used to read as ANSWER even when the reply was CLARIFY.
+func answerBehavior(behavior, state string) string {
+	if value := normalizeAnswerBehavior(strings.TrimSpace(behavior)); value != "" {
+		return value
+	}
+	return staffAnswerBehavior(state)
 }
 
 func staffAnswerBehavior(state string) string {

@@ -6,9 +6,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func updateExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer, answerHash string, factsJSON []byte) error {
-	_, err := tx.Exec(ctx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,facts_json=COALESCE($7,facts_json),finished_at=now()
-		WHERE tenant_id=$1 AND id=$2`, id.tenantID, id.executionID, state, code, answer, answerHash, factsJSON)
+func updateExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdentity, state, code, answer, answerHash, behavior string, factsJSON []byte) error {
+	_, err := tx.Exec(ctx, `UPDATE conversation_execution SET status=$3,finish_reason=$3,error_code=NULLIF($4,''),answer=$5,answer_hash=$6,behavior=NULLIF($8,''),facts_json=COALESCE($7,facts_json),finished_at=now()
+		WHERE tenant_id=$1 AND id=$2`, id.tenantID, id.executionID, state, code, answer, answerHash, factsJSON, behavior)
 	return err
 }
 

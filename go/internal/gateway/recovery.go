@@ -48,7 +48,14 @@ func persistExecutionTerminal(ctx context.Context, tx pgx.Tx, id executionIdenti
 		}
 		factsJSON = encoded
 	}
-	if err := updateExecutionTerminal(ctx, tx, id, state, code, answer, hex.EncodeToString(sum[:]), factsJSON); err != nil {
+	// Only an answer-bearing terminal carries a reply behavior. A stale
+	// decision from a cancelled or failed execution must not survive as an
+	// ANSWER row for the admin review page.
+	behavior := id.behavior
+	if state != "DONE" && state != "ASKING" {
+		behavior = ""
+	}
+	if err := updateExecutionTerminal(ctx, tx, id, state, code, answer, hex.EncodeToString(sum[:]), behavior, factsJSON); err != nil {
 		return err
 	}
 	if err := updateTurnTerminal(ctx, tx, id, state, answer); err != nil {
