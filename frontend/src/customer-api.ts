@@ -31,7 +31,7 @@ export function messageCopyState(message: Pick<Message, 'source' | 'can_copy' | 
   return { canCopy, reason: canCopy ? '' : (copyBlockedText[message.blocked_reason ?? 'not_copyable'] ?? '当前回答不可复制') }
 }
 export class ChannelError extends Error { constructor(public status: number) { super(({400:'请检查服务类型或订单号。',401:'会话已过期，请重新进入。',403:'权限已变化，受限内容已清除。',409:'会话状态已变化，请刷新后重试。',429:'发送过于频繁，请稍后重试。',503:'服务暂不可用，请稍后重试。'} as Record<number,string>)[status] ?? '请求失败，请重试。') } }
-export async function channel<T>(path: string, body?: unknown, csrf = '', key = crypto.randomUUID()): Promise<T> {
+export async function channel<T>(path: string, body?: unknown, csrf = '', key: string = crypto.randomUUID()): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', ...(body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':key},body:JSON.stringify(body)}) })
   if (!response.ok) throw new ChannelError(response.status)
   return response.json() as Promise<T>

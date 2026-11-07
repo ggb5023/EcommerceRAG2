@@ -28,7 +28,10 @@ func insertAssistantMessage(ctx context.Context, tx pgx.Tx, tenantID, turnID int
 // authorise copying from facts; they still require citations.
 func countExecutionFacts(ctx context.Context, tx pgx.Tx, tenantID, executionID int64) (int, error) {
 	var facts int
-	err := tx.QueryRow(ctx, `SELECT CASE WHEN t.kind='user' THEN COALESCE(jsonb_array_length(e.facts_json),0) ELSE 0 END
+	err := tx.QueryRow(ctx, `SELECT CASE WHEN t.kind='user' AND jsonb_typeof(e.facts_json)='array' THEN
+		(SELECT count(*) FROM jsonb_array_elements(e.facts_json) f
+		 WHERE COALESCE(f->>'tool_name','') <> '' AND COALESCE(f->>'is_mock','false') <> 'true')
+		ELSE 0 END
 		FROM conversation_execution e JOIN turn t ON t.tenant_id=e.tenant_id AND t.id=e.turn_id
 		WHERE e.tenant_id=$1 AND e.id=$2`, tenantID, executionID).Scan(&facts)
 	return facts, err

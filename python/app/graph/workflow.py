@@ -76,7 +76,10 @@ def validate_scope(scope: Scope) -> None:
             raise PermissionError("customer order binding is invalid")
     shops = set(scope.get("allowed_shop_ids") or [])
     documents = set(scope.get("allowed_document_ids") or [])
-    if not shops or not documents:
+    service_type = scope.get("service_type") or "pre_sales"
+    empty_grant_allowed = (scope.get("role") == "customer" and service_type == "after_sales"
+                           and bool(scope.get("customer_order_id")))
+    if not shops or (not documents and not empty_grant_allowed):
         raise PermissionError("scope must contain finite shop and document grants")
     selected = scope.get("shop_id")
     if selected and selected not in shops:
@@ -404,11 +407,18 @@ async def provider_understand_node(state: GraphState, chains: ProviderChainSet) 
     if state.get('scope', {}).get('subject_type') == 'customer':
         if state.get('scope', {}).get('service_type') == 'after_sales':
             messages[0]['content'] += registry.CONTROL_AFTER_SALES_SUFFIX
+            bound = str(state.get('scope', {}).get('customer_order_id') or '').strip()
+            if bound:
+                messages[0]['content'] += (f" The bound order is {bound}. If the user explicitly names a"
+                                           " different order identifier, emit it as an entity named"
+                                           " order_id so the control plane can reject it; never query a"
+                                           " different order.")
         else:
             messages[0]['content'] += registry.CONTROL_CUSTOMER_SUFFIX
     if user_history:
         messages.append({"role": "user", "content": "Untrusted prior user messages (reference resolution only):\n" + json.dumps(user_history, ensure_ascii=False)})
     missing_reference = (not user_history
+                         and state.get('scope', {}).get('service_type') != 'after_sales'
                          and bool(re.search(r"前面|前文|刚才|上一问|沿用", state['query']))
                          and not re.search(r"\b[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+\b", state['query'])
                          and not CLARIFICATION_WORKFLOW.search(state['query']))
@@ -690,7 +700,7 @@ def _generation_messages(state: GraphState, system_content: str, schema: dict[st
 
 
 def _customer_messages(messages: list[dict[str, str]], schema: dict[str, Any],
-                       service_type: str = "pre_sales") -> dict[str, Any]:
+                       service_type: str = "pre_sales", has_facts: bool = False) -> dict[str, Any]:
     if service_type == "after_sales":
         messages[0]['content'] = registry.GENERATION_AFTER_SALES_INSTRUCTION
     else:
@@ -701,6 +711,8 @@ def _customer_messages(messages: list[dict[str, str]], schema: dict[str, Any],
                                   reason_code={'type': 'string', 'enum': ['grounded', 'missing_context', 'knowledge_missing', 'conflicting_evidence', 'unsupported_request']}))
     schema['properties']['citation_ids'] = dict(schema['properties']['citation_ids'], minItems=0)
     if service_type == "after_sales":
+        if has_facts:
+            messages[0]['content'] += "\n" + registry.GENERATION_FACTS_INSTRUCTION
         messages[0]['content'] += registry.GENERATION_AFTER_SALES_SUFFIX
     else:
         messages[0]['content'] += registry.GENERATION_CUSTOMER_SUFFIX
@@ -905,7 +917,8 @@ async def provider_generate_node(state: GraphState, chains: ProviderChainSet) ->
     messages = _generation_messages(state, system_content, schema, context, evidence, facts, mode)
     if mode.customer_chat:
         schema = _customer_messages(messages, schema,
-                                    str(state.get('scope', {}).get('service_type') or 'pre_sales'))
+                                    str(state.get('scope', {}).get('service_type') or 'pre_sales'),
+                                    bool(facts))
     request = {
         "messages": messages,
         "response_schema": schema,

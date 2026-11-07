@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -225,7 +226,11 @@ func TestTurnDecisionRecoveryWritesLedger(t *testing.T) {
 func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 	ctx := context.Background()
 	migration, gatewayDB := lifecycleDBs(t)
-	persist := func(t *testing.T, f lifecycleFixture, state string, addCitation, mock bool, behavior string) (bool, string) {
+	persist := func(t *testing.T, f lifecycleFixture, state string, addCitation, mock bool, behavior string, facts ...[]*ragv1.Fact) (bool, string) {
+		var savedFacts []*ragv1.Fact
+		if len(facts) > 0 {
+			savedFacts = facts[0]
+		}
 		t.Helper()
 		tx, err := gatewayDB.Begin(ctx)
 		if err != nil {
@@ -243,7 +248,7 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 			}
 		}
 		if err = persistExecutionTerminal(ctx, tx, executionIdentity{tenantID: f.tenantID, executionID: f.executionID,
-			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, behavior: behavior, mock: mock}, state, "", "suggestion body", nil); err != nil {
+			turnID: f.turnID, conversationID: f.conversationID, executionNo: 1, requestID: "copy-" + f.stamp, behavior: behavior, mock: mock}, state, "", "suggestion body", savedFacts); err != nil {
 			t.Fatal(err)
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -296,6 +301,48 @@ func TestPersistExecutionTerminalSetsCopyability(t *testing.T) {
 			t.Fatal(err)
 		}
 		canCopy, blocked := persist(t, f, "DONE", false, false, "ANSWER")
+		if canCopy || blocked != "no_citable_evidence" {
+			t.Fatalf("can_copy=%v blocked=%q, want false/no_citable_evidence", canCopy, blocked)
+		}
+	})
+
+	t.Run("done with a non-mock fact", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		fact := &ragv1.Fact{ToolName: "get_order_status", ResourceId: "ORD-2609-0005",
+			ValueJson: `{"order_id":"ORD-2609-0005","status":"shipped"}`, ObservedAt: "2026-09-29T12:00:00Z"}
+		canCopy, blocked := persist(t, f, "DONE", false, false, "ANSWER", []*ragv1.Fact{fact})
+		if !canCopy || blocked != "" {
+			t.Fatalf("can_copy=%v blocked=%q, want true/empty", canCopy, blocked)
+		}
+	})
+
+	t.Run("done with only a mock fact", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		fact := &ragv1.Fact{ToolName: "get_order_status", ResourceId: "ORD-2609-0005",
+			ValueJson: `{"order_id":"ORD-2609-0005","status":"shipped"}`, ObservedAt: "2026-09-29T12:00:00Z", IsMock: true}
+		canCopy, blocked := persist(t, f, "DONE", false, false, "ANSWER", []*ragv1.Fact{fact})
+		if canCopy || blocked != "no_citable_evidence" {
+			t.Fatalf("can_copy=%v blocked=%q, want false/no_citable_evidence", canCopy, blocked)
+		}
+	})
+
+	t.Run("suggestion facts never authorize copy", func(t *testing.T) {
+		f := newLifecycleFixture(t, migration)
+		if _, err := migration.Exec(ctx, `UPDATE conversation_execution SET is_mock=false WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.executionID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := migration.Exec(ctx, `UPDATE turn SET kind='suggestion' WHERE tenant_id=$1 AND id=$2`, f.tenantID, f.turnID); err != nil {
+			t.Fatal(err)
+		}
+		fact := &ragv1.Fact{ToolName: "get_order_status", ResourceId: "ORD-2609-0005",
+			ValueJson: `{"order_id":"ORD-2609-0005","status":"shipped"}`, ObservedAt: "2026-09-29T12:00:00Z"}
+		canCopy, blocked := persist(t, f, "DONE", false, false, "ANSWER", []*ragv1.Fact{fact})
 		if canCopy || blocked != "no_citable_evidence" {
 			t.Fatalf("can_copy=%v blocked=%q, want false/no_citable_evidence", canCopy, blocked)
 		}

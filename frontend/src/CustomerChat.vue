@@ -6,7 +6,7 @@ import {channel,ChannelError,watchChannel,messageCopyState,laneLabel,ticketStatu
 const route=useRoute(); const slug=String(route.params.slug)
 const shop=ref({name:'客户咨询',welcome_message:''}); const csrf=ref(''); const snapshot=ref<Snapshot|null>(null)
 const text=ref(''); const error=ref(''); const busy=ref(false); const sources=ref<Citation[]>([])
-const pickerOpen=ref(false); const lane=ref<ServiceType>('pre_sales'); const orderInput=ref(''); const startError=ref('')
+const pickerOpen=ref(false); const lane=ref<ServiceType>('pre_sales'); const orderInput=ref(''); const startError=ref(''); const startKey=ref('')
 const activeLane=computed(()=>snapshot.value?.conversation.service_type??'pre_sales')
 const laneText=computed(()=>laneLabel(activeLane.value,snapshot.value?.conversation.order_id))
 const ticketLine=computed(()=>ticketStatusText(snapshot.value?.ticket?.status))
@@ -19,9 +19,10 @@ const chatEl=ref<HTMLElement|null>(null); const messagesEl=ref<HTMLElement|null>
 const drawerOpen=ref(false); const activeMessage=ref<Message|null>(null); const sourcesLoading=ref(false)
 const stickToBottom=ref(true); const showJump=ref(false); const copiedId=ref(''); const copyNotice=ref('')
 let viewEpoch=0
+let disposed=false
 let controller=new AbortController(); let poll:ReturnType<typeof setInterval>; let viewport:VisualViewport|null=null; let pressTimer:ReturnType<typeof setTimeout>|undefined
 
-function failed(e:unknown) {error.value=e instanceof Error?e.message:'服务暂不可用。'; if(e instanceof ChannelError && [401,403,404].includes(e.status)){snapshot.value=null;sources.value=[];controller.abort();closeSources()}}
+function failed(e:unknown) {error.value=e instanceof Error?e.message:'服务暂不可用。'; if(e instanceof ChannelError && [401,403,404].includes(e.status)){snapshot.value=null;sources.value=[];pickerOpen.value=false;controller.abort();closeSources()}}
 function syncViewport(){if(!chatEl.value)return;const height=Math.round(viewport?.height??window.innerHeight);const top=Math.round(viewport?.offsetTop??0);chatEl.value.style.setProperty('--chat-height',`${height}px`);chatEl.value.style.setProperty('--chat-top',`${top}px`)}
 function onMessagesScroll(){const el=messagesEl.value;if(!el)return;stickToBottom.value=el.scrollHeight-el.scrollTop-el.clientHeight<80;showJump.value=!stickToBottom.value}
 function scrollLatest(behavior:ScrollBehavior='smooth'){const el=messagesEl.value;if(!el)return;el.scrollTo({top:el.scrollHeight,behavior});stickToBottom.value=true;showJump.value=false}
@@ -29,8 +30,8 @@ function closeSources(){drawerOpen.value=false;activeMessage.value=null;sources.
 async function loadSources(message:Message){if(!snapshot.value)return;sourcesLoading.value=true;try{sources.value=(await channel<{citations:Citation[]}>(`/v1/customer/conversations/${snapshot.value.conversation.id}/citations/${message.id}`)).citations}finally{sourcesLoading.value=false}}
 async function openSources(message:Message){if(!snapshot.value)return;activeMessage.value=message;drawerOpen.value=true;copyNotice.value='';sources.value=[];try{await loadSources(message)}catch(e){failed(e);closeSources()}}
 async function refresh(){if(!snapshot.value)return;const epoch=viewEpoch;const id=snapshot.value.conversation.id;const result=await channel<Snapshot>(`/v1/customer/conversations/${id}`);if(epoch!==viewEpoch||snapshot.value?.conversation.id!==id)return;snapshot.value=result;if(drawerOpen.value&&activeMessage.value){const updated=result.messages?.find(message=>message.id===activeMessage.value?.id);if(!updated)closeSources();else{activeMessage.value=updated;if(updated.citations.length)await loadSources(updated).catch(failed);else sources.value=[]}}else if(sources.value.length)sources.value=[]}
-function stopWatch(){controller.abort();controller=new AbortController()}
-async function openConversation(id:string){const epoch=viewEpoch;snapshot.value=await channel<Snapshot>(`/v1/customer/conversations/${id}`);if(epoch!==viewEpoch)return;stopWatch();void watchChannel(`/v1/customer/conversations/${id}/events`,controller.signal,refresh,e=>{if(epoch===viewEpoch)failed(e)})}
+function stopWatch(){if(disposed)return;controller.abort();controller=new AbortController()}
+async function openConversation(id:string){const epoch=viewEpoch;snapshot.value=await channel<Snapshot>(`/v1/customer/conversations/${id}`);if(disposed||epoch!==viewEpoch)return;stopWatch();void watchChannel(`/v1/customer/conversations/${id}/events`,controller.signal,refresh,e=>{if(epoch===viewEpoch)failed(e)})}
 async function enter(){const epoch=++viewEpoch;stopWatch();closeSources();snapshot.value=null;sources.value=[];text.value='';busy.value=true;error.value='';pickerOpen.value=false;stickToBottom.value=true;showJump.value=false;try{
  shop.value=await channel(`/v1/customer/shops/${encodeURIComponent(slug)}`)
  const session=await channel<{csrf_token:string}>('/v1/customer/session',{shop_slug:slug});csrf.value=session.csrf_token
@@ -40,9 +41,13 @@ async function enter(){const epoch=++viewEpoch;stopWatch();closeSources();snapsh
  }catch(e){failed(e)}finally{busy.value=false;nextTick(()=>scrollLatest('auto'))}}
 async function startConversation(){if(busy.value)return;startError.value='';const order=orderInput.value.trim().toUpperCase();if(lane.value==='after_sales'&&!orderIdPattern.test(order)){startError.value='请输入正确订单号，例如 ORD-2609-0005。';return}
  busy.value=true;error.value='';try{const body=lane.value==='after_sales'?{service_type:'after_sales',order_id:order}:{service_type:'pre_sales'}
-  const created=await channel<{conversation_id:string}>('/v1/customer/conversations',body,csrf.value)
+  if(!startKey.value)startKey.value=crypto.randomUUID()
+  const created=await channel<{conversation_id:string}>('/v1/customer/conversations',body,csrf.value,startKey.value)
+  startKey.value=''
+  if(disposed)return
   viewEpoch++;pickerOpen.value=false;await openConversation(created.conversation_id);await refresh();nextTick(()=>scrollLatest('auto'))
- }catch(e){startError.value=e instanceof Error?e.message:'创建会话失败，请稍后重试。'}finally{busy.value=false}}
+ }catch(e){if(e instanceof ChannelError&&[401,403,404].includes(e.status)){pickerOpen.value=false;failed(e)}else{startError.value=e instanceof Error?e.message:'创建会话失败，请稍后重试。';if(e instanceof ChannelError&&e.status===409)startKey.value=''}}finally{busy.value=false}}
+watch([lane,orderInput],()=>{startKey.value=''})
 function newConsult(){if(!snapshot.value)return;lane.value=activeLane.value;orderInput.value=snapshot.value.conversation.order_id??'';startError.value='';pickerOpen.value=true}
 async function send(){if(!text.value.trim()||!snapshot.value)return;busy.value=true;error.value='';stickToBottom.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/messages`,{text:text.value},csrf.value);text.value='';await refresh();nextTick(()=>scrollLatest('auto'))}catch(e){failed(e)}finally{busy.value=false}}
 async function handoff(){if(!snapshot.value)return;busy.value=true;try{await channel(`/v1/customer/conversations/${snapshot.value.conversation.id}/handoff`,{},csrf.value);await refresh()}catch(e){failed(e)}finally{busy.value=false}}
@@ -51,7 +56,7 @@ function cancelPress(){if(pressTimer){clearTimeout(pressTimer);pressTimer=undefi
 async function copyMessage(message:Message){if(!messageCopyState(message).canCopy)return;copiedId.value=message.id;copyNotice.value='';try{if(!navigator.clipboard)throw new Error('clipboard unavailable');await navigator.clipboard.writeText(message.text);copyNotice.value='已复制回答。'}catch{copyNotice.value='复制失败，请手动选择文本。'}}
 watch(()=>snapshot.value?.messages.map(message=>`${message.id}:${message.text}`).join('|'),()=>{if(stickToBottom.value)nextTick(()=>scrollLatest('auto'))})
 onMounted(()=>{viewport=window.visualViewport;viewport?.addEventListener('resize',syncViewport);viewport?.addEventListener('scroll',syncViewport);window.addEventListener('resize',syncViewport);nextTick(syncViewport);void enter();poll=setInterval(()=>void refresh().catch(failed),5000)})
-onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.removeEventListener('resize',syncViewport);viewport?.removeEventListener('scroll',syncViewport);window.removeEventListener('resize',syncViewport)})
+onUnmounted(()=>{disposed=true;cancelPress();controller.abort();clearInterval(poll);viewport?.removeEventListener('resize',syncViewport);viewport?.removeEventListener('scroll',syncViewport);window.removeEventListener('resize',syncViewport)})
 </script>
 
 <template>
@@ -89,6 +94,7 @@ onUnmounted(()=>{cancelPress();controller.abort();clearInterval(poll);viewport?.
 
   <section v-else ref="messagesEl" class="messages" aria-label="咨询记录" @scroll="onMessagesScroll">
     <p v-if="error" role="alert" class="chat-error">{{error}}</p>
+    <p v-if="startError && !pickerOpen" role="alert" class="chat-error">{{startError}}</p>
     <div v-if="!snapshot && !pickerOpen" class="enter-state"><button type="button" :disabled="busy" @click="enter()">{{busy?'正在连接…':'重新进入'}}</button></div>
     <article v-for="m in snapshot?.messages" :key="m.id" :class="m.source" @pointerdown="beginPress(m)" @pointerup="cancelPress" @pointercancel="cancelPress" @pointermove="cancelPress">
       <strong>{{({customer:'你',assistant:'AI 客服',agent:'人工客服',system:'服务提示'})[m.source]}}</strong>

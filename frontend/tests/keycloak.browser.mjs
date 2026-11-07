@@ -209,7 +209,7 @@ try {
           assert.equal((await page.request.get(customer + '/v1/turns/' + turn.request_id + '/events')).status(), 401)
           await page.reload()
           await page.getByRole('button', { name: '登录', exact: true }).waitFor()
-          assert.equal(await page.locator('.evidence-card:visible,.message:visible,.draft-panel:visible').count(), 0)
+          assert.equal(await page.locator('#evidence-pane,.evidence-card:visible,.message:visible,.draft-panel:visible').count(), 0)
         } finally { authority('restore') }
         await login(customer, '/chat')
         await page.locator('#question').waitFor()

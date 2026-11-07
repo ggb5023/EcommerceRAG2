@@ -527,10 +527,17 @@ func (s *Service) finishReason(ctx context.Context, tx pgx.Tx, c conversation, s
 			reason = "permission_changed"
 		}
 	}
-	if reason == "" && len(p.Facts) > 0 {
+	if reason == "" && p.Decision != nil && shouldRevalidateFacts(p.Decision.Behavior, p.Facts) {
 		reason = s.revalidateFacts(ctx, scope, p.Facts)
 	}
 	return reason, nil
+}
+
+// shouldRevalidateFacts limits the commit-time fact check to ANSWER. A CLARIFY
+// or HANDOFF does not rely on facts, so a provider outage must not turn it into
+// a failure.
+func shouldRevalidateFacts(behavior ragv1.ReplyBehavior, facts []*ragv1.Fact) bool {
+	return behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_ANSWER && len(facts) > 0
 }
 
 // revalidateFacts re-runs the authorized lookup at commit time. Values may have
@@ -583,7 +590,7 @@ func (s *Service) finishSuccess(ctx context.Context, tx pgx.Tx, c conversation, 
 	if behavior == ragv1.ReplyBehavior_REPLY_BEHAVIOR_CLARIFY {
 		executionState = "ASKING"
 	}
-	raw, err := json.Marshal(p.Evidence)
+	raw, err := marshalCitationSnapshot(p.Evidence)
 	if err != nil {
 		return err
 	}

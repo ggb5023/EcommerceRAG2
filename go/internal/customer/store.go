@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,12 +26,19 @@ func emit(ctx context.Context, tx pgx.Tx, c conversation, kind string, data map[
 	_, err = tx.Exec(ctx, `INSERT INTO customer_event(tenant_id,conversation_id,sequence,event_type,data_json) VALUES($1,$2,$3,$4,$5)`, c.Tenant, c.ID, seq, kind, encoded)
 	return err
 }
-func addMessage(ctx context.Context, tx pgx.Tx, c conversation, source, text, execution string, actor *int64, citations any) (string, error) {
-	id := ID()
+
+// marshalCitationSnapshot always emits a JSON array. A typed nil slice would
+// otherwise marshal as JSON null, which jsonb_array_length rejects.
+func marshalCitationSnapshot(citations []*ragv1.Evidence) ([]byte, error) {
 	if citations == nil {
-		citations = []any{}
+		citations = []*ragv1.Evidence{}
 	}
-	encoded, err := json.Marshal(citations)
+	return json.Marshal(citations)
+}
+
+func addMessage(ctx context.Context, tx pgx.Tx, c conversation, source, text, execution string, actor *int64, citations []*ragv1.Evidence) (string, error) {
+	id := ID()
+	encoded, err := marshalCitationSnapshot(citations)
 	if err != nil {
 		return "", err
 	}
@@ -298,6 +306,9 @@ func applyConversationAction(ctx context.Context, tx pgx.Tx, c conversation, id,
 			ticketStatus := ""
 			if action == "close" {
 				c.State, ticketStatus = "CLOSED", "CLOSED"
+			}
+			if action == "resume-ai" {
+				ticketStatus = "CLOSED"
 			}
 			if action == "resolve" {
 				c.State, ticketStatus = "CLOSED", "RESOLVED"

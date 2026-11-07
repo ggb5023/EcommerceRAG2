@@ -67,7 +67,7 @@ func IssueCustomerScope(ctx context.Context, db *pgxpool.Pool, key []byte, sessi
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "authorization_unavailable")
 	}
-	if len(scope.AllowedDocumentIds) == 0 {
+	if len(scope.AllowedDocumentIds) == 0 && scope.ServiceType != "after_sales" {
 		return nil, errors.New("knowledge_missing")
 	}
 	scope.BusinessDate, err = businessDateForLocation(timezone, time.Now())

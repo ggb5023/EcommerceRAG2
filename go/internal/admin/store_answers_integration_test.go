@@ -120,7 +120,7 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 	}
 	customerExecution := "ce-" + stamp
 	if _, err := migration.Exec(ctx, `INSERT INTO customer_execution(id,tenant_id,conversation_id,epoch,session_id,state,behavior,answer,is_mock,facts_json)
-		VALUES($1,$2,$3,1,$4,'DONE','ANSWER','顾客回答',false,$5)`, customerExecution, tenant, customerConversation, sessionID, facts); err != nil {
+		VALUES($1,$2,$3,1,$4,'DONE','REPLY_BEHAVIOR_ANSWER','顾客回答',false,$5)`, customerExecution, tenant, customerConversation, sessionID, facts); err != nil {
 		t.Fatal("customer execution fixture failed")
 	}
 	if _, err := migration.Exec(ctx, `UPDATE customer_message SET execution_id=$1 WHERE id='a-'||$2`, customerExecution, stamp); err != nil {
@@ -159,6 +159,55 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 		t.Fatalf("mock filter failed: %v %v", mockRows, err)
 	}
 
+	// Two sources sharing one microsecond must both be reachable through the
+	// composite cursor; a timestamp-only filter would skip one forever.
+	if _, err := migration.Exec(ctx, `UPDATE customer_message SET created_at='2026-11-07T00:00:00Z' WHERE tenant_id=$1 AND id=$2`, tenant, "q-"+stamp); err != nil {
+		t.Fatalf("question timestamp fixture failed: %v", err)
+	}
+	if _, err := migration.Exec(ctx, `UPDATE turn SET created_at='2026-11-07T01:00:00Z' WHERE tenant_id=$1 AND id=$2`, tenant, turn); err != nil {
+		t.Fatalf("turn timestamp fixture failed: %v", err)
+	}
+	if _, err := migration.Exec(ctx, `UPDATE customer_message SET created_at='2026-11-07T01:00:00Z' WHERE tenant_id=$1 AND id=$2`, tenant, "a-"+stamp); err != nil {
+		t.Fatalf("message timestamp fixture failed: %v", err)
+	}
+	seen := map[string]bool{}
+	var cursor *AnswerCursor
+	for page := 0; page < 5; page++ {
+		batch, next, err := store.MerchantAnswers(ctx, db, tenant, []string{"shop-test"}, "all", nil, cursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range batch {
+			seen[row.Kind+":"+row.ID] = true
+		}
+		if next == nil {
+			break
+		}
+		cursor = next
+	}
+	if len(seen) != 2 {
+		t.Fatalf("cursor lost rows: %v", seen)
+	}
+
+	// Legacy/clarification messages can hold JSON null; the review queries must
+	// treat it as an empty array, not call jsonb_array_length on a scalar.
+	if _, err := migration.Exec(ctx, `INSERT INTO customer_message(id,tenant_id,conversation_id,source,content,citations_json)
+		VALUES($1,$2,$3,'assistant','无引用回答','null'::jsonb)`, "n-"+stamp, tenant, customerConversation); err != nil {
+		t.Fatalf("null citation fixture failed: %v", err)
+	}
+	withNull, _, err := store.MerchantAnswers(ctx, db, tenant, []string{"shop-test"}, "customer", nil, nil, 10)
+	if err != nil || len(withNull) != 2 {
+		t.Fatalf("null citation list failed: %v %v", withNull, err)
+	}
+	nullRow := withNull[0]
+	if nullRow.ID != "n-"+stamp || nullRow.CitationCount != 0 || nullRow.FactCount != 0 {
+		t.Fatalf("null citation row: %+v", nullRow)
+	}
+	nullDetail, err := store.MerchantAnswer(ctx, db, tenant, []string{"shop-test"}, "customer", "n-"+stamp)
+	if err != nil || len(nullDetail.Citations) != 0 || len(nullDetail.Facts) != 0 {
+		t.Fatalf("null citation detail: %+v %v", nullDetail, err)
+	}
+
 	staff, err := store.MerchantAnswer(ctx, db, tenant, []string{"shop-test"}, "staff", strconv.FormatInt(turn, 10))
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +222,7 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if review.Question != "顾客问题" || len(review.Citations) != 1 || review.Citations[0].EvidenceID != "db-chunk-2" {
+	if review.Question != "顾客问题" || review.Behavior != "ANSWER" || len(review.Citations) != 1 || review.Citations[0].EvidenceID != "db-chunk-2" {
 		t.Fatalf("customer detail: %+v", review)
 	}
 	if len(review.Facts) != 1 || review.Facts[0].ResourceID != "ORD-2609-0005" {

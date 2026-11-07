@@ -51,14 +51,19 @@ func (g *Handler) adminAnswers(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	var before *time.Time
+	var before *AnswerCursor
 	if raw := r.URL.Query().Get("before"); raw != "" {
-		parsed, err := time.Parse(time.RFC3339Nano, raw)
-		if err != nil {
-			httpapi.WriteError(w, http.StatusBadRequest, "invalid_answer_cursor", "before must be an RFC3339 timestamp")
+		parts := strings.SplitN(raw, "|", 3)
+		if len(parts) != 3 || (parts[1] != "staff" && parts[1] != "customer") || parts[2] == "" {
+			httpapi.WriteError(w, http.StatusBadRequest, "invalid_answer_cursor", "before must be an opaque cursor")
 			return
 		}
-		before = &parsed
+		parsed, err := time.Parse(time.RFC3339Nano, parts[0])
+		if err != nil {
+			httpapi.WriteError(w, http.StatusBadRequest, "invalid_answer_cursor", "before must be an opaque cursor")
+			return
+		}
+		before = &AnswerCursor{CreatedAt: parsed, Kind: parts[1], ID: parts[2]}
 	}
 	rows, next, err := adminStore.MerchantAnswers(r.Context(), g.DB, scope.TenantID, scope.shops, kind, mock, before, limit)
 	if err != nil {
@@ -70,15 +75,15 @@ func (g *Handler) adminAnswers(w http.ResponseWriter, r *http.Request) {
 		items = append(items, map[string]any{
 			"kind": row.Kind, "id": row.ID, "request_id": row.RequestID,
 			"created_at": row.CreatedAt.UTC().Format(time.RFC3339Nano), "shop_id": row.ShopID,
-			"question": truncateRunes(row.Question, answerPreviewRunes),
-			"answer": truncateRunes(row.Answer, answerPreviewRunes),
+			"question":       truncateRunes(row.Question, answerPreviewRunes),
+			"answer":         truncateRunes(row.Answer, answerPreviewRunes),
 			"citation_count": row.CitationCount, "fact_count": row.FactCount,
 			"is_mock": row.IsMock, "behavior": row.Behavior, "state": row.State,
 		})
 	}
 	response := map[string]any{"items": items}
 	if next != nil {
-		response["next_before"] = next.UTC().Format(time.RFC3339Nano)
+		response["next_before"] = next.String()
 	}
 	httpapi.WriteJSON(w, http.StatusOK, response)
 }

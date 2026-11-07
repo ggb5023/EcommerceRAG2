@@ -208,7 +208,10 @@ class PostgresRetriever:
         documents = [str(value) for value in scope.get("allowed_document_ids", []) if str(value).strip()]
         selected_shop = str(scope.get("shop_id", "")).strip()
         role = str(scope.get("role", "")).strip()
-        if not tenant or not tenant_db_id or not shops or not documents:
+        empty_grant_allowed = (role == "customer" and scope.get("subject_type") == "customer"
+                               and (scope.get("service_type") or "pre_sales") == "after_sales"
+                               and bool(scope.get("customer_order_id")))
+        if not tenant or not tenant_db_id or not shops or (not documents and not empty_grant_allowed):
             raise PermissionError("persistent retrieval scope is incomplete")
         if not tenant_db_id.isdigit() or int(tenant_db_id) < 1:
             raise PermissionError("persistent retrieval tenant database id is invalid")

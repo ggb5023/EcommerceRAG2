@@ -20,7 +20,26 @@ stop_stack() {
   local state_root=${root:-${ECR_ISOLATED_ROOT:-/tmp/ecr-isolated}}
   local ports_file="$state_root/ports.json"
   if [[ ! -f "$ports_file" ]]; then
-    echo "PASS isolated stack already stopped"
+    # Startup can fail before ports.json is written. The pid files are created
+    # as soon as each process starts, so use them to avoid leaking a supervisor
+    # or Vite process when fail() calls stop_stack.
+    local found=0 pid pidfile
+    for name in supervisor vite; do
+      pidfile="$state_root/$name.pid"
+      [[ -f "$pidfile" ]] || continue
+      found=1
+      pid=$(cat "$pidfile" 2>/dev/null || true)
+      if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+        for _ in $(seq 1 50); do
+          kill -0 "$pid" 2>/dev/null || break
+          sleep 0.1
+        done
+        kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+      fi
+      rm -f "$pidfile"
+    done
+    [[ $found -eq 1 ]] && echo "PASS isolated stack stopped" || echo "PASS isolated stack already stopped"
     return 0
   fi
   "$python" - "$ports_file" <<'PY'
@@ -260,7 +279,7 @@ if [[ $with_vite -eq 1 ]]; then
   # wrapper subshell that exits before the stack is stopped.
   pushd "$repo/frontend" >/dev/null
   VITE_API_PROXY_TARGET="http://127.0.0.1:$gateway_port" \
-    setsid nohup npm run dev -- --port "$vite_port" --strictPort >>"$log" 2>&1 &
+    setsid nohup node node_modules/vite/bin/vite.js --host 127.0.0.1 --port "$vite_port" --strictPort >>"$log" 2>&1 &
   vite_pid=$!
   popd >/dev/null
   echo "$vite_pid" > "$root/vite.pid"

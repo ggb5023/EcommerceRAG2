@@ -48,8 +48,10 @@ try{
  await customerPage.goto(base+'/shop/my-shop')
  // A fresh visitor must choose a service lane before the composer appears.
  const lanePicker=customerPage.getByRole('radiogroup',{name:'服务类型'})
- if(await lanePicker.count()){await customerPage.getByRole('radio',{name:/售前咨询/}).click();await customerPage.getByRole('button',{name:'开始咨询'}).click()}
- await customerPage.locator('#question').waitFor()
+ const question=customerPage.locator('#question')
+ await Promise.race([lanePicker.waitFor({state:'visible',timeout:30000}).catch(()=>{}),question.waitFor({state:'visible',timeout:30000}).catch(()=>{})])
+ if(await lanePicker.isVisible()){await customerPage.getByRole('radio',{name:/售前咨询/}).click();await customerPage.getByRole('button',{name:'开始咨询'}).click()}
+ await question.waitFor()
  await customerPage.locator('#question').fill('岚叶杯的容量是多少？');await customerPage.getByRole('button',{name:'发送',exact:true}).click()
  await customerPage.locator('article.assistant .message-text').filter({hasText:'450'}).waitFor({timeout:75000})
  await customerPage.getByRole('button',{name:/查看来源/}).last().click();await customerPage.getByRole('complementary',{name:'回答来源'}).waitFor()

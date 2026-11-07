@@ -107,12 +107,12 @@ type Return struct {
 }
 
 type Ticket struct {
-	ID         string
-	OrderID    string
-	ReasonCode string
-	Status     string
-	CreatedAt  string
-	ClosedAt   string
+	ID         string `json:"ticket_id"`
+	OrderID    string `json:"order_id"`
+	ReasonCode string `json:"reason_code"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+	ClosedAt   string `json:"closed_at"`
 }
 
 // Dataset is the parsed, cross-checked in-memory shop.

@@ -34,15 +34,15 @@ page.on('response', response => {
 try {
   for (const [path, title] of routes) {
     await page.goto(`${baseURL}${path}`, { waitUntil: 'networkidle' })
-    await page.getByRole('heading', { name: title, level: 1 }).first().waitFor()
-    assert.equal(await page.locator('h1').first().innerText(), title, `${path} title`)
+    await page.getByRole('heading', { name: title, level: 1 }).waitFor()
+    assert.equal(await page.locator('h1').innerText(), title, `${path} title`)
   }
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     for (const [path, title] of routes) {
       await page.goto(`${baseURL}${path}`, { waitUntil: 'networkidle' })
-      await page.getByRole('heading', { name: title, level: 1 }).first().waitFor()
+      await page.getByRole('heading', { name: title, level: 1 }).waitFor()
       const layout = await page.evaluate(() => ({
         viewport: innerWidth,
         document: document.documentElement.scrollWidth,

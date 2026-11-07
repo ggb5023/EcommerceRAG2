@@ -180,9 +180,16 @@ func TestDevRestReadsOrdersInventoryShipmentsAndTickets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var createdTicket map[string]any
+	if err = json.NewDecoder(created.Body).Decode(&createdTicket); err != nil {
+		t.Fatal(err)
+	}
 	created.Body.Close()
 	if created.StatusCode != http.StatusCreated {
 		t.Fatalf("ticket create status %d", created.StatusCode)
+	}
+	if createdTicket["order_id"] == nil || createdTicket["status"] != "open" || createdTicket["ticket_id"] == nil {
+		t.Fatalf("ticket response is not snake_case: %v", createdTicket)
 	}
 	server.mu.Lock()
 	count := len(server.tickets)

@@ -21,6 +21,9 @@ const error = ref('')
 const detail = ref<AnswerDetail | null>(null)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
+const detailError = ref('')
+let loadSeq = 0
+let detailSeq = 0
 
 const kindLabels: Record<string, string> = { staff: '员工轮次', customer: '顾客消息' }
 const behaviorLabels: Record<string, string> = {
@@ -38,30 +41,34 @@ function behaviorLabel(value: string) { return behaviorLabels[value] ?? value }
 function stateLabel(value: string) { return stateLabels[value] ?? (value || '—') }
 
 async function load(reset = true) {
+  const seq = ++loadSeq
   if (reset) { loading.value = true; error.value = '' } else { loadingMore.value = true }
   try {
     const page = await request<AnswerList>(answerListPath(kind.value, mock.value, reset ? undefined : next.value))
+    if (seq !== loadSeq) return
     items.value = reset ? page.items : [...items.value, ...page.items]
     next.value = page.next_before ?? ''
   } catch (cause) {
-    error.value = (cause as Error).message
+    if (seq === loadSeq) error.value = (cause as Error).message
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    if (seq === loadSeq) { loading.value = false; loadingMore.value = false }
   }
 }
 
 async function openDetail(row: AnswerRow) {
+  const seq = ++detailSeq
   detailOpen.value = true
   detailLoading.value = true
+  detailError.value = ''
   detail.value = null
   try {
-    detail.value = await request<AnswerDetail>(answerDetailPath(row.kind, row.id))
+    const loaded = await request<AnswerDetail>(answerDetailPath(row.kind, row.id))
+    if (seq !== detailSeq) return
+    detail.value = loaded
   } catch (cause) {
-    error.value = (cause as Error).message
-    detailOpen.value = false
+    if (seq === detailSeq) detailError.value = (cause as Error).message
   } finally {
-    detailLoading.value = false
+    if (seq === detailSeq) detailLoading.value = false
   }
 }
 
@@ -73,7 +80,7 @@ const hasMore = computed(() => next.value !== '')
 
 <template>
   <section class="answers-page">
-    <PageHeader eyebrow="知识" title="回答与引用"
+    <PageHeader :level="2" eyebrow="知识" title="回答与引用"
       subtitle="审查员工与顾客 AI 回答的全文、引用与事实快照。列表截断问题与回答，打开详情会记录审计。" />
 
     <section class="answers-filters" aria-label="筛选回答">
@@ -124,6 +131,7 @@ const hasMore = computed(() => next.value !== '')
 
     <Drawer :open="detailOpen" title="回答与引用详情" @close="detailOpen = false">
       <StatePanel v-if="detailLoading" tone="loading" title="正在读取详情" />
+      <StatePanel v-else-if="detailError" tone="error" title="回答详情暂不可用" :detail="detailError" />
       <template v-else-if="detail">
         <dl class="answer-meta">
           <div><dt>来源</dt><dd>{{ kindLabel(detail.kind) }}</dd></div>

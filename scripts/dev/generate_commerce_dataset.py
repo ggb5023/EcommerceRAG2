@@ -414,10 +414,21 @@ def check_package(output: Path) -> list[str]:
     return problems
 
 
+def generated_package(directory: Path) -> bool:
+    """Only a package produced by this generator may be wiped by --write."""
+    try:
+        text = (directory / "manifest.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return ("dataset_id: commerce-lab-v1" in text
+            and "generated_by: scripts/dev/generate_commerce_dataset.py" in text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="write the package")
     parser.add_argument("--check", action="store_true", help="verify the committed bytes")
+    parser.add_argument("--force", action="store_true", help="allow --write to replace a non-generated directory")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     if not args.write and not args.check:
@@ -433,6 +444,9 @@ def main() -> int:
         print(f"PASS dataset {args.output.name}: deterministic bytes match")
         return 0
     output = args.output
+    if output.exists() and any(output.iterdir()) and not args.force and not generated_package(output):
+        print(f"FAIL {output} is not a commerce-lab-v1 package; pass --force to replace it", file=sys.stderr)
+        return 2
     files = build(random.Random(SEED))
     if output.exists():
         for path in sorted(output.rglob("*"), reverse=True):

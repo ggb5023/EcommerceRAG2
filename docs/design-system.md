@@ -26,7 +26,8 @@
 
 - **Button / Input / Badge**：只用现有 `components/` 组件，不写原生按钮样式；
   危险动作用 `variant="danger"`，文字操作用 `variant="text"`。
-- **PageHeader**：每个管理页顶部一个（eyebrow / 标题 / 副标题 / actions 插槽）。
+- **PageHeader**：每个管理页顶部一个（eyebrow / 标题 / 副标题 / actions 插槽）；
+  管理台外壳已有页面 h1 时用 `level=2`，避免同页两个 h1。
 - **DataTable**：标题、搜索、筛选（actions 插槽左侧）、表格、空态、分页；
   加载与错误分别用 **StatePanel**。
 - **StatePanel**：`loading` / `error` / `forbidden` / `empty` 四种语气；

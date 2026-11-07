@@ -142,7 +142,7 @@ func (s *Store) NewerVersionConflicts(ctx context.Context, db *pgxpool.Pool, ten
 					LEFT JOIN customer_execution ce ON ce.tenant_id=m.tenant_id AND ce.id=m.execution_id
 					WHERE m.tenant_id=v.tenant_id AND cc.shop_id=$2 AND m.source='assistant'
 					  AND (m.execution_id IS NULL OR ce.is_mock=false) AND m.created_at>=$3
-					  AND EXISTS(SELECT 1 FROM jsonb_array_elements(m.citations_json) ce2
+					  AND EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.citations_json)='array' THEN m.citations_json ELSE '[]'::jsonb END) ce2
 						WHERE ce2->>'version_id'=v.id::text)) AS customer_refs
 			FROM document_version v
 			JOIN document d ON d.tenant_id=v.tenant_id AND d.id=v.document_id
@@ -260,7 +260,7 @@ func (s *Store) InspectionCustomerCitations(ctx context.Context, db *pgxpool.Poo
 		LEFT JOIN customer_execution ce ON ce.tenant_id=m.tenant_id AND ce.id=m.execution_id
 		WHERE m.tenant_id=$1 AND cc.shop_id=$2 AND m.source='assistant'
 		  AND (m.execution_id IS NULL OR ce.is_mock=false)
-		  AND jsonb_array_length(m.citations_json)>0
+		  AND CASE WHEN jsonb_typeof(m.citations_json)='array' THEN jsonb_array_length(m.citations_json) ELSE 0 END>0
 		ORDER BY m.created_at DESC,m.id`, tenantID, shopID)
 	if err != nil {
 		return nil, err

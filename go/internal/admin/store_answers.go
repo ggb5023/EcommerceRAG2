@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,7 +60,7 @@ var errAnswerNotFound = errors.New("answer_not_found")
 
 const staffAnswerRowsSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,conv.shop_id,t.user_query,
 	COALESCE(e.answer,''),(SELECT count(*) FROM citation c WHERE c.tenant_id=e.tenant_id AND c.execution_id=e.id),
-	COALESCE(jsonb_array_length(e.facts_json),0),e.is_mock,e.status,e.status
+	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,e.status,e.status
 	FROM turn t
 	JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
 	JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
@@ -68,31 +69,48 @@ const staffAnswerRowsSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,c
 	WHERE t.tenant_id=$1 AND conv.shop_id=ANY($2::text[]) AND t.kind='user'
 	  AND t.status IN ('DONE','ASKING') AND COALESCE(e.answer,'')<>''
 	  AND ($3::bool IS NULL OR e.is_mock=$3)
-	  AND ($4::timestamptz IS NULL OR t.created_at<$4)
-	ORDER BY t.created_at DESC,t.id DESC LIMIT $5`
+	  AND ($4::timestamptz IS NULL OR (t.created_at, 'staff', t.id::text) < ($4::timestamptz, $5::text, $6::text))
+	ORDER BY t.created_at DESC,t.id DESC LIMIT $7`
 
 const customerAnswerRowsSQL = `SELECT m.id,COALESCE(e.id,''),m.created_at,cc.shop_id,
 	COALESCE((SELECT cm.content FROM customer_message cm
 	  WHERE cm.tenant_id=m.tenant_id AND cm.conversation_id=m.conversation_id
 	    AND cm.source='customer' AND cm.created_at<=m.created_at
 	  ORDER BY cm.created_at DESC,cm.id DESC LIMIT 1),''),
-	m.content,jsonb_array_length(m.citations_json),COALESCE(jsonb_array_length(e.facts_json),0),
+	m.content,CASE WHEN jsonb_typeof(m.citations_json)='array' THEN jsonb_array_length(m.citations_json) ELSE 0 END,CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,
 	COALESCE(e.is_mock,false),COALESCE(e.behavior,''),COALESCE(e.state,'')
 	FROM customer_message m
 	JOIN customer_conversation cc ON cc.tenant_id=m.tenant_id AND cc.id=m.conversation_id
 	LEFT JOIN customer_execution e ON e.tenant_id=m.tenant_id AND e.id=m.execution_id
 	WHERE m.tenant_id=$1 AND cc.shop_id=ANY($2::text[]) AND m.source='assistant'
 	  AND ($3::bool IS NULL OR COALESCE(e.is_mock,false)=$3)
-	  AND ($4::timestamptz IS NULL OR m.created_at<$4)
-	ORDER BY m.created_at DESC,m.id DESC LIMIT $5`
+	  AND ($4::timestamptz IS NULL OR (m.created_at, 'customer', m.id) < ($4::timestamptz, $5::text, $6::text))
+	ORDER BY m.created_at DESC,m.id DESC LIMIT $7`
+
+// AnswerCursor is the composite page cursor. The timestamp alone skips rows
+// that share the boundary microsecond across the two answer sources.
+type AnswerCursor struct {
+	CreatedAt time.Time
+	Kind      string
+	ID        string
+}
+
+func (c AnswerCursor) String() string {
+	return c.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + c.Kind + "|" + c.ID
+}
 
 // MerchantAnswers merges both answer sources, newest first, and returns the
-// cursor for the next page when the page is full.
+// cursor for the next page only when more rows exist.
 func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID int64, shops []string,
-	kind string, mock *bool, before *time.Time, limit int) ([]AnswerRow, *time.Time, error) {
+	kind string, mock *bool, before *AnswerCursor, limit int) ([]AnswerRow, *AnswerCursor, error) {
 	rows := []AnswerRow{}
+	var beforeTime *time.Time
+	beforeKind, beforeID := "", ""
+	if before != nil {
+		beforeTime, beforeKind, beforeID = &before.CreatedAt, before.Kind, before.ID
+	}
 	collect := func(query, answerKind string) error {
-		result, err := db.Query(ctx, query, tenantID, shops, mock, before, limit)
+		result, err := db.Query(ctx, query, tenantID, shops, mock, beforeTime, beforeKind, beforeID, limit+1)
 		if err != nil {
 			return err
 		}
@@ -106,6 +124,8 @@ func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID 
 			}
 			if answerKind == "staff" {
 				row.Behavior = staffAnswerBehavior(row.State)
+			} else {
+				row.Behavior = normalizeAnswerBehavior(row.Behavior)
 			}
 			rows = append(rows, row)
 		}
@@ -125,14 +145,15 @@ func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID 
 		if !rows[i].CreatedAt.Equal(rows[j].CreatedAt) {
 			return rows[i].CreatedAt.After(rows[j].CreatedAt)
 		}
+		if rows[i].Kind != rows[j].Kind {
+			return rows[i].Kind > rows[j].Kind
+		}
 		return rows[i].ID > rows[j].ID
 	})
-	var next *time.Time
+	var next *AnswerCursor
 	if len(rows) > limit {
 		rows = rows[:limit]
-	}
-	if len(rows) == limit {
-		cursor := rows[len(rows)-1].CreatedAt
+		cursor := AnswerCursor{CreatedAt: rows[len(rows)-1].CreatedAt, Kind: rows[len(rows)-1].Kind, ID: rows[len(rows)-1].ID}
 		next = &cursor
 	}
 	return rows, next, nil
@@ -140,8 +161,8 @@ func (s *Store) MerchantAnswers(ctx context.Context, db *pgxpool.Pool, tenantID 
 
 const staffAnswerDetailSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,conv.shop_id,t.user_query,
 	COALESCE(e.answer,''),(SELECT count(*) FROM citation c WHERE c.tenant_id=e.tenant_id AND c.execution_id=e.id),
-	COALESCE(jsonb_array_length(e.facts_json),0),e.is_mock,e.status,e.status,
-	e.id,COALESCE(e.facts_json,'[]'::jsonb)
+	CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,e.is_mock,e.status,e.status,
+	e.id,CASE WHEN jsonb_typeof(e.facts_json)='array' THEN e.facts_json ELSE '[]'::jsonb END
 	FROM turn t
 	JOIN conversation conv ON conv.tenant_id=t.tenant_id AND conv.id=t.conversation_id
 	JOIN conversation_execution e ON e.tenant_id=t.tenant_id AND e.turn_id=t.id
@@ -153,9 +174,9 @@ const customerAnswerDetailSQL = `SELECT m.id,COALESCE(e.id,''),m.created_at,cc.s
 	  WHERE cm.tenant_id=m.tenant_id AND cm.conversation_id=m.conversation_id
 	    AND cm.source='customer' AND cm.created_at<=m.created_at
 	  ORDER BY cm.created_at DESC,cm.id DESC LIMIT 1),''),
-	m.content,jsonb_array_length(m.citations_json),COALESCE(jsonb_array_length(e.facts_json),0),
+	m.content,CASE WHEN jsonb_typeof(m.citations_json)='array' THEN jsonb_array_length(m.citations_json) ELSE 0 END,CASE WHEN jsonb_typeof(e.facts_json)='array' THEN jsonb_array_length(e.facts_json) ELSE 0 END,
 	COALESCE(e.is_mock,false),COALESCE(e.behavior,''),COALESCE(e.state,''),
-	COALESCE(e.id,''),COALESCE(e.facts_json,'[]'::jsonb),m.citations_json
+	COALESCE(e.id,''),CASE WHEN jsonb_typeof(e.facts_json)='array' THEN e.facts_json ELSE '[]'::jsonb END,CASE WHEN jsonb_typeof(m.citations_json)='array' THEN m.citations_json ELSE '[]'::jsonb END
 	FROM customer_message m
 	JOIN customer_conversation cc ON cc.tenant_id=m.tenant_id AND cc.id=m.conversation_id
 	LEFT JOIN customer_execution e ON e.tenant_id=m.tenant_id AND e.id=m.execution_id
@@ -163,8 +184,8 @@ const customerAnswerDetailSQL = `SELECT m.id,COALESCE(e.id,''),m.created_at,cc.s
 
 const staffAnswerCitationsSQL = `SELECT c.citation_index,es.evidence_id,COALESCE(es.document_id,''),
 	COALESCE(es.version_id,''),COALESCE(d.title,''),COALESCE(es.content,''),COALESCE(es.disclosure_class,''),
-	EXISTS(SELECT 1 FROM document active JOIN document_version v ON v.tenant_id=active.tenant_id AND v.id=active.active_version_id
-	  WHERE active.tenant_id=c.tenant_id AND active.logical_key=es.document_id
+	EXISTS(SELECT 1 FROM document active JOIN document_version v ON v.tenant_id=active.tenant_id AND v.id::text=es.version_id
+	  WHERE active.tenant_id=c.tenant_id AND active.logical_key=es.document_id AND active.status='active'
 	    AND v.status='active' AND v.review_status='approved')
 	FROM citation c
 	JOIN evidence_snapshot es ON es.tenant_id=c.tenant_id AND es.execution_id=c.execution_id AND es.evidence_id=c.evidence_id
@@ -172,7 +193,7 @@ const staffAnswerCitationsSQL = `SELECT c.citation_index,es.evidence_id,COALESCE
 	WHERE c.tenant_id=$1 AND c.execution_id=$2 ORDER BY c.citation_index`
 
 const answerDocumentTitlesSQL = `SELECT d.logical_key,d.title,COALESCE(d.active_version_id::text,''),
-	COALESCE(v.status,''),COALESCE(v.review_status,'')
+	COALESCE(v.status,''),COALESCE(v.review_status,''),COALESCE(d.status,'')
 	FROM document d LEFT JOIN document_version v ON v.tenant_id=d.tenant_id AND v.id=d.active_version_id
 	WHERE d.tenant_id=$1 AND d.logical_key=ANY($2::text[])`
 
@@ -207,6 +228,7 @@ func (s *Store) MerchantAnswer(ctx context.Context, db *pgxpool.Pool, tenantID i
 			&detail.Behavior, &detail.State, &executionID, &factsJSON, &citationsJSON); err != nil {
 			return detail, errAnswerNotFound
 		}
+		detail.Behavior = normalizeAnswerBehavior(detail.Behavior)
 		citations, err := s.customerAnswerCitations(ctx, db, tenantID, citationsJSON)
 		if err != nil {
 			return detail, err
@@ -219,6 +241,10 @@ func (s *Store) MerchantAnswer(ctx context.Context, db *pgxpool.Pool, tenantID i
 	}
 	detail.Facts = facts
 	return detail, nil
+}
+
+func normalizeAnswerBehavior(value string) string {
+	return strings.TrimPrefix(value, "REPLY_BEHAVIOR_")
 }
 
 func staffAnswerBehavior(state string) string {
@@ -274,7 +300,7 @@ func (s *Store) customerAnswerCitations(ctx context.Context, db *pgxpool.Pool, t
 		}
 	}
 	type documentState struct {
-		title, active, status, review string
+		title, active, status, review, documentStatus string
 	}
 	documents := map[string]documentState{}
 	if len(keys) > 0 {
@@ -286,7 +312,7 @@ func (s *Store) customerAnswerCitations(ctx context.Context, db *pgxpool.Pool, t
 		for rows.Next() {
 			var key string
 			var state documentState
-			if err = rows.Scan(&key, &state.title, &state.active, &state.status, &state.review); err != nil {
+			if err = rows.Scan(&key, &state.title, &state.active, &state.status, &state.review, &state.documentStatus); err != nil {
 				return nil, err
 			}
 			documents[key] = state
@@ -303,7 +329,8 @@ func (s *Store) customerAnswerCitations(ctx context.Context, db *pgxpool.Pool, t
 			VersionID: item.VersionID, Title: state.title, Snippet: item.Content,
 			DisclosureClass: item.DisclosureClass,
 			Valid: item.DisclosureClass == "external_allowed" && item.CustomerEligible &&
-				state.active == item.VersionID && state.status == "active" && state.review == "approved",
+				state.documentStatus == "active" && state.active == item.VersionID &&
+				state.status == "active" && state.review == "approved",
 		})
 	}
 	return citations, nil

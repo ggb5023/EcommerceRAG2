@@ -35,7 +35,7 @@ var orderIDPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9_-]{3,39}$`)
 
 // skuPattern mirrors the resource binding the facts contract accepts.
 var skuPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-var skuTokenPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*[-_][A-Za-z0-9_-]+`)
+var skuTokenPattern = regexp.MustCompile(`[A-Za-z0-9]+[-_][A-Za-z0-9_-]+`)
 
 // normalizeServiceLane applies the two-lane rule: pre-sales never carries an
 // order and after-sales always does. The returned code is an API error code.
@@ -545,16 +545,40 @@ func (s *Service) publicMessage(ctx context.Context, c conversation, id string) 
 	}
 	canCopy, blocked := false, "not_copyable"
 	if source == "assistant" {
-		factCount := 0
-		var savedFacts []json.RawMessage
-		if json.Unmarshal(facts, &savedFacts) == nil {
-			factCount = len(savedFacts)
-		}
-		canCopy, blocked = domain.CanCopyReply(state, behavior, len(view), factCount, mock)
+		canCopy, blocked = publicCopyDecision(state, behavior, len(view), nonMockFactCount(facts), mock, redacted)
 	}
 	return map[string]any{"id": id, "source": source, "text": content, "citations": view, "redacted": redacted, "created_at": created,
 		"can_copy": canCopy, "blocked_reason": blocked}, nil
 }
+
+// nonMockFactCount counts usable, non-mock fact snapshots. A fact without a
+// tool_name is not a fact; a missing is_mock is a real (non-mock) fact.
+func nonMockFactCount(raw []byte) int {
+	var saved []struct {
+		ToolName string `json:"tool_name"`
+		IsMock   bool   `json:"is_mock"`
+	}
+	if json.Unmarshal(raw, &saved) != nil {
+		return 0
+	}
+	count := 0
+	for _, fact := range saved {
+		if fact.ToolName != "" && !fact.IsMock {
+			count++
+		}
+	}
+	return count
+}
+
+// publicCopyDecision keeps redacted answers uncopyable even when a fact
+// snapshot survives; the displayed content is a withdrawal notice, not an answer.
+func publicCopyDecision(state, behavior string, citations, nonMockFacts int, mock, redacted bool) (bool, string) {
+	if redacted {
+		return false, "not_copyable"
+	}
+	return domain.CanCopyReply(state, behavior, citations, nonMockFacts, mock)
+}
+
 func (s *Service) messages(ctx context.Context, c conversation) ([]map[string]any, error) {
 	ids, err := loadCustomerMessageIDs(ctx, s.DB, c.Tenant, c.ID)
 	if err != nil {
@@ -593,7 +617,16 @@ func (s *Service) StaffRoutes(staff Staff) http.Handler {
 			return
 		}
 		owned, _ := customerConversationOwned(r.Context(), s.DB, c.ID, staff.User, staff.SessionHash)
-		output(w, 200, map[string]any{"conversation": c, "messages": messages, "can_reply": owned})
+		view := map[string]any{"conversation": c, "messages": messages, "can_reply": owned}
+		ticket, err := activeTicket(r.Context(), s.DB, c.Tenant, c.ID)
+		if err != nil {
+			failure(w, 503, "database_unavailable")
+			return
+		}
+		if ticket != nil {
+			view["ticket"] = ticket
+		}
+		output(w, 200, view)
 	})
 	m.HandleFunc("GET /v1/support/conversations/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		c, err := s.staffConversation(r.Context(), r, staff)

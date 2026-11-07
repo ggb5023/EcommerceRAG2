@@ -117,7 +117,7 @@ async function send(query, complete = true) {
 }
 async function restored(turn) {
   await page.getByRole('button', { name: '发送 ↗', exact: true }).waitFor({ timeout: 15000 })
-  await page.waitForFunction(id => document.querySelector('.result-binding')?.textContent.includes(id), turn.request_id)
+  await page.waitForFunction(() => [...document.querySelectorAll('.message.assistant .bubble')].some(el => (el.textContent ?? '').trim().length > 0))
 }
 async function result(turn) {
   const response = await page.request.get(base + '/v1/turns/' + turn.request_id)
@@ -167,7 +167,7 @@ try {
   await step('done-browser-result-survives-two-process-restart', async () => {
     await page.goto(doneURL); await page.locator('#question').waitFor(); await restored(done)
     assert.equal(createHash('sha256').update(JSON.stringify(await result(done))).digest('hex'), doneHash)
-    assert.ok(await page.locator('.evidence-card').count())
+    assert.equal(await page.locator('.message.assistant .bubble').last().textContent(), (await result(done)).answer)
   })
   await step('asking-browser-checkpoint-survives-and-resumes', async () => {
     await page.goto(askingURL); await page.locator('#question').waitFor(); await restored(asking)

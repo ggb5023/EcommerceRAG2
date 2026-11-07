@@ -71,18 +71,23 @@ async function create() {
   const response = await sent
   assert.equal(response.status(), 202)
   const turn = await response.json()
-  await page.waitForFunction(id => document.querySelector('.result-binding')?.textContent.includes(id), turn.request_id)
+  await page.waitForFunction(() => [...document.querySelectorAll('.message.assistant .bubble')].some(el => (el.textContent ?? '').trim().length > 0))
   await page.getByRole('button', { name: '发送 ↗', exact: true }).waitFor()
   const result = await page.request.get(base + '/v1/turns/' + turn.request_id)
   assert.equal(result.status(), 200)
   assert.equal((await result.json()).status, 'DONE')
-  assert.ok(await page.locator('.evidence-card').count() > 0)
+  assert.equal(await page.locator('#evidence-pane,.evidence-card').count(), 0)
   return turn
 }
-async function cleared() {
-  await page.getByRole('button', { name: '查看本轮证据', exact: true }).last().click()
+async function clearedAfterRevocation() {
+  await page.reload()
   await page.getByText('当前账号没有访问权限，请重新连接或联系管理员', { exact: true }).waitFor()
-  assert.equal(await page.locator('.evidence-card:visible,.message:visible,.draft-panel:visible').count(), 0)
+  assert.equal(await page.locator('#evidence-pane,.evidence-card:visible,.message:visible,.draft-panel:visible').count(), 0)
+}
+async function reloadedAfterRevision() {
+  await page.reload()
+  await page.locator('#question').waitFor()
+  assert.equal(await page.locator('#evidence-pane,.evidence-card:visible').count(), 0)
 }
 try {
   const session = await page.request.get(base + '/v1/session')
@@ -95,7 +100,7 @@ try {
     const turn = await create()
     authority('revoke')
     try {
-      await cleared()
+      await clearedAfterRevocation()
       for (const url of ['/v1/session', '/v1/turns/' + turn.request_id, '/v1/turns/' + turn.request_id + '/events']) {
         const response = await page.request.get(base + url)
         assert.equal(response.status(), 403)
@@ -107,7 +112,7 @@ try {
     const turn = await create()
     const before = await (await page.request.get(base + '/v1/session')).json()
     authority('revision')
-    await cleared()
+    await reloadedAfterRevision()
     const current = await (await page.request.get(base + '/v1/session')).json()
     assert.notEqual(current.permission_revision, before.permission_revision)
     for (const suffix of ['', '/events']) {

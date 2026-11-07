@@ -120,7 +120,7 @@ class LangGraphRagService:
         """Run an async provider graph over Go-approved evidence."""
         self._validate_query(query, response_purpose, scope)
         checked = self._validate_seed_evidence(scope, evidence, response_purpose)
-        checked_facts = self._validate_facts(facts or [])
+        checked_facts = self._validate_facts(facts or [], scope)
         selected_chains = provider_chains if provider_chains is not None else self.provider_chains
         payload: GraphState = {
             "query": query,
@@ -222,7 +222,7 @@ class LangGraphRagService:
         return checked
 
     @staticmethod
-    def _validate_facts(facts: list[dict]) -> list[dict]:
+    def _validate_facts(facts: list[dict], scope: Mapping[str, Any] | None = None) -> list[dict]:
         """Validate the Go-approved, read-only fact payload before prompting.
 
         Go remains the only tool and authorization owner.  Python rejects
@@ -256,6 +256,13 @@ class LangGraphRagService:
                     raise PermissionError("fact does not match its authorized resource")
             elif resource_id:
                 raise PermissionError("non-order fact contains an unexpected resource binding")
+            if isinstance(scope, Mapping) and scope.get("role") == "customer":
+                service_type = scope.get("service_type") or "pre_sales"
+                bound_order = str(scope.get("customer_order_id") or "")
+                if service_type != "after_sales":
+                    raise PermissionError("pre-sales customer scope cannot carry facts")
+                if name in {"get_order_status", "get_logistics"} and resource_id != bound_order:
+                    raise PermissionError("fact does not match the bound customer order")
             try:
                 datetime.fromisoformat(observed)
             except ValueError as error:
@@ -279,7 +286,7 @@ class LangGraphRagService:
             raise ValueError("response_purpose is invalid")
         validate_scope(scope)
         checked_evidence = self._validate_seed_evidence(scope, evidence, response_purpose)
-        checked_facts = self._validate_facts(facts or [])
+        checked_facts = self._validate_facts(facts or [], scope)
         return self._invoke({
             "query": query,
             "scope": scope,

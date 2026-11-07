@@ -449,6 +449,11 @@ func TestDatabaseAfterSalesTicketLifecycle(t *testing.T) {
 	if db.QueryRow(ctx, `SELECT status,assignee_user_id FROM customer_ticket WHERE conversation_id=$1`, conversation).Scan(&status, &assignee) != nil || status != "ASSIGNED" || assignee == nil || *assignee != agent {
 		t.Fatal("claim did not assign the ticket")
 	}
+	staffDetail := decode(request(staffAPI, "GET", staffPath, nil, nil, "", ""), 200)
+	staffTicket, ok := staffDetail["ticket"].(map[string]any)
+	if !ok || staffTicket["status"] != "ASSIGNED" {
+		t.Fatalf("staff detail omitted the active ticket: %v", staffDetail["ticket"])
+	}
 	queue := decode(request(staffAPI, "GET", "/v1/support/queue", nil, nil, "", ""), 200)
 	items := queue["conversations"].([]any)
 	if len(items) != 1 || items[0].(map[string]any)["ticket_status"] != "ASSIGNED" ||
@@ -472,6 +477,22 @@ func TestDatabaseAfterSalesTicketLifecycle(t *testing.T) {
 	}
 	if db.QueryRow(ctx, `SELECT state FROM customer_conversation WHERE id=$1`, conversation).Scan(&conversationState) != nil || conversationState != "CLOSED" {
 		t.Fatal("resolve did not close the conversation")
+	}
+	resumeConversation := decode(request(api, "POST", "/v1/customer/conversations",
+		map[string]string{"service_type": "after_sales", "order_id": "ORD-2609-0007"}, cookie, csrf, "resume"), 201)["conversation_id"].(string)
+	resumePath := "/v1/customer/conversations/" + resumeConversation
+	resumeEpoch := int64(decode(request(api, "POST", resumePath+"/handoff", map[string]any{}, cookie, csrf, "resume-handoff"), 200)["epoch"].(float64))
+	resumeStaffPath := "/v1/support/conversations/" + resumeConversation
+	resumeClaim := decode(request(staffAPI, "POST", resumeStaffPath+"/claim", map[string]any{"epoch": resumeEpoch}, nil, "", "resume-claim"), 200)
+	resumeEpoch = int64(resumeClaim["epoch"].(float64))
+	decode(request(staffAPI, "POST", resumeStaffPath+"/resume-ai", map[string]any{"epoch": resumeEpoch}, nil, "", "resume-ai"), 200)
+	var resumeStatus string
+	var resumeClosed *time.Time
+	if db.QueryRow(ctx, `SELECT status,closed_at FROM customer_ticket WHERE conversation_id=$1`, resumeConversation).Scan(&resumeStatus, &resumeClosed) != nil || resumeStatus != "CLOSED" || resumeClosed == nil {
+		t.Fatalf("resume-ai left the ticket active: %s %v", resumeStatus, resumeClosed)
+	}
+	if db.QueryRow(ctx, `SELECT state FROM customer_conversation WHERE id=$1`, resumeConversation).Scan(&conversationState) != nil || conversationState != "AI" {
+		t.Fatalf("resume-ai did not return the conversation to AI: %s", conversationState)
 	}
 	preSales := decode(request(api, "POST", "/v1/customer/conversations", map[string]string{}, cookie, csrf, "pre"), 201)["conversation_id"].(string)
 	decode(request(api, "POST", "/v1/customer/conversations/"+preSales+"/handoff", map[string]any{}, cookie, csrf, "pre-handoff"), 200)
