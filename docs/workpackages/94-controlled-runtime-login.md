@@ -81,7 +81,21 @@
 - `bash -n`、`shellcheck`、`node --check`（7 个 spec/helper）、`ruff`（新改动无新增；文件内 2 个既有
   BLE001 未变）、`python -m pytest tests/test_customer_runtime.py -q` → 11 passed。
 
-未运行（留给主线）：`bash scripts/check.sh --controlled-only --controlled-e2e` 两次（预期 49/0/0）、
-`bash scripts/check.sh --e2e`（预期 56/6/0）、全量 `--e2e --controlled-e2e`（预期 61/1/0，v2-restart
-仍 UNCONFIGURED）。本地 login 栈在验证后已停止，dev 栈保持运行。
+## 主线验收（2026-11-08，主 agent）
+
+- 环境：dev 栈保持运行；隔离栈 26081（`--identity development`、mock）与 local login 栈
+  26091（`--db /tmp/ecr-login/login.env`）分别启动；受控 Compose 使用 harness 项目。
+- `bash scripts/check.sh --controlled-only --controlled-e2e` 连续两次：
+  **PASSED 49 / UNCONFIGURED 0 / FAILED 0**（5 个受控 spec 全绿，含 selfhost-restore；
+  425s / 391s）。
+- `bash scripts/check.sh --e2e`：**PASSED 56 / UNCONFIGURED 6 / FAILED 0**；6 项
+  UNCONFIGURED 全是受控 runtime 前置缺失（预期），`e2e-login` 通过。
+- 全量 `bash scripts/check.sh --e2e --controlled-e2e` 第一次 **60/1/1**：仅
+  `e2e-v2-lifecycle` 在“actual published policy was not recalled”处失败；同一 spec
+  立即定向重跑 **13/13 PASS**，故记录两阶段矩阵；第二次全量 **PASSED 61 /
+  UNCONFIGURED 1 / FAILED 0**（`e2e-v2-restart` 仍缺 `V2_RESTART_RUNTIME_ENV`）。
+  未把第一次失败改写成通过，也未改断言/基线。
+- `python/.venv/bin/python -m pytest tests/test_customer_runtime.py -q` → 11 passed。
+- 收尾：两个隔离栈停止；`customer-runtime.sh down --clean` 删除 `ecr-wp91` 卷与网络；
+  `ecr-merchant` 按约束只 WARN、未触碰。
 
