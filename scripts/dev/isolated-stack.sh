@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated stack for the --db and --e2e layers.
 #
-#   bash scripts/dev/isolated-stack.sh [--db ENV] [--ports BASE] [--with-vite] [--commerce-sim] [--keep]
+#   bash scripts/dev/isolated-stack.sh [--db ENV] [--ports BASE] [--profile PROFILE] [--with-vite] [--commerce-sim] [--keep]
 #   bash scripts/dev/isolated-stack.sh stop
 #
 # The --db file supplies the DSNs (default: the integration database). The
@@ -104,6 +104,7 @@ fi
 db_env=/etc/ecommerce-rag/test-integration.env
 template=/etc/ecommerce-rag/eval-runtime.env
 base=26081
+profile=v2_langchain_mock
 with_vite=0
 with_commerce=0
 keep=0
@@ -113,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     --template) template=$2; shift 2 ;;
     --ports) base=$2; shift 2 ;;
     --identity) identity=$2; shift 2 ;;
+    --profile) profile=$2; shift 2 ;;
     --with-vite) with_vite=1; shift ;;
     --commerce-sim) with_commerce=1; shift ;;
     --keep) keep=1; shift ;;
@@ -123,6 +125,10 @@ case "$identity" in
   development) default_base=26081; default_root=/tmp/ecr-isolated ;;
   local) default_base=26091; default_root=/tmp/ecr-isolated-local ;;
   *) echo "FAIL --identity must be development or local" >&2; exit 2 ;;
+esac
+case "$profile" in
+  v2_langchain_mock|v2_langchain_bailian|v2_langgraph_fixture) : ;;
+  *) echo "FAIL --profile must be v2_langchain_mock, v2_langchain_bailian or v2_langgraph_fixture" >&2; exit 2 ;;
 esac
 [[ "$base" == 26081 && "$identity" == local ]] && base=$default_base
 root=${ECR_ISOLATED_ROOT:-$default_root}
@@ -151,7 +157,7 @@ commerce_port=$((base + 4))
 
 # Build the merged runtime configuration: template options, DSNs from --db,
 # ports from --ports. Secrets stay in $root/runtime.env (0600).
-STACK_IDENTITY="$identity" STACK_COMMERCE="$with_commerce" "$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" "$commerce_port" <<'PY'
+STACK_IDENTITY="$identity" STACK_COMMERCE="$with_commerce" STACK_PROFILE="$profile" "$python" - "$db_env" "$template" "$root/runtime.env" "$gateway_port" "$rag_port" "$ingest_port" "$vite_port" "$repo" "$commerce_port" <<'PY'
 import os, pathlib, sys
 db_env, template, target = (pathlib.Path(arg) for arg in sys.argv[1:4])
 repo = pathlib.Path(sys.argv[8])
@@ -189,7 +195,12 @@ if target_db:
                 base_path, _, query = value.rpartition("/")
                 values[key] = base_path + "/" + target_db + (("?" + query) if query else "")
 
-values["RAG_PROFILE"] = "v2_langchain_mock"
+profile = os.environ.get("STACK_PROFILE", "v2_langchain_mock")
+if profile == "v2_langchain_bailian":
+    provider_config = values.get("V2_PROVIDER_CONFIG", "")
+    if not provider_config or not pathlib.Path(provider_config).is_file():
+        sys.exit("FAIL --profile v2_langchain_bailian requires V2_PROVIDER_CONFIG in the template")
+values["RAG_PROFILE"] = profile
 if os.environ.get("STACK_IDENTITY") == "local":
     # Local accounts need the local identity profile; development injects dev-user.
     # local accounts still need the tenant the supervisor resolves against.
@@ -305,7 +316,7 @@ state = {
 open(target, "w").write(json.dumps(state, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "PASS isolated stack ready identity=$identity gateway=$gateway_port ports=$ports_file"
+echo "PASS isolated stack ready identity=$identity profile=$profile gateway=$gateway_port ports=$ports_file"
 "$python" - "$ports_file" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
