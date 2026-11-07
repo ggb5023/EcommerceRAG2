@@ -89,6 +89,15 @@ def text_digest(value: str) -> str:
     return digest(value.encode("utf-8"))
 
 
+def decode_snapshot(value: Any, fallback: Any) -> Any:
+    """psycopg returns jsonb as decoded objects; older callers used text."""
+    if value is None:
+        return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    return json.loads(value)
+
+
 def strip_behavior(value: object) -> str:
     return str(value or "").removeprefix(BEHAVIOR_PREFIX)
 
@@ -561,8 +570,8 @@ def read_customer_records(values: Mapping[str, str], conversation_id: str, execu
     except Exception as error:
         raise ServiceEvalError("customer_records_unavailable") from error
     try:
-        evidence = json.loads(evidence_raw or "[]")
-        facts = json.loads(facts_raw or "[]")
+        evidence = decode_snapshot(evidence_raw, [])
+        facts = decode_snapshot(facts_raw, [])
     except (TypeError, json.JSONDecodeError) as error:
         raise ServiceEvalError("execution_snapshot_invalid") from error
     if not isinstance(evidence, list) or not isinstance(facts, list):
@@ -584,7 +593,7 @@ def read_customer_records(values: Mapping[str, str], conversation_id: str, execu
     message_rows = []
     for message_id, source, content, citations_raw, message_execution in messages:
         try:
-            citations = json.loads(citations_raw or "[]")
+            citations = decode_snapshot(citations_raw, [])
         except (TypeError, json.JSONDecodeError) as error:
             raise ServiceEvalError("message_snapshot_invalid") from error
         if not isinstance(citations, list):
