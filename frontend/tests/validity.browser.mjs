@@ -11,7 +11,8 @@ import {chromium} from 'playwright'
 
 const root = path.resolve(fileURLToPath(new URL('../../', import.meta.url)))
 const frontend = path.join(root, 'frontend')
-const gateway = 'http://127.0.0.1:8080'
+const gateway = (process.env.GATEWAY_URL ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
+const reuseWorkspace = process.env.ECR_REUSE_WORKSPACE === '1'
 const workspace = (process.env.WORKSPACE_URL ?? 'http://127.0.0.1:5174').replace(/\/$/, '')
 const output = path.join(root, '.local/redesign')
 const screenshot = path.join(output, 'validity-submit.png')
@@ -159,14 +160,19 @@ async function writeReport(status, extra = {}) {
 
 try {
   await step('start-temporary-vite', async () => {
+    if (reuseWorkspace) {
+      await waitForVite()
+      return
+    }
     try {
       await fetch(workspace + '/', {signal: AbortSignal.timeout(500)})
-      throw new Error(`port 5174 is already serving; stop it first (workspace=${workspace})`)
+      throw new Error(`workspace is already serving; stop it first or set ECR_REUSE_WORKSPACE=1 (workspace=${workspace})`)
     } catch (error) {
       if (error instanceof Error && error.message.includes('already serving')) throw error
     }
+    const port = new URL(workspace).port || '5174'
     const log = openSync(viteLog, 'a')
-    vite = spawn('npm', ['run', 'dev', '--', '--port', '5174', '--strictPort', '--force'], {
+    vite = spawn('npm', ['run', 'dev', '--', '--port', port, '--strictPort', '--force'], {
       cwd: frontend,
       env: {...process.env, VITE_API_PROXY_TARGET: gateway},
       detached: true,

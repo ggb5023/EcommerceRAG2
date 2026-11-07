@@ -70,7 +70,7 @@ const staffAnswerRowsSQL = `SELECT t.id,COALESCE(e.request_id,''),t.created_at,c
 	  AND t.status IN ('DONE','ASKING') AND COALESCE(e.answer,'')<>''
 	  AND ($3::bool IS NULL OR e.is_mock=$3)
 	  AND ($4::timestamptz IS NULL OR (t.created_at, 'staff', t.id::text) < ($4::timestamptz, $5::text, $6::text))
-	ORDER BY t.created_at DESC,t.id DESC LIMIT $7`
+	ORDER BY t.created_at DESC,t.id::text DESC LIMIT $7`
 
 const customerAnswerRowsSQL = `SELECT m.id,COALESCE(e.id,''),m.created_at,cc.shop_id,
 	COALESCE((SELECT cm.content FROM customer_message cm
@@ -85,7 +85,7 @@ const customerAnswerRowsSQL = `SELECT m.id,COALESCE(e.id,''),m.created_at,cc.sho
 	WHERE m.tenant_id=$1 AND cc.shop_id=ANY($2::text[]) AND m.source='assistant'
 	  AND ($3::bool IS NULL OR COALESCE(e.is_mock,false)=$3)
 	  AND ($4::timestamptz IS NULL OR (m.created_at, 'customer', m.id) < ($4::timestamptz, $5::text, $6::text))
-	ORDER BY m.created_at DESC,m.id DESC LIMIT $7`
+	ORDER BY m.created_at DESC,m.id::text DESC LIMIT $7`
 
 // AnswerCursor is the composite page cursor. The timestamp alone skips rows
 // that share the boundary microsecond across the two answer sources.
@@ -186,7 +186,7 @@ const staffAnswerCitationsSQL = `SELECT c.citation_index,es.evidence_id,COALESCE
 	COALESCE(es.version_id,''),COALESCE(d.title,''),COALESCE(es.content,''),COALESCE(es.disclosure_class,''),
 	EXISTS(SELECT 1 FROM document active JOIN document_version v ON v.tenant_id=active.tenant_id AND v.id::text=es.version_id
 	  WHERE active.tenant_id=c.tenant_id AND active.logical_key=es.document_id AND active.status='active'
-	    AND v.status='active' AND v.review_status='approved')
+	    AND active.active_version_id=v.id AND v.status='active' AND v.review_status='approved')
 	FROM citation c
 	JOIN evidence_snapshot es ON es.tenant_id=c.tenant_id AND es.execution_id=c.execution_id AND es.evidence_id=c.evidence_id
 	LEFT JOIN document d ON d.tenant_id=c.tenant_id AND d.logical_key=es.document_id

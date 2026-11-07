@@ -86,7 +86,12 @@ async function clearedAfterRevocation() {
 }
 async function reloadedAfterRevision() {
   await page.reload()
-  await page.locator('#question').waitFor()
+  try {
+    await page.locator('#question').waitFor()
+  } catch (error) {
+    await page.screenshot({path: path.join(output, 'revision-reload.png')}).catch(() => {})
+    throw error
+  }
   assert.equal(await page.locator('#evidence-pane,.evidence-card:visible').count(), 0)
 }
 try {

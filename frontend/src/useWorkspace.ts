@@ -156,9 +156,26 @@ export function useWorkspace(client = api) {
       const list = await client.conversations(); if (!current(token)) return; conversations.value = list
       // Route IDs locate resources; missing list entries never authorize or
       // redirect to a different conversation silently.
-      const detail = preferredId ? await client.conversation(preferredId) : list.length ? await client.conversation(list[0].id) : await client.createConversation()
+      let detail: Conversation
+      if (preferredId) {
+        try {
+          detail = await client.conversation(preferredId)
+        } catch (value) {
+          // A permission-revision bump invalidates old turns but not the
+          // identity; drop the stale route id and open a current conversation.
+          if ((value as ApiError)?.code !== 'execution_permission_changed') throw value
+          detail = list.length ? await client.conversation(list[0].id) : await client.createConversation()
+          if (!current(token)) return
+          if (!list.length) conversations.value.push(detail)
+          restore(detail, token)
+          return
+        }
+      } else {
+        detail = list.length ? await client.conversation(list[0].id) : await client.createConversation()
+        if (!current(token)) return
+        if (!list.length) conversations.value.push(detail)
+      }
       if (!current(token)) return
-      if (!list.length && !preferredId) conversations.value.push(detail)
       restore(detail, token)
     } catch (value) { if (current(token)) failure(value, '工作台加载失败') }
     finally { if (current(token)) loading.value = false }

@@ -20,7 +20,7 @@
 | `python/app/providers` | 模型适配（Bailian / MinerU / Tavily） | — |
 | `frontend/src` | 管理端 + 顾客端 SPA | — |
 | `eval/` | 冻结评测（53 例对齐集） | 产品代码 |
-| `sql/migrations/` | 59 条迁移，**只追加** | 修改历史文件 |
+| `sql/migrations/` | 60 条迁移，**只追加** | 修改历史文件 |
 | `scripts/check/` | 守卫 | — |
 
 ## 2. 分层与纪律
@@ -61,9 +61,9 @@ python3 scripts/check/check-db-env-health.py --env /etc/ecommerce-rag/dev.env
 ECR_SCRATCH_DSN=... ECR_SCRATCH_GATEWAY_DSN=... bash scripts/ops/verify-migrations-from-zero.sh
 bash scripts/check.sh --e2e           # 加浏览器层（需隔离栈）
 bash scripts/check.sh --all           # 全层，严格模式
-bash scripts/check.sh --smoke         # 46 项轮次链路基线；check-logs/doc-numbers 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
+bash scripts/check.sh --smoke         # 轮次链路基线；check-logs/doc-numbers 只在默认快速层计（与 .local/w2/ 基线逐字节比对，**合并前必须跑**）
 
-# 四条 smoke（改动轮次链路后必跑，与 .local/w2/ 基线逐字节比对）
+# 五条 smoke（改动轮次链路后必跑，与 .local/w2/ 基线逐字节比对）
 bash scripts/dev/smoke-turn.sh
 bash scripts/dev/smoke-answer.sh
 bash scripts/dev/smoke-clarify.sh

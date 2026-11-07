@@ -16,7 +16,7 @@ usage: bash scripts/check.sh [--db] [--e2e] [--all] [--cov] [--allow-unconfigure
 
   (no flag)  fast layer only: static checks, unit tests and builds
   --db       fast layer plus the real-database layer (needs the integration env files)
-  --e2e      fast layer plus the browser layer (needs the dev stack and Chromium)
+  --e2e      fast layer plus the browser layer (needs an isolated stack with --with-vite and Chromium)
   --smoke    fast layer plus the five turn-chain smokes (needs a live dev stack)
   --all      fast layer plus both of the above
   --cov      collect Go and Python coverage into .local/coverage/ (report only, no threshold)
@@ -198,8 +198,9 @@ if [ "$DB" -eq 1 ]; then
   run_optional db db-env-health "python3 scripts/check/check-db-env-health.py --env $test_env"
   run_optional db migrations-from-zero "bash scripts/ops/verify-migrations-from-zero.sh"
 
-  # The import and customer suites drive the real ingest gRPC service; without a
+  # The import-batch suite drives the real ingest gRPC service; without a
   # reachable endpoint the queue step fails for reasons the gate cannot fix.
+  # Customer and ingestclient tests only need the integration database.
   import_reason=""
   if stack_ready; then
     # The isolated stack serves the integration database, so the import suites run
@@ -235,16 +236,33 @@ if [ "$DB" -eq 1 ]; then
   elif ! grep -q "^V2_AI_DSN=" "$test_env" 2>/dev/null; then
     python_reason="$test_env has no V2_AI_DSN"
   fi
+  go_db_reason=""
+  if [ ! -f "$test_env" ]; then
+    go_db_reason="missing $test_env"
+  elif ! grep -q "^V2_MIGRATION_DSN=" "$test_env" 2>/dev/null; then
+    go_db_reason="$test_env has no V2_MIGRATION_DSN"
+  elif ! grep -q "^V2_GATEWAY_DSN=" "$test_env" 2>/dev/null; then
+    go_db_reason="$test_env has no V2_GATEWAY_DSN"
+  fi
 
   if [ "$STACK" -eq 1 ] && [ -z "$import_reason" ] && ! stack_ready; then
     import_reason="$STACK_HINT (no $ports_file)"
   fi
   if [ -n "$import_reason" ]; then
     skip db db-import-batch "$import_reason" "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/admin -run TestImportBatch"
-    skip db db-import-customer "$import_reason" "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/customer ./internal/ingestclient"
   else
     run db db-import-batch "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/admin -run TestImportBatch"
-    run db db-import-customer "cd go && V2_INTEGRATION_ENV=$import_env go test ./internal/customer ./internal/ingestclient"
+  fi
+  if [ -n "$go_db_reason" ]; then
+    skip db db-ingestclient "$go_db_reason" "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/ingestclient"
+    skip db db-customer "$go_db_reason" "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/customer"
+    skip db db-admin-answers "$go_db_reason" "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/admin -run '^TestMerchantAnswersListsAndReviewsBothSources$'"
+    skip db db-gateway-lifecycle "$go_db_reason" "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/gateway -run '^TestPersistExecutionTerminalSetsCopyability$'"
+  else
+    run db db-ingestclient "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/ingestclient"
+    run db db-customer "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/customer"
+    run db db-admin-answers "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/admin -run '^TestMerchantAnswersListsAndReviewsBothSources$'"
+    run db db-gateway-lifecycle "cd go && V2_INTEGRATION_ENV=$test_env go test -count=1 ./internal/gateway -run '^TestPersistExecutionTerminalSetsCopyability$'"
   fi
   if [ ! -f "$test_env" ]; then
     skip db db-admin-access "missing $test_env" "cd go && V2_INTEGRATION_ENV=$test_env go test ./internal/admin -run TestDatabaseAdministrativeAccess"
@@ -264,7 +282,14 @@ fi
 # ------------------------------------------------------------- browser layer
 if [ "$E2E" -eq 1 ]; then
   layer_start e2e
-  run_optional e2e d2-proxy-smoke "bash scripts/dev/d2-proxy-smoke.sh"
+  test_env=${ECR_TEST_INTEGRATION_ENV:-/etc/ecommerce-rag/test-integration.env}
+  if stack_ready; then
+    d2_base="http://$(stack_value gateway)"
+    export ECR_BASE_URL="$d2_base"
+    run_optional e2e d2-proxy-smoke "bash scripts/dev/d2-proxy-smoke.sh"
+  else
+    skip e2e d2-proxy-smoke "$STACK_HINT (no $ports_file)" "bash scripts/dev/d2-proxy-smoke.sh"
+  fi
   e2e_reason=""
   if ! command -v node >/dev/null 2>&1; then
     e2e_reason="node is not installed"
@@ -282,6 +307,14 @@ if [ "$E2E" -eq 1 ]; then
         e2e_workspace="http://$stack_vite"
       fi
       export ECR_PORTS_FILE=$ports_file
+      export GATEWAY_URL="http://$e2e_gateway"
+      export ECR_REUSE_WORKSPACE=1
+      stack_root=$(dirname "$ports_file")
+      knowledge_dir="$stack_root/knowledge-browser-$(date +%s%N)-$$"
+      export KNOWLEDGE_BROWSER_REPORT_DIR="$knowledge_dir"
+      if [ -f "$test_env" ] && [ "$(stat -c '%a' "$test_env" 2>/dev/null)" = "600" ] && [ "$(stat -c '%u' "$test_env" 2>/dev/null)" = "$(id -u)" ]; then
+        export V2_AUTHORITY_FIXTURE_ENV="$test_env"
+      fi
     else
       e2e_reason="$STACK_HINT (no $ports_file)"
     fi
@@ -302,19 +335,70 @@ if [ "$E2E" -eq 1 ]; then
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)
     if [ "$name" = "login" ]; then
-      # The login flow needs the local-account identity, which is a separate stack.
+      # The login flow needs the local-account identity stack and its Vite.
       local_ports=${ECR_LOCAL_PORTS_FILE:-/tmp/ecr-isolated-local/ports.json}
       local_env="$(dirname "$local_ports")/browser.env"
       if [ ! -f "$local_ports" ] || [ ! -f "$local_env" ]; then
         skip e2e "e2e-login" "run scripts/dev/isolated-stack.sh --identity local --ports 26091" "cd frontend && node tests/login.browser.mjs"
         continue
       fi
-      WORKSPACE_URL=$e2e_workspace
+      local_vite=$(ECR_PORTS_FILE=$local_ports stack_value vite)
+      if [ -z "$local_vite" ]; then
+        skip e2e "e2e-login" "local stack has no Vite" "cd frontend && node tests/login.browser.mjs"
+        continue
+      fi
+      saved_workspace=${WORKSPACE_URL:-}
+      saved_browser=${ECR_BROWSER_ENV:-}
+      saved_password=${LOGIN_PASSWORD:-}
+      saved_user=${LOGIN_USER:-}
+      WORKSPACE_URL="http://$local_vite"
       ECR_BROWSER_ENV=$local_env
       LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$local_env" | head -1)
       LOGIN_USER=$(sed -n "s/^LOGIN_USER=//p" "$local_env" | head -1)
       export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
       run e2e "e2e-login" "cd frontend && node tests/login.browser.mjs"
+      WORKSPACE_URL=$saved_workspace
+      ECR_BROWSER_ENV=$saved_browser
+      LOGIN_PASSWORD=$saved_password
+      LOGIN_USER=$saved_user
+      export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
+      continue
+    fi
+    case "$name" in
+      customer-control|customer-service|customer-source|selfhost-restore|keycloak|v2-restart)
+        missing=""
+        case "$name" in
+          customer-control|customer-service|customer-source)
+            [ -n "${CUSTOMER_RUNTIME_DIR:-}" ] || missing="CUSTOMER_RUNTIME_DIR"
+            [ -n "${CUSTOMER_REPORT_DIR:-}" ] || missing="${missing:+$missing }CUSTOMER_REPORT_DIR"
+            ;;
+          selfhost-restore)
+            [ -n "${CUSTOMER_RUNTIME_DIR:-}" ] || missing="CUSTOMER_RUNTIME_DIR"
+            [ -n "${CUSTOMER_REPORT_DIR:-}" ] || missing="${missing:+$missing }CUSTOMER_REPORT_DIR"
+            [ -n "${CUSTOMER_PRIOR_BROWSER_DIR:-}" ] || missing="${missing:+$missing }CUSTOMER_PRIOR_BROWSER_DIR"
+            ;;
+          keycloak)
+            [ -n "${KEYCLOAK_ACCOUNTS_FILE:-}" ] || missing="KEYCLOAK_ACCOUNTS_FILE"
+            ;;
+          v2-restart)
+            [ -n "${V2_RESTART_RUNTIME_ENV:-}" ] || missing="V2_RESTART_RUNTIME_ENV"
+            ;;
+        esac
+        if [ "$name" = "customer-control" ] && [ "${CUSTOMER_ALLOW_OWNED_RESTART:-}" != "1" ]; then
+          missing="${missing:+$missing }CUSTOMER_ALLOW_OWNED_RESTART=1"
+        fi
+        if [ -n "$missing" ]; then
+          skip e2e "e2e-$name" "missing $missing (controlled runtime)" "cd frontend && node tests/$name.browser.mjs"
+          continue
+        fi
+        ;;
+    esac
+    if [ "$name" = "v2-authority" ] && [ -z "${V2_AUTHORITY_FIXTURE_ENV:-}" ]; then
+      skip e2e "e2e-v2-authority" "missing V2_AUTHORITY_FIXTURE_ENV (isolated 0600 env)" "cd frontend && node tests/v2-authority.browser.mjs"
+      continue
+    fi
+    if [ "$name" = "knowledge-preview" ] && [ -z "${KNOWLEDGE_BROWSER_REPORT_DIR:-}" ]; then
+      skip e2e "e2e-knowledge-preview" "missing KNOWLEDGE_BROWSER_REPORT_DIR (fresh protected dir)" "cd frontend && node tests/knowledge-preview.browser.mjs"
       continue
     fi
     if [ -n "$e2e_reason" ]; then

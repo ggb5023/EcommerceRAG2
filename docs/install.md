@@ -2,7 +2,7 @@
 
 [项目入口](../README.md) · [导入知识](knowledge.md) · [客服操作](support.md) · [备份恢复](backup.md)
 
-此部署运行一个商家、一家店铺。客户匿名咨询；员工默认使用 Go 内置账号登录，Keycloak 改为可选 profile。订单、实时价格、库存与配送承诺不在首版能力内。项目仍在开发阶段，尚未经过生产环境验证。
+此部署运行一个商家、一家店铺。客户匿名咨询；员工默认使用 Go 内置账号登录，Keycloak 改为可选 profile。selfhost 首版不提供实时订单/价格/库存查询；开发与隔离栈中的售后只读事实（决策 0041）在 selfhost 按不可用失败关闭。项目仍在开发阶段，尚未经过生产环境验证。
 
 ## 准备
 
@@ -34,7 +34,7 @@ sudo docker compose --env-file /var/lib/ecommerce-rag/merchant/compose.env \
 这一步失败时先看 `docker compose ps -a` 与对应一次性任务的日志。
 
 Python 镜像在构建时拷贝 `sql/`，并把 `V2_MIGRATION_DIR` 指向 `/app/sql/migrations`；当前
-镜像快照包含 59 条迁移。升级代码后必须先重建 `ai` 镜像再 `up -d`——只重启旧镜像会继续
+镜像快照包含 60 条迁移。升级代码后必须先重建 `ai` 镜像再 `up -d`——只重启旧镜像会继续
 携带旧迁移快照（本机旧镜像实测只有 31 条），与库内 checksum 或新表结构不一致。
 
 首次安装（内置账号档）：
@@ -224,9 +224,9 @@ bash scripts/check.sh --e2e
 
 客户消息和排队状态持久化；Go 重启后员工重新登录，人工领取重新排队，中断 AI 转人工。应用为单实例，第二个 Gateway 会拒绝获取数据库所有权。内部 RPC 证书默认 90 天，HTTPS 测试证书 30 天；部署者须在到期前更新证书、保持 SAN/CA/文件权限并重启相关服务。正式证书由部署者管理。
 
-**已知限制（2026-11-06 自部署演练）**：`--identity-profile local` 的本版管理端导入确认、
-审核、发布命令返回 403 `command_failed` / `ingest_not_authorized`；这是运行时代码缺陷，
-已记录并等待单独修复，顾客链路与只读管理页不受影响。自动化导入验收暂不要在 local
-profile 上执行。
+**local profile 导入链**：2026-11-06 演练发现的导入确认、审核、发布 403
+`command_failed` / `ingest_not_authorized` 已由 WP66（`0eeb545`）修复并在演练栈验证。
+若再次出现，先确认 gateway/AI 镜像或二进制包含该修复，再按 `docs/development.md`
+的迁移与日志步骤排查。
 
 第三方许可见 [声明](../THIRD_PARTY_NOTICES.txt)。自有代码 MIT 不覆盖第三方服务、资料或模型账户的许可。

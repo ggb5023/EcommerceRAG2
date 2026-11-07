@@ -179,6 +179,7 @@ def test_every_registry_variant_has_a_version_and_non_empty_text():
 
 
 def test_changed_prompt_variants_are_versioned():
+    assert registry.VARIANTS["control"][1] == "v3"
     assert registry.VARIANTS["generation_base"][1] == "v2"
     assert registry.VARIANTS["generation_plan"][1] == "v2"
     assert registry.VARIANTS["generation_limits"][1] == "v2"

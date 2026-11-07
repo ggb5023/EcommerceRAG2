@@ -20,7 +20,7 @@ from . import (
 )
 
 VARIANTS: dict[str, tuple[str, str]] = {
-    "control": ("app.graph.prompts.control", "v2"),
+    "control": ("app.graph.prompts.control", "v3"),
     "generation_base": ("app.graph.prompts.generation_base", "v2"),
     "generation_facts": ("app.graph.prompts.generation_facts", "v1"),
     "generation_plan": ("app.graph.prompts.generation_plan", "v2"),

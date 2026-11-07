@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var errResolveRequiresAfterSales = errors.New("resolve_requires_after_sales")
+
 func emit(ctx context.Context, tx pgx.Tx, c conversation, kind string, data map[string]any) error {
 	var seq int64
 	if err := tx.QueryRow(ctx, `UPDATE customer_conversation SET last_sequence=last_sequence+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING last_sequence`, c.Tenant, c.ID).Scan(&seq); err != nil {
@@ -294,6 +296,9 @@ func applyConversationAction(ctx context.Context, tx pgx.Tx, c conversation, id,
 		err = tx.QueryRow(ctx, `SELECT state='HUMAN' AND owner_user_id=$2 AND owner_session_hash=$3 AND lease_until>now() FROM customer_conversation WHERE id=$1`, id, user, sessionHash).Scan(&owned)
 		if err != nil || !owned {
 			return c, errors.New("claim_stale")
+		}
+		if action == "resolve" && c.ServiceType != "after_sales" {
+			return c, errResolveRequiresAfterSales
 		}
 		if action == "heartbeat" {
 			_, err = tx.Exec(ctx, `UPDATE customer_conversation SET lease_until=now()+interval '120 seconds' WHERE id=$1`, id)

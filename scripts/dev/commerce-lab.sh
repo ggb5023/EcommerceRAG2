@@ -41,4 +41,7 @@ PASS commerce-lab ready
   dev REST orders  : http://127.0.0.1:$commerce_port/dev/v1/orders
   dev REST tickets : http://127.0.0.1:$commerce_port/dev/v1/tickets
 EOF
-[[ $with_vite -eq 1 ]] && echo "  merchant console : http://127.0.0.1:$((ports + 3))/admin"
+if [[ $with_vite -eq 1 ]]; then
+  echo "  merchant console : http://127.0.0.1:$((ports + 3))/admin"
+  echo "  customer chat    : http://127.0.0.1:$((ports + 3))/shop/shop-demo"
+fi

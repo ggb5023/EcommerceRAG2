@@ -12,7 +12,7 @@
 | 每张表只有一个写入方 | `check-ownership.py` | ✅ 已声明表数见 `docs/data-ownership.md`；未声明预算 0 |
 | 迁移只追加，不修改已执行文件 | `check-doc-baseline.py` | ✅ |
 | 新表必须显式授权给所需角色 | `check-migration-grants.py`（静态检查；`GRANT ALL TABLES` 只覆盖其出现前的表，之后建表须逐表 GRANT，见 `environment-facts.md` #4） | ✅ 静态检查 |
-| 新环境必须能"从零建库" | 无 | ❌ 未实现（批次 3 §5.1 待做） |
+| 新环境必须能"从零建库" | `verify-migrations-from-zero.sh`（`--db` 层；无 scratch DSN 时 UNCONFIGURED） | ✅ 已实现 |
 | 备份必须验证可恢复 | 无 | ✅ 已演练（2026-11-05，见 [WP47](workpackages/47-backup-restore-drill.md) 与 `.local/wp47/restore-evidence.json`；PG + 本地 artifact，OSS UNCONFIGURED） |
 | 事件/轨迹保留期 | [retention.sh](../scripts/ops/retention.sh)（默认 dry-run，`--execute` 显式） | ✅ 已实现；口径与运行方式见 [backup.md](backup.md) §保留与备份 |
 | 数据归属变更需改 `data-ownership.md` | `check-ownership.py`（预算棘轮） | ✅ |
@@ -22,7 +22,7 @@
 
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
-| 改动轮次链路后必须跑四条 smoke | 人工 | ⚠️ 口头约定（`.local/` 基线比对） |
+| 改动轮次链路后必须跑五条 smoke | 人工 | ⚠️ 口头约定（`.local/` 基线比对） |
 | 服务启动后日志必须有输出 | `check-service-logs.py`（缺日志目录 exit 2 = UNCONFIGURED；目录存在但为空 FAIL） | ✅ |
 | 容器日志必须限量轮转 | `compose.yml` 的 `max-size` 与 `max-file` | ✅ |
 | 部署形态只能四选一（D1–D4） | 启动期 `validateDeploymentForm` | ✅ 单测覆盖 |
@@ -71,7 +71,7 @@
 | --- | --- | --- |
 | 决策一文件一编号，只追加 | `check-decisions-index.py` | ✅ 38 份 |
 | 决策编号不撞车、无漏号 | `check-decisions-index.py`（已接入 `scripts/check.sh:138`） | ✅ |
-| 文档不得重复陈述同一事实 | `check-docs-drift.py`（预算 5） | ⚠️ 计划降到 0 并升为 FAIL |
+| 文档不得重复陈述同一事实 | `check-docs-drift.py`（预算 0，超出即 FAIL） | ✅ |
 | 文档引用的路径必须存在 | `check-doc-paths.py`（已接入 `scripts/check.sh:139`） | ✅ |
 | 里程碑 tag 作为回滚点 | `git tag`（4 个） | ✅ |
 | 分支合并后即删 | 人工 | ⚠️ 口头约定 |

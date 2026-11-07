@@ -87,8 +87,15 @@ def test_timestamps_follow_the_order_lifecycle():
 
     for order in orders.values():
         placed = parse_timestamp(order["placed_at"])
-        assert parse_timestamp(order["updated_at"]) >= placed
-        assert placed <= reference
+        updated = parse_timestamp(order["updated_at"])
+        latest = placed
+        shipment = shipments_by_order.get(order["order_id"])
+        if shipment:
+            latest = max(latest, parse_timestamp(shipment["shipped_at"]))
+            if shipment["delivered_at"]:
+                latest = max(latest, parse_timestamp(shipment["delivered_at"]))
+        assert updated >= latest, order["order_id"]
+        assert updated <= reference
 
     for shipment in shipments:
         placed = parse_timestamp(orders[shipment["order_id"]]["placed_at"])
@@ -136,6 +143,10 @@ def test_timestamps_follow_the_order_lifecycle():
 
 def test_care_codes_and_questions_point_at_existing_content():
     products = read_csv("products.csv")
+    product_skus = {row["sku"] for row in products}
+    skus_by_order: dict[str, set[str]] = {}
+    for item in read_csv("order-items.csv"):
+        skus_by_order.setdefault(item["order_id"], set()).add(item["sku"])
     care = (PACKAGE / "knowledge" / "care.md").read_text(encoding="utf-8")
     for code in {row["care_code"] for row in products}:
         assert f"`{code}`" in care
@@ -153,6 +164,11 @@ def test_care_codes_and_questions_point_at_existing_content():
             assert question["order_id"] in orders
             ids = set(re.findall(r"ORD-2609-\d{4}", question["query"]))
             assert ids <= {question["order_id"]}, question["case_id"]
+            if set(question["expected_tools"]) & {"get_stock", "get_price"}:
+                found = re.findall(r"\bCLB-[A-Z]{3}-\d{3}\b", question["query"])
+                assert len(found) == 1, question["case_id"]
+                assert found[0] in product_skus, question["case_id"]
+                assert found[0] in skus_by_order[question["order_id"]], question["case_id"]
 
 
 def test_dataset_has_no_personal_data_and_no_money_summaries():

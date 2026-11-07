@@ -489,6 +489,7 @@ const admin = {
   batchBusy,
   batchResults,
   batchResultCounts,
+  validBatchReason,
   suggestionProgress,
   suggestionDetails,
   trialShops,

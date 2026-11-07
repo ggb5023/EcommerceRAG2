@@ -495,9 +495,26 @@ func TestDatabaseAfterSalesTicketLifecycle(t *testing.T) {
 		t.Fatalf("resume-ai did not return the conversation to AI: %s", conversationState)
 	}
 	preSales := decode(request(api, "POST", "/v1/customer/conversations", map[string]string{}, cookie, csrf, "pre"), 201)["conversation_id"].(string)
-	decode(request(api, "POST", "/v1/customer/conversations/"+preSales+"/handoff", map[string]any{}, cookie, csrf, "pre-handoff"), 200)
+	preHandoff := decode(request(api, "POST", "/v1/customer/conversations/"+preSales+"/handoff", map[string]any{}, cookie, csrf, "pre-handoff"), 200)
 	if ticketCount(preSales) != 0 {
 		t.Fatal("pre-sales handoff created a ticket")
+	}
+	preEpoch := int64(preHandoff["epoch"].(float64))
+	preClaim := decode(request(staffAPI, "POST", "/v1/support/conversations/"+preSales+"/claim", map[string]any{"epoch": preEpoch}, nil, "", "pre-claim"), 200)
+	preEpoch = int64(preClaim["epoch"].(float64))
+	resolvePreSales := request(staffAPI, "POST", "/v1/support/conversations/"+preSales+"/resolve", map[string]any{"epoch": preEpoch}, nil, "", "pre-resolve")
+	if resolvePreSales.Code != 409 {
+		t.Fatalf("pre-sales resolve = %d: %s", resolvePreSales.Code, resolvePreSales.Body.String())
+	}
+	var resolveError map[string]any
+	if json.Unmarshal(resolvePreSales.Body.Bytes(), &resolveError) != nil || resolveError["code"] != "resolve_requires_after_sales" {
+		t.Fatalf("pre-sales resolve error: %s", resolvePreSales.Body.String())
+	}
+	if db.QueryRow(ctx, `SELECT state FROM customer_conversation WHERE id=$1`, preSales).Scan(&conversationState) != nil || conversationState != "HUMAN" {
+		t.Fatalf("pre-sales resolve changed state: %s", conversationState)
+	}
+	if ticketCount(preSales) != 0 {
+		t.Fatal("pre-sales resolve created a ticket")
 	}
 }
 

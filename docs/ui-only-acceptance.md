@@ -59,6 +59,11 @@
 | 34 | 用量查看 | `GET /admin/v1/merchant/usage` | 报告页 | ✅ | 一键 | by_slot/by_model token 与调用量 |
 | — | 顾客入口 | `/v1/customer/*` | `/shop/:slug` | ✅ | 单条 | 先选售前/售后；售后必须填订单号；显示工单状态；顾客引用抽屉保留 |
 | — | 回答与引用审查 | `GET /admin/v1/merchant/answers`、`GET /admin/v1/merchant/answers/{kind}/{id}` | `/admin/merchant/answers` | ✅ | 单条 | 员工轮次与顾客 AI 消息；列表截断，详情含引用有效性/事实快照/mock；打开详情写审计 |
+| — | 顾客服务轨道 | `POST /v1/customer/conversations` | `/shop/:slug` | ✅ | 单条 | 先选售前/售后；售后必须填订单号并绑定会话 |
+| — | 售后工单生命周期 | `POST /v1/support/conversations/{id}/{action}` | `/staff` | ✅ | 单条 | OPEN→ASSIGNED→RESOLVED/CLOSED；售前转人工不建工单 |
+| — | 售后只读事实 | `GET /v1/facts/{tool}`（facts provider） | 顾客聊天 / 管理台事实快照 | ✅ dev-only | 单条 | 开发与隔离栈；selfhost 首版 fail-closed |
+| — | 回答-only 前台 | `GET /v1/turns/{id}`、`GET /v1/support/...` | `/assistant`、`/staff` | ✅ | 单条 | 员工/商家只显示回答；引用与事实在管理台审查 |
+| — | 数据集与模拟器 | `GET /dev/v1/*`、`GET /v1/facts/*` | `scripts/dev` | B/C | — | `commerce-lab-v1` 与 `commerce-sim`；仅 loopback |
 
 ## 缺口清单（按优先级）
 
@@ -82,3 +87,71 @@
 
 当前矩阵内已登记 A 级入口均有 UI；P3 供应商选择仍未实现。
 已登记 A 级功能可只通过 WebUI 完成；浏览器用例 `frontend/tests/import-wizard.browser.mjs` 覆盖导入向导全流程（上传、四项预检、确认、20 条待审、整包撤回）；`frontend/tests/review-suggestion.browser.mjs` 覆盖 L2 建议列、筛选、批量确认、stale 重生成与发布仍需单独点击。供应商选择按 0019 实现后再验收。
+
+## WP80–89 人工审查走查（2026-11-07）
+
+> 审查目标：`main` 上的 WP80–89。权威行为顺序见 `docs/agent-entry.md` §8；售后轨道与工单以
+> [0041](decisions/0041-customer-service-lanes-and-tickets.md) 为准，跨进程字段以
+> [contracts](contracts.md) 为准。本文只给走查入口，不重复工作包里的长命令。
+
+### 启动与身份
+
+- 按 [development](development.md) 的「模拟电商后端」一节的 commerce-lab 命令启动隔离栈，
+  打开 `--with-vite` 与 `--commerce-sim`；预期 Vite 在 `base+3`、facts/dev REST 在 `base+4`。
+- commerce-lab 会自动把 `shop-demo` 的 `public_slug` 设为 `shop-demo` 并启用客户咨询；
+  未启用时先在 `/admin/merchant/shops` 手动保存。
+- 隔离栈使用显式 development 身份（`dev-user`，无密码）；dev 栈当前是 `oidc_browser`，
+  匿名管理请求会 401，不能作为走查入口。
+- 顾客入口：`/shop/shop-demo`。售后测试订单可用 `ORD-2609-0005`（数据集内的发货订单）。
+
+### 顾客售后链路（WP83/85）
+
+1. 在 `/shop/shop-demo` 先选「售后咨询」，填写订单号；售前不填订单号。
+2. 询问订单状态或物流；离线 mock 档下顾客 AI 回答会按设计转人工（mock 被拒绝），
+   这是预期行为，不是故障。
+3. 转人工后查看工单状态与只读提示；顾客引用抽屉只在有真实引用时出现。
+
+### 员工工单链路（WP83/87）
+
+1. 登录员工端 `/staff`（旧 `/support` 跳转），队列应显示服务轨道、订单号与工单状态。
+2. 领取会话后工单为 ASSIGNED；点击「解决并关闭工单」，工单变 RESOLVED、会话变 CLOSED。
+3. 售前会话转人工时队列不显示工单；对售前执行 resolve 返回
+   `resolve_requires_after_sales`（409），会话状态不变。
+
+### 管理台回答与引用（WP86/87）
+
+1. 先在 `/assistant` 提一个员工问题，生成一条可审查回答。
+2. 打开 `/admin/merchant/answers`，切换来源（员工轮次/顾客消息）与结果来源（真实/Mock）；
+   列表截断与复合游标不应丢行。
+3. 打开详情：引用有效性、事实快照的 `observed_at`、`is_mock`、mock 标记与审计写入。
+   `/assistant` 与 `/staff` 只显示回答，不显示证据面板；顾客聊天保留引用抽屉。
+4. 管理台价格事实展示 `amount_cents` 与 `currency` 属于商品/订单数据（0034），不是 0021
+   禁止的 usage/预算货币统计。
+
+### 数据集与事实契约
+
+- `commerce-lab-v1` 的 17 个文件、哈希与行数由数据集测试锁定；退货 SKU、退货/工单/物流
+  时间与 `updated_at` 已加断言。核验入口见 [development](development.md) 的模拟器一节。
+- facts 契约的版本/租户/店铺/资源绑定必须 fail-closed；开发/隔离栈可用
+  `/dev/v1/orders`、`/dev/v1/tickets` 与 `/v1/facts/{tool}` 对照。
+- commerce-sim 的事实始终 `is_mock=true`，只用于开发；不能证明真实商家数据。
+
+### 已知限制（审查时逐条接受/延后）
+
+| 限制 | 影响 | 出处 |
+| --- | --- | --- |
+| selfhost facts 禁用 | selfhost 售后事实按不可用转人工 | 0041、`go/internal/gateway/wire.go` |
+| 真实模型未跑 | 顾客 AI 回答与真实事实型回答只验证到 mock/单测 | WP84/87/88 限制 |
+| 受控 e2e UNCONFIGURED | customer-control/service/source、selfhost-restore、keycloak、v2-restart 需专门运行时 | `docs/development.md` |
+| WP80 adoption 竞态 | 撤销与 adoption 提交之间无行锁；网关授权与审核兜底 | WP80/88 |
+| staff behavior 推断 | 管理台按执行状态推断，不持久化原始行为 | WP88 |
+| fixture 图不消费 facts | 测试替身只覆盖澄清/证据路径 | WP88 |
+| 数据集范围 | 单租户/单店铺、固定日期；tickets.csv 是模拟器数据，不是 customer_ticket | WP82/89 |
+| 订单号即凭证 | 售前/售后都无购买人验证；知道订单号即可只读查询 | 0041 §2.4 |
+| contracts 表未新增 facts 行 | 棘轮需单独提交，本轮不改 | `docs/contracts.md` |
+
+### 审查记录
+
+记录 HEAD、实际运行的命令与 PASS/FAIL/UNCONFIGURED 计数、点击过的路由与截图、
+对以上限制的接受/延后结论；不要把 `browser.env`、DSN、setup token 或 provider 密钥
+写入记录或截图。

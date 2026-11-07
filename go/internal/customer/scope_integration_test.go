@@ -106,4 +106,23 @@ func TestDatabaseAfterSalesScopeAllowsAnEmptyDocumentGrant(t *testing.T) {
 	if _, err = auth.IssueCustomerScope(ctx, db, key, session, preConversation, preExecution); err == nil || err.Error() != "knowledge_missing" {
 		t.Fatalf("pre-sales scope with no documents: %v", err)
 	}
+
+	ticket := func(id, serviceType, orderID string) error {
+		_, err := migration.Exec(ctx, `INSERT INTO customer_ticket(id,tenant_id,shop_id,conversation_id,customer_id,service_type,order_id,status,reason_code,closed_at)
+			VALUES($1,$2,'shop-test',$3,$4,$5,NULLIF($6,''),'CLOSED','damaged',now())`,
+			id, tenant, afterConversation, customer, serviceType, orderID)
+		return err
+	}
+	if err := ticket("ticket-"+ID(), "after_sales", "ORD-2609-0005"); err != nil {
+		t.Fatalf("valid ticket insert: %v", err)
+	}
+	for _, tc := range []struct{ name, serviceType, orderID string }{
+		{"after-sales NULL", "after_sales", ""},
+		{"after-sales invalid format", "after_sales", "BAD ORDER"},
+		{"pre-sales with order", "pre_sales", "ORD-2609-0005"},
+	} {
+		if err := ticket("ticket-"+ID(), tc.serviceType, tc.orderID); err == nil || !strings.Contains(err.Error(), "customer_ticket_lane_order_check") {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+	}
 }

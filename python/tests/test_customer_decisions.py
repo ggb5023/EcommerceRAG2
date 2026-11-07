@@ -170,6 +170,23 @@ def test_fact_scope_binding_rejects_a_different_order():
     assert service._validate_facts([fact], scope)
 
 
+def test_customer_fact_scope_rejects_compare_products_and_pre_sales():
+    service = LangGraphRagService()
+    after = {'role': 'customer', 'subject_type': 'customer', 'service_type': 'after_sales',
+             'customer_order_id': 'ORD-2609-0005'}
+    comparison = {'tool_name': 'compare_products', 'resource_id': '',
+                  'observed_at': '2026-09-29T12:00:00Z', 'is_mock': True,
+                  'value_json': '{}'}
+    with pytest.raises(PermissionError, match='after-sales customer fact tool'):
+        service._validate_facts([comparison], after)
+    pre = {'role': 'customer', 'subject_type': 'customer', 'service_type': 'pre_sales',
+           'customer_order_id': ''}
+    with pytest.raises(PermissionError, match='pre-sales customer scope'):
+        service._validate_facts([dict(comparison, tool_name='get_order_status',
+                                      resource_id='ORD-2609-0005',
+                                      value_json='{"order_id": "ORD-2609-0005"}')], pre)
+
+
 def test_after_sales_bound_order_skips_the_missing_reference_heuristic():
     class Control:
         async def ainvoke(self, request):

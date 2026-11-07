@@ -261,6 +261,8 @@ class LangGraphRagService:
                 bound_order = str(scope.get("customer_order_id") or "")
                 if service_type != "after_sales":
                     raise PermissionError("pre-sales customer scope cannot carry facts")
+                if name not in {"get_order_status", "get_logistics", "get_stock", "get_price"}:
+                    raise PermissionError("after-sales customer fact tool is not allowed")
                 if name in {"get_order_status", "get_logistics"} and resource_id != bound_order:
                     raise PermissionError("fact does not match the bound customer order")
             try:

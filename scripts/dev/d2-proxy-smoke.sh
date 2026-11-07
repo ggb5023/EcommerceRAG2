@@ -22,6 +22,11 @@ if [ ! -f "$dist/index.html" ]; then
   echo 'UNCONFIGURED frontend/dist/index.html is missing; run npm run build'
   exit 2
 fi
+outcome_code=$(curl -sS -o /dev/null -w '%{http_code}' -m 5 "$base/admin/v1/merchant/outcomes?range=30d" 2>/dev/null || true)
+if [ "$outcome_code" = "401" ] || [ "$outcome_code" = "403" ]; then
+  echo "UNCONFIGURED gateway requires browser identity (got $outcome_code); point ECR_BASE_URL at the isolated development stack"
+  exit 2
+fi
 
 work=$(mktemp -d)
 proxy_pid=""

@@ -178,6 +178,27 @@ def revoke(item, auth):
     command(f"/admin/v1/merchant/versions/{item['version_id']}/revoke", payload)
 
 
+def configure_shop(auth):
+    status, body = request("/admin/v1/merchant/shops")
+    if status != 200:
+        raise RuntimeError(f"shop settings unavailable: {status} {body}")
+    shop = next((item for item in body.get("items") or [] if item.get("shop_id") == "shop-demo"), None)
+    if shop is None:
+        raise RuntimeError("shop-demo is missing")
+    if shop.get("public_slug") == "shop-demo" and shop.get("customer_chat_enabled"):
+        print("SKIP shop-demo customer entry already enabled")
+        return
+    command("/admin/v1/merchant/shops/shop-demo/settings", {
+        "name": shop.get("name") or "shop-demo",
+        "public_slug": "shop-demo",
+        "welcome_message": shop.get("welcome_message") or "",
+        "customer_chat_enabled": True,
+        "timezone": shop.get("timezone") or "Asia/Shanghai",
+        "permission_revision": auth["permission_revision"],
+    })
+    print("SHOP shop-demo customer entry enabled")
+
+
 def reset_demo(auth):
     count = 0
     for item in review_items():
@@ -220,6 +241,7 @@ def publish_document(item):
 
 
 auth = session()
+configure_shop(auth)
 if reset_only:
     raise SystemExit(reset_demo(auth))
 

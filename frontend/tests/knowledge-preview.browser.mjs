@@ -5,7 +5,7 @@ import {chromium} from 'playwright'
 const base=process.env.KNOWLEDGE_ADMIN_URL??process.env.WORKSPACE_URL??'http://127.0.0.1:5173'
 const out=process.env.KNOWLEDGE_BROWSER_REPORT_DIR
 assert.ok(out,'fresh protected report directory required')
-await mkdir(out,{mode:0o700})
+await mkdir(out,{recursive:true,mode:0o700})
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
 const page=await browser.newPage();const checks=[];const errors=[]
 page.on('pageerror',e=>errors.push(e.name))

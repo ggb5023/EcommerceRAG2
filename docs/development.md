@@ -104,6 +104,11 @@ systemd 单元属于机器特定状态，不进仓库（部署契约在 M5 定�
 
 ### e2e 前置准备
 
+`--e2e` 绑定隔离栈：先启动带 Vite 的栈，再 seed 审核队列。需要受控
+Keycloak/自部署运行时的 6 个 spec（customer-control/service/source、selfhost-restore、
+keycloak、v2-restart）在缺少 `CUSTOMER_*`、`KEYCLOAK_ACCOUNTS_FILE` 或
+`V2_RESTART_RUNTIME_ENV` 时显示 UNCONFIGURED，而不是 FAILED；`--all` 仍严格。
+
 `frontend/tests/admin.browser.mjs` 需要审核队列里至少有一份待审版本，否则会停在
 `no reviewable version available`。用下面这条脚本补齐，它**只走管理 HTTP 接口**（创建导入批次 → 确认 → 轮询审核队列），
 不写任何 SQL：
@@ -163,7 +168,9 @@ python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-
 - dev 栈：`dev.env` 的 `V2_COMMERCE_SIM_DATASET` 指向数据集，supervisor 随栈启动
   commerce 子进程，`V2_FACTS_BASE_URL` 指向它；
 - 独立启停：`scripts/dev/commerce-sim.sh start|stop|status`（默认 `127.0.0.1:8091`）；
-- 一键隔离演示：`scripts/dev/commerce-lab.sh`（隔离栈 + 模拟器 + 导入并发布知识包）。
+- 一键隔离演示：`scripts/dev/commerce-lab.sh`（隔离栈 + 模拟器 + 导入并发布知识包，
+  并自动启用 `shop-demo` 的客户入口；人工审查步骤见 `docs/ui-only-acceptance.md` 的
+  「WP80–89 人工审查走查」）。
 
 隔离栈用 `--commerce-sim` 打开模拟器（端口 `base+4`，metrics 用 `base+5/6` 避开 dev）。
 
@@ -174,8 +181,9 @@ python3 scripts/dev/seed-accept-fixtures.py --from-corpus aligned-fact-delivery-
 - dev 栈：`127.0.0.1:8080`（gateway，含 ai 的 50052/50053）与 `127.0.0.1:5173`（vite）。
 - 当前 `RAG_PROFILE=v2_langchain_mock`（**离线档**，2026-10-28 由在线档切来，用于 W2 行为对照）；
   在线档需要把 `/etc/ecommerce-rag/dev.env` 的 `RAG_PROFILE` 改回 `v2_langchain_bailian` 再重启。
-- dev 库 `ecr_v2_dev_local`：35 条迁移；`documents=6`、`document_version=4`（1 条 active、2 条 pending 待审、
-  1 条 superseded）；`dev-user` 角色为 `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
+- dev 库 `ecr_v2_dev_local`：迁移数、`documents`/`document_version` 数量以
+  `schema_migration` 与实际库查询为准（会随演示变化）；`dev-user` 角色为
+  `merchant_admin` + `knowledge_reviewer`，**没有 owner**。
 - 顾客通道已启用：`shop-demo` 的 `customer_chat_enabled=true`、`public_slug=shop-demo`。
 - 已发布资料：`w2-delivery-c`（来自评测语料的配送事实，`external_allowed`，version 6），员工链路可命中 1 条引用；
   `w2-delivery-b`（version 5）与 `w2-delivery`（version 4）均已 revoke，同 id 再导入会得到 409 `version_conflict`。

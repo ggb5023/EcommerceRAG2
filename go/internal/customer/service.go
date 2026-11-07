@@ -700,6 +700,10 @@ func (s *Service) staffAction(w http.ResponseWriter, r *http.Request, staff Staf
 	}
 	result, err := s.change(r.Context(), c.ID, "staff:"+strconv.FormatInt(staff.User, 10), key(r), action, staff.User, staff.SessionHash, input.Epoch)
 	if err != nil {
+		if errors.Is(err, errResolveRequiresAfterSales) {
+			failure(w, 409, "resolve_requires_after_sales")
+			return
+		}
 		failure(w, 409, "claim_stale")
 		return
 	}

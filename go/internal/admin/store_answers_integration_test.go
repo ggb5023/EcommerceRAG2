@@ -159,6 +159,21 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 		t.Fatalf("mock filter failed: %v %v", mockRows, err)
 	}
 
+	// Text-ordered cursor: a 10-digit id must not hide a 9-digit id on the next page.
+	nineID := int64(900000000 + time.Now().UnixNano()%99999999)
+	tenID := int64(1000000000 + time.Now().UnixNano()%999999999)
+	for i, id := range []int64{nineID, tenID} {
+		if _, err := migration.Exec(ctx, `INSERT INTO turn(id,tenant_id,conversation_id,turn_no,request_id,user_query,status,kind,created_at)
+			VALUES($1,$2,$3,$4,$5,'分页问题','DONE','user','2026-11-07T02:00:00Z')`,
+			id, tenant, conversation, 2+i, fmt.Sprintf("page-%d-%s", i, stamp)); err != nil {
+			t.Fatalf("pagination turn fixture failed: %v", err)
+		}
+		if _, err := migration.Exec(ctx, `INSERT INTO conversation_execution(tenant_id,turn_id,execution_no,request_id,status,answer,is_mock)
+			VALUES($1,$2,1,$3,'DONE','分页回答',false)`, tenant, id, fmt.Sprintf("page-exec-%d-%s", i, stamp)); err != nil {
+			t.Fatalf("pagination execution fixture failed: %v", err)
+		}
+	}
+
 	// Two sources sharing one microsecond must both be reachable through the
 	// composite cursor; a timestamp-only filter would skip one forever.
 	if _, err := migration.Exec(ctx, `UPDATE customer_message SET created_at='2026-11-07T00:00:00Z' WHERE tenant_id=$1 AND id=$2`, tenant, "q-"+stamp); err != nil {
@@ -185,8 +200,13 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 		}
 		cursor = next
 	}
-	if len(seen) != 2 {
+	if len(seen) != 4 {
 		t.Fatalf("cursor lost rows: %v", seen)
+	}
+	for _, id := range []int64{nineID, tenID} {
+		if !seen["staff:"+strconv.FormatInt(id, 10)] {
+			t.Fatalf("cursor skipped staff id %d: %v", id, seen)
+		}
 	}
 
 	// Legacy/clarification messages can hold JSON null; the review queries must
@@ -208,12 +228,61 @@ func TestMerchantAnswersListsAndReviewsBothSources(t *testing.T) {
 		t.Fatalf("null citation detail: %+v %v", nullDetail, err)
 	}
 
+	var citedDoc, citedV1, citedV2 int64
+	if err := migration.QueryRow(ctx, `INSERT INTO document(tenant_id,logical_key,title,status)
+		VALUES($1,$2,'Cited document','active') RETURNING id`, tenant, "cited-"+stamp).Scan(&citedDoc); err != nil {
+		t.Fatalf("cited document fixture failed: %v", err)
+	}
+	insertVersion := func(hash string) int64 {
+		var id int64
+		if err := migration.QueryRow(ctx, `INSERT INTO document_version(tenant_id,document_id,source_hash,parser_version,chunk_rule_version,embedding_model,pipeline_version,object_key,status,disclosure_class,review_status,reviewed_hash,reviewed_by,reviewed_at)
+			VALUES($1,$2,$3,'seed','seed','seed','seed','seed','active','external_allowed','approved',$3,$4,now()) RETURNING id`,
+			tenant, citedDoc, hash, user).Scan(&id); err != nil {
+			t.Fatalf("cited version fixture failed: %v", err)
+		}
+		return id
+	}
+	citedV1 = insertVersion(strings.Repeat("a", 64))
+	citedV2 = insertVersion(strings.Repeat("b", 64))
+	if _, err := migration.Exec(ctx, `UPDATE document SET active_version_id=$1 WHERE tenant_id=$2 AND id=$3`, citedV2, tenant, citedDoc); err != nil {
+		t.Fatalf("active version fixture failed: %v", err)
+	}
+	if _, err := migration.Exec(ctx, `INSERT INTO evidence_snapshot(tenant_id,execution_id,evidence_id,document_id,version_id,content,disclosure_class,customer_eligible,citation_index)
+		VALUES($1,$2,'db-chunk-active',$3,$4,'引用旧版本','external_allowed',true,2)`,
+		tenant, execution, "cited-"+stamp, strconv.FormatInt(citedV1, 10)); err != nil {
+		t.Fatalf("cited evidence fixture failed: %v", err)
+	}
+	if _, err := migration.Exec(ctx, `INSERT INTO citation(tenant_id,execution_id,evidence_id,citation_index) VALUES($1,$2,'db-chunk-active',2)`, tenant, execution); err != nil {
+		t.Fatalf("cited citation fixture failed: %v", err)
+	}
+
+	citationValidity := func(row AnswerDetail) map[string]bool {
+		valid := map[string]bool{}
+		for _, citation := range row.Citations {
+			valid[citation.EvidenceID] = citation.Valid
+		}
+		return valid
+	}
 	staff, err := store.MerchantAnswer(ctx, db, tenant, []string{"shop-test"}, "staff", strconv.FormatInt(turn, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(staff.Citations) != 1 || staff.Citations[0].EvidenceID != "db-chunk-1" || staff.Citations[0].Valid {
+	if len(staff.Citations) != 2 {
 		t.Fatalf("staff citations: %+v", staff.Citations)
+	}
+	validity := citationValidity(staff)
+	if validity["db-chunk-1"] || validity["db-chunk-active"] {
+		t.Fatalf("inactive citations must be invalid: %+v", validity)
+	}
+	if _, err := migration.Exec(ctx, `UPDATE document SET active_version_id=$1 WHERE tenant_id=$2 AND id=$3`, citedV1, tenant, citedDoc); err != nil {
+		t.Fatalf("active version update failed: %v", err)
+	}
+	staff, err = store.MerchantAnswer(ctx, db, tenant, []string{"shop-test"}, "staff", strconv.FormatInt(turn, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !citationValidity(staff)["db-chunk-active"] {
+		t.Fatalf("active citation must be valid: %+v", staff.Citations)
 	}
 	if len(staff.Facts) != 1 || staff.Facts[0].ToolName != "get_order_status" {
 		t.Fatalf("staff facts: %+v", staff.Facts)

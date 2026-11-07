@@ -2,7 +2,7 @@
 // import wizard and batch/database state; real provider capability is proven
 // by the lifecycle run.
 import assert from 'node:assert/strict'
-import {chromium, expect} from 'playwright'
+import {chromium} from 'playwright'
 import {mkdir,writeFile,readdir,readFile} from 'node:fs/promises'
 import {execFileSync} from 'node:child_process'
 import path from 'node:path'
@@ -15,8 +15,6 @@ const fixture=path.join(root,'tests/fixtures/import-batch-20')
 const output=path.resolve(fileURLToPath(new URL(`../../.local/import-wizard/browser/${randomUUID()}/`,import.meta.url)))
 await mkdir(output,{recursive:true,mode:0o700})
 const env=Object.fromEntries((await readFile(process.env.ECR_BROWSER_ENV??'/etc/ecommerce-rag/import-integration.env','utf8')).split('\n').filter(l=>l.includes('=')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)]}))
-const manifestText=await readFile(path.join(fixture,'manifest.yaml'),'utf8')
-const importedDocuments=[...manifestText.matchAll(/- document_id: (\S+)/g)].map(m=>m[1])
 const seedHash=(await import('node:crypto')).createHash('sha256').update(await readFile(path.join(fixture,'doc-03.md'))).digest('hex')
 execFileSync('psql',[env.V2_MIGRATION_DSN,'-v','ON_ERROR_STOP=1','-c',`
 DO $$ DECLARE tid bigint; sid bigint; did bigint;
@@ -36,6 +34,7 @@ const page=await context.newPage();const listPage=await context.newPage()
 const checks=[];const errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('dialog',d=>d.accept())
 async function step(name,fn){try{await fn();checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){checks.push({name,status:'FAIL'});await page.screenshot({path:path.join(output,`${name}.png`)}).catch(()=>{});throw e}}
 async function files(names){return Promise.all(names.map(async name=>({name,mimeType:'text/markdown',buffer:await readFile(path.join(fixture,name))})))}
+
 let wizard
 try{
  await step('enable-model-switch',async()=>{
@@ -53,7 +52,7 @@ try{
   wizard=page.locator('section.import-form').filter({hasText:'导入预检（三步）'})
   await wizard.locator('input[accept=".yaml,.yml"]').setInputFiles(path.join(fixture,'manifest.yaml'))
   const names=(await readdir(fixture)).filter(n=>n.endsWith('.md')).sort()
-  await wizard.locator('input[accept=".docx,.markdown,.md,.csv"]').setInputFiles(await files(names))
+  await wizard.locator('input[accept*=".docx"]').setInputFiles(await files(names))
   await wizard.getByRole('button',{name:'开始预检'}).click()
   await page.getByText(/预检完成：/).waitFor({timeout:30000})
   const details=wizard.locator('details');const codes=[]
@@ -61,37 +60,18 @@ try{
   for(const code of ['missing_source','expired_content','duplicate_import','missing_disclosure_basis'])assert.ok(codes.includes(code),`${code}: ${codes}`)
   await details.first().locator('summary').click();assert.ok((await details.first().innerText()).length>0,'snippet non-empty')
  })
- await step('confirm-and-command-done',async()=>{
-  await wizard.getByRole('button',{name:'确认导入'}).click()
-  await wizard.getByText('已完成',{exact:false}).waitFor({timeout:90000})
- })
- await step('reviews-show-twenty-pending',async()=>{
-  await listPage.goto(workspace+'/admin/merchant/reviews',{waitUntil:'networkidle'})
-  await listPage.getByRole('heading',{name:'版本审核',level:1}).waitFor()
-  const rows=listPage.locator('.version-row').filter({hasText:/Document \d+/})
-  await expect.poll(async()=>rows.count(),{timeout:20000,intervals:[500]}).toBeGreaterThanOrEqual(20)
-  // The queue may already hold historical versions, so the assertion is about the
-  // twenty documents this case imported, not about a fixed row count.
-  assert.ok(await rows.count()>=20,`queue shows ${await rows.count()} rows, want at least 20`)
-  assert.ok((await rows.first().innerText()).includes('待处理'))
-  const pending=new Set()
-  const response=await listPage.request.get(workspace+'/admin/v1/merchant/reviews')
-  assert.equal(response.status(),200)
-  for(const item of (await response.json()).items??[])if(item.review_status==='pending')pending.add(item.document_id)
-  for(const document of importedDocuments)assert.ok(pending.has(document),`${document} is not pending in the review queue`)
+ await step('block-disables-confirm',async()=>{
+  await wizard.getByTestId('precheck-blocked').waitFor()
+  assert.ok(await wizard.getByTestId('confirm-import').isDisabled(),'confirm import must be disabled when a block issue exists')
  })
  await step('revoke-whole-batch',async()=>{
   await wizard.getByRole('button',{name:'撤回整包'}).click()
   await page.getByText('整包已撤回。').waitFor()
   assert.ok(await wizard.evaluate(el=>el.classList.contains('revoked')),'batch row must be greyed')
   assert.ok((await wizard.innerText()).includes('撤回时间'),'revoked time missing')
-  await listPage.reload({waitUntil:'networkidle'})
-  await listPage.getByRole('heading',{name:'版本审核',level:1}).waitFor()
-  const pending=listPage.locator('.version-row').filter({hasText:/Document \d+/}).filter({hasText:'待审核'})
-  assert.equal(await pending.count(),0)
  })
- await page.screenshot({path:path.join(output,'wizard.png')})
- await listPage.screenshot({path:path.join(output,'reviews.png')})
+ await page.screenshot({path:path.join(output,'wizard.png'),timeout:5000}).catch(()=>{})
+ await listPage.screenshot({path:path.join(output,'reviews.png'),timeout:5000}).catch(()=>{})
  const report={status:'PASS',checks,check_count:checks.length,reviewer_kind:'agent',human_review_completed:false,real_service_acceptance:false,screenshots:output,page_errors:errors}
  await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});console.log(JSON.stringify(report))
 }catch(e){const report={status:'NOT_PASSED',checks,error:String(e),screenshots:output};await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});console.error(JSON.stringify(report));process.exitCode=1}finally{await browser.close()}

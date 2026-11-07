@@ -10,15 +10,15 @@
 {"case_id": "pre-010", "expected_document": "faq.md", "expected_tools": [], "order_id": "", "query": "可以开发票吗？", "service_type": "pre_sales"}
 {"case_id": "after-011", "expected_document": "", "expected_tools": ["get_order_status"], "order_id": "ORD-2609-0001", "query": "订单 ORD-2609-0001 现在是什么状态？", "service_type": "after_sales"}
 {"case_id": "after-012", "expected_document": "", "expected_tools": ["get_logistics"], "order_id": "ORD-2609-0005", "query": "帮我查一下 ORD-2609-0005 的物流到哪了？", "service_type": "after_sales"}
-{"case_id": "after-013", "expected_document": "", "expected_tools": ["get_stock"], "order_id": "ORD-2609-0002", "query": "订单 ORD-2609-0002 里的 CLB-DRK-001 还有库存吗？", "service_type": "after_sales"}
-{"case_id": "after-014", "expected_document": "", "expected_tools": ["get_price"], "order_id": "ORD-2609-0003", "query": "订单 ORD-2609-0003 的保温杯现在多少钱？", "service_type": "after_sales"}
+{"case_id": "after-013", "expected_document": "", "expected_tools": ["get_stock"], "order_id": "ORD-2609-0002", "query": "订单 ORD-2609-0002 里的 CLB-APP-008 还有库存吗？", "service_type": "after_sales"}
+{"case_id": "after-014", "expected_document": "", "expected_tools": ["get_price"], "order_id": "ORD-2609-0003", "query": "订单 ORD-2609-0003 的 CLB-BED-005 现在多少钱？", "service_type": "after_sales"}
 {"case_id": "after-015", "expected_document": "", "expected_tools": ["get_order_status", "get_logistics"], "order_id": "ORD-2609-0001", "query": "订单 ORD-2609-0001 显示已签收，但我没收到", "service_type": "after_sales"}
 {"case_id": "after-016", "expected_document": "", "expected_tools": ["get_logistics"], "order_id": "ORD-2609-0016", "query": "ORD-2609-0016 的包裹显示运输中，预计什么时候到？", "service_type": "after_sales"}
 {"case_id": "after-017", "expected_document": "", "expected_tools": [], "order_id": "ORD-2609-0003", "query": "我想退掉 ORD-2609-0003 里的商品，怎么操作？", "service_type": "after_sales"}
 {"case_id": "after-018", "expected_document": "", "expected_tools": ["get_order_status"], "order_id": "ORD-2609-0006", "query": "ORD-2609-0006 的商品有破损，可以换货吗？", "service_type": "after_sales"}
 {"case_id": "after-019", "expected_document": "", "expected_tools": ["get_order_status"], "order_id": "ORD-2609-0018", "query": "订单 ORD-2609-0018 可以修改收货地址吗？", "service_type": "after_sales"}
 {"case_id": "after-020", "expected_document": "", "expected_tools": ["get_order_status"], "order_id": "ORD-2609-0004", "query": "ORD-2609-0004 可以取消吗？", "service_type": "after_sales"}
-{"case_id": "after-021", "expected_document": "", "expected_tools": ["get_stock"], "order_id": "ORD-2609-0005", "query": "订单 ORD-2609-0005 里的双肩包还有别的颜色吗？", "service_type": "after_sales"}
+{"case_id": "after-021", "expected_document": "", "expected_tools": ["get_stock"], "order_id": "ORD-2609-0005", "query": "订单 ORD-2609-0005 里的 CLB-DRK-001 还有别的颜色吗？", "service_type": "after_sales"}
 {"case_id": "after-022", "expected_document": "", "expected_tools": ["get_logistics"], "order_id": "ORD-2609-0019", "query": "ORD-2609-0019 的物流为什么两天没更新？", "service_type": "after_sales"}
 {"case_id": "after-023", "expected_document": "", "expected_tools": [], "order_id": "ORD-2609-0006", "query": "订单 ORD-2609-0006 的枕芯可以水洗吗？", "service_type": "after_sales"}
 {"case_id": "after-024", "expected_document": "", "expected_tools": ["get_order_status"], "order_id": "ORD-2609-0007", "query": "ORD-2609-0007 我想申请退款，需要什么材料？", "service_type": "after_sales"}

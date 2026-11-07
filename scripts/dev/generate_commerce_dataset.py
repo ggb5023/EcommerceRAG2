@@ -155,7 +155,6 @@ def build(rng: random.Random) -> dict[str, str]:
         placed_day = rng.randint(1, 24)
         placed = timestamp(placed_day, rng.randint(1, 12))
         updated = timestamp(min(placed_day + rng.randint(0, 4), 28), rng.randint(13, 23))
-        order_rows.append([order_id, SHOP_ID, status, f"CUST-{index:04d}", placed, updated, CURRENCY])
         item_count = rng.randint(1, 3)
         chosen = rng.sample(skus, item_count)
         order_skus[order_id] = chosen
@@ -183,6 +182,9 @@ def build(rng: random.Random) -> dict[str, str]:
             if status == "delivered":
                 delivered_orders.append(order_id)
                 delivered_at[order_id] = delivered
+        if status in {"shipped", "delivered"}:
+            updated = max(updated, shipped, delivered or "")
+        order_rows.append([order_id, SHOP_ID, status, f"CUST-{index:04d}", placed, updated, CURRENCY])
     files["orders.csv"] = csv_text(
         ["order_id", "shop_id", "status", "customer_ref", "placed_at", "updated_at", "currency"],
         order_rows)
@@ -297,26 +299,32 @@ def build(rng: random.Random) -> dict[str, str]:
         return pool[offset % len(pool)]
 
     after_sales = [
-        ("订单 {order} 现在是什么状态？", "any", 0, ["get_order_status"]),
-        ("帮我查一下 {order} 的物流到哪了？", "shipped", 0, ["get_logistics"]),
-        ("订单 {order} 里的 CLB-DRK-001 还有库存吗？", "any", 1, ["get_stock"]),
-        ("订单 {order} 的保温杯现在多少钱？", "any", 2, ["get_price"]),
-        ("订单 {order} 显示已签收，但我没收到", "delivered", 0, ["get_order_status", "get_logistics"]),
-        ("{order} 的包裹显示运输中，预计什么时候到？", "shipped", 1, ["get_logistics"]),
-        ("我想退掉 {order} 里的商品，怎么操作？", "delivered", 1, []),
-        ("{order} 的商品有破损，可以换货吗？", "delivered", 2, ["get_order_status"]),
-        ("订单 {order} 可以修改收货地址吗？", "shipped", 2, ["get_order_status"]),
-        ("{order} 可以取消吗？", "any", 3, ["get_order_status"]),
-        ("订单 {order} 里的双肩包还有别的颜色吗？", "any", 4, ["get_stock"]),
-        ("{order} 的物流为什么两天没更新？", "shipped", 3, ["get_logistics"]),
-        ("订单 {order} 的枕芯可以水洗吗？", "any", 5, []),
-        ("{order} 我想申请退款，需要什么材料？", "delivered", 3, ["get_order_status"]),
+        ("订单 {order} 现在是什么状态？", "any", 0, ["get_order_status"], False),
+        ("帮我查一下 {order} 的物流到哪了？", "shipped", 0, ["get_logistics"], False),
+        ("订单 {order} 里的 {sku} 还有库存吗？", "any", 1, ["get_stock"], True),
+        ("订单 {order} 的 {sku} 现在多少钱？", "any", 2, ["get_price"], True),
+        ("订单 {order} 显示已签收，但我没收到", "delivered", 0, ["get_order_status", "get_logistics"], False),
+        ("{order} 的包裹显示运输中，预计什么时候到？", "shipped", 1, ["get_logistics"], False),
+        ("我想退掉 {order} 里的商品，怎么操作？", "delivered", 1, [], False),
+        ("{order} 的商品有破损，可以换货吗？", "delivered", 2, ["get_order_status"], False),
+        ("订单 {order} 可以修改收货地址吗？", "shipped", 2, ["get_order_status"], False),
+        ("{order} 可以取消吗？", "any", 3, ["get_order_status"], False),
+        ("订单 {order} 里的 {sku} 还有别的颜色吗？", "any", 4, ["get_stock"], True),
+        ("{order} 的物流为什么两天没更新？", "shipped", 3, ["get_logistics"], False),
+        ("订单 {order} 的枕芯可以水洗吗？", "any", 5, [], False),
+        ("{order} 我想申请退款，需要什么材料？", "delivered", 3, ["get_order_status"], False),
     ]
     pools = {"shipped": shipped_orders, "delivered": delivered_orders_all, "any": any_orders}
-    for index, (template, pool_name, offset, tools) in enumerate(after_sales, start=11):
+    for index, (template, pool_name, offset, tools, needs_sku) in enumerate(after_sales, start=11):
         order_id = pick(pools[pool_name], offset)
+        if needs_sku:
+            candidates = order_skus[order_id]
+            sku = candidates[offset % len(candidates)]
+            query = template.format(order=order_id, sku=sku)
+        else:
+            query = template.format(order=order_id)
         questions.append({"case_id": f"after-{index:03d}", "service_type": "after_sales",
-                          "query": template.format(order=order_id), "order_id": order_id,
+                          "query": query, "order_id": order_id,
                           "expected_tools": tools, "expected_document": ""})
     files["questions.jsonl"] = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
                                        for row in questions)

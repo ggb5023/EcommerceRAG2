@@ -34,6 +34,14 @@ describe('server authoritative workspace', () => {
     expect(h.workspace.activeConversation.value).toBeNull()
     expect(h.workspace.error.value).toContain('无法访问')
   })
+  it('recovers from a stale conversation id after a permission revision', async () => {
+    const h = harness()
+    h.client.conversation.mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 403, code: 'execution_permission_changed' }))
+    await h.workspace.loadWorkspace('stale')
+    expect(h.workspace.session.value).not.toBeNull()
+    expect(h.workspace.activeConversation.value?.id).toBe('1')
+    expect(h.workspace.error.value).toBe('')
+  })
   it.each([401, 403])('clears restricted data when %s occurs after loading', async status => {
     const h = harness(); await h.workspace.loadWorkspace('1')
     h.client.conversation.mockRejectedValue(Object.assign(new Error('denied'), { status }))
