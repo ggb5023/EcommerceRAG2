@@ -32,12 +32,18 @@ type Binding struct {
 }
 
 type Config struct {
-	AuthorizationSource string         `json:"authorization_source,omitempty"`
-	Issuer              string         `json:"issuer"`
-	ClientID            string         `json:"client_id"`
-	SecretFile          string         `json:"secret_file"`
-	Bindings            []Binding      `json:"bindings"`
-	Browser             *BrowserConfig `json:"browser,omitempty"`
+	AuthorizationSource string `json:"authorization_source,omitempty"`
+	Issuer              string `json:"issuer"`
+	// BackchannelURL is the in-network Keycloak origin used only for OIDC
+	// backchannel calls (discovery, JWKS, introspection). Token issuer and
+	// browser-facing endpoints stay on the public Issuer origin. This is
+	// required when the public origin is terminated by the gateway itself:
+	// discovery runs before the gateway starts listening.
+	BackchannelURL string         `json:"backchannel_url,omitempty"`
+	ClientID       string         `json:"client_id"`
+	SecretFile     string         `json:"secret_file"`
+	Bindings       []Binding      `json:"bindings"`
+	Browser        *BrowserConfig `json:"browser,omitempty"`
 }
 
 func protectedFile(path string) ([]byte, error) {
@@ -100,6 +106,39 @@ type Provider struct {
 	discovery     *oidc.Provider
 }
 
+// backchannelTransport redirects requests addressed to the public issuer origin
+// to an in-network endpoint. Only the URL scheme and host change, so the
+// discovery document, JWKS and introspection keep their public paths.
+type backchannelTransport struct {
+	issuerScheme string
+	issuerHost   string
+	targetScheme string
+	targetHost   string
+	base         http.RoundTripper
+}
+
+func (t backchannelTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if !strings.EqualFold(request.URL.Scheme, t.issuerScheme) || !strings.EqualFold(request.URL.Host, t.issuerHost) {
+		return t.base.RoundTrip(request)
+	}
+	redirected := request.Clone(request.Context())
+	redirected.URL.Scheme = t.targetScheme
+	redirected.URL.Host = t.targetHost
+	redirected.Host = ""
+	return t.base.RoundTrip(redirected)
+}
+
+func backchannelClient(issuer *url.URL, raw string) (*http.Client, error) {
+	b, err := url.Parse(raw)
+	if err != nil || b.Host == "" || b.User != nil || b.RawQuery != "" || b.Fragment != "" || (b.Scheme != "http" && b.Scheme != "https") {
+		return nil, ErrInvalid
+	}
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.Proxy = nil
+	return &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: backchannelTransport{issuerScheme: issuer.Scheme, issuerHost: issuer.Host, targetScheme: b.Scheme, targetHost: b.Host, base: base}}, nil
+}
+
 func New(ctx context.Context, config Config) (*Provider, error) {
 	u, err := url.Parse(config.Issuer)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(config.Issuer, "/") {
@@ -130,6 +169,12 @@ func New(ctx context.Context, config Config) (*Provider, error) {
 		bindings[b.Subject] = b
 	}
 	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if config.BackchannelURL != "" {
+		client, err = backchannelClient(u, config.BackchannelURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, client), config.Issuer)
 	if err != nil {
 		return nil, ErrUnavailable

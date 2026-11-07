@@ -141,3 +141,59 @@ func TestProtectedOIDCConfiguration(t *testing.T) {
 		t.Fatal("unknown configuration accepted")
 	}
 }
+
+func TestOIDCBackchannelDiscovery(t *testing.T) {
+	const issuer = "https://public.invalid:18443/identity/realms/merchant"
+	var paths []string
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/identity/realms/merchant/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": issuer,
+				"authorization_endpoint":                issuer + "/protocol/openid-connect/auth",
+				"token_endpoint":                        issuer + "/protocol/openid-connect/token",
+				"jwks_uri":                              issuer + "/protocol/openid-connect/certs",
+				"introspection_endpoint":                issuer + "/protocol/openid-connect/token/introspect",
+				"id_token_signing_alg_values_supported": []string{"RS256"}})
+		case "/identity/realms/merchant/protocol/openid-connect/certs":
+			_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{}})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer internal.Close()
+	secret := filepath.Join(t.TempDir(), "client-secret")
+	if err := os.WriteFile(secret, []byte("synthetic-client-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := New(context.Background(), Config{Issuer: issuer, BackchannelURL: internal.URL,
+		ClientID: "fixture-client", SecretFile: secret,
+		Bindings: []Binding{{Subject: "subject-one", Tenant: "tenant-test", User: "user-test", Shop: "shop-test"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var discovered struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := provider.discovery.Claims(&discovered); err != nil || discovered.Issuer != issuer {
+		t.Fatalf("public issuer lost through backchannel: %v %q", err, discovered.Issuer)
+	}
+	if len(paths) == 0 || paths[0] != "/identity/realms/merchant/.well-known/openid-configuration" {
+		t.Fatalf("discovery did not use the internal backchannel: %v", paths)
+	}
+}
+
+func TestOIDCBackchannelValidation(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "client-secret")
+	if err := os.WriteFile(secret, []byte("synthetic-client-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config := Config{Issuer: "https://public.invalid/realm", ClientID: "fixture-client", SecretFile: secret,
+		Bindings: []Binding{{Subject: "subject-one", Tenant: "tenant-test", User: "user-test", Shop: "shop-test"}}}
+	for _, backchannel := range []string{"ftp://keycloak:8080", "https://user@keycloak:8080", "https://keycloak:8080/path?query=1", "https:///missing-host"} {
+		config.BackchannelURL = backchannel
+		if _, err := New(context.Background(), config); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("accepted backchannel %q: %v", backchannel, err)
+		}
+	}
+}

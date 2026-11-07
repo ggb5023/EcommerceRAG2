@@ -45,7 +45,15 @@ services:
   # One-shot: migrator creates tenant, shop and the owner skeleton.
   bootstrap:
     <<: *python
+    # The bootstrap writes the Keycloak realm into the identity directory (owned
+    # by the Keycloak uid 1000, mode 0700) and hands the file to that uid. That
+    # needs root plus the same filesystem capabilities as db-init; otherwise the
+    # job cannot even stat /run/identity/merchant-realm.json.
+    user: "0:0"
     restart: "no"
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    environment:
+      ECR_IDENTITY_BACKCHANNEL_URL: http://keycloak:8080
     command: [/app/scripts/selfhost-bootstrap.py]
     volumes: ["${ECR_RUNTIME}/bootstrap:/run/bootstrap:ro", "${ECR_RUNTIME}/gateway:/run/gateway", "${ECR_RUNTIME}/identity:/run/identity"]
     depends_on: {migrate: {condition: service_completed_successfully}}
@@ -80,7 +88,7 @@ services:
         max-file: "3"
     env_file: ["${ECR_RUNTIME}/gateway.env"]
     volumes: ["${ECR_RUNTIME}/gateway:/run/runtime:ro", "${ECR_RUNTIME}/web:/run/web:ro"]
-    ports: ["${ECR_WEB_BIND:-127.0.0.1}:${ECR_HTTPS_PORT:-8443}:8443"]
+    ports: ["${ECR_WEB_BIND:-127.0.0.1}:${ECR_HTTPS_PORT:-8443}:${ECR_LISTEN_PORT:-8443}"]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
