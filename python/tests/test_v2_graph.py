@@ -13,6 +13,34 @@ def scope(*documents):
     }
 
 
+def customer_scope(order_id="V2-ORDER-001"):
+    return {
+        "tenant_id": "v2-demo-tenant",
+        "user_id": "customer-1",
+        "permission_revision": "1",
+        "role": "customer",
+        "subject_type": "customer",
+        "customer_id": "customer-1",
+        "customer_session_id": "session-1",
+        "conversation_epoch": 1,
+        "allowed_shop_ids": ["shop-demo"],
+        "allowed_document_ids": [],
+        "shop_id": "shop-demo",
+        "service_type": "after_sales",
+        "customer_order_id": order_id,
+    }
+
+
+def order_fact():
+    return {
+        "tool_name": "get_logistics",
+        "resource_id": "V2-ORDER-001",
+        "value_json": '{"order_id":"V2-ORDER-001","status":"in_transit"}',
+        "observed_at": "2026-10-12T00:00:00Z",
+        "is_mock": True,
+    }
+
+
 def test_graph_runs_nodes_and_preserves_customer_scope():
     result = LangGraphRagService().run(
         query="保温杯容量是多少？",
@@ -39,6 +67,34 @@ def test_graph_rejects_empty_grants():
 def test_graph_clarifies_vague_question_without_copy_permission():
     result = LangGraphRagService().run(query="这个呢？", scope=scope("v2-doc-bottle"), response_purpose="customer_reply")
     assert result["answer"] == "请补充商品或具体问题。"
+    assert result["can_copy"] is False
+    assert result["reply_decision"] == {"behavior": "CLARIFY", "reason_code": "missing_context", "evidence_ids": []}
+
+
+def test_fixture_graph_answers_from_facts_without_terminal_fields():
+    result = LangGraphRagService().run_with_evidence(
+        query="我的订单到哪了？",
+        scope=customer_scope(),
+        evidence=[],
+        facts=[order_fact()],
+        response_purpose="customer_chat",
+    )
+    assert result["reply_decision"] == {"behavior": "ANSWER", "reason_code": "grounded", "evidence_ids": []}
+    assert "get_logistics" in result["answer"]
+    assert result["can_copy"] is False
+    assert "state" not in result and "terminal" not in result
+    assert "state" not in result["reply_decision"] and "terminal" not in result["reply_decision"]
+
+
+def test_fixture_graph_hands_off_without_facts_or_evidence():
+    result = LangGraphRagService().run_with_evidence(
+        query="语料外问题",
+        scope=customer_scope(),
+        evidence=[],
+        facts=[],
+        response_purpose="customer_chat",
+    )
+    assert result["reply_decision"] == {"behavior": "HANDOFF", "reason_code": "knowledge_missing", "evidence_ids": []}
     assert result["can_copy"] is False
 
 

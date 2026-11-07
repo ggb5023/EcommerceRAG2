@@ -303,11 +303,13 @@ def generate_node(state: GraphState) -> dict:
     result = generation_chain.invoke({
         "clarification": state.get("clarification", ""),
         "evidence": state.get("evidence", []),
+        "facts": state.get("facts", []),
     })
     return {
         "answer": result["answer"],
         "can_copy": bool(result["can_copy"]),
         "citations": list(state.get("evidence", [])),
+        "reply_decision": result["reply_decision"],
         "trace": {"nodes": ["understand", "retrieve", "fuse_rrf", "rerank", "context_gate", "generate"]},
     }
 

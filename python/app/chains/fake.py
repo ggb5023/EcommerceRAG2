@@ -42,19 +42,43 @@ def _understand(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fact_lines(facts: list[dict[str, Any]]) -> list[str]:
+    return [f"{fact['tool_name']}={fact['value_json']}" for fact in facts]
+
+
 def _generate(payload: dict[str, Any]) -> dict[str, Any]:
     clarification = str(payload.get("clarification", ""))
     evidence = payload.get("evidence") or []
+    facts = payload.get("facts") or []
     if clarification:
-        return {"answer": clarification, "can_copy": False}
-    if not evidence:
-        return {"answer": "当前资料没有足够依据回答，请补充问题或转人工客服。", "can_copy": False}
+        return {
+            "answer": clarification,
+            "can_copy": False,
+            "reply_decision": {"behavior": "CLARIFY", "reason_code": "missing_context", "evidence_ids": []},
+        }
+    fact_lines = _fact_lines(facts)
+    if not evidence and not fact_lines:
+        return {
+            "answer": "当前资料没有足够依据回答，请补充问题或转人工客服。",
+            "can_copy": False,
+            "reply_decision": {"behavior": "HANDOFF", "reason_code": "knowledge_missing", "evidence_ids": []},
+        }
+    parts: list[str] = []
+    if evidence:
+        parts.append("根据当前知识资料：" + "；".join(str(item["content"]) for item in evidence))
+    if fact_lines:
+        parts.append("根据实时业务数据：" + "；".join(fact_lines))
     return {
-        "answer": "根据当前知识资料：" + "；".join(str(item["content"]) for item in evidence),
+        "answer": "\n".join(parts),
         # The fixture chain is only a contract harness.  Synthetic output must
         # never be presented as an approved customer reply, even when the
         # evidence itself is externally disclosable.
         "can_copy": False,
+        "reply_decision": {
+            "behavior": "ANSWER",
+            "reason_code": "grounded",
+            "evidence_ids": [str(item["id"]) for item in evidence],
+        },
     }
 
 

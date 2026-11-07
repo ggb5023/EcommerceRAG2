@@ -243,3 +243,32 @@ def test_generate_sends_reply_decision_for_customer_reply():
     assert len(decisions) == 1
     assert decisions[0].behavior == rag_pb2.REPLY_BEHAVIOR_HANDOFF
     assert decisions[0].reason_code == "knowledge_missing"
+
+
+def after_sales_scope():
+    return rag_pb2.RequestContext(
+        request_id="contract", tenant_id="v2-demo-tenant", user_id="customer-1",
+        role="customer", shop_id="shop-demo", allowed_shop_ids=["shop-demo"],
+        allowed_document_ids=[], permission_revision="1", enforce_document_scope=True,
+        scope_audience="ai", subject_type="customer", customer_id="customer-1",
+        customer_session_id="session-1", conversation_epoch=1,
+        service_type="after_sales", customer_order_id="V2-ORDER-001",
+    )
+
+
+def test_fixture_generate_grounds_after_sales_facts():
+    service = RagService(profile="v2_langgraph_fixture", scope_validator=lambda _: None)
+    events = list(service.Generate(rag_pb2.GenerateRequest(
+        context=after_sales_scope(), query="我的订单到哪了？", response_purpose="customer_chat",
+        facts=[rag_pb2.Fact(
+            tool_name="get_logistics", resource_id="V2-ORDER-001",
+            value_json='{"order_id":"V2-ORDER-001","status":"in_transit"}',
+            observed_at="2026-10-12T00:00:00Z", is_mock=True,
+        )],
+    ), Context()))
+    decisions = [event.decision for event in events if event.WhichOneof("event") == "decision"]
+    assert len(decisions) == 1
+    assert decisions[0].behavior == rag_pb2.REPLY_BEHAVIOR_ANSWER
+    assert decisions[0].reason_code == "grounded"
+    assert not decisions[0].evidence_ids
+    assert any("get_logistics" in event.delta for event in events if event.WhichOneof("event") == "delta")
