@@ -13,6 +13,20 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 
 
+ARCHIVE_NAMES=('compose.env','gateway.env','ai.env','ingest.env','worker.env','identity.env',
+               'bootstrap','gateway','ai','ingest','worker','identity','web','artifacts')
+
+
+def archive_inventory(runtime):
+    """Return archive members that exist; optional service env files may be absent.
+
+    The selfhost Compose form runs ingestion in the ai process, so a runtime
+    created by scripts/ops/selfhost.py has no ingest.env or worker.env. Refusing
+    the backup in that case made a supported installation unbackupable.
+    """
+    return [name for name in ARCHIVE_NAMES if (runtime/name).exists()]
+
+
 def database_evidence(cmd, database):
     def query(statement):
         return subprocess.check_output(cmd+['exec','-T','postgres','psql','-U','postgres','-d',database,'-At','-c',statement],stderr=subprocess.PIPE,text=True).strip()
@@ -52,8 +66,7 @@ def main():
         def protect(member):
             member.mode = 0o700 if member.isdir() else 0o600
             return member
-        for name in ('compose.env','gateway.env','ai.env','ingest.env','worker.env','identity.env',
-                     'bootstrap','gateway','ai','ingest','worker','identity','web','artifacts'):
+        for name in archive_inventory(runtime):
             path=runtime/name
             tar.add(path,arcname=path.name,filter=protect)
     hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in out.iterdir() if path.is_file()}

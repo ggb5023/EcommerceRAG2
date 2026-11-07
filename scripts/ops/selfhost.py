@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import secrets
@@ -36,6 +37,22 @@ def command(args):
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
+def local_certificate_san(hostname):
+    """Loopback/IP installations need an IP SAN; DNS names keep the DNS SAN."""
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return 'DNS:' + hostname
+    return 'IP:' + hostname
+
+
+def parse_listen_port(value):
+    port = int(value)
+    if not 1 <= port <= 65535:
+        raise ValueError('listen port out of range')
+    return port
+
+
 def initialize(args):
     from app.providers.config import ensure_secure_config_file, load_provider_config
     if os.geteuid()!=0:raise ValueError('root provisioning required')
@@ -62,6 +79,11 @@ def initialize(args):
     # skeleton and /setup only completes its password.
     if args.identity_profile == 'oidc_browser':
         accounts=[{'username':args.owner_username,'role':'owner','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}, {'username':'support','role':'operator','subject':str(uuid4()),'password':secrets.token_urlsafe(24)}]
+        if args.dev_user:
+            # The controlled browser harness authenticates a dedicated OIDC
+            # identity whose external_id matches the development fixture name.
+            # It is an owner so the merchant review/publish pages are reachable.
+            accounts.append({'username':'dev-user','role':'owner','subject':str(uuid4()),'password':secrets.token_urlsafe(24)})
         realm={'realm':'merchant','enabled':True,'registrationAllowed':False,'resetPasswordAllowed':False,'sslRequired':'external','accessTokenLifespan':300,
           'clients':[{'clientId':'merchant-browser','secret':client,'publicClient':False,'standardFlowEnabled':True,'directAccessGrantsEnabled':False,'implicitFlowEnabled':False,'serviceAccountsEnabled':False,'redirectUris':[args.origin+'/v1/auth/callback'],'webOrigins':[], 'attributes':{'pkce.code.challenge.method':'S256'},'protocolMappers':[{'name':'audience','protocol':'openid-connect','protocolMapper':'oidc-audience-mapper','config':{'included.client.audience':'merchant-browser','access.token.claim':'true','id.token.claim':'false'}}]}],
           'users':[{'id':a['subject'],'username':a['username'],'firstName':'Merchant','lastName':a['username'],'email':a['username']+'@example.invalid','emailVerified':True,'enabled':True,'credentials':[{'type':'password','value':a['password'],'temporary':False}]} for a in accounts]}
@@ -87,7 +109,7 @@ def initialize(args):
     if args.tls_cert and args.tls_key and args.tls_ca:
         for name,source in [('tls.crt',args.tls_cert),('tls.key',args.tls_key),('web-ca.crt',args.tls_ca)]:write(runtime/'web'/name,source.read_text())
     elif args.local_certificate:
-        command(['openssl','req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:P-256','-nodes','-keyout',str(runtime/'web/tls.key'),'-out',str(runtime/'web/tls.crt'),'-days','30','-subj','/CN='+origin.hostname,'-addext','subjectAltName=DNS:'+origin.hostname])
+        command(['openssl','req','-x509','-newkey','ec','-pkeyopt','ec_paramgen_curve:P-256','-nodes','-keyout',str(runtime/'web/tls.key'),'-out',str(runtime/'web/tls.crt'),'-days','30','-subj','/CN='+origin.hostname,'-addext','subjectAltName='+local_certificate_san(origin.hostname)])
         os.chmod(runtime/'web/tls.key',0o600)
         write(runtime/'web/web-ca.crt',(runtime/'web/tls.crt').read_text())
         os.chown(runtime/'web/tls.key',65532,65532);os.chown(runtime/'web/tls.crt',65532,65532)
@@ -97,7 +119,8 @@ def initialize(args):
     common={'APP_ENV':'production','RAG_PROFILE':'v2_langchain_bailian','V2_RPC_TLS':'mtls','V2_RPC_CA_FILE':'/run/runtime/rpc-ca.crt','V2_RPC_CERT_FILE':'/run/runtime/rpc.crt','V2_RPC_KEY_FILE':'/run/runtime/rpc.key','V2_AUTHORITY_GRPC_ADDR':'gateway:50054'}
     paid={'V2_PROVIDER_CONFIG':'/run/runtime/providers.env',}
     storage={'INGEST_STORAGE_PROFILE':'filesystem','INGEST_ARTIFACT_ROOT':'/var/lib/ecr/artifacts'}
-    configs={'gateway':{**common,'HTTP_ADDR':'0.0.0.0:8443','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ai:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json','V2_IDENTITY_PROXY_URL':'http://keycloak:8080'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'WEB_ROOT':'/srv/frontend','ECR_HOSTNAME':origin.hostname,'ECR_HTTPS_PORT':str(port),'WEB_TLS_CERT':'/run/web/tls.crt','WEB_TLS_KEY':'/run/web/tls.key','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
+    listen_port=parse_listen_port(args.listen_port)
+    configs={'gateway':{**common,'HTTP_ADDR':f'0.0.0.0:{listen_port}','V2_GRPC_ADDR':'ai:50052','V2_INGEST_GRPC_ADDR':'ai:50053','V2_GATEWAY_DSN':dsn('rag_v2_gateway'),'SCOPE_SIGNING_KEY_FILE':'/run/runtime/scope-key','V2_IDENTITY_PROFILE':args.identity_profile,**({'V2_OIDC_CONFIG_FILE':'/run/runtime/oidc.json','V2_IDENTITY_PROXY_URL':'http://keycloak:8080'} if args.identity_profile=='oidc_browser' else {}),'V2_CUSTOMER_ORIGIN':args.origin,'WEB_ROOT':'/srv/frontend','ECR_HOSTNAME':origin.hostname,'ECR_HTTPS_PORT':str(port),'WEB_TLS_CERT':'/run/web/tls.crt','WEB_TLS_KEY':'/run/web/tls.key','SSL_CERT_FILE':'/run/runtime/web-ca.crt'},
       'ai':{**common,**paid,**storage,'V2_GRPC_ADDR':'0.0.0.0:50052','V2_INGEST_GRPC_ADDR':'0.0.0.0:50053',
              'V2_RETRIEVER_DSN':dsn('rag_v2_ai'),'V2_CHECKPOINT_DSN':dsn('rag_v2_ai'),
              'V2_INGEST_DSN':dsn('rag_v2_ingest'),'V2_INGEST_WORKER_ID':'merchant-worker'}}
@@ -106,7 +129,7 @@ def initialize(args):
     write(runtime/'ai'/'providers.env',args.provider_config.read_text())
     if args.identity_profile == 'oidc_browser':
         write(runtime/'identity.env','\n'.join(['KC_DB=postgres','KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak','KC_DB_USERNAME=keycloak','KC_DB_PASSWORD='+passwords['keycloak'],'KC_HOSTNAME='+args.origin+'/identity','KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin','KC_BOOTSTRAP_ADMIN_PASSWORD='+secrets.token_urlsafe(32),'KC_TELEMETRY_DISABLED=true'])+'\n',0)
-    write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
+    write(runtime/'compose.env','\n'.join(['ECR_RUNTIME='+str(runtime),'ECR_ORIGIN='+args.origin,'ECR_HOSTNAME='+origin.hostname,'ECR_HTTPS_PORT='+str(port),'ECR_LISTEN_PORT='+str(listen_port),'ECR_PROJECT='+args.project,'ECR_WEB_BIND='+args.bind])+'\n',0)
     for name in ('bootstrap','gateway','ai','web','artifacts'):
         directory = runtime/name
         if not directory.exists():
@@ -125,6 +148,8 @@ def main():
     p.add_argument('--tls-cert',type=Path);p.add_argument('--tls-key',type=Path);p.add_argument('--tls-ca',type=Path);p.add_argument('--local-certificate',action='store_true')
     p.add_argument('--shop-name',default='我的店铺');p.add_argument('--project',default='ecr-merchant');p.add_argument('--bind',default='127.0.0.1')
     p.add_argument('--identity-profile',choices=['local','oidc_browser'],default='local');p.add_argument('--owner-username',default='admin')
+    p.add_argument('--listen-port',default='8443',help='port the gateway listens on inside the container')
+    p.add_argument('--dev-user',action='store_true',help='add the controlled dev-user OIDC account')
     args=p.parse_args()
     try:initialize(args)
     except Exception:raise SystemExit('FAIL installation preparation; check HTTPS, protected Provider, empty directory and openssl') from None
