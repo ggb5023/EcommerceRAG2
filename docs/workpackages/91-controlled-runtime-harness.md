@@ -101,4 +101,4 @@ bash -n scripts/check.sh && shellcheck scripts/dev/customer-runtime.sh && go vet
 - 不修改隔离栈脚本（WP92 所有）；
 - 不改 smoke 基线、不改 contracts 棘轮、不新增 SECURITY DEFINER；
 - 不把环境失败写成 PASS；缺 Docker/镜像/凭据时记 UNCONFIGURED；
-- 不提交 `scripts/review/`，不用 `git add .`。
+- 不提交本地未跟踪的审查目录，不用 `git add .`。
