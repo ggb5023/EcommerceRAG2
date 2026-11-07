@@ -12,7 +12,7 @@ fi
 
 usage() {
   cat <<'EOF'
-usage: bash scripts/check.sh [--db] [--e2e] [--controlled-e2e] [--all] [--cov] [--allow-unconfigured]
+usage: bash scripts/check.sh [--db] [--e2e] [--controlled-e2e] [--controlled-only] [--skip-login] [--all] [--cov] [--allow-unconfigured]
 
   (no flag)  fast layer only: static checks, unit tests and builds
   --db       fast layer plus the real-database layer (needs the integration env files)
@@ -21,6 +21,11 @@ usage: bash scripts/check.sh [--db] [--e2e] [--controlled-e2e] [--all] [--cov] [
              with --e2e, also prepare the controlled selfhost runtime and run
              customer-service -> customer-source -> customer-control -> keycloak,
              then the backup/restore verification (needs Docker and the real provider)
+  --controlled-only
+             fast layer plus only the five controlled specs; skips the d2 proxy
+             smoke, the login spec and every regular browser spec
+  --skip-login
+             with --e2e, omit the local-account login spec instead of running it
   --smoke    fast layer plus the five turn-chain smokes (needs a live dev stack)
   --all      fast layer plus both of the above
   --cov      collect Go and Python coverage into .local/coverage/ (report only, no threshold)
@@ -45,11 +50,15 @@ ALL=0
 STACK=0
 ALLOW_UNCONFIGURED=0
 CONTROLLED=0
+CONTROLLED_ONLY=0
+SKIP_LOGIN=0
 for arg in "$@"; do
   case "$arg" in
     --db) DB=1 ;;
     --e2e) E2E=1 ;;
     --controlled-e2e) CONTROLLED=1; E2E=1 ;;
+    --controlled-only) CONTROLLED_ONLY=1; CONTROLLED=1; E2E=1 ;;
+    --skip-login) SKIP_LOGIN=1 ;;
     --smoke) SMOKE=1 ;;
     --all) DB=1; E2E=1; ALL=1 ;;
     --cov) COV=1 ;;
@@ -289,7 +298,11 @@ fi
 if [ "$E2E" -eq 1 ]; then
   layer_start e2e
   test_env=${ECR_TEST_INTEGRATION_ENV:-/etc/ecommerce-rag/test-integration.env}
-  if stack_ready; then
+  if [ "$CONTROLLED_ONLY" -eq 1 ]; then
+    # The controlled-only acceptance targets the Compose runtime, not the
+    # isolated stack's proxy, so d2 is intentionally not attempted or counted.
+    printf '[e2e] d2-proxy-smoke SKIPPED (--controlled-only)\n'
+  elif stack_ready; then
     d2_base="http://$(stack_value gateway)"
     export ECR_BASE_URL="$d2_base"
     run_optional e2e d2-proxy-smoke "bash scripts/dev/d2-proxy-smoke.sh"
@@ -338,6 +351,9 @@ if [ "$E2E" -eq 1 ]; then
       export LOGIN_PASSWORD
     fi
   fi
+  if [ "$CONTROLLED_ONLY" -eq 1 ]; then
+    printf '[e2e] regular browser specs SKIPPED (--controlled-only)\n'
+  else
   for spec in frontend/tests/*.browser.mjs; do
     name=$(basename "$spec" .browser.mjs)
     if [ "$CONTROLLED" -eq 1 ]; then
@@ -350,33 +366,14 @@ if [ "$E2E" -eq 1 ]; then
       esac
     fi
     if [ "$name" = "login" ]; then
-      # The login flow needs the local-account identity stack and its Vite.
-      local_ports=${ECR_LOCAL_PORTS_FILE:-/tmp/ecr-isolated-local/ports.json}
-      local_env="$(dirname "$local_ports")/browser.env"
-      if [ ! -f "$local_ports" ] || [ ! -f "$local_env" ]; then
-        skip e2e "e2e-login" "run scripts/dev/isolated-stack.sh --identity local --ports 26091" "cd frontend && node tests/login.browser.mjs"
+      if [ "$SKIP_LOGIN" -eq 1 ]; then
+        printf '[e2e] e2e-login SKIPPED (--skip-login)\n'
         continue
       fi
-      local_vite=$(ECR_PORTS_FILE=$local_ports stack_value vite)
-      if [ -z "$local_vite" ]; then
-        skip e2e "e2e-login" "local stack has no Vite" "cd frontend && node tests/login.browser.mjs"
-        continue
-      fi
-      saved_workspace=${WORKSPACE_URL:-}
-      saved_browser=${ECR_BROWSER_ENV:-}
-      saved_password=${LOGIN_PASSWORD:-}
-      saved_user=${LOGIN_USER:-}
-      WORKSPACE_URL="http://$local_vite"
-      ECR_BROWSER_ENV=$local_env
-      LOGIN_PASSWORD=$(sed -n "s/^LOGIN_PASSWORD=//p" "$local_env" | head -1)
-      LOGIN_USER=$(sed -n "s/^LOGIN_USER=//p" "$local_env" | head -1)
-      export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
-      run e2e "e2e-login" "cd frontend && node tests/login.browser.mjs"
-      WORKSPACE_URL=$saved_workspace
-      ECR_BROWSER_ENV=$saved_browser
-      LOGIN_PASSWORD=$saved_password
-      LOGIN_USER=$saved_user
-      export WORKSPACE_URL ECR_BROWSER_ENV LOGIN_PASSWORD LOGIN_USER
+      # The delegated runner validates the local identity stack, resets the
+      # seeded account and propagates the passwords. Missing files exit 2
+      # (UNCONFIGURED); a broken stack exits 1 (FAILED).
+      run_optional e2e "e2e-login" "bash scripts/dev/customer-runtime.sh run-spec login"
       continue
     fi
     case "$name" in
@@ -422,6 +419,7 @@ if [ "$E2E" -eq 1 ]; then
       run e2e "e2e-$name" "cd frontend && node tests/$name.browser.mjs"
     fi
   done
+  fi
   if [ "$CONTROLLED" -eq 1 ]; then
     controlled_status=0
     # Start from a clean project and volume on every run: customer-service
