@@ -15,7 +15,7 @@ import io
 import json
 import random
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,6 +100,12 @@ def timestamp(day: int, hour: int, minute: int = 0) -> str:
     return datetime(2026, 9, day, hour, minute, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def offset_timestamp(value: str, hours: int) -> str:
+    """Return value + hours, keeping the dataset's RFC3339 UTC spelling."""
+    moment = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return (moment + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def build(rng: random.Random) -> dict[str, str]:
     files: dict[str, str] = {}
     skus = [row[0] for row in PRODUCTS]
@@ -140,6 +146,8 @@ def build(rng: random.Random) -> dict[str, str]:
     event_rows: list[list[object]] = []
     return_rows: list[list[object]] = []
     delivered_orders: list[str] = []
+    order_skus: dict[str, list[str]] = {}
+    delivered_at: dict[str, str] = {}
     shipment_seq = 0
     event_seq = 0
     for index, status in enumerate(statuses, start=1):
@@ -150,6 +158,7 @@ def build(rng: random.Random) -> dict[str, str]:
         order_rows.append([order_id, SHOP_ID, status, f"CUST-{index:04d}", placed, updated, CURRENCY])
         item_count = rng.randint(1, 3)
         chosen = rng.sample(skus, item_count)
+        order_skus[order_id] = chosen
         for line, sku in enumerate(chosen, start=1):
             item_rows.append([order_id, line, sku, rng.randint(1, 2)])
         if status in {"shipped", "delivered"}:
@@ -168,12 +177,12 @@ def build(rng: random.Random) -> dict[str, str]:
             for step_number, step in enumerate(steps, start=1):
                 event_seq += 1
                 event_rows.append([f"EVT-2609-{event_seq:05d}", shipment_id, step_number,
-                                   timestamp(min(placed_day + 1 + step_number // 2, 29),
-                                             min(8 + step_number * 2, 22)),
+                                   offset_timestamp(shipped, step_number * 2),
                                    rng.choice(["北京分拨中心", "上海分拨中心", "杭州转运中心", "末端站点"]),
                                    step])
             if status == "delivered":
                 delivered_orders.append(order_id)
+                delivered_at[order_id] = delivered
     files["orders.csv"] = csv_text(
         ["order_id", "shop_id", "status", "customer_ref", "placed_at", "updated_at", "currency"],
         order_rows)
@@ -188,24 +197,26 @@ def build(rng: random.Random) -> dict[str, str]:
     return_statuses = ["requested", "approved", "received", "closed"]
     for index, order_id in enumerate(delivered_orders[:6], start=1):
         status = return_statuses[(index - 1) % len(return_statuses)]
-        requested = timestamp(rng.randint(20, 27), rng.randint(9, 17))
-        resolved = timestamp(28, rng.randint(10, 18)) if status == "closed" else ""
-        return_rows.append([f"RET-2609-{index:04d}", order_id, rng.choice(skus),
+        # Return one SKU that is actually in this order, after it was delivered.
+        requested = offset_timestamp(delivered_at[order_id], 6 + index)
+        resolved = offset_timestamp(requested, 20) if status == "closed" else ""
+        return_rows.append([f"RET-2609-{index:04d}", order_id, rng.choice(order_skus[order_id]),
                             RETURN_REASONS[(index - 1) % len(RETURN_REASONS)], status,
                             requested, resolved])
     files["returns.csv"] = csv_text(
         ["return_id", "order_id", "sku", "reason_code", "status", "requested_at", "resolved_at"],
         return_rows)
 
+    placed_at = {row[0]: row[4] for row in order_rows}
     ticket_rows = []
     for index in range(1, 9):
         order = order_rows[(index * 3) % len(order_rows)][0]
         closed = index % 3 == 0
-        created = timestamp(rng.randint(5, 26), rng.randint(9, 18))
+        created = offset_timestamp(placed_at[order], rng.randint(2, 60))
         ticket_rows.append([f"SIM-TKT-{index:04d}", order,
                             RETURN_REASONS[index % len(RETURN_REASONS)],
                             "closed" if closed else "open", created,
-                            timestamp(28, rng.randint(9, 18)) if closed else ""])
+                            offset_timestamp(created, rng.randint(6, 40)) if closed else ""])
     files["tickets.csv"] = csv_text(
         ["ticket_id", "order_id", "reason_code", "status", "created_at", "closed_at"],
         ticket_rows)
@@ -316,7 +327,8 @@ def build(rng: random.Random) -> dict[str, str]:
         "- 参考日期：2026-09-29；固定 seed，可复现。\n"
         "- 内容：32 个 SKU、库存、订单、订单行、物流与轨迹、退货、模拟工单、知识文档、示例问题。\n"
         "- 无真实个人信息；订单号与顾客编号均为合成值。\n"
-        "- 订单/退货表不含金额汇总；价格仅作为 `get_price` 的单一事实来源。\n\n"
+        "- 订单/退货表不含金额汇总；价格仅作为 `get_price` 的单一事实来源。\n"
+        "- 退货 SKU 必属于对应订单；退货不早于签收，工单不早于下单，物流轨迹不早于发货。\n\n"
         "重新生成并校验：\n\n"
         "```bash\n"
         "python3 scripts/dev/generate_commerce_dataset.py --write\n"

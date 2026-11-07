@@ -100,7 +100,7 @@ documents:
 files:
 - path: README.md
   rows: 0
-  sha256: 81bed4c511262e7d6b62b99b0ed6ccc70c8247de0357da6f8d1a06122f8090f2
+  sha256: 275988894e8aca636cf9e934d992f2653218ec081be24aec53b9b39cf574bb13
 - path: inventory.csv
   rows: 32
   sha256: 38519a6a43aef790bd206f96725a5d024e46ff9323c54827ce1c57bb3f68f1b3
@@ -133,10 +133,10 @@ files:
   sha256: 4c2e12b6fccbf37874375fc6c9e1b2b50d04403bc523247d05bcfaba14ffef88
 - path: returns.csv
   rows: 6
-  sha256: a55ac6e16dbf301b2e2eb349d50eceeaad5fbea537116af048e1d17ea5ced055
+  sha256: 432c3ba4109b8e284355a47af7b5c212aa8288c42643cf652d3aa1da0e0feb1e
 - path: shipment-events.csv
   rows: 66
-  sha256: a465853a00c092149f70434cfa1d7080fbba297b18ccc6bd887d0f312dcd4fd1
+  sha256: 14367d4cfa33f2c38e2f2cadd03aadd8541a5bcfd34067e92f41a7aab509133b
 - path: shipments.csv
   rows: 18
   sha256: a3ad84a4d956661cbe1ed239601ac6ff1d3a19990a23ef791410f479fe735eb8
@@ -145,7 +145,7 @@ files:
   sha256: 6863a5da18bf3e0d2e736b9d2c45246ca4c8175b0a5440f4735a44286f3dc015
 - path: tickets.csv
   rows: 8
-  sha256: 7ee39ee925277484e1e9611735a51899250f604a5499779f851a60c785c2adc6
+  sha256: 1c9ef566d4e71a55174443574cef79b2f6e3747bece70c35226835a1b00afefd
 notes:
 - 本地生成，无外网抓取、无真实个人信息；customer_ref 为合成编号。
 - 订单与退货不含金额汇总；商品单价仅用于 get_price 事实查询。

@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -46,9 +47,11 @@ def test_references_between_orders_items_shipments_returns_and_tickets():
     returns = read_csv("returns.csv")
     tickets = read_csv("tickets.csv")
     assert inventory == products
+    skus_by_order: dict[str, set[str]] = {}
     for item in items:
         assert item["sku"] in products
         assert item["order_id"] in orders
+        skus_by_order.setdefault(item["order_id"], set()).add(item["sku"])
     shipment_ids = {row["shipment_id"] for row in shipments}
     for shipment in shipments:
         assert shipment["order_id"] in orders
@@ -59,12 +62,76 @@ def test_references_between_orders_items_shipments_returns_and_tickets():
         assert row["order_id"] in orders
         assert orders[row["order_id"]]["status"] == "delivered"
         assert row["sku"] in products
+        assert row["sku"] in skus_by_order[row["order_id"]], row["return_id"]
     for row in tickets:
         assert row["order_id"] in orders
     charts = {(row["chart_code"], row["size_label"]) for row in read_csv("size-chart.csv")}
     for row in read_csv("products.csv"):
         if row["size_chart_code"]:
             assert (row["size_chart_code"], row["size_label"]) in charts
+
+
+def parse_timestamp(value: str) -> datetime:
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def test_timestamps_follow_the_order_lifecycle():
+    orders = {row["order_id"]: row for row in read_csv("orders.csv")}
+    shipments = read_csv("shipments.csv")
+    events = read_csv("shipment-events.csv")
+    returns = read_csv("returns.csv")
+    tickets = read_csv("tickets.csv")
+    shipments_by_order = {row["order_id"]: row for row in shipments}
+    shipments_by_id = {row["shipment_id"]: row for row in shipments}
+    reference = datetime(2026, 9, 29, 23, 59, 59, tzinfo=UTC)
+
+    for order in orders.values():
+        placed = parse_timestamp(order["placed_at"])
+        assert parse_timestamp(order["updated_at"]) >= placed
+        assert placed <= reference
+
+    for shipment in shipments:
+        placed = parse_timestamp(orders[shipment["order_id"]]["placed_at"])
+        shipped = parse_timestamp(shipment["shipped_at"])
+        assert shipped >= placed, shipment["shipment_id"]
+        assert shipped <= reference
+        if shipment["delivered_at"]:
+            assert parse_timestamp(shipment["delivered_at"]) >= shipped
+
+    events_by_shipment: dict[str, list[dict[str, str]]] = {}
+    for event in events:
+        events_by_shipment.setdefault(event["shipment_id"], []).append(event)
+    for shipment_id, shipment_events in events_by_shipment.items():
+        shipment = shipments_by_id[shipment_id]
+        shipped = parse_timestamp(shipment["shipped_at"])
+        delivered = parse_timestamp(shipment["delivered_at"]) if shipment["delivered_at"] else None
+        previous = shipped
+        for event in sorted(shipment_events, key=lambda row: int(row["seq"])):
+            moment = parse_timestamp(event["event_at"])
+            assert moment >= previous, event["event_id"]
+            if delivered is not None:
+                assert moment <= delivered, event["event_id"]
+            assert moment <= reference
+            previous = moment
+
+    for row in returns:
+        placed = parse_timestamp(orders[row["order_id"]]["placed_at"])
+        delivered_at = shipments_by_order[row["order_id"]]["delivered_at"]
+        assert delivered_at, row["return_id"]
+        requested = parse_timestamp(row["requested_at"])
+        assert requested >= parse_timestamp(delivered_at), row["return_id"]
+        assert requested >= placed
+        if row["resolved_at"]:
+            assert parse_timestamp(row["resolved_at"]) >= requested
+        assert requested <= reference
+
+    for row in tickets:
+        placed = parse_timestamp(orders[row["order_id"]]["placed_at"])
+        created = parse_timestamp(row["created_at"])
+        assert created >= placed, row["ticket_id"]
+        if row["closed_at"]:
+            assert parse_timestamp(row["closed_at"]) >= created
+        assert created <= reference
 
 
 def test_care_codes_and_questions_point_at_existing_content():
