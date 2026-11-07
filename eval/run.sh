@@ -17,6 +17,14 @@ case "${1:-offline}" in
     "$py" eval/validate_eval.py >/dev/null && echo "PASS frozen 60-case set"
     "$py" eval/run_mock_retrieval.py >/dev/null && echo "PASS mock retrieval classification"
     "$py" eval/run_v2_live_lifecycle.py >/dev/null && echo "PASS live lifecycle PLAN (no requests)"
+    "$py" eval/run_after_sales_service.py --plan | "$py" -c '
+import json, sys
+d = json.load(sys.stdin)
+ok = (d["status"] == "PLAN" and d["case_count"] == 12 and d["planned_requests"] == 12
+      and d["online_requests_made"] is False)
+print("PASS" if ok else "FAIL", "after-sales PLAN cases=%s planned_requests=%s"
+      % (d["case_count"], d["planned_requests"]))
+sys.exit(0 if ok else 1)'
     if [[ -d "$revision" ]]; then
       "$py" eval/run_aligned_retrieval.py --revision-root "$revision" \
         | "$py" -c '
@@ -37,6 +45,7 @@ Real-model evaluation (uses the shared budget ledger; see docs/decisions/0006):
   3. eval/run_v2_quality_e2e.py                HTTP/SSE answers through Go
   4. eval/run_v2_quality_safety_http.py --live seven safety cases
   5. eval/run_customer_service.py              15 merchant customer cases, then customer_service_quality.py
+  6. eval/run_after_sales_service.py --live    12 fact-only after-sales cases, then after_sales_service_quality.py
 Each step needs protected runtime configuration; arguments are in eval/README.md.
 EOF
     ;;

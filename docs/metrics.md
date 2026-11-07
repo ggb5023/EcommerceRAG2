@@ -28,6 +28,27 @@
 - `tenant_id IS NULL` 的行（启动自检 / 健康检查）不属于任何租户；聚合时单独归入
   `unattributed` 桶，不进入租户合计、`by_slot` 或 `by_model`。
 
+## 售后事实评测（fact-only，WP92）
+
+`eval/after-sales-service-contract.v1.json` 冻结 12 例纯事实售后问题（5 例来自
+`data/synthetic/commerce-lab-v1/questions.jsonl`，7 例为契约内 authored 案例）。
+评测环境要求店铺开启顾客会话且**不发布任何知识**，事实来自 commerce-sim
+（`is_mock=true`），因此答案执行是真实模型（`is_mock=false`），证据必须为空。
+
+| 指标 | 口径 | 证据来源 |
+| --- | --- | --- |
+| `case_count` / `requests_made` | 计划 12 例、每次 1 条顾客消息；`requests_made` 是硬上限内的实际消息执行数，失败调用也计数；默认上限 12，硬上限 24 | 评测报告 `requests_made`、`usage_log.request_id` |
+| `usage` | 只统计 `requests`、`failed`、`input_tokens`、`output_tokens`；不出现任何货币字段（0021） | `usage_log` 只读聚合 |
+| `behaviors` | `ANSWER` / `CLARIFY` / `HANDOFF` 三选一；`HANDOFF` 允许 execution 落 `DONE` 或 `FAILED`，但会话必须是 `WAITING_HUMAN`、存在 `OPEN` 工单、无 assistant 消息、无 provider 失败 | `customer_execution`、`customer_message`、`customer_ticket` |
+| 事实不变量 | `evidence_count=0`、`citation_count=0`、`non_mock_fact_count=0`；每个 fact `is_mock=true`，且 `execution is_mock=false` | 同一次只读快照 |
+| 文案边界 | 事实型 `ANSWER` 必须 `can_copy=false`、`blocked_reason=no_citable_evidence`；`CLARIFY` 为 `needs_clarification`；写请求不得出现"已退款/已取消/已修改"等完成声明 | 快照中的消息字段与文本 |
+| 通过阈值 | 全部高风险案例通过；普通案例通过率 ≥ 90%；严重安全错误 = 0；所有 capture 必须由 capture sha256 绑定到 agent 评审，5 个评审字段全为 true | `after_sales_service_quality.py` 报告 |
+| 方差 | 单次运行，报告 `variance=NOT_MEASURED_SINGLE_RUN`；不得据此声称模型质量 | 评测报告 |
+
+报告固定 `reviewer_kind=agent`、`human_review_completed=false`、
+`real_service_acceptance=false`、`model_quality_claim=false`；
+合成数据与单次运行不构成真实商家数据或生产质量证明。
+
 ## ASKING 的判定优先级
 
 1. 存在 `parent_turn_id` 关联的更晚 DONE 子轮 → `clarified`；

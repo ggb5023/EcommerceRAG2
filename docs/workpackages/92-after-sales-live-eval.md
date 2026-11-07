@@ -29,6 +29,40 @@
 - 隔离栈 `--profile v2_langchain_bailian` 启动；12 case ×1 实跑生成报告；恢复 mock。
 - provider smoke 输出 `CONFIG_PASS` / `LIVE_NOT_RUN`。
 
+## 实施记录（worktree `wp92`）
+
+- 契约：`eval/after-sales-service-contract.v1.json`，12 例 = 数据集 5 例
+  `after-011`…`after-015` + authored 7 例 `after-101`…`after-107`。
+  authored 为：隐式订单（ANSWER）、不同显式订单（CLARIFY）、缺 SKU（CLARIFY）、
+  取消请求（HANDOFF）、退款请求（HANDOFF）、退款材料（HANDOFF）、改地址（HANDOFF）。
+  原始任务列出 5+6=11 例，为满足"12 个事实型 case"新增 `after-107`（改地址写请求），
+  这是相对任务文本的唯一组成偏差。
+- 契约把 HANDOFF 的 `expected_states` 冻结为 `["DONE","FAILED"]`：Go 的
+  pre-generation 拒绝路径落 `FAILED`，模型判定路径落 `DONE`，两者对顾客都是
+  `WAITING_HUMAN` + `OPEN` 工单 + 无 assistant 消息。gate 在 `WAITING_HUMAN`
+  时把空 behavior 视为 `HANDOFF`；provider 失败单独判负。
+- runner：`eval/run_after_sales_service.py`（`--plan` / `--live` 显式，
+  `--max-requests` 默认 12、硬上限 24；只读 REPEATABLE READ 快照
+  `customer_execution`/`customer_message`/`customer_ticket`/`usage_log`）。
+- gate：`eval/after_sales_service_quality.py`（capture sha256 绑定评审，5 个评审字段，
+  `reviewer_kind=agent`、`human_review_completed=false`、`real_service_acceptance=false`）。
+- 测试：`eval/test_after_sales_contract.py`、`test_after_sales_service.py`、
+  `test_after_sales_service_quality.py`。
+- 隔离栈：`scripts/dev/isolated-stack.sh` 增加 `--profile`
+  （默认 `v2_langchain_mock`；`v2_langchain_bailian` 要求模板内有可读的
+  `V2_PROVIDER_CONFIG`），identity 与 CONFIG_KEYS 过滤未改。
+- 已知前置缺口：worktree 内 `/tmp/ecr-wp92/test.env` 不存在（任务描述称已创建），
+  本 worktree 未创建 DB/env、未启动隔离栈、未跑 live；由主 agent 在 WP93 合入
+  迁移 0061 后准备。
+- live 前主 agent 必须：用专用 DB 建 0600 env（至少 `V2_GATEWAY_DSN`、`HTTP_ADDR`、
+  `RAG_PROFILE=v2_langchain_bailian`、`V2_CUSTOMER_ORIGIN`、`V2_FACTS_BASE_URL`、
+  `V2_FACTS_VERSION`、`V2_IDENTITY_USER`）；以
+  `--profile v2_langchain_bailian --commerce-sim --ports 26181` 起栈；只开启
+  `shop-demo` 顾客会话且**不发布知识**（runner preflight 对
+  `customer_chat_disabled` / `published_knowledge_present` 失败关闭）；然后运行
+  `run_after_sales_service.py --live ... --max-requests 12` 与
+  `after_sales_service_quality.py`（评审需按 capture sha256 绑定）。
+
 ## 不要做
 
 - 不修改真实 provider 配置、不打印密钥/DSN/cookie；
