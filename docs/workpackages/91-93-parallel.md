@@ -29,6 +29,14 @@
 3. WP91（harness）→ Phase 1 5 spec + Phase 2 restore + login → 合入 → 推送/CI。
 4. 主 agent 更新 INDEX done、`ui-only-acceptance`、本伞包结果。
 
+## 集成结果（2026-11-07）
+
+- WP93 → WP92 → WP91 顺序 `--ff-only` 合入；contracts 棘轮单独提交为 21。
+- WP93：迁移 61、behavior、fixture facts、订单守卫、死代码、contracts 行均已交付；门禁全绿。
+- WP92：12×1 真实 Bailian 实跑，gate 9/12；报告在仓外；3 个失败已记录，未改断言迁就。
+- WP91：5 个受控 spec + restore 在纯受控运行中通过（49/13/0，普通 spec UNCONFIGURED）；
+  login 与 v2-restart 未配置；与隔离栈同时跑仍有 Docker 网络瞬态，已加 settle/重试。
+
 ## 只记录/请示
 
 WP80 adoption 竞态（A1 advisory lock 方案待安全确认）、suggestion 审查 kind（产品/隐私）、

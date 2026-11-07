@@ -141,14 +141,13 @@
 | 限制 | 影响 | 出处 |
 | --- | --- | --- |
 | selfhost facts 禁用 | selfhost 售后事实按不可用转人工 | 0041、`go/internal/gateway/wire.go` |
-| 真实模型未跑 | 顾客 AI 回答与真实事实型回答只验证到 mock/单测 | WP84/87/88 限制 |
-| 受控 e2e UNCONFIGURED | customer-control/service/source、selfhost-restore、keycloak、v2-restart 需专门运行时 | `docs/development.md` |
+| 真实模型仅事实型 12 例 | 6 ANSWER / 2 CLARIFY / 4 转人工；gate 9/12，after-015 少工具、after-104/105 写请求 reason 不符；知识/引用与 repeat 未跑 | WP92 |
+| 受控 e2e 仍有环境限制 | 5 spec + restore 在纯受控运行中通过；与隔离栈同时跑时 Docker 网络变更会造成 Chromium 瞬态失败；login 与 v2-restart 仍 UNCONFIGURED | WP91 |
 | WP80 adoption 竞态 | 撤销与 adoption 提交之间无行锁；网关授权与审核兜底 | WP80/88 |
-| staff behavior 推断 | 管理台按执行状态推断，不持久化原始行为 | WP88 |
-| fixture 图不消费 facts | 测试替身只覆盖澄清/证据路径 | WP88 |
+| 不同订单仅显式订单号线索 | 裸标识/未知写法仍依赖控制模型上报 | WP93 |
+| suggestion 审查 kind | 建议轮次仍不在管理台回答审查列表 | WP93 |
 | 数据集范围 | 单租户/单店铺、固定日期；tickets.csv 是模拟器数据，不是 customer_ticket | WP82/89 |
 | 订单号即凭证 | 售前/售后都无购买人验证；知道订单号即可只读查询 | 0041 §2.4 |
-| contracts 表未新增 facts 行 | 棘轮需单独提交，本轮不改 | `docs/contracts.md` |
 
 ### 审查记录
 

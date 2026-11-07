@@ -78,6 +78,13 @@
 - 后续：先修写请求的转人工 reason 映射，再决定 repeat=2 与知识/引用 case；
   非 mock 事实可复制仍只由单测覆盖。
 
+## 集成结果（2026-11-07，主 agent）
+
+- 已合入主干并推送（`9977ea4`）；offline eval、12×1 live 和 gate 结果见上一节。
+- `--profile v2_langchain_bailian` 隔离栈用专用 `ecr_v2_test_wp92`（必须匹配 0029 的测试库前缀），
+  仅启用 `shop-demo`、无已发布知识；12×1 后已停栈，未改 dev 栈。
+- 结果 **NOT_PASSED** 是模型行为发现，不是 runner 失败；后续应优先修写请求 reason 映射。
+
 ## 不要做
 
 - 不修改真实 provider 配置、不打印密钥/DSN/cookie；

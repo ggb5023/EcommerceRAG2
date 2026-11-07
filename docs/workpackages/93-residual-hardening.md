@@ -25,6 +25,14 @@
 - `check-contracts.py` 先 NOTE 21；主 agent 棘轮提交后 PASS 21/21。
 - `bash scripts/check.sh` 44/0/0；`--smoke` 逐字节不变。
 
+## 集成结果（2026-11-07，主 agent）
+
+- 0061 已应用到 dev/test，from-zero 61 PASS；`check.sh` 44/0/0、`--db` 52/2/0（隔离栈运行时）、
+  `--smoke` 47/0/0。
+- contracts 行入主干，`CONTRACTS_CROSS` 在单独提交 `aa50580` 上调到 21，PASS 21/21。
+- 新增行为/订单守卫/fixture facts/死代码清理的定向测试全绿；smoke 逐字节未变。
+- 仍未做：WP80 竞态、suggestion 审查 kind、裸标识扫描。
+
 ## 不要做
 
 - 不改 0058–0060 或任何已执行迁移；不新增 SECURITY DEFINER；

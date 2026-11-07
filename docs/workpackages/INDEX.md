@@ -97,9 +97,9 @@
 | 88 | 交付后审查修复（事实复制/空文档/工单/审查页/脚本） | done | — | — | `a2e583f` |
 | 89 | 数据集真实感修复（退货 SKU / 时间顺序） | done | — | — | `767c25d` |
 | 90 | 收尾与人工审查准备（e2e/DB 覆盖/演示/文档） | done | — | — | `4f78965` |
-| 91 | 受控运行时 harness（本地 5+1 spec） | in-progress | — | — | — |
-| 92 | 真实模型售后评测（12 个事实型 case） | in-progress | — | — | — |
-| 93 | 深层残留硬化（behavior/facts/order/contracts） | in-progress | — | — | — |
+| 91 | 受控运行时 harness（本地 5+1 spec） | implemented | login/聚合 e2e 待复核 | — | `6a27f77` |
+| 92 | 真实模型售后评测（12 个事实型 case） | done | — | — | `9977ea4` |
+| 93 | 深层残留硬化（behavior/facts/order/contracts） | done | — | — | `aa50580` |
 
 ## 同步规则
 

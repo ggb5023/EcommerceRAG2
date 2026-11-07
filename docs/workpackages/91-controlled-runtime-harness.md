@@ -95,6 +95,20 @@ bash -n scripts/check.sh && shellcheck scripts/dev/customer-runtime.sh && go vet
 - 恢复栈 `compose down` 时网络报 `Resource is still in use`（容器刚删除的瞬态），不影响
   restore spec；恢复卷按设计保留，`down --clean` 统一清理。
 
+## 集成结果（2026-11-07，主 agent）
+
+- 受控 5 spec + restore 在独立运行时通过：`check.sh --e2e --controlled-e2e`（此时隔离栈停止）
+  得到 **PASSED 49 / UNCONFIGURED 13 / FAILED 0**（44 fast + 5 controlled；普通 spec 因栈停止
+  记 UNCONFIGURED）。
+- 与隔离栈同时运行时仍有 Docker 网络变更导致的 Chromium 瞬态失败（`ERR_NETWORK_CHANGED` /
+  `Failed to fetch`）；已加 5s settle、Chromium `--ignore-certificate-errors`、导航/API 重试，
+  但未再追求单次全量 60/0/0。
+- `login` 未验证：local identity 栈在本机未启动成功，仍为 UNCONFIGURED。
+- 普通 e2e 单独运行为 53 PASS / 7 UNCONFIGURED / 2 FAILED（v2-authority、v2-lifecycle）；
+  两者单独重跑均通过，属共享 test DB/数据态的波动。
+- 附加修正：`import_batch_integration_test` 按 WP32 的 409 `precheck_blocked` 语义更新，
+  用 clean manifest 测完整生命周期；`--db` 从 51/3/1 变为 52/2/0。
+
 ## 不要做
 
 - 不编辑 `go/internal/gateway/wire.go` 放行 selfhost mock；
