@@ -130,8 +130,9 @@ Keycloak digest 镜像。缺任一项时受控项记 UNCONFIGURED（exit 2），
 Phase 1 顺序固定，不能打乱：`customer-service` → `customer-source` → `customer-control` →
 `keycloak`（keycloak 依赖 customer-service 已发布的知识）。Phase 2 停掉源栈的写入服务
 （gateway/ai/keycloak），用 `selfhost-backup.py` 封装备份，`selfhost-restore.py` 恢复到新的
-`ecr-restore-wp91-*` project 与目录，在同 origin 启动恢复栈并跑 `selfhost-restore` spec，
-随后停掉恢复栈并重启源栈。
+`ecr-restore-wp91-*` project 与目录（默认 `/tmp/ecommerce-rag-controlled-restore/restored-*`；
+恢复脚本拒绝仓库内路径，可用 `CUSTOMER_RESTORE_ROOT` 改到其他仓库外目录），在同 origin 启动
+恢复栈并跑 `selfhost-restore` spec，随后停掉恢复栈并重启源栈。
 
 ```bash
 bash scripts/check.sh --e2e --controlled-e2e   # 全量：期望 61 PASS / 1 UNCONFIGURED（v2-restart）/ 0 FAIL

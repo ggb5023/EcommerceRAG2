@@ -30,6 +30,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import uuid
@@ -42,6 +43,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = Path(os.environ.get('CUSTOMER_RUNTIME_ROOT', str(ROOT / '.local' / 'controlled-runtime')))
 RUNTIME = Path(os.environ.get('CUSTOMER_RUNTIME_DIR', str(RUNTIME_ROOT / 'runtime')))
+# selfhost-restore.py refuses a destination inside the repository, so the
+# restored copy lives beside the worktree rather than under it.
+RESTORE_ROOT = Path(os.environ.get('CUSTOMER_RESTORE_ROOT',
+                                   str(Path(tempfile.gettempdir()) / 'ecommerce-rag-controlled-restore')))
 REPORT_ROOT = Path(os.environ.get('CUSTOMER_REPORT_ROOT', '/var/lib/ecommerce-rag/wp91'))
 ORIGIN = os.environ.get('CUSTOMER_BASE_URL', 'https://127.0.0.1:18443').rstrip('/')
 PROJECT = os.environ.get('CUSTOMER_PROJECT', 'ecr-wp91')
@@ -492,7 +497,9 @@ def restore(args):
     phase.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(phase, 0o700)
     backup = phase / 'backup'
-    restored = RUNTIME_ROOT / ('restored-' + run.lower())
+    restored = RESTORE_ROOT / ('restored-' + run.lower())
+    if restored.resolve().is_relative_to(ROOT.resolve()):
+        raise RuntimeError('CUSTOMER_RESTORE_ROOT must be outside the repository')
     project = 'ecr-restore-wp91-' + run.lower()
     if not re.fullmatch(r'ecr-restore-[a-z0-9-]+', project):
         raise RuntimeError('invalid restore project name')
