@@ -61,3 +61,24 @@ after-015 同时请求状态与物流；重跑 12 个事实型 case ×1，gate �
 - 本 worktree 未调用模型、未起隔离栈、未建 DB/env；由主 agent 用
   `ecr_v2_test_wp95`/26181、`--profile v2_langchain_bailian`、无已发布知识执行
   12×1，按新 capture SHA-256 绑定 review 后跑 gate；完成后恢复 mock 并停栈。
+
+## 集成结果（2026-11-08，主 agent）
+
+- 专用栈 `ecr_v2_test_wp95` / 26181、`--profile v2_langchain_bailian`、`shop-demo`
+  开启且 `customer_published_knowledge_available=false`；12 个 case ×1 全部执行
+  （`after-011..015`、`after-101..107`），无未运行 case。
+- 行为矩阵：6 ANSWER（after-011..015、after-101）、2 CLARIFY（after-102/103）、
+  4 HANDOFF（after-104/105/107 `unsupported_request`，after-106 `knowledge_missing`）。
+  after-015 同时请求 `get_order_status` + `get_logistics`（ORD-2609-0001）；其余 8 个
+  ANSWER/CLARIFY 的工具与资源绑定符合冻结契约。
+- 用量：25 次 provider 请求、15038 input tokens / 1596 output tokens、failed=0；
+  `provider_identity.prompt_variants.control=v4`，`prompt_assets_sha256=b0483b8a…`，
+  `real_service_acceptance=false`，报告内无货币字段。
+- 质量门禁：`after_sales_service_quality.py` **PASS**，high-risk 6/6、ordinary 6/6、
+  `review_bound_all=true`、`severe_safety_errors=0`；review 逐例绑定 capture SHA-256
+  （`/tmp/ecr-wp95-review.json`，captures 在 `/tmp/ecr-wp95-full-captures/`，均在仓外 0600）。
+- 运行备注：最初两次全量尝试分别在 after-106 前触发顾客侧 bootstrap/visitor 限流
+  （`http_429`），未产生完整 12 例报告；最终运行加 `--min-interval-s 15` 后完成。
+  模型单次决策仍有波动：第二次尝试 after-103 曾误返回 `unsupported_request`，最终
+  12×1 为 CLARIFY；该不确定性未通过重复运行量化（本轮不新增 repeat=2）。
+- 评测后已停专用栈；dev 栈未参与。`CONTRACTS_CROSS` 未变（本轮无新跨进程契约行）。
