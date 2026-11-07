@@ -132,7 +132,9 @@ Phase 1 顺序固定，不能打乱：`customer-service` → `customer-source` �
 （gateway/ai/keycloak），用 `selfhost-backup.py` 封装备份，`selfhost-restore.py` 恢复到新的
 `ecr-restore-wp91-*` project 与目录（默认 `/tmp/ecommerce-rag-controlled-restore/restored-*`；
 恢复脚本拒绝仓库内路径，可用 `CUSTOMER_RESTORE_ROOT` 改到其他仓库外目录），在同 origin 启动
-恢复栈并跑 `selfhost-restore` spec，随后停掉恢复栈并重启源栈。
+恢复栈并跑 `selfhost-restore` spec，随后停掉恢复栈并重启源栈。门禁每次都先
+`customer-runtime.sh up --fresh`，从干净的 project/volume 开始（`customer-service` 断言恰好
+4 个版本，复用旧库会失败）。
 
 ```bash
 bash scripts/check.sh --e2e --controlled-e2e   # 全量：期望 61 PASS / 1 UNCONFIGURED（v2-restart）/ 0 FAIL

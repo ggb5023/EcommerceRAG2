@@ -424,7 +424,9 @@ if [ "$E2E" -eq 1 ]; then
   done
   if [ "$CONTROLLED" -eq 1 ]; then
     controlled_status=0
-    bash scripts/dev/customer-runtime.sh up || controlled_status=$?
+    # Start from a clean project and volume on every run: customer-service
+    # asserts exactly the four versions it publishes, so a reused stack fails.
+    bash scripts/dev/customer-runtime.sh up --fresh || controlled_status=$?
     if [ "$controlled_status" -eq 2 ]; then
       for name in customer-service customer-source customer-control keycloak selfhost-restore; do
         skip e2e "e2e-$name" "controlled runtime prerequisites are unconfigured" "bash scripts/dev/customer-runtime.sh run-spec $name"

@@ -46,9 +46,10 @@ selfhost mock）；不实现 v2-restart、CI nightly。
   `up -d` + `docker inspect` 轮询，避免 `up --wait` 与即时退出竞争。
 - `scripts/ops/selfhost.py`：`--dev-user`、IP origin 的 IP SAN、`--listen-port`；
   `selfhost-backup.py` 跳过不存在的 `ingest.env`/`worker.env`（单测覆盖）。
-- `scripts/check.sh --controlled-e2e`：Phase 1 固定顺序四 spec；Phase 2 停 writers → backup →
-  restore 到仓库外新 project（默认 `/tmp/ecommerce-rag-controlled-restore/restored-*`）→
-  同 origin 启动 → `selfhost-restore`；exit 2 记 UNCONFIGURED。
+- `scripts/check.sh --controlled-e2e`：每次 `up --fresh` 起干净 project/volume；Phase 1 固定
+  顺序四 spec；Phase 2 停 writers → backup → restore 到仓库外新 project
+  （默认 `/tmp/ecommerce-rag-controlled-restore/restored-*`）→ 同 origin 启动 →
+  `selfhost-restore`；exit 2 记 UNCONFIGURED。
 - `keycloak.browser.mjs` 支持 `KEYCLOAK_BROWSER_IGNORE_HTTPS=1`；`customer-control` 两处 mock 专属
   零 assistant 断言改成 handoff/重启前后消息集合不变，其余 CSRF/幂等/lease/越权/关闭写断言保留。
 
