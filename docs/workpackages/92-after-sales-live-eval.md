@@ -69,4 +69,4 @@
 - 不把 mock profile 的 `provider_failed_search` 当 ANSWER；
 - 不声称非 mock 事实可复制（commerce-sim facts 为 mock）；
 - 不改 `scripts/check.sh`/contracts 棘轮/smoke 基线；
-- 不提交 `scripts/review/`，不用 `git add .`。
+- 不提交本地未跟踪的审查目录，不用 `git add .`。
