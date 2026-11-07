@@ -81,4 +81,4 @@ e2e 按 `docs/development.md` 的隔离栈与 seed 步骤启动，再跑 `bash s
 - 不改 0058 或任何已执行迁移；不新增 SECURITY DEFINER；
 - 不修 WP80 竞态、staff behavior 持久化、fixture facts、selfhost facts、真实模型评测；
 - 不改 contracts 棘轮、不重采 smoke 基线、不改断言迁就代码；
-- 不修改/提交 `scripts/review/`；不用 `git add .`。
+- 不修改/提交本地未跟踪的审查目录；不用 `git add .`。
