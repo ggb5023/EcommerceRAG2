@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	"github.com/ggb5023/EcommerceRAG/go/internal/facts"
 	"github.com/ggb5023/EcommerceRAG/go/internal/observability"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
@@ -227,6 +228,14 @@ func (s *Service) understandCustomer(ctx context.Context, state *customerRunStat
 // always the one bound to the conversation; a different explicit order becomes
 // a clarification, never a lookup.
 func afterSalesFactPlan(understood *ragv1.UnderstandResponse, orderID, query string) (orderTools, productTools []string, sku, reason string) {
+	// An explicit order cue is a user assertion about which order they mean.
+	// It must be checked even when the control model emits no order entity:
+	// the model omitting an entity is not permission to use the bound order.
+	for _, explicit := range domain.ExplicitOrderReferences(query) {
+		if !strings.EqualFold(explicit, orderID) {
+			return nil, nil, "", "order_clarification"
+		}
+	}
 	for _, tool := range understood.RequiredFactTools {
 		switch tool {
 		case "get_order_status", "get_logistics":

@@ -39,6 +39,32 @@ func TestRoutedOrderResourceRequiresOneConfidentValidEntity(t *testing.T) {
 	}
 }
 
+func TestExplicitOrderReferencesRequireAnOrderCue(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{"chinese cue", "订单号 V2-ORDER-001 到哪了", []string{"V2-ORDER-001"}},
+		{"chinese cue with colon", "订单编号：ORD-2609-0006", []string{"ORD-2609-0006"}},
+		{"chinese cue with verb", "订单号是 V2-ORDER-001", []string{"V2-ORDER-001"}},
+		{"chinese cue without space", "订单号V2-ORDER-001", []string{"V2-ORDER-001"}},
+		{"english cue", "Order ID: ORDER-9 status", []string{"ORDER-9"}},
+		{"two cues", "订单号 V2-ORDER-001 和订单编号 ORD-2609-0006", []string{"V2-ORDER-001", "ORD-2609-0006"}},
+		{"sku only has no order cue", "CLB-DRK-002 有库存吗", nil},
+		{"bare identifier has no order cue", "V2-ORDER-001 到哪了", nil},
+		{"cue without a literal", "订单号是多少", nil},
+		{"sku after a bound order is not another reference", "订单号 ORD-2609-0005 里的 CLB-DRK-002 有库存吗", []string{"ORD-2609-0005"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := ExplicitOrderReferences(test.query)
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("ExplicitOrderReferences(%q) = %v, want %v", test.query, got, test.want)
+			}
+		})
+	}
+}
+
 func TestIsOrderIdentifierAndResourceTokens(t *testing.T) {
 	if !IsOrderIdentifier("V2-ORDER-001") || IsOrderIdentifier("../secret") || IsOrderIdentifier("") {
 		t.Fatal("identifier shape check is wrong")

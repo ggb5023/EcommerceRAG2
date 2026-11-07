@@ -42,6 +42,23 @@ func RoutedOrderResource(response *ragv1.UnderstandResponse, query string) (stri
 	return ids[0], true
 }
 
+// explicitOrderReferencePattern matches a literal only when it follows an
+// explicit order cue. Bare identifiers elsewhere in the query are ignored.
+var explicitOrderReferencePattern = regexp.MustCompile(`(?i)(?:订单号|订单编号|\border\s+id)\s*(?:是|为|[:：=#])?\s*([A-Za-z0-9][A-Za-z0-9_-]{0,63})`)
+
+// ExplicitOrderReferences returns the literals written immediately after an
+// explicit order cue (订单号 / 订单编号 / order id). It deliberately does not
+// scan bare identifiers: a SKU or an unrelated resource value is not an order
+// reference just because it has an identifier shape.
+func ExplicitOrderReferences(query string) []string {
+	matches := explicitOrderReferencePattern.FindAllStringSubmatch(query, -1)
+	references := make([]string, 0, len(matches))
+	for _, match := range matches {
+		references = append(references, match[1])
+	}
+	return references
+}
+
 // IsOrderIdentifier reports whether s has the shape of an order identifier.
 // The regex stays private: exporting it would invite new copies elsewhere.
 func IsOrderIdentifier(s string) bool { return orderIDPattern.MatchString(s) }
