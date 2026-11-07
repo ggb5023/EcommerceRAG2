@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"google.golang.org/grpc"
 )
@@ -68,7 +69,7 @@ func TestGenerateAnswerHANDOFFWithoutEvidenceIsFailed(t *testing.T) {
 	if state != "FAILED" || code != "knowledge_missing" {
 		t.Fatalf("terminal = %s/%s, want FAILED/knowledge_missing", state, code)
 	}
-	if canCopy, _ := terminalCanCopy(state, "HANDOFF", 0, false); canCopy {
+	if canCopy, _ := domain.CanCopyReply(state, "HANDOFF", 0, 0, false); canCopy {
 		t.Fatalf("FAILED terminal must not be copyable")
 	}
 }
@@ -89,7 +90,7 @@ func TestGenerateAnswerANSWERWithCitationRemainsDone(t *testing.T) {
 	if state != "DONE" || code != "" {
 		t.Fatalf("terminal = %s/%s, want DONE", state, code)
 	}
-	if canCopy, _ := terminalCanCopy(state, "ANSWER", 1, false); !canCopy {
+	if canCopy, _ := domain.CanCopyReply(state, "ANSWER", 1, 0, false); !canCopy {
 		t.Fatalf("DONE ANSWER with a citation must remain copyable")
 	}
 }

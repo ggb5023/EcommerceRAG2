@@ -180,11 +180,6 @@ func generationTerminal(decision *ragv1.ReplyDecision) (string, string) {
 	return "DONE", ""
 }
 
-// terminalCanCopy is the gateway-facing name for the single 0005 rule.
-func terminalCanCopy(state, kind string, citationCount int, mock bool) (bool, string) {
-	return domain.CanCopyReply(state, kind, citationCount, 0, mock)
-}
-
 // replyBehavior keeps the persisted contract short and stable.
 func replyBehavior(decision *ragv1.ReplyDecision) string {
 	if decision == nil {

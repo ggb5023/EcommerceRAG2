@@ -3,30 +3,33 @@ package gateway
 import (
 	"testing"
 
+	"github.com/ggb5023/EcommerceRAG/go/internal/domain"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 )
 
-func TestTerminalCanCopy(t *testing.T) {
+func TestCanCopyReplyOnTerminal(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		state     string
 		kind      string
 		citations int
+		facts     int
 		mock      bool
 		canCopy   bool
 		reason    string
 	}{
-		{"answer with citation", "DONE", "ANSWER", 1, false, true, ""},
-		{"answer without citation", "DONE", "ANSWER", 0, false, false, "no_citable_evidence"},
-		{"clarify", "DONE", "CLARIFY", 1, false, false, "needs_clarification"},
-		{"handoff", "DONE", "HANDOFF", 1, false, false, "not_answer"},
-		{"failed", "FAILED", "ANSWER", 1, false, false, "incomplete"},
-		{"mock answer", "DONE", "ANSWER", 1, true, false, "mock"},
+		{"answer with citation", "DONE", "ANSWER", 1, 0, false, true, ""},
+		{"answer with a staff fact", "DONE", "ANSWER", 0, 1, false, true, ""},
+		{"answer without citation or fact", "DONE", "ANSWER", 0, 0, false, false, "no_citable_evidence"},
+		{"clarify", "DONE", "CLARIFY", 1, 0, false, false, "needs_clarification"},
+		{"handoff", "DONE", "HANDOFF", 1, 0, false, false, "not_answer"},
+		{"failed", "FAILED", "ANSWER", 1, 0, false, false, "incomplete"},
+		{"mock answer", "DONE", "ANSWER", 1, 0, true, false, "mock"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, reason := terminalCanCopy(tc.state, tc.kind, tc.citations, tc.mock)
+			got, reason := domain.CanCopyReply(tc.state, tc.kind, tc.citations, tc.facts, tc.mock)
 			if got != tc.canCopy || reason != tc.reason {
-				t.Fatalf("terminalCanCopy() = %v/%q, want %v/%q", got, reason, tc.canCopy, tc.reason)
+				t.Fatalf("CanCopyReply() = %v/%q, want %v/%q", got, reason, tc.canCopy, tc.reason)
 			}
 		})
 	}
