@@ -179,8 +179,26 @@ def test_every_registry_variant_has_a_version_and_non_empty_text():
 
 
 def test_changed_prompt_variants_are_versioned():
-    assert registry.VARIANTS["control"][1] == "v3"
+    assert registry.VARIANTS["control"][1] == "v4"
     assert registry.VARIANTS["generation_base"][1] == "v2"
     assert registry.VARIANTS["generation_plan"][1] == "v2"
     assert registry.VARIANTS["generation_limits"][1] == "v2"
     assert registry.VARIANTS["generation_delivery"][1] == "v2"
+
+
+def test_control_after_sales_suffix_routes_writes_and_delivery_disputes():
+    suffix = registry.ASSETS["control_after_sales_suffix"]
+    # Execute-write requests route to staff as realtime_business with no fact tool.
+    assert "intent=factual" in suffix
+    assert "information_source=realtime_business" in suffix
+    assert "required_fact_tools=[]" in suffix
+    assert "never classify it as knowledge" in suffix
+    assert "never claim the action was performed or completed" in suffix
+    # Policy, material and eligibility questions stay knowledge with no tools.
+    assert "policy, required materials or eligibility" in suffix
+    assert "remain intent=knowledge" in suffix
+    # A delivery dispute requests status and logistics together; ordinary tracking does not.
+    assert "request both get_order_status and get_logistics" in suffix
+    assert "requests only the needed tool" in suffix
+    # The different-order entity instruction is preserved.
+    assert "entity named order_id" in suffix
