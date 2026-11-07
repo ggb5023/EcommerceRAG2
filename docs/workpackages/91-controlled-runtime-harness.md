@@ -32,6 +32,68 @@ selfhost mock）；不实现 v2-restart、CI nightly。
 - 非受控 `bash scripts/check.sh --e2e` 仍 55/7/0。
 - 重复一次 fresh project 得到同样计数；`down --clean` 可清理。
 
+## 结果（2026-11-07，分支 wp91）
+
+实现要点：
+
+- `scripts/dev/customer-runtime.sh` + `scripts/dev/customer_runtime.py`：`up|status|run|run-spec|restore|down`；
+  独立 project `ecr-wp91`、fresh volume、0700 runtime、报告写
+  `/var/lib/ecommerce-rag/wp91/runs/<run-id>/<spec>`，origin `https://127.0.0.1:18443`。
+- gateway 容器内监听 18443 并映射 `18443:18443`；因 discovery 早于监听器，`identity.Config` 新增
+  `backchannel_url`（Compose 内 `http://keycloak:8080`），discovery/JWKS/introspection 走内网，
+  issuer 与浏览器端点仍是公开 origin。bootstrap 以 root + CHOWN/DAC_OVERRIDE/FOWNER 写 realm 文件。
+- 启停顺序固定 postgres → db-init → migrate → bootstrap → keycloak → gateway/ai；一次性容器用
+  `up -d` + `docker inspect` 轮询，避免 `up --wait` 与即时退出竞争。
+- `scripts/ops/selfhost.py`：`--dev-user`、IP origin 的 IP SAN、`--listen-port`；
+  `selfhost-backup.py` 跳过不存在的 `ingest.env`/`worker.env`（单测覆盖）。
+- `scripts/check.sh --controlled-e2e`：Phase 1 固定顺序四 spec；Phase 2 停 writers → backup →
+  restore 到仓库外新 project（默认 `/tmp/ecommerce-rag-controlled-restore/restored-*`）→
+  同 origin 启动 → `selfhost-restore`；exit 2 记 UNCONFIGURED。
+- `keycloak.browser.mjs` 支持 `KEYCLOAK_BROWSER_IGNORE_HTTPS=1`；`customer-control` 两处 mock 专属
+  零 assistant 断言改成 handoff/重启前后消息集合不变，其余 CSRF/幂等/lease/越权/关闭写断言保留。
+
+本轮命令与结果（逐项 `run-spec`，非 `check.sh` 聚合）：
+
+```bash
+bash scripts/dev/customer-runtime.sh up --fresh                    # exit 0，origin health=ok
+bash scripts/dev/customer-runtime.sh run-spec customer-service     # exit 0，8 checks PASS
+bash scripts/dev/customer-runtime.sh run-spec customer-source      # exit 0，5 checks PASS
+bash scripts/dev/customer-runtime.sh run-spec customer-control     # exit 0，9 checks PASS
+bash scripts/dev/customer-runtime.sh run-spec keycloak             # exit 0，6 checks PASS
+bash scripts/dev/customer-runtime.sh restore                       # exit 0，2 checks PASS
+bash scripts/dev/customer-runtime.sh down --clean                  # exit 0，容器/卷/runtime 目录清空
+```
+
+报告目录：`/var/lib/ecommerce-rag/wp91/runs/20261107T111848Z-cdc827/customer-service`、
+`.../20261107T111930Z-62062a/customer-source`、`.../20261107T112829Z-b139b7/customer-control`、
+`.../20261107T113117Z-12c132/keycloak`、`.../20261107T113216Z-d36136/selfhost-restore`。
+`customer-service` 的 AI 回答来自真实 Bailian（引用命中已发布版本），非 mock。
+
+定向测试：
+
+```bash
+python/.venv/bin/python -m pytest -q tests/test_selfhost_backup.py tests/test_selfhost_provisioning.py  # 8 passed
+cd go && go test ./internal/identity/          # ok
+bash -n scripts/check.sh && shellcheck scripts/dev/customer-runtime.sh && go vet ./internal/identity/  # 全通过
+```
+
+## 未覆盖 / 限制
+
+- 按主 agent 的资源限制，本轮**未运行** `bash scripts/check.sh`、`--db`、`--smoke` 与非受控
+  `--e2e`；因此验收里的 60/0/0、聚合 61/1/0 与 55/7/0 需要主 agent 集成后实测。本轮只证明
+  五条受控 spec 在同一受控栈上逐条通过。
+- `login` 未运行：需要 `isolated-stack.sh --identity local --ports 26291` + reset-password，
+  由主 agent 在 WP93 集成后执行。
+- 本分支基于 `196e935`；`check-docs` 因 `91-93-parallel.md` 的 `decisions/0041...` 相对链接
+  报错（主分支 `e18c186` 已改为 `../decisions/`，不属于本包文件）。
+- 产品观察（未改产品代码）：`StaffWorkspace.vue` 挂载时把 `/staff?tab=queue` 归一化并丢掉
+  `id`，刷新后不会自动重开已领取会话，spec 改为从队列重新点开（ownership 仍由服务端保持）；
+  `/support` 是到 `/staff` 的客户端重定向，静默 SSO 会直接落在 `/staff`，受控登录断言接受两者。
+- `customer-service` spec 的三处调整（关来源抽屉、按可访问名定位人工回复框、重开队列会话）
+  提交于 `6ffa05a`；`customer-control` 的 SSO 重登录提交于 `9048104`。
+- 恢复栈 `compose down` 时网络报 `Resource is still in use`（容器刚删除的瞬态），不影响
+  restore spec；恢复卷按设计保留，`down --clean` 统一清理。
+
 ## 不要做
 
 - 不编辑 `go/internal/gateway/wire.go` 放行 selfhost mock；
