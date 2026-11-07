@@ -427,6 +427,10 @@ if [ "$E2E" -eq 1 ]; then
     # Start from a clean project and volume on every run: customer-service
     # asserts exactly the four versions it publishes, so a reused stack fails.
     bash scripts/dev/customer-runtime.sh up --fresh || controlled_status=$?
+    # Docker network setup settles asynchronously after the gateway reports
+    # healthy; Chromium otherwise aborts the first navigation with
+    # ERR_NETWORK_CHANGED.
+    [ "$controlled_status" -eq 0 ] && sleep 5
     if [ "$controlled_status" -eq 2 ]; then
       for name in customer-service customer-source customer-control keycloak selfhost-restore; do
         skip e2e "e2e-$name" "controlled runtime prerequisites are unconfigured" "bash scripts/dev/customer-runtime.sh run-spec $name"
