@@ -55,7 +55,7 @@
   本 worktree 未创建 DB/env、未启动隔离栈、未跑 live；由主 agent 在 WP93 合入
   迁移 0061 后准备。
 - live 前主 agent 必须：用专用 DB 建 0600 env（至少 `V2_GATEWAY_DSN`、`HTTP_ADDR`、
-  `RAG_PROFILE=v2_langchain_bailian`、`V2_CUSTOMER_ORIGIN`、`V2_FACTS_BASE_URL`、
+  `RAG_PROFILE` 为 bailian 档、`V2_CUSTOMER_ORIGIN`、`V2_FACTS_BASE_URL`、
   `V2_FACTS_VERSION`、`V2_IDENTITY_USER`）；以
   `--profile v2_langchain_bailian --commerce-sim --ports 26181` 起栈；只开启
   `shop-demo` 顾客会话且**不发布知识**（runner preflight 对
