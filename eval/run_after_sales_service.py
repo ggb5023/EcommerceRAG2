@@ -814,6 +814,7 @@ def verify_facts_mock(contract: Mapping[str, Any], values: Mapping[str, str]) ->
 
 def provider_identity(values: Mapping[str, str], base_url: str) -> dict[str, Any]:
     sys.path.insert(0, str(ROOT / "python"))
+    from app.graph.prompts import registry
     from app.graph.prompts.registry import GENERATION_INSTRUCTION
     from app.graph.workflow import CONTROL_SCHEMA, GENERATION_SCHEMA
     from app.providers.config import ensure_secure_config_file, load_provider_config
@@ -839,6 +840,8 @@ def provider_identity(values: Mapping[str, str], base_url: str) -> dict[str, Any
         "go/internal/customer/store.go",
         "go/internal/auth/customer.go",
         "go/internal/domain/copy.go",
+        "python/app/graph/prompts/control.py",
+        "python/app/graph/prompts/registry.py",
         "python/app/graph/workflow.py",
         "python/app/graph/service.py",
         "python/app/rpc/rag.py",
@@ -849,6 +852,8 @@ def provider_identity(values: Mapping[str, str], base_url: str) -> dict[str, Any
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True, timeout=5).strip()
     except (OSError, subprocess.SubprocessError):
         commit = ""
+    prompt_variants = {name: version for name, (_module, version) in registry.VARIANTS.items()}
+    prompt_asset_sha256 = {name: text_digest(text) for name, text in registry.ASSETS.items()}
     return {
         "profile": config.profile,
         "region": config.region,
@@ -857,6 +862,9 @@ def provider_identity(values: Mapping[str, str], base_url: str) -> dict[str, Any
         "timeout_s": config.timeout_s,
         "quota_rpm": config.quota_rpm,
         "generation_instruction_sha256": text_digest(GENERATION_INSTRUCTION),
+        "prompt_variants": prompt_variants,
+        "prompt_asset_sha256": prompt_asset_sha256,
+        "prompt_assets_sha256": digest(json.dumps(prompt_asset_sha256, sort_keys=True).encode("utf-8")),
         "provider_schema_sha256": digest(json.dumps([CONTROL_SCHEMA, GENERATION_SCHEMA], sort_keys=True).encode()),
         "provider_config_sha256": digest(config_path.read_bytes()),
         "runtime_config_sha256": digest(

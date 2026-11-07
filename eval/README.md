@@ -83,6 +83,12 @@ on an authentication or provider error, keeping partial results as `NOT_PASSED`.
    response; it reads `customer_execution`, `customer_message`,
    `customer_ticket` and `usage_log` in a read-only transaction and stops after
    the first provider failure. Then run `after_sales_service_quality.py`.
+   Each live report's `provider_identity` binds the run to the prompt registry:
+   `prompt_variants` (variant → version), `prompt_asset_sha256` (asset name →
+   SHA-256), `prompt_assets_sha256` (aggregate over the asset hashes) and
+   `implementation_sha256` entries for `python/app/graph/prompts/control.py`
+   and `registry.py`. A prompt edit changes the run identity even when the
+   model and provider configuration are unchanged.
 
 `run_evidence_boundary_diagnostics.py --live` adds supplemental reference and
 clarification scenarios; it never replaces frozen cases.

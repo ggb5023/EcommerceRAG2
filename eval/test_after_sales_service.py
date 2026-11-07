@@ -434,6 +434,41 @@ def test_live_requires_explicit_arguments(capsys):
     assert output["issues"] == ["explicit_live_or_plan_required"]
 
 
+def test_provider_identity_binds_prompt_assets_and_variants(tmp_path):
+    config = tmp_path / "providers.env"
+    config.write_text(
+        "PROVIDER_PROFILE=aliyun-bailian\n"
+        "BAILIAN_ENDPOINT=https://example.invalid\n"
+        "BAILIAN_REGION=test\n"
+        "CONTROL_MODEL=control-model\n"
+        "EMBEDDING_MODEL=embedding-model\n"
+        "RERANK_MODEL=rerank-model\n"
+        "GENERATION_MODEL=generation-model\n"
+        "DASHSCOPE_API_KEY=redacted\n",
+        encoding="utf-8",
+    )
+    config.chmod(0o600)
+    identity = runner.provider_identity(
+        {
+            "RAG_PROFILE": "v2_langchain_bailian",
+            "HTTP_ADDR": "127.0.0.1:26181",
+            "V2_PROVIDER_CONFIG": str(config),
+        },
+        "http://127.0.0.1:26181",
+    )
+    from app.graph.prompts import registry
+
+    expected_assets = {name: text_digest(value) for name, value in registry.ASSETS.items()}
+    assert identity["profile"] == "aliyun-bailian"
+    assert identity["prompt_variants"]["control"] == "v4"
+    assert identity["prompt_asset_sha256"] == expected_assets
+    assert identity["prompt_assets_sha256"] == runner.digest(
+        json.dumps(expected_assets, sort_keys=True).encode("utf-8"))
+    for name in ("python/app/graph/prompts/control.py", "python/app/graph/prompts/registry.py"):
+        assert identity["implementation_sha256"][name] == runner.digest(
+            (ROOT / name).read_bytes())
+
+
 def test_terminal_event_accepts_queue_and_completion():
     completed = [{"event": "completed", "data": {"execution_id": "exec"}}]
     queued = [{"event": "state", "data": {"state": "WAITING_HUMAN"}}]
