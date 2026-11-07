@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	yaml "gopkg.in/yaml.v3"
+
 	"github.com/ggb5023/EcommerceRAG/go/internal/auth"
 	ragv1 "github.com/ggb5023/EcommerceRAG/go/internal/pb/rag/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -156,6 +158,29 @@ func apiJSON(t *testing.T, api http.Handler, method, path string, body any, expe
 	return result
 }
 
+func cleanImportManifest(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var manifest map[string]any
+	if err := yaml.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	documents, _ := manifest["documents"].([]any)
+	for _, value := range documents {
+		document, _ := value.(map[string]any)
+		if _, ok := document["license"]; !ok {
+			document["license"] = "internal"
+		}
+		if document["document_id"] == "import-doc-02" {
+			document["effective_to"] = "2027-12-31"
+		}
+	}
+	out, err := yaml.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func uploadBatch(t *testing.T, api http.Handler, root, manifestText string) map[string]any {
 	t.Helper()
 	var body bytes.Buffer
@@ -211,9 +236,9 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	apiJSON(t, api, "PUT", "/admin/v1/merchant/agent-review", map[string]any{"enabled": true, "policy_version": "v1", "confirm": true, "reason": "integration test switch"}, 200)
-	created := uploadBatch(t, api, root, string(manifestBytes))
-	batchID := created["batch_id"].(string)
-	rows, err := migration.Query(context.Background(), `SELECT precheck_result FROM import_item WHERE batch_id=$1`, batchID)
+	blocked := uploadBatch(t, api, root, string(manifestBytes))
+	blockedBatch := blocked["batch_id"].(string)
+	rows, err := migration.Query(context.Background(), `SELECT precheck_result FROM import_item WHERE batch_id=$1`, blockedBatch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,6 +262,13 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 			t.Fatalf("%s count=%d all=%v", code, counts[code], counts)
 		}
 	}
+	blockedStatus, blockedBody := apiStatus(t, api, "POST", "/admin/v1/merchant/imports/"+blockedBatch+"/confirm", map[string]any{"confirm": true, "reason": "integration test blocking precheck"})
+	if blockedStatus != 409 || !strings.Contains(blockedBody, "precheck_blocked") {
+		t.Fatalf("blocking precheck confirm = %d %s", blockedStatus, blockedBody)
+	}
+	cleanManifest := cleanImportManifest(t, manifestBytes)
+	created := uploadBatch(t, api, root, string(cleanManifest))
+	batchID := created["batch_id"].(string)
 	confirmed := apiJSON(t, api, "POST", "/admin/v1/merchant/imports/"+batchID+"/confirm", map[string]any{"confirm": true, "reason": "integration test confirm"}, 202)
 	_ = confirmed
 	var pending, nullReviews, manifestCount int
@@ -377,7 +409,7 @@ func TestImportBatchLifecycleIntegration(t *testing.T) {
 	if _, err = migration.Exec(context.Background(), `INSERT INTO import_item(batch_id,source_hash,temp_path) VALUES($1,$2,$3)`, expiredID, strings.Repeat("1", 64), temp.Name()); err != nil {
 		t.Fatal(err)
 	}
-	uploadBatch(t, api, root, string(manifestBytes))
+	uploadBatch(t, api, root, string(cleanManifest))
 	var expiredStatus string
 	_ = migration.QueryRow(context.Background(), `SELECT status FROM import_batch WHERE id=$1`, expiredID).Scan(&expiredStatus)
 	if expiredStatus != "expired" {
