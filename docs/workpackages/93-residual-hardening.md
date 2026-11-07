@@ -14,7 +14,7 @@
 3. **显式订单号守卫**：Go domain 纯函数识别“订单号/订单编号/order id”后的字面量；任何不等于
    绑定订单的值 → `order_clarification`；不做裸标识扫描。
 4. **contracts facts 行**：`docs/contracts.md` 增加 Go/Python 事实工具/资源绑定与快照复验行，
-   两侧测试名齐全；棘轮 `CONTRACTS_CROSS=21` 由主 agent 单独提交。
+   两侧测试名齐全；棘轮 `CONTRACTS_CROSS` 21 由主 agent 单独提交。
 5. **死代码清理**：删除无生产调用的 `terminalCanCopy` 与未引用的 `EvidencePanel.vue`；
    保留/补充 staff user 事实可复制、suggestion facts 不可复制、mock facts 不可复制测试。
 
