@@ -19,7 +19,7 @@
   `--db`/`--smoke`/live eval/controlled e2e 由主 agent 串行执行。
 - 每轨使用专用 DB/env：WP93 `ecr_v2_wp93_test`，WP92 `ecr_v2_wp92_eval` + 26181，
   WP91 自包含 Compose project + 18443。不写 `/etc`，不重启 dev 栈。
-- 不修改 `scripts/review/`；不用 `git add .`；提交身份固定。
+- 不修改本地未跟踪的审查目录；不用 `git add .`；提交身份固定。
 
 ## 集成顺序
 

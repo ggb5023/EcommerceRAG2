@@ -31,4 +31,4 @@
 - 不做 WP80 竞态、suggestion 审查 kind、裸标识扫描（记录并请示）；
 - 不改变 staff/suggestion 复制策略；
 - 不重采 smoke 基线、不改断言迁就代码；
-- 不提交 `scripts/review/`，不用 `git add .`。
+- 不提交本地未跟踪的审查目录，不用 `git add .`。
