@@ -14,7 +14,8 @@ const checks=[];const errors=[]
 const admin=await browser.newContext({ignoreHTTPSErrors:true});const staff=await browser.newContext({ignoreHTTPSErrors:true});const customer=await browser.newContext({ignoreHTTPSErrors:true})
 for(const ctx of [admin,staff,customer])ctx.on('page',p=>p.on('pageerror',e=>errors.push(e.message)))
 const adminPage=await admin.newPage();const staffPage=await staff.newPage();const customerPage=await customer.newPage()
-async function login(page,user,path){
+async function retry(fn,attempts=3){let last;for(let i=0;i<attempts;i++){try{return await fn()}catch(e){last=e;if(i===attempts-1||!/(ERR_NETWORK_CHANGED|Failed to fetch)/.test(String(e)))throw e;await new Promise(r=>setTimeout(r,700))}}throw last}
+async function login(page,user,path){return retry(async()=>{
  await page.goto(base+path)
  const state=await page.evaluate(()=>fetch('/v1/auth/session').then(r=>r.json()))
  if(state.authenticated)return
@@ -23,8 +24,8 @@ async function login(page,user,path){
   await page.locator('#username').fill(user.username);await page.locator('#password').fill(user.password);await page.locator('#kc-login').click()
  }
  await page.waitForURL(base+path,{timeout:20000})
-}
-async function api(page,path,body){return page.evaluate(async({path,body})=>{const s=await fetch('/v1/auth/session').then(r=>r.json());const r=await fetch(path,{credentials:'same-origin',...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf_token,'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body})}
+})}
+async function api(page,path,body){return retry(()=>page.evaluate(async({path,body})=>{const s=await fetch('/v1/auth/session').then(r=>r.json());const r=await fetch(path,{credentials:'same-origin',...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf_token,'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body}))}
 async function adminApi(path,body){await login(adminPage,accounts.find(a=>a.username==='admin'),'/admin/merchant/reviews');const response=await api(adminPage,path,body);assert.ok(response.status<400,`admin API ${response.status}`);return response.data}
 try{
  await login(adminPage,accounts.find(a=>a.username==='admin'),'/admin/merchant/sources')
