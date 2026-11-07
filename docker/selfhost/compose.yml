@@ -53,7 +53,7 @@ services:
     restart: "no"
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     environment:
-      ECR_IDENTITY_BACKCHANNEL_URL: http://keycloak:8080
+      ECR_IDENTITY_BACKCHANNEL_URL: http://keycloak:8080/identity
     command: [/app/scripts/selfhost-bootstrap.py]
     volumes: ["${ECR_RUNTIME}/bootstrap:/run/bootstrap:ro", "${ECR_RUNTIME}/gateway:/run/gateway", "${ECR_RUNTIME}/identity:/run/identity"]
     depends_on: {migrate: {condition: service_completed_successfully}}

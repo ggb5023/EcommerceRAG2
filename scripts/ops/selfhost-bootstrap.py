@@ -64,7 +64,7 @@ def main():
         # Keycloak service for backchannel calls; tokens still carry the
         # public issuer because KC_HOSTNAME pins it.
         oidc = {'issuer':config['origin']+'/identity/realms/merchant', 'client_id':'merchant-browser', 'secret_file':'/run/runtime/browser-secret',
-                'backchannel_url':os.environ.get('ECR_IDENTITY_BACKCHANNEL_URL','http://keycloak:8080'),
+                'backchannel_url':os.environ.get('ECR_IDENTITY_BACKCHANNEL_URL','http://keycloak:8080/identity'),
                 'authorization_source':'database',
                 'bindings':[{'subject':a['subject'], 'tenant':'merchant', 'user':a['username'], 'shop':'main-shop'} for a in config['accounts']],
                 'browser':{'customer_origin':config['origin'],'admin_origin':config['origin'],'callback_url':config['origin']+'/v1/auth/callback'}}
