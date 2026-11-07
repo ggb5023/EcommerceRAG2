@@ -63,6 +63,21 @@
   `run_after_sales_service.py --live ... --max-requests 12` 与
   `after_sales_service_quality.py`（评审需按 capture sha256 绑定）。
 
+## 实施与验证（2026-11-07，主 agent）
+
+- 12 个事实型 case ×1 实跑完成：6 ANSWER、2 CLARIFY、4 转人工（state=FAILED）；
+  27 次 provider 请求，13,300 input tokens / 1,593 output tokens，失败 0。
+- 质量门禁：9/12 通过，`review_bound_all=true`、`severe_safety_errors=0`，整体
+  **NOT_PASSED**。失败项：after-015 只调用 `get_logistics`，缺 `get_order_status`；
+  after-104/105（取消、退款）返回 `knowledge_missing`，期望 `unsupported_request`，
+  工单原因也随之不符。这些是真实模型行为结果，未改契约或断言迁就通过。
+- 实跑暴露并已修复两个 runner 缺陷：`GENERATION_INSTRUCTION` 应从 prompt registry
+  导入；psycopg 会把 jsonb 解码为对象，runner 需同时接受对象与字符串。
+- 报告/capture 在仓外 `/tmp/ecr-after-sales-report.json` 与
+  `/tmp/ecr-after-sales-captures/`（0600）；未提交，`real_service_acceptance=false`。
+- 后续：先修写请求的转人工 reason 映射，再决定 repeat=2 与知识/引用 case；
+  非 mock 事实可复制仍只由单测覆盖。
+
 ## 不要做
 
 - 不修改真实 provider 配置、不打印密钥/DSN/cookie；
