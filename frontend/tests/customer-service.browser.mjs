@@ -9,7 +9,7 @@ const base=process.env.CUSTOMER_BASE_URL??'https://merchant.example.test:18443'
 const output=process.env.CUSTOMER_REPORT_DIR;assert.ok(output)
 await mkdir(output,{recursive:true,mode:0o700});assert.equal((await lstat(output)).mode&0o777,0o700)
 const accounts=JSON.parse(await readFile(runtime+'/bootstrap/accounts.json','utf8')).accounts
-const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true,args:['--ignore-certificate-errors']})
 const checks=[];const errors=[]
 const admin=await browser.newContext({ignoreHTTPSErrors:true});const staff=await browser.newContext({ignoreHTTPSErrors:true});const customer=await browser.newContext({ignoreHTTPSErrors:true})
 for(const ctx of [admin,staff,customer])ctx.on('page',p=>p.on('pageerror',e=>errors.push(e.message)))

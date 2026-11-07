@@ -18,7 +18,7 @@ const admin = customer
 const output = process.env.KEYCLOAK_BROWSER_REPORT_DIR ?? `/var/lib/ecommerce-rag/real-docs/reports/keycloak-browser-${randomUUID()}`
 assert.ok(output.startsWith('/var/lib/ecommerce-rag/'))
 await mkdir(output, { recursive: true, mode: 0o700 })
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome', headless: true })
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome', headless: true, args: ['--ignore-certificate-errors'] })
 const root = fileURLToPath(new URL('../../', import.meta.url))
 let ownedStack
 let stackLog

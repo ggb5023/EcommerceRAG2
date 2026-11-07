@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process'
 const runtime=process.env.CUSTOMER_RUNTIME_DIR;const out=process.env.CUSTOMER_REPORT_DIR;assert.ok(runtime&&out)
 const base=process.env.CUSTOMER_BASE_URL??'https://merchant.example.test:18443'
 await mkdir(out,{mode:0o700});const accounts=JSON.parse(await readFile(runtime+'/bootstrap/accounts.json')).accounts
-const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true,args:['--ignore-certificate-errors']})
 const contexts=await Promise.all([0,1,2,3].map(()=>browser.newContext({ignoreHTTPSErrors:true})))
 const [customer,other,admin,support]=await Promise.all(contexts.map(c=>c.newPage()));const checks=[]
 async function login(page,name){

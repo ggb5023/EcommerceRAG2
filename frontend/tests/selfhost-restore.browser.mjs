@@ -5,7 +5,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises'
 import {createHash} from 'node:crypto'
 const runtime=process.env.CUSTOMER_RUNTIME_DIR;const prior=process.env.CUSTOMER_PRIOR_BROWSER_DIR;const out=process.env.CUSTOMER_REPORT_DIR;assert.ok(runtime&&prior&&out)
 const base=process.env.CUSTOMER_BASE_URL??'https://merchant.example.test:18443';await mkdir(out,{mode:0o700})
-const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true,args:['--ignore-certificate-errors']})
 const expected=JSON.parse(await readFile(prior+'/browser-answer-capture.json'));const checks=[]
 try{
  const customer=await browser.newContext({ignoreHTTPSErrors:true,storageState:prior+'/customer-browser-state.json'});const page=await customer.newPage();await page.goto(base+'/shop/my-shop');await page.locator('#question').waitFor()
