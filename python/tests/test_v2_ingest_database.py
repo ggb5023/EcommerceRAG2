@@ -56,11 +56,11 @@ def db(tmp_path):
         return rag_pb2.RequestContext(tenant_id=suffix, tenant_db_id=tenant, user_id="test-user", user_db_id=user, role="admin", shop_id="shop-test", allowed_shop_ids=["shop-test"], permission_revision=revision, scope_audience="ingest")
 
     def submit(content=b"# Delivery\n\nOrders leave within two business days.\n", *, key=None,
-               required_admin_role="merchant_admin"):
+               required_admin_role="merchant_admin", target_store=None):
         sha = hashlib.sha256(content).hexdigest()
         manifest = f"schema_version: 1\nsource:\n  id: docs\n  name: Docs\npipeline_version: v2-test\ndocuments:\n  - document_id: delivery\n    title: Delivery\n    path: delivery.md\n    format: markdown\n    sha256: {sha}\n    disclosure_class: external_allowed\n"
         manifest_sha = hashlib.sha256(manifest.encode()).hexdigest()
-        return store.submit(tenant_id=suffix, user_id="test-user", shop_id="shop-test", tenant_db_id=str(tenant), user_db_id=str(user), permission_revision=scope().permission_revision, required_admin_role=required_admin_role, idempotency_key=key or uuid4().hex, source_id="docs", source_name="Docs", pipeline_version="v2-test", manifest_yaml=manifest, manifest_sha256=manifest_sha, package_sha256=package_payload_hash(tenant, "shop-test", manifest_sha, {"delivery.md": content}), documents=[{"document_id": "delivery", "title": "Delivery", "path": "delivery.md", "source_hash": sha, "format": "markdown", "disclosure_class": "external_allowed", "effective_from": "", "effective_to": ""}], files={"delivery.md": content})
+        return (target_store or store).submit(tenant_id=suffix, user_id="test-user", shop_id="shop-test", tenant_db_id=str(tenant), user_db_id=str(user), permission_revision=scope().permission_revision, required_admin_role=required_admin_role, idempotency_key=key or uuid4().hex, source_id="docs", source_name="Docs", pipeline_version="v2-test", manifest_yaml=manifest, manifest_sha256=manifest_sha, package_sha256=package_payload_hash(tenant, "shop-test", manifest_sha, {"delivery.md": content}), documents=[{"document_id": "delivery", "title": "Delivery", "path": "delivery.md", "source_hash": sha, "format": "markdown", "disclosure_class": "external_allowed", "effective_from": "", "effective_to": ""}], files={"delivery.md": content})
 
     def execute(action, resource, *, key=None, **kwargs):
         request = rag_pb2.ExecuteCommandRequest(context=scope(), command_id=key or uuid4().hex, action=action, resource_id=str(resource), reason="Reviewed in isolated V2 acceptance", **kwargs)
@@ -228,6 +228,35 @@ def test_adoption_submission_runs_without_row_lock_privileges(db):
             pipeline_version="v2-test", manifest_yaml="schema_version: 1\n",
             manifest_sha256="0" * 64, package_sha256="0" * 64, documents=[], files={},
         )
+
+
+def test_adoption_submit_is_serialized_by_the_knowledge_lock(db):
+    """A1: account revocation and adoption submit share knowledge:<tenant_pk>.
+
+    Holding the lock on a migration connection must make an adoption submit
+    wait. lock_timeout turns that wait into LockNotAvailable rather than a hung
+    test, and releasing the lock lets the same submission complete as pending.
+    """
+    bounded = IngestDatabase(
+        psycopg.conninfo.make_conninfo(
+            db.values["V2_INGEST_DSN"], options="-c lock_timeout=500ms"
+        )
+    )
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as holder:
+        holder.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+            (f"knowledge:{db.tenant}",),
+        )
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            db.submit(required_admin_role=None, target_store=bounded)
+        holder.rollback()
+    adopted = db.submit(required_admin_role=None)
+    assert adopted.status == "pending"
+    with psycopg.connect(db.values["V2_MIGRATION_DSN"]) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM ingest_job WHERE tenant_id=%s AND id=%s",
+            (db.tenant, adopted.job_id),
+        ).fetchone() == (1,)
 
 
 def test_expired_worker_is_fenced_and_new_owner_recovers(db):
