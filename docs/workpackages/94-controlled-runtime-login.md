@@ -41,3 +41,47 @@
 - 不重试断言、HTTP 4xx/5xx、409 幂等冲突；
 - 不改 smoke 基线/棘轮、不新增迁移/SECURITY DEFINER；
 - 不提交本地未跟踪的审查目录，不用 `git add .`。
+
+## 实现（2026-11-08）
+
+1. `isolated-stack.sh`：新增 `check_target_database`，在 `stop_stack` 之后、端口检查之前按
+   `current_database()` 过滤 `pg_locks` 的 `742019,1`：被占用 exit 1 且不回显 DSN；无法连接/读取
+   exit 2（UNCONFIGURED）。login seed 改为 `create`（已存在则跳过）+ 每次 `reset-password`，
+   `browser.env` 写 `LOGIN_NEW_PASSWORD`。
+2. `customer_runtime.py`：`local_login_environment` 校验 ports/browser.env/runtime.env、health 与
+   `mode=local`，传播 `LOGIN_NEW_PASSWORD`；`reset_local_login` 用 stdin 传密码调用
+   `go -C go run ./cmd/local-account reset-password`；缺文件 exit 2，栈坏/健康检查失败 exit 1。
+   gateway 按源 IP 限流 10 次/分钟而单轮 login 用例会发 8 次登录请求，故 `run-spec login` 记录上一轮
+   结束时间，距上次不足 65s 时先打印 `WAIT` 并等待，使同一栈上连续两轮都可执行。
+3. `login.browser.mjs`：`/chat`→`/assistant`，匿名文案「请登录 AI 查询台」，登录后断言「退出登录」与
+   `/v1/auth/session`（authenticated=true、mode=local）；保持 7 个检查。
+4. teardown：`restore` 与 `down` 的 Compose down 加 `--profile oidc`；新增 harness-only sweep
+   （仅 `ecr-wp91` / `ecr-restore-wp91-*`），`ecr-merchant` 只打印 WARN；teardown 失败保留 runtime
+   目录，成功后才删除。
+5. `frontend/tests/transport-retry.mjs`：只重试 `ERR_NETWORK_CHANGED`、`net::ERR_*`、`Failed to fetch`、
+   `ECONNRESET`、`ETIMEDOUT`，3 次、500/1000ms；不改 HTTP 状态与断言。应用到 customer-control/
+   keycloak/customer-service/customer-source/selfhost-restore，POST 幂等键在 retry 外生成并复用。
+6. `check.sh`：新增 `--controlled-only`（快速层 + 受控 5 项，跳过 d2 与普通 spec）与 `--skip-login`；
+   login 分支改为用 `run_optional` 委托 `customer-runtime.sh` 的 `run-spec login`（不再内联账号处理）。
+7. `docs/development.md` 更新；新增 `tests/test_customer_runtime.py`（teardown profile、sweep
+   allowlist、login env/reset/限流窗口、密码不外泄）。
+
+## 本轮验证（worktree `/tmp/ecr-wp94`）
+
+栈（dev 栈未触碰）：先停掉旧 local 栈，再按 `docs/development.md` 的 local 栈命令（`--identity local`、
+`--ports 26091`、`--db` 指向 `/tmp/ecr-login/login.env`）启动
+→ `PASS target database ecr_v2_test_login has no owning gateway`、
+`PASS login account stack-login already present`、`PASS reset login account stack-login ...`。
+
+- login 连续两次（`customer-runtime.sh` 的 `run-spec login`）：第一轮 7 个检查全 PASS（exit 0）；
+  紧接着第二轮先打印 `WAIT 61s for the local login rate-limit window ...`，再 7 个检查全 PASS（exit 0）。
+- advisory lock 预检：目标库被运行中的栈占用时换 root 启动 →
+  `FAIL target database ecr_v2_test_login is already owned by another gateway (advisory lock 742019,1); ...`，
+  exit 1；指向不可连接库 → `UNCONFIGURED cannot inspect ...`，exit 2，输出不含 DSN。
+- `bash -n`、`shellcheck`、`node --check`（7 个 spec/helper）、`ruff`（新改动无新增；文件内 2 个既有
+  BLE001 未变）、`python -m pytest tests/test_customer_runtime.py -q` → 11 passed。
+
+未运行（留给主线）：`bash scripts/check.sh --controlled-only --controlled-e2e` 两次（预期 49/0/0）、
+`bash scripts/check.sh --e2e`（预期 56/6/0）、全量 `--e2e --controlled-e2e`（预期 61/1/0，v2-restart
+仍 UNCONFIGURED）。本地 login 栈在验证后已停止，dev 栈保持运行。
+

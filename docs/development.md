@@ -100,7 +100,18 @@ systemd 单元属于机器特定状态，不进仓库（部署契约在 M5 定�
 
 用例会向 `WORKSPACE_URL`（默认 `http://127.0.0.1:5173`，合并后是唯一入口，`/admin/*` 也在这个 origin 下）发起真实请求，只能指向 loopback。用例产生的资料版本会留在库里，不会自动回滚，测试库请单独准备。
 
-本地账号登录用例 `frontend/tests/login.browser.mjs` 需要 `V2_IDENTITY_PROFILE=local` 的栈，并先用 CLI `reset-password` 把目标账号置为首次改密状态；通过 `LOGIN_USER`、`LOGIN_PASSWORD`、`LOGIN_NEW_PASSWORD` 传入账号与密码。
+本地账号登录用例 `frontend/tests/login.browser.mjs` 需要 `V2_IDENTITY_PROFILE=local` 的栈（`/chat` 重定向到 `/assistant`），通过 `LOGIN_USER`、`LOGIN_PASSWORD`、`LOGIN_NEW_PASSWORD` 传入账号与密码。每次启动隔离栈时 `isolated-stack.sh` 先 `create`（已存在则跳过），随后**总是** `reset-password`：清锁定、撤销会话并强制下次登录改密，同时把新密码写进 `browser.env`。`check.sh --e2e` 的 login 分支委托 `scripts/dev/customer-runtime.sh` 的 `run-spec login`，由它校验 local health/session mode 并再次重置账号；缺栈文件记 UNCONFIGURED（exit 2），栈坏记 FAILED（exit 1）。
+
+login 使用专用库，不与 dev/test 共用 gateway ownership lock：库 `ecr_v2_test_login`、环境文件 `/tmp/ecr-login/{migration,login}.env`（均 0600），栈命令为
+
+```bash
+bash scripts/dev/isolated-stack.sh \
+  --identity local --ports 26091 --db /tmp/ecr-login/login.env --with-vite
+```
+
+隔离栈启动前会按 `current_database()` 预检 advisory lock `742019,1`：目标库已被别的 gateway 占用时直接报错退出（exit 1），无法连接目标库时记 UNCONFIGURED（exit 2），不会把 DSN 打进日志。
+
+gateway 对登录按源 IP 限流（`localauth.IPMinuteLimit` = 10 次/分钟），而一轮 login 用例会发 8 次登录请求；同一进程上紧接着再跑第二轮会在第 5 个检查被 429 拒绝。`customer-runtime.sh run-spec login` 因此记录上一轮结束时间，距上次运行不足 `LOGIN_RATE_WINDOW`（65s）时先等待并打印 `WAIT`，再 reset 账号并启动用例；连续两次运行因此都能 7/7 PASS，且不改限流实现、不重试断言。
 
 ### e2e 前置准备
 
@@ -138,14 +149,25 @@ Phase 1 顺序固定，不能打乱：`customer-service` → `customer-source` �
 
 ```bash
 bash scripts/check.sh --e2e --controlled-e2e   # 全量：期望 61 PASS / 1 UNCONFIGURED（v2-restart）/ 0 FAIL
+bash scripts/check.sh --controlled-only --controlled-e2e  # 快速层 + 5 个受控 spec：49 PASS / 0 / 0
 bash scripts/dev/customer-runtime.sh status
 bash scripts/dev/customer-runtime.sh up --fresh # 重建 project/volume（换一枚干净库）
 bash scripts/dev/customer-runtime.sh run-spec customer-service
 bash scripts/dev/customer-runtime.sh down --clean
 ```
 
-`login` 不在受控 Compose 里：它使用 `isolated-stack.sh --identity local --ports 26291` 与
-`reset-password` 后的本地账号；WP91 不修改隔离栈脚本，也不对共享测试库运行登录用例。
+`--controlled-only` 只跑快速层与 5 个受控 spec（含 backup/restore），跳过 d2 proxy smoke、
+login 与全部普通 browser spec，适合在 dev 栈保持运行时重复验收受控链路。
+`--skip-login` 在普通 `--e2e` 中省略 login（不计 UNCONFIGURED），其余行为不变。
+
+销毁受控栈时 `restore` 与 `down` 的 Compose teardown 都带 `--profile oidc`，否则
+`oidc` profile 里的 Keycloak 及其网络会残留。teardown 成功后还会按 Compose project
+label 做一次 harness-only sweep：只清理 `ecr-wp91` 与 `ecr-restore-wp91-*` 的残留容器/网络；
+`ecr-merchant` 只打印 WARN、绝不触碰。Compose teardown 失败时保留 runtime 目录并在下次
+`down` 继续处理，只有成功后才删除 runtime 目录。
+
+`login` 不在受控 Compose 里：它使用上面的 local identity 栈（`--ports 26091`，专用
+`ecr_v2_test_login` 库）与每次自动 `reset-password` 后的本地账号；不再对共享测试库运行登录用例。
 
 `frontend/tests/admin.browser.mjs` 需要审核队列里至少有一份待审版本，否则会停在
 `no reviewable version available`。用下面这条脚本补齐，它**只走管理 HTTP 接口**（创建导入批次 → 确认 → 轮询审核队列），
