@@ -41,7 +41,7 @@
 | `turn` | `gateway` | `admin`、`customer`、`gateway` | 轮次状态与答案由网关用例层写；终态只由 Go 决定 | `scripts/check/check-ownership.py` |
 | `conversation` | `gateway` | `gateway`、`admin` | 会话创建与标题更新由网关写 | `scripts/check/check-ownership.py` |
 | `turn_idempotency` | `gateway` | `gateway` | 幂等键在创建/续接轮次的事务内写 | `scripts/check/check-ownership.py` |
-| `conversation_execution` | `gateway` | `gateway`、`admin` | 每次执行的状态、答案与取消标记由网关写；0058 增加 `facts_json` 事实快照（售后只读查询，值为观测快照而非实时读） | `scripts/check/check-ownership.py` |
+| `conversation_execution` | `gateway` | `gateway`、`admin` | 每次执行的状态、答案与取消标记由网关写；0058 增加 `facts_json` 事实快照（售后只读查询，值为观测快照而非实时读）；0061 增加 nullable `behavior`（Go 决定的 ANSWER/CLARIFY/HANDOFF，legacy NULL 才由管理端按状态推断） | `scripts/check/check-ownership.py` |
 | `message` | `gateway` | `gateway`、`customer` | 用户/助手消息随轮次事务由网关写 | `scripts/check/check-ownership.py` |
 | `sse_event` | `gateway` | `gateway`、`frontend` | SSE 事件序列由网关写；前端只消费 | `scripts/check/check-ownership.py` |
 | `evidence_snapshot` | `gateway` | `gateway`、`admin` | 每次执行的证据快照由网关检索阶段写 | `scripts/check/check-ownership.py` |
