@@ -101,6 +101,8 @@ Go 判定、前端只读。员工建议回复仍要求引用（`factCount=0`）�
 ## 5. 后果
 
 - 新迁移 `0058`：会话服务类型/订单号、两条执行链路的 `facts_json`、`customer_ticket`。
+- 新迁移 `0061`：`conversation_execution.behavior` 保存 Go 决定的 `ANSWER`/`CLARIFY`/`HANDOFF`，
+  管理台审查页读取真实行为；历史 `NULL` 才按终态推断。
 - `RequestContext` 增加 `service_type`(29) 与 `customer_order_id`(30)，进入签名 scope。
 - 顾客入口需要先选服务；售后必须填订单号。
 - 新增模拟电商后端（`commerce-sim`，仅 loopback，不参与 selfhost）与仓库内的
