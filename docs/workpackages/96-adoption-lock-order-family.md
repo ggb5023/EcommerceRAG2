@@ -47,3 +47,58 @@
 - 不做 suggestion 审查 kind；
 - 不改已执行迁移/smoke 基线；
 - 不提交本地未跟踪的审查目录，不用 `git add .`。
+
+## 实现结果（2026-11-08，分支 `wp96`）
+
+### A1
+
+- `go/internal/localauth/store.go` 新增 `withKnowledgeTenantLock`：事务内先
+  `pg_advisory_xact_lock(hashtext('knowledge:<tenant.id>')::bigint)`，再
+  `pg_advisory_xact_lock(742019, tenant_id)`；仅 `DisableUser` / `EnableUser` 使用，
+  其它 `withTenantLock` 调用点不变。
+- 决策 [0042](../decisions/0042-account-disable-ingest-serialization.md)；残余风险
+  （直连 SQL、IdP 撤销、DB ACL）已记录。
+- Go 集成测试 `TestDisableAndEnableTakeTheKnowledgeLockBeforeTheAccountLock`：旁路连接持
+  knowledge 锁，通过 `pg_locks` 轮询确认 Disable/Enable 阻塞（不靠 sleep），阻塞期间
+  `pg_try_advisory_lock(742019, tenant_id)` 成功（证明先取 knowledge），释放后完成。
+- Python `test_adoption_submit_is_serialized_by_the_knowledge_lock`：旁路连接持
+  knowledge 锁时，`lock_timeout=500ms` 的 adoption submit 抛 `LockNotAvailable`；
+  释放后同一提交为 `pending`。既有 adoption 行锁权限测试保持通过。
+
+### 窄订单族检测
+
+- `go/internal/domain/fact_resource.go:OrderFamilyReferences`：候选 token 含字母+数字+
+  至少一个 `-`/`_`，首段与 bound 大小写不敏感相等、段数相同、逐段字符类相同；排除 bound
+  与 entity 值；纯数字或无分隔 bound 返回 nil。
+- `afterSalesFactPlan` 在显式线索/entity 检查之后、仅当请求订单工具时调用；命中 →
+  `order_clarification`。`ExplicitOrderReferences` 未改。
+- 决策 [0043](../decisions/0043-narrow-order-family-detection.md)；contracts facts 行
+  已补 `OrderFamilyReferences` 与测试名，并新增 A1 跨进程行。
+
+### 验证（真实命令）
+
+```text
+cd go && go build ./... && go vet ./...                       # exit 0
+cd go && go test ./internal/domain ./internal/customer ./internal/localauth -count=1
+  ok domain / ok customer / ok localauth
+V2_INTEGRATION_ENV=/etc/ecommerce-rag/test-integration.env \
+  go test -tags integration ./internal/localauth -count=1      # ok 0.926s
+V2_INTEGRATION_ENV=... go test -tags integration ./internal/localauth \
+  -count=3 -run TestDisableAndEnableTakeTheKnowledgeLockBeforeTheAccountLock  # ok
+cd python && uv run --frozen pytest -q tests/test_ingest_adoption.py            # 3 passed
+V2_INTEGRATION_ENV=<local env with V2_INGEST_DSN> uv run --frozen pytest -q \
+  tests/test_v2_ingest_database.py -k adoption                  # 2 passed
+contracts 棘轮检查                                               # NOTE 跨进程 22, PASS
+docs-links / docs-drift / doc-paths / decisions-index / doc-numbers  # PASS
+ruff check tests/test_v2_ingest_database.py                     # PASS
+```
+
+### 未运行项与限制
+
+- 快速层 `bash scripts/check.sh`、`--smoke`、`--db` 未在 worktree 运行；由主 agent 在合入后串行执行。
+- `CONTRACTS_CROSS` 仍为 21（本分支按约不改 `check-contracts.py`）；主 agent 单独提交棘轮 22。
+- Python 集成测试使用临时 env（`V2_MIGRATION_DSN`/`V2_GATEWAY_DSN` 来自
+  `test-integration.env`，`V2_INGEST_DSN` 指向同一 `ecr_v2_test_m4`），只跑了 adoption 定向用例，
+  未跑 Python 全量。
+- 未在 dev/隔离栈上重启服务；本工作包无 ingest/retrieval 生产代码改动，smoke 基线不应变化，
+  但未由本分支复验。
