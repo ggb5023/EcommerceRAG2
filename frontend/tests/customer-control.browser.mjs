@@ -10,7 +10,18 @@ await mkdir(out,{mode:0o700});const accounts=JSON.parse(await readFile(runtime+'
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome',headless:true})
 const contexts=await Promise.all([0,1,2,3].map(()=>browser.newContext({ignoreHTTPSErrors:true})))
 const [customer,other,admin,support]=await Promise.all(contexts.map(c=>c.newPage()));const checks=[]
-async function login(page,name){await page.goto(base+'/v1/auth/login?app=customer&return_to=/support');if(new URL(page.url()).pathname!='/support'){const a=accounts.find(a=>a.username===name);await page.locator('#username').fill(a.username);await page.locator('#password').fill(a.password);await page.locator('#kc-login').click()}await page.waitForURL(base+'/support')}
+async function login(page,name){
+ await page.goto(base+'/v1/auth/login?app=customer&return_to=/support')
+ // After a gateway restart the Go session is gone but the Keycloak SSO cookie
+ // remains, so the callback can complete before the login form ever renders.
+ for(let i=0;i<80;i++){
+  // /support is a client-side redirect to /staff; silent SSO lands there directly.
+  if(['/support','/staff'].includes(new URL(page.url()).pathname))break
+  if(await page.locator('#username').isVisible()){const a=accounts.find(a=>a.username===name);await page.locator('#username').fill(a.username);await page.locator('#password').fill(a.password);await page.locator('#kc-login').click();break}
+  await new Promise(r=>setTimeout(r,250))
+ }
+ await page.waitForURL(url=>['/support','/staff'].includes(url.pathname))
+}
 async function api(page,path,body,csrf,idem=randomUUID()) {return page.evaluate(async({path,body,csrf,idem})=>{const r=await fetch(path,{...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf??'','Idempotency-Key':idem},body:JSON.stringify(body)})});return {status:r.status,data:await r.json()}},{path,body,csrf,idem})}
 async function staff(page,path,body,idem){const auth=(await api(page,'/v1/auth/session')).data;return api(page,path,body,auth.csrf_token,idem)}
 async function waitState(id,state){for(let i=0;i<160;i++){const r=await api(customer,'/v1/customer/conversations/'+id);if(r.data.conversation.state===state&&!r.data.conversation.active_execution_id)return r.data;await new Promise(r=>setTimeout(r,1000))}throw Error('state timeout')}
