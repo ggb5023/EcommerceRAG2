@@ -805,11 +805,8 @@ def verify_facts_mock(contract: Mapping[str, Any], values: Mapping[str, str]) ->
 
 def provider_identity(values: Mapping[str, str], base_url: str) -> dict[str, Any]:
     sys.path.insert(0, str(ROOT / "python"))
-    from app.graph.workflow import (
-        CONTROL_SCHEMA,
-        GENERATION_INSTRUCTION,
-        GENERATION_SCHEMA,
-    )
+    from app.graph.prompts.registry import GENERATION_INSTRUCTION
+    from app.graph.workflow import CONTROL_SCHEMA, GENERATION_SCHEMA
     from app.providers.config import ensure_secure_config_file, load_provider_config
 
     if values.get("RAG_PROFILE") != "v2_langchain_bailian":
