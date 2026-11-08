@@ -1,6 +1,6 @@
 # 单商家安装
 
-[项目入口](../README.md) · [导入知识](knowledge.md) · [客服操作](support.md) · [备份恢复](backup.md)
+[项目入口](../README.md) · [上线注意事项](merchant-notes.md) · [导入知识](knowledge.md) · [客服操作](support.md) · [备份恢复](backup.md)
 
 此部署运行一个商家、一家店铺。客户匿名咨询；员工默认使用 Go 内置账号登录，Keycloak 改为可选 profile。selfhost 首版不提供实时订单/价格/库存查询；开发与隔离栈中的售后只读事实（决策 0041）在 selfhost 按不可用失败关闭。项目仍在开发阶段，尚未经过生产环境验证。
 

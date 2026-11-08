@@ -68,7 +68,7 @@ python3 scripts/dev/demo-report.py \
 
 | 读者 | 文档 |
 | --- | --- |
-| 商家 | [安装](docs/install.md) · [导入知识](docs/knowledge.md) · [客服操作](docs/support.md) · [备份恢复](docs/backup.md) |
+| 商家 | [安装](docs/install.md) · [上线注意事项](docs/merchant-notes.md) · [导入知识](docs/knowledge.md) · [客服操作](docs/support.md) · [备份恢复](docs/backup.md) |
 | 开发者 | [产品定位](docs/product.md) · [架构](docs/architecture.md) · [路线图](ROADMAP.md) · [开发指南](docs/development.md) · [决策记录](docs/decisions/) |
 | AI 助手 | [AGENTS.md](AGENTS.md) |
 
