@@ -41,6 +41,8 @@
   gate 关闭。
 - 仍未做：suggestion 审查 kind（保持隐藏）；repeat=2 与知识/引用 case；`v2-restart`
   所需 `V2_RESTART_RUNTIME_ENV`。
+- 2026-11-08 审计确认了若干残留（WP94 harness 预检/sweep/登录标记、WP95 gate/契约、
+  门禁自证与文档冲突），已记录在各包“已知问题”，待后续工作包修复。
 
 ## 约束
 

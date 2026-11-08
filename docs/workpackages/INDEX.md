@@ -101,7 +101,7 @@
 | 92 | 真实模型售后评测（12 个事实型 case） | done | WP95 gate 12/12 | — | `9977ea4` |
 | 93 | 深层残留硬化（behavior/facts/order/contracts） | done | — | — | `aa50580` |
 | 94 | 受控 runtime 与 login 收尾 | done | — | — | `0f23ee2` |
-| 95 | 控制提示词写请求路由 + 12×1 | done | — | — | `9ac3a24` |
+| 95 | 控制提示词写请求路由 + 12×1 | done | — | — | `2f82dee` |
 | 96 | adoption 锁串行化 + 窄订单族检测 | done | — | — | `14a9916` |
 
 ## 同步规则

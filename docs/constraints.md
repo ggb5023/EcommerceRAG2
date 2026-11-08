@@ -10,7 +10,7 @@
 | 规则 | 强制方式 | 现状 |
 | --- | --- | --- |
 | 每张表只有一个写入方 | `check-ownership.py` | ✅ 已声明表数见 `docs/data-ownership.md`；未声明预算 0 |
-| 迁移只追加，不修改已执行文件 | `check-doc-baseline.py` | ✅ |
+| 迁移只追加，不修改已执行文件 | 运行时启动 checksum 校验（见 [environment-facts.md](environment-facts.md) #3）；快速层无静态校验 | ✅ 运行时强制 |
 | 新表必须显式授权给所需角色 | `check-migration-grants.py`（静态检查；`GRANT ALL TABLES` 只覆盖其出现前的表，之后建表须逐表 GRANT，见 `environment-facts.md` #4） | ✅ 静态检查 |
 | 新环境必须能"从零建库" | `verify-migrations-from-zero.sh`（`--db` 层；无 scratch DSN 时 UNCONFIGURED） | ✅ 已实现 |
 | 备份必须验证可恢复 | 无 | ✅ 已演练（2026-11-05，见 [WP47](workpackages/47-backup-restore-drill.md) 与 `.local/wp47/restore-evidence.json`；PG + 本地 artifact，OSS UNCONFIGURED） |

@@ -99,3 +99,20 @@
 - 收尾：两个隔离栈停止；`customer-runtime.sh down --clean` 删除 `ecr-wp91` 卷与网络；
   `ecr-merchant` 按约束只 WARN、未触碰。
 
+## 已知问题（2026-11-08 审计，待修）
+
+- **预检查错库**：`check_target_database` 优先用 `V2_MIGRATION_DSN`，但运行时目标库由
+  `V2_GATEWAY_DSN` 决定，且 `V2_MIGRATION_DSN` 不参与重定向；两个 DSN 指向不同库时会
+  预检 A 库、实际连 B 库。应统一用运行时目标库。
+- **sweep 作用域过宽**：`sweep_harness_projects` 枚举整个 Docker daemon，按固定项目名
+  `ecr-wp91` / `ecr-restore-wp91-*` 强删容器与网络，不校验 ConfigFiles/项目目录归属；
+  并发 harness 运行会互相清理。上文“按 compose project label + ConfigFiles 过滤”的
+  表述与实现不符。
+- **login 限流标记按 checkout**：`.local/local-login/last-run` 是 checkout 级，限流却发生在
+  共享的 `/tmp/ecr-isolated-local` gateway；换 worktree 或删 `.local` 后 65s 等待失效。
+- **`up --fresh` 假 PASS（pre-existing，WP91）**：`up()` 丢弃 `down(clean=True)` 返回值；
+  teardown 失败时 `compose.env` 仍在，`up()` 打印 `PASS controlled runtime up` 但不启动、
+  不健康检查。WP94 未修。
+- **login ×2 由子 agent 执行**：主 agent 复核的是 `--e2e` 中的 `e2e-login` 项；两轮
+  `run-spec login` 的 7/7 报告来自子 agent，未在主 agent 会话内重跑。
+

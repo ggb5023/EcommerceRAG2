@@ -40,5 +40,5 @@
 - 新增跨进程字段或语义：先在本表加一行（A 侧文件、B 侧文件都要填），再写实现。
 - 同侧（Go 内部）契约也进本表，B 侧填"—（同侧）"：2026-10-29 的 503 就是"store 行类型与可空列"没被钉住造成的。
 - 状态从 ⚠️ 升级到 ✅ 的唯一条件是**两侧都有测试**，且在"两侧测试"列写出具体文件/用例名。
-- `scripts/check/check-contracts.py` 统计 ✅ 行数并设棘轮 `CONTRACTS_COVERED`：数字只许增；
+- `scripts/check/check-contracts.py` 统计 ✅ 行数并设棘轮 `CONTRACTS_CROSS` / `CONTRACTS_SAME`：数字只许增；
   某行从 ✅ 退回 ⚠️/❌ 时该数字必然下降，检查直接失败。

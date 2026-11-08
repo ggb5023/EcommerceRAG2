@@ -116,3 +116,16 @@ bash -n scripts/check.sh && shellcheck scripts/dev/customer-runtime.sh && go vet
 - 不改 smoke 基线、不改 contracts 棘轮、不新增 SECURITY DEFINER；
 - 不把环境失败写成 PASS；缺 Docker/镜像/凭据时记 UNCONFIGURED；
 - 不提交本地未跟踪的审查目录，不用 `git add .`。
+
+## WP94 收口（2026-11-08）
+
+WP91 的 login 与受控 e2e 遗留项由 [WP94](94-controlled-runtime-login.md) 关闭，主 agent 在
+集成后实测：
+
+- login 在专用 `ecr_v2_test_login` 上连续两次 7/7（`customer-runtime.sh run-spec login`）。
+- `--controlled-only --controlled-e2e` 连续两次 49/0/0（5 个受控 spec + selfhost-restore）。
+- 常规 `--e2e` 56/6/0；全量第一次 60/1/1（仅 `v2-lifecycle` 发布/检索时序抖动，定向重跑
+  13/13），第二次 61/1/0（`v2-restart` 仍 UNCONFIGURED）。
+- 因此上文“未再追求单次全量 60/0/0”只描述 WP91 当时的状态；聚合目标 61/1/0 已达成。
+- 受控 runtime 已知残留（预检 DSN、sweep 作用域、login 标记、`up --fresh` 假 PASS）见
+  [WP94 的“已知问题”](94-controlled-runtime-login.md#已知问题2026-11-08-审计待修)。

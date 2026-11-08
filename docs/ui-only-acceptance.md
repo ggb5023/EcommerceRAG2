@@ -168,6 +168,12 @@
   （决策 0043）。残余风险：直连 SQL、IdP 撤销与 DB ACL 变更不经过该锁。
 - **仍开放**：suggestion 审查 kind 保持隐藏（用户决定）；selfhost facts 禁用；
   订单号即凭证；单租户/单店铺固定日期数据集。
+- **审计备注（2026-11-08）**：WP95 的 12/12 只对本轮 capture 集成立。审计发现 after-106
+  契约同时接受 `unsupported_request`（抓不住政策/材料误路由）、gate 未绑定 run/prompt
+  身份、默认 6.5s 节奏会触发限流；详见
+  [WP95 的“已知问题”](workpackages/95-control-prompt-write-routing.md)。WP94 的 harness
+  也存在预检 DSN、sweep 作用域、login 标记与 `up --fresh` 假 PASS，详见
+  [WP94 的“已知问题”](workpackages/94-controlled-runtime-login.md)。
 
 ### 审查记录
 
