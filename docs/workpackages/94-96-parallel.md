@@ -28,6 +28,20 @@
 3. WP94 → login ×2 + controlled-only ×2 + 普通 e2e → 合入 → 推送/CI。
 4. 主 agent 更新 INDEX（91/92 视验收转 done）、ui-only-acceptance、本伞包结果。
 
+## 结果（2026-11-08）
+
+- WP96 已合入并推送（`14a9916` 为棘轮提交）：contracts 22/22、fast 44/0/0；
+  A1 与窄订单族检测的 Go/Python 测试全绿。
+- WP95 已合入（`9ac3a24`）：12×1 完成且 gate PASS 12/12（high-risk 6/6、ordinary 6/6），
+  fast 44/0/0、smoke 47/0/0；模型单次波动与两次限流截断已如实记录在 WP95 文档。
+- WP94 已 ff-only 合入（`0f23ee2`）：login 连续两次 7/7、controlled-only 连续两次 49/0/0、
+  常规 e2e 56/6/0、全量第二次 61/1/0（第一次 60/1/1，`v2-lifecycle` 定向重跑 13/13）、
+  `--db` 51/3/0；受控 runtime 已清理。
+- INDEX：WP91/92/94/95/96 均为 done；WP91 的 login/受控复核由 WP94 关闭，WP92 由 WP95
+  gate 关闭。
+- 仍未做：suggestion 审查 kind（保持隐藏）；repeat=2 与知识/引用 case；`v2-restart`
+  所需 `V2_RESTART_RUNTIME_ENV`。
+
 ## 约束
 
 - WP92 在 WP95 gate 12/12 前保持 `implemented`；WP91 在 WP94 login/controlled 通过前保持 `implemented`。

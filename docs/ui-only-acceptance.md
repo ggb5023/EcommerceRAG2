@@ -149,6 +149,26 @@
 | 数据集范围 | 单租户/单店铺、固定日期；tickets.csv 是模拟器数据，不是 customer_ticket | WP82/89 |
 | 订单号即凭证 | 售前/售后都无购买人验证；知道订单号即可只读查询 | 0041 §2.4 |
 
+## WP91–96 复审更新（2026-11-08）
+
+上表是 2026-11-07 审查当时的状态；以下为 WP91–96 关闭后的当前口径，细节见各工作包文档。
+
+- **真实模型评测（WP95）**：12 个事实型 case ×1 完成，gate **PASS 12/12**
+  （high-risk 6/6、ordinary 6/6，`review_bound_all=true`、`severe_safety_errors=0`）。
+  after-015 同时取状态与物流；after-104/105/107 写请求为 `unsupported_request`，
+  after-106 材料问题仍为 `knowledge_missing`。模型单次决策仍有波动（after-103 曾误判一次），
+  未做 repeat=2；知识/引用 case 仍未运行。`real_service_acceptance=false`。
+- **受控 runtime 与 login（WP94）**：login 在专用库上连续两次 7/7；controlled-only
+  连续两次 49/0/0；常规 e2e 56/6/0；全量第二次 61/1/0。第一次全量 60/1/1，
+  仅 `v2-lifecycle` 因共享测试栈发布/检索时序失败，定向重跑 13/13。
+  `v2-restart` 仍缺 `V2_RESTART_RUNTIME_ENV`（UNCONFIGURED）。Docker 网络瞬态
+  由 transport retry 缓解，未证明完全消失。
+- **深层加固（WP96）**：CLI 账号禁用/启用与 ingest adoption 提交共用
+  `knowledge:<tenant.id>` advisory lock（决策 0042）；同前缀订单族裸标识检测已生效
+  （决策 0043）。残余风险：直连 SQL、IdP 撤销与 DB ACL 变更不经过该锁。
+- **仍开放**：suggestion 审查 kind 保持隐藏（用户决定）；selfhost facts 禁用；
+  订单号即凭证；单租户/单店铺固定日期数据集。
+
 ### 审查记录
 
 记录 HEAD、实际运行的命令与 PASS/FAIL/UNCONFIGURED 计数、点击过的路由与截图、
